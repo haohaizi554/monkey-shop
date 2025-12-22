@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>我的订单 | Monkey Shop</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #f8f9fa; font-family: sans-serif; padding-top: 80px; }
+        .navbar-custom { background: white; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        .order-card { border: none; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); margin-bottom: 20px; overflow: hidden; transition: 0.2s; }
+        .order-card:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.08); }
+        .order-header { background-color: #fff; border-bottom: 1px solid #f0f0f0; padding: 15px 20px; font-size: 0.9rem; color: #666; display: flex; justify-content: space-between; align-items: center; }
+        .order-body { padding: 20px; }
+        .product-img { width: 80px; height: 80px; border-radius: 8px; object-fit: cover; border: 1px solid #eee; }
+
+        /* 状态徽章 */
+        .status-badge { font-size: 0.8rem; padding: 5px 12px; border-radius: 20px; font-weight: 600; }
+        .status-paid { background-color: #e0f2fe; color: #0284c7; }
+        .status-shipped { background-color: #dcfce7; color: #16a34a; }
+        .status-done { background-color: #f3f4f6; color: #6b7280; }
+        .status-return { background-color: #fee2e2; color: #dc2626; } /* 退货相关 */
+
+        /* Toast */
+        .toast-container { position: fixed; top: 100px; right: 20px; z-index: 9999; }
+        .custom-toast { background: white; border-radius: 12px; padding: 15px 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); display: flex; align-items: center; margin-bottom: 10px; animation: slideIn 0.3s ease; border-left: 5px solid #3b82f6; }
+        .custom-toast.error { border-left-color: #ef4444; }
+        .custom-toast i { font-size: 1.2rem; margin-right: 10px; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    </style>
+</head>
+<body>
+
+<div id="app">
+
+    <div class="toast-container">
+        <div v-for="toast in toasts" :key="toast.id" :class="['custom-toast', {error: toast.type === 'error'}]">
+            <i :class="toast.type === 'error' ? 'bi bi-x-circle-fill text-danger' : 'bi bi-check-circle-fill text-primary'"></i>
+            <div>
+                <div class="fw-bold">{{ toast.title }}</div>
+                <div class="small text-muted">{{ toast.msg }}</div>
+            </div>
+        </div>
+    </div>
+
+    <nav class="navbar navbar-expand-lg navbar-custom fixed-top">
+        <div class="container">
+            <a class="navbar-brand fw-bold text-primary" href="/shop.html"><i class="bi bi-box-seam-fill me-2"></i>MonkeyShop</a>
+            <div class="d-flex align-items-center">
+                <a href="/shop.html" class="btn btn-outline-secondary btn-sm rounded-pill"><i class="bi bi-arrow-left me-1"></i> 继续购物</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container py-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h4 class="fw-bold mb-0">我的订单</h4>
+            <button class="btn btn-light rounded-pill btn-sm" @click="fetchOrders"><i class="bi bi-arrow-clockwise"></i> 刷新状态</button>
+        </div>
+
+        <div v-if="orders.length === 0" class="text-center py-5 text-muted">
+            <i class="bi bi-cart-x display-1"></i>
+            <p class="mt-3">您还没有订单，快去选购吧！</p>
+        </div>
+
+        <div v-for="order in orders" :key="order.id" class="card order-card">
+            <div class="order-header">
+                <div>
+                    <span class="me-3 fw-bold text-dark">订单号：{{ order.orderNo }}</span>
+                    <span class="text-muted small">{{ formatDate(order.createTime) }}</span>
+                </div>
+                <span :class="['status-badge', getStatusClass(order.status)]">{{ order.status }}</span>
+            </div>
+            <div class="order-body">
+                <div class="row align-items-center">
+                    <div class="col-md-2">
+                        <img :src="order.productImage" class="product-img" onerror="this.onerror=null;this.src='/images/default_product.png'">
+                    </div>
+                    <div class="col-md-4">
+                        <h6 class="fw-bold mb-1">{{ order.productName }}</h6>
+                        <div class="text-muted small text-truncate">{{ order.description }}</div>
+                        <div class="text-danger fw-bold mt-1">¥{{ order.price }}</div>
+                    </div>
+                    <div class="col-md-4 border-start ps-md-4 mt-3 mt-md-0">
+                        <div class="small text-muted mb-1">收货信息</div>
+                        <div class="fw-bold">{{ order.receiverName }} <span class="fw-normal ms-2">{{ order.receiverPhone }}</span></div>
+                        <div class="small text-secondary">{{ order.addressSnapshot }}</div>
+                    </div>
+
+                    <div class="col-md-2 text-end mt-3 mt-md-0">
+                        <div v-if="order.shippingTime" class="text-muted small mb-2" style="font-size: 0.75rem;">
+                            发货于: <br>{{ formatDate(order.shippingTime) }}
+                        </div>
+
+                        <!-- 按钮组 -->
+                        <button v-if="order.status === '已发货'"
+                                class="btn btn-primary btn-sm rounded-pill px-3 w-100 mb-2"
+                                @click="openActionModal(order.id, 'receive', '确认收到商品了吗？')">
+                            确认收货
+                        </button>
+
+                        <button v-if="order.status === '已完成'"
+                                class="btn btn-outline-danger btn-sm rounded-pill px-3 w-100"
+                                @click="openActionModal(order.id, 'return_apply', '申请退货？需等待商家审核')">
+                            申请退货
+                        </button>
+
+                        <button v-if="order.status === '待退货发货'"
+                                class="btn btn-warning btn-sm rounded-pill px-3 w-100 text-white"
+                                @click="openActionModal(order.id, 'return_ship', '确认已寄出退货商品？')">
+                            我已发货
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 通用操作确认模态框 -->
+    <div class="modal fade" id="actionModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content text-center p-3">
+                <div class="modal-body">
+                    <i class="bi bi-question-circle text-primary display-4 mb-3 d-block"></i>
+                    <h5 class="fw-bold mb-2">请确认</h5>
+                    <p class="text-muted small">{{ actionText }}</p>
+                    <div class="d-flex justify-content-center gap-2 mt-4">
+                        <button class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">取消</button>
+                        <button class="btn btn-primary rounded-pill px-4" @click="confirmAction">确定</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+<script>
+    const { createApp } = Vue;
+    createApp({
+        data() {
+            return {
+                orders: [],
+                toasts: [],
+                actionModal: null,
+                currentActionId: null,
+                currentActionType: '',
+                actionText: ''
+            }
+        },
+        mounted() {
+            this.fetchOrders();
+            this.actionModal = new bootstrap.Modal(document.getElementById('actionModal'));
+        },
+        methods: {
+            showToast(msg, type = 'success') {
+                const id = Date.now();
+                this.toasts.push({ id, msg, type, title: type === 'error' ? '操作失败' : '操作成功' });
+                setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id); }, 3000);
+            },
+
+            async fetchOrders() {
+                try {
+                    const res = await fetch('/api/orders/my');
+                    this.orders = await res.json();
+                } catch (e) { console.error("获取订单失败"); }
+            },
+
+            // 打开通用模态框
+            openActionModal(id, type, text) {
+                this.currentActionId = id;
+                this.currentActionType = type;
+                this.actionText = text;
+                this.actionModal.show();
+            },
+
+            async confirmAction() {
+                if(!this.currentActionId) return;
+
+                let url = '';
+                if (this.currentActionType === 'receive') url = `/api/orders/receive/${this.currentActionId}`;
+                else if (this.currentActionType === 'return_apply') url = `/api/orders/return/apply/${this.currentActionId}`;
+                else if (this.currentActionType === 'return_ship') url = `/api/orders/return/ship/${this.currentActionId}`;
+
+                try {
+                    const res = await fetch(url, { method: 'POST' });
+                    if(await res.text() === 'ok') {
+                        this.showToast("操作成功");
+                        this.fetchOrders();
+                        this.actionModal.hide();
+                    } else {
+                        this.showToast("操作失败", 'error');
+                    }
+                } catch(e) {
+                    this.showToast("网络错误", 'error');
+                }
+            },
+
+            getStatusClass(status) {
+                if (status === '已发货') return 'status-shipped';
+                if (status === '已完成') return 'status-done';
+                if (status.includes('退货') || status === '已退款') return 'status-return';
+                return 'status-paid';
+            },
+
+            formatDate(dateStr) {
+                if(!dateStr) return '';
+                return new Date(dateStr).toLocaleString();
+            }
+        }
+    }).mount('#app');
+</script>
+
+</body>
+</html>

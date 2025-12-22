@@ -1,0 +1,21 @@
+# 忽略编译生成的文件
+target/
+*.class
+
+# 忽略 IDEA 的配置文件 (别人的电脑不需要你的配置)
+.idea/
+*.iml
+*.iws
+
+# 忽略 Maven 包装器 (可选，为了项目整洁可以忽略)
+.mvn/
+mvnw
+mvnw.cmd
+
+# 忽略系统文件
+.DS_Store
+Thumbs.db
+
+# 忽略日志
+logs/
+*.log
