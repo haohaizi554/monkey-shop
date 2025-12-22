@@ -3,7 +3,6 @@ target/
 *.class
 
 # 忽略 IDEA 的配置文件 (别人的电脑不需要你的配置)
-.vscode/
 .idea/
 *.iml
 *.iws
@@ -20,10 +19,3 @@ Thumbs.db
 # 忽略日志
 logs/
 *.log
-
-# 忽略环境变量文件 (包含密码等敏感信息)
-.env
-
-# 忽略上传目录 (运行时生成)
-uploads/avatar/
-uploads/product/

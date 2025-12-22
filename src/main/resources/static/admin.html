@@ -3,131 +3,63 @@
 <head>
     <meta charset="UTF-8">
     <title>后台管理 | Monkey Shop</title>
-    <!-- 引入资源 -->
-    <link href="https://cdn.bootcdn.net/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/bootstrap-icons/1.11.0/font/bootstrap-icons.css">
-    <script src="https://cdn.bootcdn.net/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
-
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <!-- 引入 ECharts -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
-        /* --- 通用设置 --- */
         [v-cloak] { display: none; }
-        body {
-            background-color: #f8f9fa;
-            font-family: sans-serif;
-            display: flex;
-            height: 100vh;
-            overflow: hidden;
-        }
+        body { background-color: #f8f9fa; font-family: sans-serif; display: flex; height: 100vh; overflow: hidden; }
 
-        /* --- 侧边栏样式 --- */
-        .sidebar {
-            width: 250px;
-            background: #212529;
-            color: white;
-            display: flex;
-            flex-direction: column;
-            padding: 20px;
-        }
-        .sidebar-brand {
-            font-size: 1.5rem;
-            font-weight: bold;
-            margin-bottom: 40px;
-            color: #3b82f6;
-            text-decoration: none;
-        }
-        .nav-link {
-            color: rgba(255,255,255,0.7);
-            padding: 12px 15px;
-            border-radius: 8px;
-            margin-bottom: 5px;
-            cursor: pointer;
-            transition: 0.2s;
-        }
+        .sidebar { width: 250px; background: #212529; color: white; display: flex; flex-direction: column; padding: 20px; }
+        .sidebar-brand { font-size: 1.5rem; font-weight: bold; margin-bottom: 40px; color: #3b82f6; text-decoration: none; }
+        .nav-link { color: rgba(255,255,255,0.7); padding: 12px 15px; border-radius: 8px; margin-bottom: 5px; cursor: pointer; transition: 0.2s; }
         .nav-link:hover, .nav-link.active { background: #3b82f6; color: white; }
         .nav-link i { margin-right: 10px; }
 
-        /* --- 主要内容区域 --- */
         .main-content { flex: 1; padding: 30px; overflow-y: auto; }
         .content-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
 
-        /* --- 数据看板组件 --- */
-        .stat-card {
-            background: white; border-radius: 12px; padding: 20px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05); transition: 0.2s;
-        }
+        /* 数据看板样式 */
+        .stat-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); transition: 0.2s; }
         .stat-card:hover { transform: translateY(-5px); box-shadow: 0 8px 20px rgba(0,0,0,0.1); }
         .stat-title { color: #6c757d; font-size: 0.9rem; margin-bottom: 10px; }
         .stat-value { font-size: 1.8rem; font-weight: bold; color: #333; }
         .stat-icon { font-size: 2.5rem; opacity: 0.1; position: absolute; right: 20px; top: 20px; }
-
-        .chart-wrapper {
-            background: white; border-radius: 12px; padding: 20px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 30px;
-        }
+        .chart-wrapper { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 30px; }
         .chart-box { height: 400px; width: 100%; }
-
-        .filter-bar {
-            background: white; padding: 15px; border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px;
-            display: flex; gap: 10px; align-items: center;
-        }
+        .filter-bar { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; display: flex; gap: 10px; align-items: center; }
         .date-input { width: 150px; }
 
-        /* --- 表格与列表 --- */
-        .custom-table {
-            background: white; border-radius: 12px; overflow: hidden;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-        }
+        /* 表格与通用 */
+        .custom-table { background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
         .table thead { background: #f8f9fa; }
-        .table th {
-            border: none; padding: 15px; font-weight: 600;
-            color: #666; font-size: 0.9rem; cursor: pointer; user-select: none;
-        }
+        .table th { border: none; padding: 15px; font-weight: 600; color: #666; font-size: 0.9rem; cursor: pointer; user-select: none; }
         .table td { border-bottom: 1px solid #eee; padding: 15px; vertical-align: middle; font-size: 0.95rem; }
-
         .avatar-sm { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; border: 1px solid #eee; margin-right: 10px; }
         .product-thumb { width: 50px; height: 50px; border-radius: 6px; object-fit: cover; border: 1px solid #eee; margin-right: 10px; }
 
-        /* --- 状态标签 --- */
         .status-badge { font-size: 0.8rem; padding: 4px 10px; border-radius: 20px; font-weight: 600; }
         .status-paid { background-color: #e0f2fe; color: #0284c7; }
         .status-shipped { background-color: #dcfce7; color: #16a34a; }
         .status-return { background-color: #fee2e2; color: #dc2626; }
         .status-done { background-color: #f3f4f6; color: #6b7280; }
 
-        /* --- 上传组件 --- */
-        .upload-box {
-            border: 2px dashed #ddd; border-radius: 8px; padding: 20px;
-            text-align: center; cursor: pointer; transition: 0.2s; position: relative;
-        }
+        .upload-box { border: 2px dashed #ddd; border-radius: 8px; padding: 20px; text-align: center; cursor: pointer; transition: 0.2s; position: relative; }
         .upload-box:hover { border-color: #3b82f6; background: #f0f7ff; }
         .preview-img { max-width: 100%; max-height: 200px; border-radius: 8px; display: block; margin: 0 auto; }
         .upload-input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 
-        /* --- 反馈组件 (Toast & Auth) --- */
         .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; }
-        .custom-toast {
-            background: white; border-radius: 8px; padding: 15px 20px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1); margin-bottom: 10px;
-            border-left: 4px solid #3b82f6; animation: slideIn 0.3s; min-width: 300px;
-        }
+        .custom-toast { background: white; border-radius: 8px; padding: 15px 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); margin-bottom: 10px; border-left: 4px solid #3b82f6; animation: slideIn 0.3s; min-width: 300px; }
         .custom-toast.error { border-left-color: #dc3545; }
         .custom-toast.warning { border-left-color: #ffc107; }
         @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
 
-        .auth-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(33, 37, 41, 0.95); z-index: 10000;
-            display: flex; justify-content: center; align-items: center;
-            backdrop-filter: blur(5px);
-        }
-        .login-card {
-            width: 400px; background: white; border-radius: 20px;
-            padding: 40px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); text-align: center;
-        }
+        .auth-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(33, 37, 41, 0.95); z-index: 10000; display: flex; justify-content: center; align-items: center; backdrop-filter: blur(5px); }
+        .login-card { width: 400px; background: white; border-radius: 20px; padding: 40px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); text-align: center; }
         .login-input { margin-bottom: 20px; border-radius: 8px; height: 45px; }
         .btn-login { width: 100%; height: 45px; border-radius: 8px; font-weight: bold; background: #3b82f6; border: none; }
-
         .sort-icon { font-size: 0.8rem; margin-left: 5px; color: #bbb; }
         .sort-icon.active { color: #3b82f6; }
     </style>
@@ -136,7 +68,7 @@
 
 <div id="app" style="display: flex; width: 100%;" v-cloak>
 
-    <!-- 1. 权限遮罩 -->
+    <!-- 权限遮罩 -->
     <div v-if="showAuthOverlay" class="auth-overlay">
         <div class="login-card">
             <h3 class="mb-4 fw-bold">管理员登录</h3>
@@ -149,7 +81,7 @@
         </div>
     </div>
 
-    <!-- 2. 全局 Toast 提示 -->
+    <!-- Toast -->
     <div class="toast-container">
         <div v-for="t in toasts" :key="t.id" :class="['custom-toast', t.type]">
             <strong>
@@ -160,7 +92,7 @@
         </div>
     </div>
 
-    <!-- 3. 左侧侧边栏 -->
+    <!-- 侧边栏 -->
     <div class="sidebar">
         <a href="/shop.html" class="sidebar-brand"><i class="bi bi-box-seam-fill me-2"></i>MonkeyAdmin</a>
         <nav class="nav flex-column">
@@ -179,46 +111,22 @@
         </nav>
     </div>
 
-    <!-- 4. 右侧主内容区域 -->
+    <!-- 主内容 -->
     <div class="main-content">
 
-        <!-- Tab 1: 数据看板 -->
+        <!-- 1. 数据看板 (已恢复) -->
         <div v-show="currentTab === 'dashboard'">
             <div class="content-header">
                 <h3>数据概览</h3>
                 <button class="btn btn-light rounded-pill" @click="fetchStats"><i class="bi bi-arrow-clockwise"></i> 刷新</button>
             </div>
 
-            <!-- 统计卡片 -->
+            <!-- 总览卡片 -->
             <div class="row g-4 mb-4">
-                <div class="col-md-3">
-                    <div class="stat-card position-relative">
-                        <div class="stat-title">历史总成交 (GMV)</div>
-                        <div class="stat-value text-primary">¥{{ stats.totalGmv }}</div>
-                        <i class="bi bi-currency-yen stat-icon text-primary"></i>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="stat-card position-relative">
-                        <div class="stat-title">历史订单总量</div>
-                        <div class="stat-value text-success">{{ stats.totalOrders }}</div>
-                        <i class="bi bi-bag-check stat-icon text-success"></i>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="stat-card position-relative">
-                        <div class="stat-title">历史总访问量</div>
-                        <div class="stat-value text-info">{{ stats.totalVisits }}</div>
-                        <i class="bi bi-people stat-icon text-info"></i>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="stat-card position-relative">
-                        <div class="stat-title">退货率</div>
-                        <div class="stat-value text-danger">{{ stats.returnRate }}%</div>
-                        <i class="bi bi-arrow-counterclockwise stat-icon text-danger"></i>
-                    </div>
-                </div>
+                <div class="col-md-3"><div class="stat-card position-relative"><div class="stat-title">历史总成交 (GMV)</div><div class="stat-value text-primary">¥{{ stats.totalGmv }}</div><i class="bi bi-currency-yen stat-icon text-primary"></i></div></div>
+                <div class="col-md-3"><div class="stat-card position-relative"><div class="stat-title">历史订单总量</div><div class="stat-value text-success">{{ stats.totalOrders }}</div><i class="bi bi-bag-check stat-icon text-success"></i></div></div>
+                <div class="col-md-3"><div class="stat-card position-relative"><div class="stat-title">历史总访问量</div><div class="stat-value text-info">{{ stats.totalVisits }}</div><i class="bi bi-people stat-icon text-info"></i></div></div>
+                <div class="col-md-3"><div class="stat-card position-relative"><div class="stat-title">退货率</div><div class="stat-value text-danger">{{ stats.returnRate }}%</div><i class="bi bi-arrow-counterclockwise stat-icon text-danger"></i></div></div>
             </div>
 
             <!-- 筛选工具栏 -->
@@ -238,7 +146,7 @@
                 </div>
             </div>
 
-            <!-- ECharts 图表 -->
+            <!-- 图表区域 -->
             <div class="row">
                 <div class="col-md-8">
                     <div class="chart-wrapper">
@@ -255,7 +163,7 @@
             </div>
         </div>
 
-        <!-- Tab 2: 商品管理 -->
+        <!-- 2. 商品管理 -->
         <div v-show="currentTab === 'product'">
             <div class="content-header">
                 <h3>商品列表</h3>
@@ -263,11 +171,7 @@
             </div>
             <div class="custom-table">
                 <table class="table table-hover mb-0">
-                    <thead>
-                    <tr>
-                        <th>ID</th><th>图片</th><th>名称</th><th>品种</th><th>价格</th><th>库存</th><th>操作</th>
-                    </tr>
-                    </thead>
+                    <thead><tr><th>ID</th><th>图片</th><th>名称</th><th>品种</th><th>价格</th><th>库存</th><th>操作</th></tr></thead>
                     <tbody>
                     <tr v-for="m in monkeys" :key="m.id">
                         <td>{{ m.id }}</td>
@@ -286,7 +190,7 @@
             </div>
         </div>
 
-        <!-- Tab 3: 订单管理 -->
+        <!-- 3. 订单管理 -->
         <div v-show="currentTab === 'order'">
             <div class="content-header">
                 <h3>订单管理</h3>
@@ -298,7 +202,6 @@
                     <button class="btn btn-light rounded-pill" @click="fetchOrders"><i class="bi bi-arrow-clockwise"></i></button>
                 </div>
             </div>
-
             <div class="custom-table">
                 <table class="table table-hover mb-0">
                     <thead>
@@ -313,32 +216,15 @@
                     </thead>
                     <tbody>
                     <tr v-for="o in filteredOrders" :key="o.id">
-                        <td>
-                            <div class="fw-bold small">{{ o.orderNo }}</div>
-                            <div class="text-muted small">{{ formatDate(o.createTime) }}</div>
-                        </td>
-                        <td>
-                            <div class="d-flex align-items-center">
-                                <img :src="o.buyerAvatar || '/images/default_avatar.png'" class="avatar-sm" onerror="this.src='/images/default_avatar.png'">
-                                <span class="fw-bold text-dark">{{ o.buyerName }}</span>
-                            </div>
-                        </td>
-                        <td>
-                            <div class="d-flex align-items-center">
-                                <img :src="o.productImage" class="product-thumb" onerror="this.src='/images/default_product.png'">
-                                <div><div class="fw-bold">{{ o.productName }}</div><div class="text-danger small">¥{{ o.price }}</div></div>
-                            </div>
-                        </td>
-                        <td>
-                            <div class="fw-bold">{{ o.receiverName }} <span class="fw-normal text-muted">{{ o.receiverPhone }}</span></div>
-                            <div class="small text-muted text-truncate" style="max-width: 200px;" :title="o.addressSnapshot">{{ o.addressSnapshot }}</div>
-                        </td>
+                        <td><div class="fw-bold small">{{ o.orderNo }}</div><div class="text-muted small">{{ formatDate(o.createTime) }}</div></td>
+                        <td><div class="d-flex align-items-center"><img :src="o.buyerAvatar || '/images/default_avatar.png'" class="avatar-sm" onerror="this.src='/images/default_avatar.png'"><span class="fw-bold text-dark">{{ o.buyerName }}</span></div></td>
+                        <td><div class="d-flex align-items-center"><img :src="o.productImage" class="product-thumb" onerror="this.src='/images/default_product.png'"><div><div class="fw-bold">{{ o.productName }}</div><div class="text-danger small">¥{{ o.price }}</div></div></div></td>
+                        <td><div class="fw-bold">{{ o.receiverName }} <span class="fw-normal text-muted">{{ o.receiverPhone }}</span></div><div class="small text-muted text-truncate" style="max-width: 200px;" :title="o.addressSnapshot">{{ o.addressSnapshot }}</div></td>
                         <td>
                             <div class="mb-1"><span :class="['status-badge', getStatusClass(o.status)]">{{ o.status }}</span></div>
                             <div v-if="o.shippingTime" class="text-muted small" style="font-size: 0.75rem;"><i class="bi bi-truck"></i> {{ formatDate(o.shippingTime) }}</div>
                         </td>
                         <td>
-                            <!-- 订单操作按钮组 -->
                             <button v-if="o.status === '已支付'" class="btn btn-sm btn-primary me-1" @click="openActionModal(o.id, 'ship', '确认发货？')">发货</button>
                             <button v-if="o.status === '申请退货'" class="btn btn-sm btn-warning text-white me-1" @click="openActionModal(o.id, 'approve_return', '同意用户的退货申请？')">同意退货</button>
                             <button v-if="o.status === '退货中'" class="btn btn-sm btn-success me-1" @click="openActionModal(o.id, 'confirm_return', '确认收到退货？库存将+1')">收货退款</button>
@@ -352,131 +238,43 @@
         </div>
     </div>
 
-    <!-- 5. 模态框 (Modals) - 已展开便于阅读 -->
-    <!-- 商品编辑/新增模态框 -->
-    <div class="modal fade" id="productModal" tabindex="-1">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">{{ modalMode === 'add' ? '上架新商品' : '编辑商品' }}</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="row">
-                        <div class="col-md-4">
-                            <label class="form-label">图片</label>
-                            <div class="upload-box">
-                                <img :src="form.imageUrl || '/images/default_product.png'" class="preview-img">
-                                <div class="mt-2 text-muted small" v-if="!form.imageUrl">点击上传</div>
-                                <input type="file" class="upload-input" @change="uploadProductImage" accept="image/*">
-                            </div>
-                        </div>
-                        <div class="col-md-8">
-                            <div class="row g-3">
-                                <div class="col-md-6"><label class="form-label">名称</label><input type="text" class="form-control" v-model="form.name"></div>
-                                <div class="col-md-6"><label class="form-label">品种</label><input type="text" class="form-control" v-model="form.breed"></div>
-                                <div class="col-md-6"><label class="form-label">价格</label><input type="number" class="form-control" v-model="form.price"></div>
-                                <div class="col-md-6"><label class="form-label">库存</label><input type="number" class="form-control" v-model="form.stock"></div>
-                                <div class="col-12"><label class="form-label">描述</label><textarea class="form-control" rows="4" v-model="form.description"></textarea></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">取消</button>
-                    <button type="button" class="btn btn-primary" @click="saveProduct">保存</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- 删除确认模态框 -->
-    <div class="modal fade" id="deleteModal" tabindex="-1">
-        <div class="modal-dialog modal-dialog-centered modal-sm">
-            <div class="modal-content text-center p-3">
-                <div class="modal-body">
-                    <i class="bi bi-exclamation-circle text-danger display-4 mb-3 d-block"></i>
-                    <h5 class="fw-bold">确认{{ deleteType === 'product' ? '下架' : '删除' }}？</h5>
-                    <p class="text-muted small">操作后无法恢复</p>
-                    <div class="d-flex justify-content-center gap-2 mt-4">
-                        <button class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">取消</button>
-                        <button class="btn btn-danger rounded-pill px-4" @click="confirmDelete">确认</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- 通用操作确认模态框 -->
-    <div class="modal fade" id="actionModal" tabindex="-1">
-        <div class="modal-dialog modal-dialog-centered modal-sm">
-            <div class="modal-content text-center p-3">
-                <div class="modal-body">
-                    <i class="bi bi-question-circle text-primary display-4 mb-3 d-block"></i>
-                    <h5 class="fw-bold mb-2">请确认</h5>
-                    <p class="text-muted small">{{ actionText }}</p>
-                    <div class="d-flex justify-content-center gap-2 mt-4">
-                        <button class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">取消</button>
-                        <button class="btn btn-primary rounded-pill px-4" @click="confirmAction">确定</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+    <!-- 模态框组 -->
+    <div class="modal fade" id="productModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">{{ modalMode === 'add' ? '上架新商品' : '编辑商品' }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="row"><div class="col-md-4"><label class="form-label">图片</label><div class="upload-box"><img :src="form.imageUrl || '/images/default_product.png'" class="preview-img"><div class="mt-2 text-muted small" v-if="!form.imageUrl">点击上传</div><input type="file" class="upload-input" @change="uploadProductImage" accept="image/*"></div></div><div class="col-md-8"><div class="row g-3"><div class="col-md-6"><label class="form-label">名称</label><input type="text" class="form-control" v-model="form.name"></div><div class="col-md-6"><label class="form-label">品种</label><input type="text" class="form-control" v-model="form.breed"></div><div class="col-md-6"><label class="form-label">价格</label><input type="number" class="form-control" v-model="form.price"></div><div class="col-md-6"><label class="form-label">库存</label><input type="number" class="form-control" v-model="form.stock"></div><div class="col-12"><label class="form-label">描述</label><textarea class="form-control" rows="4" v-model="form.description"></textarea></div></div></div></div></div><div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">取消</button><button type="button" class="btn btn-primary" @click="saveProduct">保存</button></div></div></div></div>
+    <div class="modal fade" id="deleteModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered modal-sm"><div class="modal-content text-center p-3"><div class="modal-body"><i class="bi bi-exclamation-circle text-danger display-4 mb-3 d-block"></i><h5 class="fw-bold">确认{{ deleteType === 'product' ? '下架' : '删除' }}？</h5><p class="text-muted small">操作后无法恢复</p><div class="d-flex justify-content-center gap-2 mt-4"><button class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">取消</button><button class="btn btn-danger rounded-pill px-4" @click="confirmDelete">确认</button></div></div></div></div></div>
+    <div class="modal fade" id="actionModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered modal-sm"><div class="modal-content text-center p-3"><div class="modal-body"><i class="bi bi-question-circle text-primary display-4 mb-3 d-block"></i><h5 class="fw-bold mb-2">请确认</h5><p class="text-muted small">{{ actionText }}</p><div class="d-flex justify-content-center gap-2 mt-4"><button class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">取消</button><button class="btn btn-primary rounded-pill px-4" @click="confirmAction">确定</button></div></div></div></div></div>
 
 </div>
 
-<script src="https://cdn.bootcdn.net/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.bootcdn.net/ajax/libs/vue/3.3.4/vue.global.prod.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
 
 <script>
     const { createApp } = Vue;
-
     createApp({
         data() {
             return {
                 showAuthOverlay: true,
                 loginForm: { username: '', password: '' },
                 currentTab: 'dashboard',
-
-                // 数据源
                 monkeys: [],
                 orders: [],
                 stats: {},
                 toasts: [],
-
-                // 表单与模态框状态
                 modalMode: 'add',
                 form: { id: null, name: '', breed: '', price: 0, stock: 10, description: '', imageUrl: '' },
-                productModal: null,
-                deleteModal: null,
-                actionModal: null,
 
-                // 操作暂存 ID
-                pendingDeleteId: null,
-                deleteType: 'product',
-                currentActionId: null,
-                currentActionType: '',
-                actionText: '',
+                productModal: null, deleteModal: null, actionModal: null,
+                pendingDeleteId: null, deleteType: 'product',
+                currentActionId: null, currentActionType: '', actionText: '',
+                orderSearch: '', sortKey: '', sortAsc: false,
 
-                // 搜索与排序
-                orderSearch: '',
-                sortKey: '',
-                sortAsc: false,
-
-                // 图表相关
-                rangeType: '7d',
-                customStart: '',
-                customEnd: '',
-                chartInstance: null,
-                barInstance: null
+                rangeType: '7d', customStart: '', customEnd: '',
+                chartInstance: null, barInstance: null
             }
         },
         computed: {
-            // 前端过滤与排序订单逻辑
             filteredOrders() {
                 let result = this.orders;
-                // 1. 搜索
                 if (this.orderSearch) {
                     const lower = this.orderSearch.toLowerCase();
                     result = result.filter(o =>
@@ -487,7 +285,6 @@
                         (o.createTime && o.createTime.includes(lower))
                     );
                 }
-                // 2. 排序
                 if (this.sortKey) {
                     result.sort((a, b) => {
                         let valA = a[this.sortKey];
@@ -507,8 +304,6 @@
             this.productModal = new bootstrap.Modal(document.getElementById('productModal'));
             this.deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
             this.actionModal = new bootstrap.Modal(document.getElementById('actionModal'));
-
-            // 窗口调整时重绘图表
             window.addEventListener('resize', () => {
                 if(this.chartInstance) this.chartInstance.resize();
                 if(this.barInstance) this.barInstance.resize();
@@ -528,39 +323,24 @@
                 else if (tab === 'dashboard') this.$nextTick(() => this.fetchStats());
             },
 
-            // --- 核心业务：数据看板 ---
+            // --- 数据看板逻辑 ---
             setRange(type) {
                 this.rangeType = type;
                 if (type === 'custom') {
-                    const d = new Date();
-                    const year = d.getFullYear();
-                    const month = (d.getMonth() + 1).toString().padStart(2, '0');
-                    const day = d.getDate().toString().padStart(2, '0');
-                    const today = `${year}-${month}-${day}`;
-                    if (!this.customStart || !this.customEnd) {
-                        this.showToast("请选择日期范围", 'error'); return;
-                    }
+                    const today = new Date().toISOString().split('T')[0];
+                    if (!this.customStart || !this.customEnd) { this.showToast("请选择日期范围", 'error'); return; }
                     if (this.customStart > today || this.customEnd > today) { this.showToast("不能选择未来日期", 'error'); return; }
                     if (this.customStart > this.customEnd) { this.showToast("开始日期不能晚于结束日期", 'error'); return; }
                     this.fetchStats(this.customStart, this.customEnd);
                 } else {
-                    // 快捷按钮逻辑保持不变
                     const end = new Date();
                     const start = new Date();
                     if (type === '7d') start.setDate(end.getDate() - 6);
                     if (type === '30d') start.setDate(end.getDate() - 29);
                     if (type === '1y') start.setFullYear(end.getFullYear() - 1);
-                    // 这里也要用本地时间格式化，防止快捷按钮也跨天出问题
-                    const formatDate = (date) => {
-                        const y = date.getFullYear();
-                        const m = (date.getMonth() + 1).toString().padStart(2, '0');
-                        const d = date.getDate().toString().padStart(2, '0');
-                        return `${y}-${m}-${d}`;
-                    };
-                    this.fetchStats(formatDate(start), formatDate(end));
+                    this.fetchStats(start.toISOString().split('T')[0], end.toISOString().split('T')[0]);
                 }
             },
-
             async fetchStats(start = null, end = null) {
                 let url = '/api/stats/data';
                 if (start && end) url += `?start=${start}&end=${end}`;
@@ -568,11 +348,8 @@
                     const res = await fetch(url);
                     this.stats = await res.json();
                     this.initCharts();
-                } catch (e) {
-                    console.error("获取统计失败");
-                }
+                } catch (e) { console.error("获取统计失败"); }
             },
-
             initCharts() {
                 if (this.chartInstance) this.chartInstance.dispose();
                 this.chartInstance = echarts.init(document.getElementById('trendChart'));
@@ -591,7 +368,6 @@
                         { name: '访问量', type: 'line', yAxisIndex: 1, data: this.stats.seriesVisit, smooth: true, itemStyle: { color: '#10b981' } }
                     ]
                 });
-
                 if (this.barInstance) this.barInstance.dispose();
                 this.barInstance = echarts.init(document.getElementById('barChart'));
                 this.barInstance.setOption({
@@ -604,19 +380,16 @@
                 });
             },
 
-            // --- 核心业务：图片上传与裁剪 ---
+            // --- 图片裁剪逻辑 ---
             async uploadProductImage(e) {
                 const file = e.target.files[0];
                 if (!file) return;
-
                 const formData = new FormData();
                 formData.append('file', file);
                 formData.append('type', 'product');
-
                 try {
                     const res = await fetch('/api/upload', { method: 'POST', body: formData });
                     const path = await res.text();
-
                     if (path.startsWith('error')) {
                         this.showToast(path.replace('error:', ''), 'error');
                     } else if (path.startsWith('cropped:')) {
@@ -629,12 +402,10 @@
                         this.form.imageUrl = path;
                         this.showToast("上传成功");
                     }
-                } catch (e) {
-                    this.showToast("上传失败", 'error');
-                }
+                } catch (e) { this.showToast("上传失败", 'error'); }
             },
 
-            // --- 权限管理 ---
+            // ... 其他方法保持不变 ...
             async checkPermission() {
                 try {
                     const res = await fetch('/api/user/me');
@@ -642,19 +413,11 @@
                     if (data.isLogin && data.identity === 'ADMIN') {
                         this.showAuthOverlay = false;
                         this.fetchStats();
-                    } else {
-                        this.showAuthOverlay = true;
-                    }
-                } catch (e) {
-                    this.showAuthOverlay = true;
-                }
+                    } else { this.showAuthOverlay = true; }
+                } catch (e) { this.showAuthOverlay = true; }
             },
-
             async handleAdminLogin() {
-                if (!this.loginForm.username || !this.loginForm.password) {
-                    this.showToast("请输入账号密码", 'error');
-                    return;
-                }
+                if (!this.loginForm.username || !this.loginForm.password) { this.showToast("请输入账号密码", 'error'); return; }
                 try {
                     const res = await fetch('/api/auth/login', {
                         method: 'POST',
@@ -667,129 +430,22 @@
                         this.showAuthOverlay = false;
                         this.fetchStats();
                         this.loginForm = { username: '', password: '' };
-                    } else {
-                        this.showToast("登录失败或无权限", 'error');
-                    }
-                } catch (e) {
-                    this.showToast("网络错误", 'error');
-                }
+                    } else { this.showToast("登录失败或无权限", 'error'); }
+                } catch (e) { this.showToast("网络错误", 'error'); }
             },
-
-            // --- 商品 CRUD ---
-            async fetchMonkeys() {
-                const res = await fetch('/api/monkeys');
-                this.monkeys = await res.json();
-            },
-
-            openModal(mode, item = null) {
-                this.modalMode = mode;
-                this.form = mode === 'edit' && item
-                    ? { ...item }
-                    : { id: null, name: '', breed: '', price: 0, stock: 10, description: '', imageUrl: '' };
-                this.productModal.show();
-            },
-
-            async saveProduct() {
-                if (!this.form.name || !this.form.price) {
-                    this.showToast("请填写完整", 'error');
-                    return;
-                }
-                const url = this.modalMode === 'add' ? '/api/monkeys/add' : '/api/monkeys/update';
-                const res = await fetch(url, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(this.form)
-                });
-                if (await res.text() === 'ok') {
-                    this.showToast("保存成功");
-                    this.productModal.hide();
-                    this.fetchMonkeys();
-                } else {
-                    this.showToast("保存失败", 'error');
-                }
-            },
-
-            openDeleteModal(id, type) {
-                this.pendingDeleteId = id;
-                this.deleteType = type;
-                this.deleteModal.show();
-            },
-
-            async confirmDelete() {
-                if (!this.pendingDeleteId) return;
-                const url = this.deleteType === 'product'
-                    ? `/api/monkeys/${this.pendingDeleteId}`
-                    : `/api/orders/${this.pendingDeleteId}`;
-
-                const res = await fetch(url, { method: 'DELETE' });
-
-                if (await res.text() === 'ok') {
-                    this.showToast(this.deleteType === 'product' ? "已下架" : "订单已删除");
-                    this.deleteType === 'product' ? this.fetchMonkeys() : this.fetchOrders();
-                    this.deleteModal.hide();
-                } else {
-                    this.showToast("删除失败", 'error');
-                }
-            },
-
-            // --- 订单管理逻辑 ---
-            async fetchOrders() {
-                const res = await fetch('/api/orders/all');
-                this.orders = await res.json();
-            },
-
-            openActionModal(id, type, text) {
-                this.currentActionId = id;
-                this.currentActionType = type;
-                this.actionText = text;
-                this.actionModal.show();
-            },
-
-            async confirmAction() {
-                if(!this.currentActionId) return;
-                let url = '';
-
-                if (this.currentActionType === 'ship') url = `/api/orders/ship/${this.currentActionId}`;
-                else if (this.currentActionType === 'approve_return') url = `/api/orders/return/approve/${this.currentActionId}`;
-                else if (this.currentActionType === 'confirm_return') url = `/api/orders/return/confirm/${this.currentActionId}`;
-
-                const res = await fetch(url, { method: 'POST' });
-                if(await res.text() === 'ok') {
-                    this.showToast("操作成功");
-                    this.fetchOrders();
-                    this.actionModal.hide();
-                } else {
-                    this.showToast("操作失败", 'error');
-                }
-            },
-
-            sortOrders(key) {
-                if (this.sortKey === key) this.sortAsc = !this.sortAsc;
-                else { this.sortKey = key; this.sortAsc = false; }
-            },
-
-            getSortIcon(key) {
-                if (this.sortKey !== key) return 'bi bi-arrow-down-up sort-icon';
-                return this.sortAsc ? 'bi bi-arrow-up sort-icon active' : 'bi bi-arrow-down sort-icon active';
-            },
-
-            getStatusClass(status) {
-                if (status === '已发货') return 'status-shipped';
-                if (status === '已完成') return 'status-done';
-                if (status.includes('退货') || status === '已退款') return 'status-return';
-                return 'status-paid';
-            },
-
-            formatDate(dateStr) {
-                if(!dateStr) return '';
-                return new Date(dateStr).toLocaleString();
-            },
-
-            async logout() {
-                await fetch('/api/user/logout');
-                this.showAuthOverlay = true;
-                this.showToast("已退出登录");
-            }
+            async fetchMonkeys() { const res = await fetch('/api/monkeys'); this.monkeys = await res.json(); },
+            openModal(mode, item = null) { this.modalMode = mode; this.form = mode === 'edit' && item ? { ...item } : { id: null, name: '', breed: '', price: 0, stock: 10, description: '', imageUrl: '' }; this.productModal.show(); },
+            async saveProduct() { if (!this.form.name || !this.form.price) { this.showToast("请填写完整", 'error'); return; } const url = this.modalMode === 'add' ? '/api/monkeys/add' : '/api/monkeys/update'; const res = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(this.form) }); if (await res.text() === 'ok') { this.showToast("保存成功"); this.productModal.hide(); this.fetchMonkeys(); } else { this.showToast("保存失败", 'error'); } },
+            openDeleteModal(id, type) { this.pendingDeleteId = id; this.deleteType = type; this.deleteModal.show(); },
+            async confirmDelete() { if (!this.pendingDeleteId) return; const url = this.deleteType === 'product' ? `/api/monkeys/${this.pendingDeleteId}` : `/api/orders/${this.pendingDeleteId}`; const res = await fetch(url, { method: 'DELETE' }); if (await res.text() === 'ok') { this.showToast(this.deleteType === 'product' ? "已下架" : "订单已删除"); this.deleteType === 'product' ? this.fetchMonkeys() : this.fetchOrders(); this.deleteModal.hide(); } else { this.showToast("删除失败", 'error'); } },
+            async fetchOrders() { const res = await fetch('/api/orders/all'); this.orders = await res.json(); },
+            openActionModal(id, type, text) { this.currentActionId = id; this.currentActionType = type; this.actionText = text; this.actionModal.show(); },
+            async confirmAction() { if(!this.currentActionId) return; let url = ''; if (this.currentActionType === 'ship') url = `/api/orders/ship/${this.currentActionId}`; else if (this.currentActionType === 'approve_return') url = `/api/orders/return/approve/${this.currentActionId}`; else if (this.currentActionType === 'confirm_return') url = `/api/orders/return/confirm/${this.currentActionId}`; const res = await fetch(url, { method: 'POST' }); if(await res.text() === 'ok') { this.showToast("操作成功"); this.fetchOrders(); this.actionModal.hide(); } else { this.showToast("操作失败", 'error'); } },
+            sortOrders(key) { if (this.sortKey === key) this.sortAsc = !this.sortAsc; else { this.sortKey = key; this.sortAsc = false; } },
+            getSortIcon(key) { if (this.sortKey !== key) return 'bi bi-arrow-down-up sort-icon'; return this.sortAsc ? 'bi bi-arrow-up sort-icon active' : 'bi bi-arrow-down sort-icon active'; },
+            getStatusClass(status) { if (status === '已发货') return 'status-shipped'; if (status === '已完成') return 'status-done'; if (status.includes('退货') || status === '已退款') return 'status-return'; return 'status-paid'; },
+            formatDate(dateStr) { if(!dateStr) return ''; return new Date(dateStr).toLocaleString(); },
+            async logout() { await fetch('/api/user/logout'); this.showAuthOverlay = true; this.showToast("已退出登录"); }
         }
     }).mount('#app');
 </script>

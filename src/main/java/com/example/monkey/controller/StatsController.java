@@ -14,7 +14,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -40,33 +39,25 @@ public class StatsController {
 
         // 1. 默认时间范围 (如果没传，默认查近7天)
         if (start == null || end == null) {
-            end = LocalDate.now(ZoneId.of("Asia/Shanghai"));
+            end = LocalDate.now();
             start = end.minusDays(6);
         }
         LocalDateTime startDt = start.atStartOfDay();
         LocalDateTime endDt = end.atTime(23, 59, 59);
 
         // 2. 查询数据库 (真实数据)
-        List<Order> orders = orderRepository.findAll();
+        List<Order> orders = orderRepository.findAll(); // 获取所有订单用于计算总数
         List<Order> rangeOrders = orders.stream()
-                .filter(o -> o.getCreateTime() != null)
                 .filter(o -> !o.getCreateTime().isBefore(startDt) && !o.getCreateTime().isAfter(endDt))
                 .collect(Collectors.toList());
 
-        List<VisitLog> allVisits = visitLogRepository.findAll();
-        List<VisitLog> rangeVisits = allVisits.stream()
-                .filter(v -> v.getVisitTime() != null)
-                .filter(v -> !v.getVisitTime().isBefore(startDt) && !v.getVisitTime().isAfter(endDt))
-                .collect(Collectors.toList());
+        List<VisitLog> rangeVisits = visitLogRepository.findByVisitTimeBetween(startDt, endDt);
 
         // 3. 计算顶部总览卡片 (Total)
-        double totalGmv = orders.stream()
-                .filter(o -> o.getPrice() != null)
-                .filter(o -> !"已退款".equals(o.getStatus()))
-                .mapToDouble(Order::getPrice).sum();
+        double totalGmv = orders.stream().filter(o -> !"已退款".equals(o.getStatus())).mapToDouble(Order::getPrice).sum();
         long totalOrderCount = orders.size();
-        long totalVisitCount = allVisits.size();
-        long returnCount = orders.stream().filter(o -> o.getStatus() != null && o.getStatus().contains("退")).count();
+        long totalVisitCount = visitLogRepository.count();
+        long returnCount = orders.stream().filter(o -> o.getStatus().contains("退")).count();
         double returnRate = totalOrderCount == 0 ? 0 : (double) returnCount / totalOrderCount * 100;
 
         result.put("totalGmv", String.format("%.2f", totalGmv));
@@ -95,14 +86,12 @@ public class StatsController {
 
         // 填充数据
         for (String key : xAxis) {
-            long orderCount = rangeOrders.stream()
-                    .filter(o -> o.getCreateTime().format(formatter).equals(key)).count();
+            // 过滤该时间段的数据
+            long orderCount = rangeOrders.stream().filter(o -> o.getCreateTime().format(formatter).equals(key)).count();
             double gmv = rangeOrders.stream()
                     .filter(o -> o.getCreateTime().format(formatter).equals(key) && !"已退款".equals(o.getStatus()))
-                    .filter(o -> o.getPrice() != null)
                     .mapToDouble(Order::getPrice).sum();
-            long visitCount = rangeVisits.stream()
-                    .filter(v -> v.getVisitTime().format(formatter).equals(key)).count();
+            long visitCount = rangeVisits.stream().filter(v -> v.getVisitTime().format(formatter).equals(key)).count();
 
             seriesOrder.add((int) orderCount);
             seriesGmv.add(gmv);

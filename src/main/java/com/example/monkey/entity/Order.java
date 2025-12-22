@@ -33,6 +33,7 @@ public class Order {
     @Column(name = "create_time", insertable = false, updatable = false)
     private LocalDateTime createTime;
 
+    // --- Getter / Setter ---
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getOrderNo() { return orderNo; }

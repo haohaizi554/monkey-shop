@@ -22,13 +22,16 @@ public class ImageCleanupService {
     public void tryDelete(String imagePath) {
         // 1. 基础校验
         if (imagePath == null || imagePath.isEmpty()) return;
+
         if (imagePath.contains("default_product") || imagePath.contains("default_avatar")) {
             return;
         }
+
         if (monkeyRepository.countByImageUrl(imagePath) > 0) return;
         if (userRepository.countByAvatar(imagePath) > 0) return;
         if (orderRepository.countByProductImage(imagePath) > 0) return;
         if (orderRepository.countByBuyerAvatar(imagePath) > 0) return;
+
         try {
             String relativePath = imagePath.replace("/images/", "");
             if (relativePath.contains("..")) return;
