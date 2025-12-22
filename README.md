@@ -161,7 +161,7 @@ spring.servlet.multipart.max-request-size=10MB
 2.  运行 `main` 方法启动 Spring Boot。
 3.  后端会自动在项目根目录下创建 `src/main/resources/static/images/` 文件夹用于存储上传的图片（头像/商品图）。
 4.  打开浏览器访问：
-    *   **用户商城首页**: [http://localhost:8888](http://localhost:8081) (端口取决于你的配置)
+    *   **用户登录首页**: [http://localhost:8888](http://localhost:8081) (端口取决于你的配置)
     *   **管理员后台**: [http://localhost:8888/admin.html](http://localhost:8081/admin.html) (需先登录管理员账号)
 
 ## 📂 目录结构 (Directory Structure)
