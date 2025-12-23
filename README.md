@@ -62,6 +62,8 @@
 
 ## ⚡ 快速开始 (Getting Started)
 
+### 方式一：本地运行 (Local IDE)
+
 ### 1. 环境准备
 *   JDK 21 或 17（不要用24因为不稳定）
 *   MySQL 8.0
@@ -169,6 +171,80 @@ spring.servlet.multipart.max-request-size=10MB
 4.  打开浏览器访问：
     *   **用户登录首页**: [http://localhost:8888](http://localhost:8081) (端口取决于你的配置)
     *   **管理员后台**: [http://localhost:8888/admin.html](http://localhost:8081/admin.html) (需先登录管理员账号)
+
+### 方式二：🐳 Docker 部署 (Docker Deployment)
+
+## 1. 创建 Docker 配置文件（项目中有）
+1.  在项目根目录下创建文件 Dockerfile：
+```Dockerfile
+FROM openjdk:21-jdk-slim
+WORKDIR /app
+COPY target/*.jar /app/app.jar
+# 暴露应用端口
+EXPOSE 8888
+ENTRYPOINT ["java", "-jar", "app.jar"]
+```
+2.  在项目根目录下创建文件 docker-compose.yml：
+```YAML
+services:
+  # --- MySQL 容器 ---
+  mysql:
+    image: mysql:8.0
+    container_name: monkey-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: monkeyshop
+      MYSQL_USER: monkeyuser       # 应用专用账户
+      MYSQL_PASSWORD: monkeypass   # 应用专用密码
+    ports:
+      - "3307:3306"                # 映射宿主机 3307 端口 -> 容器 3306
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # --- Java 应用容器 ---
+  myshop:
+    build: .
+    container_name: monkey-app
+    ports:
+      - "8888:8888"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      # 覆盖 application.properties 中的配置
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: monkeyuser
+      SPRING_DATASOURCE_PASSWORD: monkeypass
+      SERVER_PORT: 8888
+    volumes:
+      # 挂载图片上传目录：宿主机 ./uploads -> 容器 /data/images
+      - ./uploads:/data/images
+
+volumes:
+  mysql_data:
+```
+## 2. 打包与启动
+在项目根目录执行以下命令：
+```Bash
+# Docker 一键编排启动
+docker-compose up -d --build
+```
+## 3. ⚠️ 数据库连接注意事项
+   Docker 启动的是一个全新的 MySQL 环境。
+- **自动建表**：项目配置了 spring.jpa.hibernate.ddl-auto=update，容器启动后应用会自动在 Docker 数据库中创建所需的表结构。
+- **手动管理数据库**：如果你需要使用 Navicat/DBeaver 连接 Docker 中的数据库（例如手动插入初始数据），请使用以下信息连接：
+    - **主机**：localhost
+    - **端口**：3307（注意：不是 3306，3306 已经被映射到宿主机的 3307）
+    - **用户名**：monkeyuser
+    - **密码**：monkeypass
+    - **数据库名**：monkeyshop
+
+启动成功后，访问 http://localhost:8888 即可。上传的图片将保存在项目根目录下的 uploads 文件夹中。
 
 ## 📂 目录结构 (Directory Structure)
 
