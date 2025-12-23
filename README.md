@@ -178,9 +178,13 @@ spring.servlet.multipart.max-request-size=10MB
 1.  在项目根目录下创建文件 Dockerfile：
 ```Dockerfile
 FROM openjdk:21-jdk-slim
+RUN apt-get update && apt-get install -y \
+    fontconfig \
+    libfreetype6 \
+    fonts-dejavu \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY target/*.jar /app/app.jar
-# 暴露应用端口
+COPY target/*.jar app.jar
 EXPOSE 8888
 ENTRYPOINT ["java", "-jar", "app.jar"]
 ```
