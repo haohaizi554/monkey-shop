@@ -8,14 +8,15 @@
 
 ## 📖 项目简介 (Introduction)
 
-**Monkey Shop** 是一个模拟灵长类动物交易的电商平台（仅供学习演示）。项目采用前后端一体化架构，后端使用 Spring Boot 3 提供 RESTful API，前端使用原生 HTML 结合 Vue 3 (CDN) 进行渲染。
+**MonkeyShop** 是一个模拟灵长类动物交易的电商平台（仅供学习演示）。项目采用前后端一体化架构，后端使用 Spring Boot 3 提供 RESTful API，前端使用原生 HTML 结合 Vue 3 (CDN) 进行渲染。
 
-本项目摒弃了复杂的前端工程化构建（如 Webpack/Vite），回归最纯粹的开发体验，同时在后端实现了企业级的业务逻辑，如**订单快照**、**库存并发控制**、**图片垃圾回收**、**数据可视化看板**等。
+本项目摒弃了复杂的前端工程化构建（如 Webpack/Vite），回归最纯粹的开发体验，同时在后端实现了企业级的业务逻辑，如**订单快照**、**库存并发控制**、**图片垃圾回收**、**Spring Security 安全认证**、**数据可视化看板**等。
 
 ## 🛠 技术栈 (Tech Stack)
 
 ### 后端 (Backend)
 *   **核心框架**: Spring Boot 3.2.0
+*   **安全框架**: Spring Security (BCrypt 加密)
 *   **数据库**: MySQL 8.0
 *   **ORM**: Spring Data JPA
 *   **工具**: Maven, Lombok (已移除，采用原生 Getter/Setter)
@@ -32,7 +33,7 @@
 ### 👤 用户端 (User)
 *   **账户体系**: 注册/登录 (含图形验证码)、找回密码、个人资料修改、头像上传。
 *   **商品浏览**: 首页轮播图、商品列表、**多维筛选** (关键词/价格区间/库存)、**实时搜索**。
-*   **购物流程**: 商品详情弹窗、**库存检查**、选择收货地址、提交订单。
+*   **购物流程**: 商品详情弹窗、**库存检查**、选择收货地址 (支持临时新增)、提交订单。
 *   **订单中心**: 查看历史订单、**发货状态追踪** (含发货时间)、**确认收货**、**申请退货**。
 *   **地址管理**: 多地址增删改查、设置默认地址。
 
@@ -40,7 +41,7 @@
 *   **数据看板**: ECharts 可视化展示 (GMV/订单量/访问量/退货率)、**双轴趋势图**、多时间维度筛选 (7天/30天/1年/自定义)。
 *   **商品管理**: 商品上架/编辑/下架、**图片自动裁剪** (后端居中裁剪适配)、库存管理。
 *   **订单管理**: 订单全览 (含**买家/商品快照**)、**一键发货**、**退货审批** (同意/确认收货)、删除订单 (自动回滚库存)。
-*   **权限控制**: 独立的管理员表、登录拦截、敏感操作鉴权。
+*   **权限控制**: 独立的管理员表、登录拦截、敏感操作鉴权、**原地登录** (Session过期不跳转)。
 
 ## 🌟 项目亮点 (Highlights)
 
@@ -52,14 +53,17 @@
     *   **定时任务**: 每日凌晨自动扫描硬盘，清理数据库中不存在的“孤儿文件”，防止磁盘空间浪费。
     *   **自动裁剪**: 管理员上传非正方形图片时，后端自动进行**居中裁剪**，保证前端展示整齐。
 
-3.  **无感交互体验**
+3.  **高并发库存控制**
+    *   使用数据库原子更新 (`UPDATE ... SET stock = stock - 1 WHERE stock > 0`) 防止超卖。
+
+4.  **无感交互体验**
     *   全站拒绝原生 `alert/confirm`，封装了全局 **Toast 轻提示** 和 **Bootstrap Modal**。
     *   管理后台采用**原地登录**机制，Session 过期后无需跳转页面即可重新登录。
 
 ## ⚡ 快速开始 (Getting Started)
 
 ### 1. 环境准备
-*   JDK 21 或 17
+*   JDK 21 或 17（不要用24因为不稳定）
 *   MySQL 8.0
 *   IntelliJ IDEA (推荐)
 
@@ -78,7 +82,6 @@ CREATE TABLE admin (
   nickname VARCHAR(50) DEFAULT '管理员',
   create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-INSERT INTO admin (username, password, nickname) VALUES ('admin', '123456', '超级管理员');
 
 -- 用户表
 CREATE TABLE user (
@@ -141,6 +144,9 @@ CREATE TABLE visit_log (
 打开 `src/main/resources/application.properties`，配置你的数据库账号密码：
 
 ```properties
+# 端口配置
+server.port=8888
+
 # 数据库连接配置
 spring.datasource.url=jdbc:mysql://localhost:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8
 spring.datasource.username=root
@@ -168,20 +174,44 @@ spring.servlet.multipart.max-request-size=10MB
 
 ```text
 src/main/java/com/example/monkey
-├── config          # Web配置 (拦截器注册、静态资源映射)
-├── controller      # 控制器 (处理 HTTP 请求)
-│   ├── AuthController.java    # 登录/注册/验证码
-│   ├── MonkeyController.java  # 商品管理
-│   ├── OrderController.java   # 订单/支付/发货/退货
-│   ├── StatsController.java   # 数据可视化接口
-│   ├── UploadController.java  # 图片上传与自动裁剪
-│   └── UserController.java    # 用户个人中心/头像管理
-├── entity          # 实体类 (User, Admin, Monkey, Order, Address, VisitLog)
-├── interceptor     # 拦截器 (VisitInterceptor 用于统计真实访问量)
+├── config          # 配置类
+│   ├── DataInitializer.java   # 启动加载器 (自动创建默认管理员)
+│   ├── SecurityConfig.java    # 安全配置 (BCrypt加密、CSRF禁用)
+│   └── WebConfig.java         # 拦截器注册、本地图片资源映射
+├── controller      # 控制器 (Web层，只负责路由分发，业务移交Service)
+│   ├── AddressController.java # 收货地址管理
+│   ├── AuthController.java    # 登录、注册、找回密码
+│   ├── MonkeyController.java  # 商品管理接口
+│   ├── OrderController.java   # 订单流程接口
+│   ├── StatsController.java   # 数据可视化看板接口
+│   ├── UploadController.java  # 图片上传入口
+│   └── UserController.java    # 个人中心、头像管理、权限检查
+├── entity          # 实体类 (数据库表映射)
+│   ├── Address.java           # 收货地址
+│   ├── Admin.java             # 管理员表
+│   ├── Monkey.java            # 商品表 (含库存)
+│   ├── Order.java             # 订单表 (含商品/买家快照、发货时间)
+│   ├── User.java              # 普通用户表
+│   └── VisitLog.java          # 访问日志表
+├── interceptor     # 拦截器
+│   └── VisitInterceptor.java  # 拦截页面请求，统计真实访问量
 ├── repository      # 数据仓库 (Spring Data JPA 接口)
-├── service         # 业务逻辑 (CaptchaService, ImageCleanupService)
-├── task            # 定时任务 (ImageTask 用于清理冗余图片)
-└── util            # 工具类 (CaptchaUtil)
+│   ├── AddressRepository.java
+│   ├── AdminRepository.java
+│   ├── MonkeyRepository.java  # 含库存原子扣减 SQL
+│   ├── OrderRepository.java
+│   ├── UserRepository.java
+│   └── VisitLogRepository.java
+├── service         # 业务逻辑层 (核心业务、事务控制 @Transactional)
+│   ├── CaptchaService.java    # 验证码生成与校验逻辑
+│   ├── FileService.java       # 文件上传、智能裁剪、路径处理
+│   ├── ImageCleanupService.java # 图片垃圾回收 (引用计数检查)
+│   ├── OrderService.java      # 订单流转、库存回滚、快照组装
+│   └── UserService.java       # 用户认证、加密、资料更新
+├── task            # 定时任务
+│   └── ImageTask.java         # 定时扫描硬盘，清理未引用的孤儿图片
+└── util            # 工具类
+    └── CaptchaUtil.java       # 验证码绘图工具
 ```
 
 ## 🤝 贡献与反馈 (Contribution)

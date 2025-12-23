@@ -1,0 +1,3957 @@
+src/main/java/com/example/monkey/config/DataInitializer.java
+package com.example.monkey.config;
+
+import com.example.monkey.entity.Admin;
+import com.example.monkey.repository.AdminRepository;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+@Configuration
+public class DataInitializer {
+
+    @Bean
+    public CommandLineRunner initData(AdminRepository adminRepository, PasswordEncoder passwordEncoder) {
+        return args -> {
+            if (adminRepository.count() == 0) {
+                System.out.println("【初始化】检测到管理员表为空，正在创建默认管理员...");
+                Admin admin = new Admin();
+                admin.setUsername("admin");
+                admin.setPassword(passwordEncoder.encode("123456"));
+                admin.setNickname("超级管理员");
+
+                adminRepository.save(admin);
+                System.out.println("【初始化】管理员创建成功！账号: admin / 密码: 123456");
+            }
+        };
+    }
+}
+
+
+src/main/java/com/example/monkey/config/SecurityConfig.java
+package com.example.monkey.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+    // 1. 注册密码加密器 (BCrypt)
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+    // 2. 配置安全过滤器链
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+                .csrf(AbstractHttpConfigurer::disable)
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .formLogin(AbstractHttpConfigurer::disable)
+                .logout(AbstractHttpConfigurer::disable);
+        return http.build();
+    }
+}
+
+
+src/main/java/com/example/monkey/config/WebConfig.java
+package com.example.monkey.config;
+
+import com.example.monkey.interceptor.VisitInterceptor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import java.io.File;
+
+@Configuration
+public class WebConfig implements WebMvcConfigurer {
+
+    // 1. 定义图片路径常量
+    public static final String PROJECT_PATH = System.getProperty("user.dir");
+    public static final String UPLOAD_PATH = PROJECT_PATH + "/src/main/resources/static/images/";
+
+    // 2. 注入访问统计拦截器 (这是为了实现数据看板的真实访问量)
+    @Autowired
+    private VisitInterceptor visitInterceptor;
+
+    // 3. 配置静态资源映射 (图片显示功能)
+    @Override
+    public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        registry.addResourceHandler("/images/**")
+                .addResourceLocations("file:" + UPLOAD_PATH + File.separator);
+    }
+
+    // 4. 配置拦截器 (访问统计功能)
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(visitInterceptor)
+                .addPathPatterns("/", "/shop.html", "/index.html");
+    }
+}
+
+
+src/main/java/com/example/monkey/controller/AddressController.java
+package com.example.monkey.controller;
+
+import com.example.monkey.entity.Address;
+import com.example.monkey.repository.AddressRepository;
+import jakarta.servlet.http.HttpSession;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/address")
+public class AddressController {
+
+    @Autowired
+    private AddressRepository addressRepository;
+
+    // 1. 获取我的地址列表
+    @GetMapping
+    public List<Address> myAddresses(HttpSession session) {
+        Long userId = (Long) session.getAttribute("USER_ID");
+        if (userId == null) return null;
+        return addressRepository.findByUserId(userId);
+    }
+
+    // 2. 新增地址
+    @PostMapping
+    public String addAddress(@RequestBody Address address, HttpSession session) {
+        Long userId = (Long) session.getAttribute("USER_ID");
+        if (userId == null) return "请先登录";
+
+        address.setUserId(userId);
+
+        // 如果是第一条地址，自动设为默认
+        List<Address> list = addressRepository.findByUserId(userId);
+        if (list.isEmpty()) {
+            address.setIsDefault(1);
+        } else {
+            address.setIsDefault(0);
+        }
+
+        addressRepository.save(address);
+        return "ok";
+    }
+
+    // 3. 设为默认
+    @PostMapping("/set-default/{id}")
+    public String setDefault(@PathVariable Long id, HttpSession session) {
+        Long userId = (Long) session.getAttribute("USER_ID");
+        if (userId == null) return "error";
+
+        addressRepository.clearDefault(userId);
+        Address address = addressRepository.findById(id).orElse(null);
+        if (address != null && address.getUserId().equals(userId)) {
+            address.setIsDefault(1);
+            addressRepository.save(address);
+        }
+        return "ok";
+    }
+
+    // 4. 删除地址
+    @DeleteMapping("/{id}")
+    public String delete(@PathVariable Long id, HttpSession session) {
+        Long userId = (Long) session.getAttribute("USER_ID");
+        Address address = addressRepository.findById(id).orElse(null);
+        if (address != null && address.getUserId().equals(userId)) {
+            addressRepository.delete(address);
+            return "ok";
+        }
+        return "error";
+    }
+}
+
+
+src/main/java/com/example/monkey/controller/AuthController.java
+package com.example.monkey.controller;
+
+import com.example.monkey.service.CaptchaService;
+import com.example.monkey.service.FileService;
+import com.example.monkey.service.UserService;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.IOException;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/auth")
+public class AuthController {
+
+    @Autowired private UserService userService;
+    @Autowired private CaptchaService captchaService;
+    @Autowired private FileService fileService;
+
+    @GetMapping("/captcha")
+    public void getCaptcha(HttpServletResponse response, HttpSession session) throws IOException {
+        captchaService.createCaptcha(response, session);
+    }
+
+    @PostMapping("/register")
+    public String register(
+            @RequestParam("username") String username,
+            @RequestParam("password") String password,
+            @RequestParam("phone") String phone,
+            @RequestParam("captcha") String inputCode,
+            @RequestParam(value = "avatarFile", required = false) MultipartFile avatarFile,
+            HttpSession session
+    ) {
+        // 1. 校验验证码
+        if (!captchaService.validate(session, inputCode)) return "验证码错误";
+
+        // 2. 处理文件
+        String avatarPath = null;
+        if (avatarFile != null && !avatarFile.isEmpty()) {
+            String result = fileService.uploadFile(avatarFile, "avatar");
+            if (result.startsWith("error:")) return "头像保存失败";
+            // 去掉前缀 "ok:" 或 "cropped:"
+            avatarPath = result.substring(result.indexOf(":") + 1);
+        }
+        // 3. 注册
+        return userService.register(username, password, phone, avatarPath);
+    }
+    @PostMapping("/login")
+    public String login(@RequestBody Map<String, String> params, HttpSession session) {
+        return userService.login(params.get("username"), params.get("password"), session);
+    }
+    @PostMapping("/reset-password")
+    public String resetPassword(@RequestBody Map<String, String> params, HttpSession session) {
+        String captcha = params.get("captcha");
+        if (!captchaService.validate(session, captcha)) return "验证码错误";
+        return userService.updatePassword(null, params.get("phone"), params.get("newPassword"), params.get("username"));
+    }
+}
+
+
+src/main/java/com/example/monkey/controller/MonkeyController.java
+package com.example.monkey.controller;
+
+import com.example.monkey.entity.Monkey;
+import com.example.monkey.repository.MonkeyRepository;
+import com.example.monkey.service.ImageCleanupService; // 引入服务
+import jakarta.servlet.http.HttpSession;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/monkeys")
+public class MonkeyController {
+    @Autowired
+    private MonkeyRepository repository;
+    @Autowired
+    private ImageCleanupService imageCleanupService; // 注入清理服务
+    @GetMapping
+    public List<Monkey> getAllMonkeys() {
+        return repository.findAll();
+    }
+    @PostMapping("/add")
+    public String addMonkey(@RequestBody Monkey monkey, HttpSession session) {
+        if (!isAdmin(session)) return "error:无权操作";
+        if (monkey.getImageUrl() == null || monkey.getImageUrl().isEmpty()) {
+            monkey.setImageUrl("/images/default_product.png");
+        }
+        repository.save(monkey);
+        return "ok";
+    }
+    @PostMapping("/update")
+    public String updateMonkey(@RequestBody Monkey monkey, HttpSession session) {
+        if (!isAdmin(session)) return "error:无权操作";
+        // 1. 查出旧数据
+        Monkey oldMonkey = repository.findById(monkey.getId()).orElse(null);
+        if (oldMonkey == null) return "error:商品不存在";
+        String oldImage = oldMonkey.getImageUrl();
+        // 2. 保存新数据
+        repository.save(monkey);
+        // 3. 尝试清理旧图片 (如果图片变了)
+        if (oldImage != null && !oldImage.equals(monkey.getImageUrl())) {
+            imageCleanupService.tryDelete(oldImage);
+        }
+        return "ok";
+    }
+    @DeleteMapping("/{id}")
+    public String deleteMonkey(@PathVariable Long id, HttpSession session) {
+        if (!isAdmin(session)) return "error:无权操作";
+        Monkey monkey = repository.findById(id).orElse(null);
+        if (monkey != null) {
+            String imageToDelete = monkey.getImageUrl();
+            // 1. 先删数据库记录
+            repository.deleteById(id);
+            // 2. 再尝试删文件 (此时数据库里已经没有这条记录了，计数器会减1)
+            imageCleanupService.tryDelete(imageToDelete);
+            return "ok";
+        }
+        return "error:商品不存在";
+    }
+    private boolean isAdmin(HttpSession session) {
+        return "ADMIN".equals(session.getAttribute("IDENTITY"));
+    }
+}
+
+src/main/java/com/example/monkey/controller/OrderController.java
+package com.example.monkey.controller;
+
+import com.example.monkey.entity.Order;
+import com.example.monkey.repository.OrderRepository;
+import com.example.monkey.service.OrderService;
+import jakarta.servlet.http.HttpSession;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Sort;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/orders")
+public class OrderController {
+    @Autowired private OrderService orderService;
+    @Autowired private OrderRepository orderRepository;
+    @PostMapping("/create")
+    public String createOrder(@RequestBody Map<String, Long> params, HttpSession session) {
+        Long userId = (Long) session.getAttribute("USER_ID");
+        if (userId == null) return "error:请先登录";
+        return orderService.createOrder(userId, params.get("monkeyId"), params.get("addressId"));
+    }
+    @GetMapping("/my")
+    public List<Order> myOrders(HttpSession session) {
+        Long userId = (Long) session.getAttribute("USER_ID");
+        if (userId == null) return null;
+        return orderRepository.findByUserIdOrderByCreateTimeDesc(userId);
+    }
+    @GetMapping("/all")
+    public List<Order> getAllOrders(HttpSession session) {
+        if (!isAdmin(session)) return null;
+        return orderRepository.findAll(Sort.by(Sort.Direction.DESC, "createTime"));
+    }
+    @PostMapping("/ship/{id}")
+    public String shipOrder(@PathVariable Long id, HttpSession session) {
+        if (!isAdmin(session)) return "error:无权操作";
+        return orderService.shipOrder(id);
+    }
+    @PostMapping("/receive/{id}")
+    public String receiveOrder(@PathVariable Long id, HttpSession session) {
+        Long userId = (Long) session.getAttribute("USER_ID");
+        if (userId == null) return "error:请先登录";
+        return orderService.receiveOrder(id, userId);
+    }
+    @DeleteMapping("/{id}")
+    public String deleteOrder(@PathVariable Long id, HttpSession session) {
+        if (!isAdmin(session)) return "error:无权操作";
+        return orderService.deleteOrder(id);
+    }
+    // --- 退货流程 ---
+    @PostMapping("/return/apply/{id}")
+    public String applyReturn(@PathVariable Long id, HttpSession session) {
+        Long userId = (Long) session.getAttribute("USER_ID");
+        // 校验是否是本人操作逻辑在 Service 内部或这里校验均可，Service 里有校验
+        return orderService.updateStatus(id, "申请退货", "已完成");
+    }
+    @PostMapping("/return/approve/{id}")
+    public String approveReturn(@PathVariable Long id, HttpSession session) {
+        if (!isAdmin(session)) return "error:无权操作";
+        return orderService.updateStatus(id, "待退货发货", "申请退货");
+    }
+    @PostMapping("/return/ship/{id}")
+    public String userShipReturn(@PathVariable Long id, HttpSession session) {
+        return orderService.updateStatus(id, "退货中", "待退货发货");
+    }
+    @PostMapping("/return/confirm/{id}")
+    public String confirmReturn(@PathVariable Long id, HttpSession session) {
+        if (!isAdmin(session)) return "error:无权操作";
+        return orderService.confirmReturn(id);
+    }
+    private boolean isAdmin(HttpSession session) {
+        return "ADMIN".equals(session.getAttribute("IDENTITY"));
+    }
+}
+
+
+src/main/java/com/example/monkey/controller/StatsController.java
+package com.example.monkey.controller;
+
+import com.example.monkey.entity.Order;
+import com.example.monkey.entity.VisitLog;
+import com.example.monkey.repository.OrderRepository;
+import com.example.monkey.repository.VisitLogRepository;
+import jakarta.servlet.http.HttpSession;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.stream.Collectors;
+
+@RestController
+@RequestMapping("/api/stats")
+public class StatsController {
+
+    @Autowired
+    private OrderRepository orderRepository;
+    @Autowired
+    private VisitLogRepository visitLogRepository;
+
+    @GetMapping("/data")
+    public Map<String, Object> getStats(
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate start,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate end,
+            HttpSession session
+    ) {
+        if (!"ADMIN".equals(session.getAttribute("IDENTITY"))) return null;
+
+        Map<String, Object> result = new HashMap<>();
+
+        // 1. 默认时间范围 (如果没传，默认查近7天)
+        if (start == null || end == null) {
+            end = LocalDate.now();
+            start = end.minusDays(6);
+        }
+        LocalDateTime startDt = start.atStartOfDay();
+        LocalDateTime endDt = end.atTime(23, 59, 59);
+
+        // 2. 查询数据库 (真实数据)
+        List<Order> orders = orderRepository.findAll(); // 获取所有订单用于计算总数
+        List<Order> rangeOrders = orders.stream()
+                .filter(o -> !o.getCreateTime().isBefore(startDt) && !o.getCreateTime().isAfter(endDt))
+                .collect(Collectors.toList());
+
+        List<VisitLog> rangeVisits = visitLogRepository.findByVisitTimeBetween(startDt, endDt);
+
+        // 3. 计算顶部总览卡片 (Total)
+        double totalGmv = orders.stream().filter(o -> !"已退款".equals(o.getStatus())).mapToDouble(Order::getPrice).sum();
+        long totalOrderCount = orders.size();
+        long totalVisitCount = visitLogRepository.count();
+        long returnCount = orders.stream().filter(o -> o.getStatus().contains("退")).count();
+        double returnRate = totalOrderCount == 0 ? 0 : (double) returnCount / totalOrderCount * 100;
+
+        result.put("totalGmv", String.format("%.2f", totalGmv));
+        result.put("totalOrders", totalOrderCount);
+        result.put("totalVisits", totalVisitCount);
+        result.put("returnRate", String.format("%.1f", returnRate));
+
+        // 4. 生成图表数据 (Trend)
+        List<String> xAxis = new ArrayList<>();
+        List<Integer> seriesOrder = new ArrayList<>();
+        List<Double> seriesGmv = new ArrayList<>();
+        List<Integer> seriesVisit = new ArrayList<>();
+
+        // 判断按天还是按月分组
+        boolean groupByMonth = java.time.temporal.ChronoUnit.DAYS.between(start, end) > 60;
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern(groupByMonth ? "yyyy-MM" : "MM-dd");
+
+        LocalDate current = start;
+        while (!current.isAfter(end)) {
+            String key = current.format(formatter);
+            if (!xAxis.contains(key)) xAxis.add(key);
+
+            // 移动指针
+            current = groupByMonth ? current.plusMonths(1) : current.plusDays(1);
+        }
+
+        // 填充数据
+        for (String key : xAxis) {
+            // 过滤该时间段的数据
+            long orderCount = rangeOrders.stream().filter(o -> o.getCreateTime().format(formatter).equals(key)).count();
+            double gmv = rangeOrders.stream()
+                    .filter(o -> o.getCreateTime().format(formatter).equals(key) && !"已退款".equals(o.getStatus()))
+                    .mapToDouble(Order::getPrice).sum();
+            long visitCount = rangeVisits.stream().filter(v -> v.getVisitTime().format(formatter).equals(key)).count();
+
+            seriesOrder.add((int) orderCount);
+            seriesGmv.add(gmv);
+            seriesVisit.add((int) visitCount);
+        }
+
+        result.put("xAxis", xAxis);
+        result.put("seriesOrder", seriesOrder);
+        result.put("seriesGmv", seriesGmv);
+        result.put("seriesVisit", seriesVisit);
+
+        return result;
+    }
+}
+
+
+src/main/java/com/example/monkey/controller/UploadController.java
+package com.example.monkey.controller;
+
+import com.example.monkey.service.FileService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+@RestController
+@RequestMapping("/api/upload")
+public class UploadController {
+    @Autowired
+    private FileService fileService;
+    @PostMapping
+    public String upload(@RequestParam("file") MultipartFile file, @RequestParam("type") String type) {
+        return fileService.uploadFile(file, type);
+    }
+}
+
+
+src/main/java/com/example/monkey/controller/UserController.java
+package com.example.monkey.controller;
+
+import com.example.monkey.service.CaptchaService;
+import com.example.monkey.service.UserService;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+
+import java.io.IOException;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/user")
+public class UserController {
+
+    @Autowired private UserService userService;
+    @Autowired private CaptchaService captchaService;
+
+    @GetMapping("/captcha")
+    public void getCaptcha(HttpServletResponse response, HttpSession session) throws IOException {
+        captchaService.createCaptcha(response, session);
+    }
+
+    @GetMapping("/me")
+    public Map<String, Object> getCurrentUser(HttpSession session) {
+        return userService.getUserInfo(session, false);
+    }
+
+    @GetMapping("/profile")
+    public Map<String, Object> getProfile(HttpSession session) {
+        return userService.getUserInfo(session, true);
+    }
+
+    @PostMapping("/update-avatar")
+    public String updateAvatar(@RequestParam("avatarPath") String avatarPath, HttpSession session) {
+        Long userId = (Long) session.getAttribute("USER_ID");
+        if (userId == null) return "error:未登录";
+        return userService.updateAvatar(userId, avatarPath);
+    }
+
+    @PostMapping("/update-password")
+    public String updatePassword(@RequestBody Map<String, String> params, HttpSession session) {
+        Long userId = (Long) session.getAttribute("USER_ID");
+        if (userId == null) return "请先登录";
+
+        if (!captchaService.validate(session, params.get("captcha"))) return "验证码错误";
+
+        String result = userService.updatePassword(userId, params.get("phone"), params.get("newPassword"), null);
+        if ("ok".equals(result)) session.invalidate();
+        return result;
+    }
+
+    @GetMapping("/logout")
+    public String logout(HttpSession session) {
+        session.invalidate();
+        return "ok";
+    }
+}
+
+src/main/java/com/example/monkey/entity/Address.java
+package com.example.monkey.entity;
+
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "address")
+public class Address {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private Long userId; // 关联用户
+    private String receiverName;
+    private String phone;
+    private String detailAddress;
+    private Integer isDefault; // 1是 0否
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public Long getUserId() { return userId; }
+    public void setUserId(Long userId) { this.userId = userId; }
+    public String getReceiverName() { return receiverName; }
+    public void setReceiverName(String receiverName) { this.receiverName = receiverName; }
+    public String getPhone() { return phone; }
+    public void setPhone(String phone) { this.phone = phone; }
+    public String getDetailAddress() { return detailAddress; }
+    public void setDetailAddress(String detailAddress) { this.detailAddress = detailAddress; }
+    public Integer getIsDefault() { return isDefault; }
+    public void setIsDefault(Integer isDefault) { this.isDefault = isDefault; }
+}
+
+
+src/main/java/com/example/monkey/entity/Admin.java
+package com.example.monkey.entity;
+
+import jakarta.persistence.*;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "admin")
+public class Admin {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String username;
+    private String password;
+    private String nickname;
+
+    @Column(name = "create_time", insertable = false, updatable = false)
+    private LocalDateTime createTime;
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public String getUsername() { return username; }
+    public void setUsername(String username) { this.username = username; }
+    public String getPassword() { return password; }
+    public void setPassword(String password) { this.password = password; }
+    public String getNickname() { return nickname; }
+    public void setNickname(String nickname) { this.nickname = nickname; }
+    public LocalDateTime getCreateTime() { return createTime; }
+    public void setCreateTime(LocalDateTime createTime) { this.createTime = createTime; }
+}
+
+
+src/main/java/com/example/monkey/entity/Monkey.java
+package com.example.monkey.entity;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+
+@Entity
+@Table(name = "monkey")
+public class Monkey {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String name;
+    private String breed;
+    private Double price;
+    private String description;
+    private String imageUrl;
+    private Integer stock; // 库存字段
+
+    public Monkey() {
+    }
+
+    public Monkey(Long id, String name, String breed, Double price, String description, String imageUrl, Integer stock) {
+        this.id = id;
+        this.name = name;
+        this.breed = breed;
+        this.price = price;
+        this.description = description;
+        this.imageUrl = imageUrl;
+        this.stock = stock;
+    }
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+    public String getBreed() { return breed; }
+    public void setBreed(String breed) { this.breed = breed; }
+    public Double getPrice() { return price; }
+    public void setPrice(Double price) { this.price = price; }
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
+    public String getImageUrl() { return imageUrl; }
+    public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
+    public Integer getStock() { return stock; }
+    public void setStock(Integer stock) { this.stock = stock; }
+}
+
+
+src/main/java/com/example/monkey/entity/Order.java
+package com.example.monkey.entity;
+
+import jakarta.persistence.*;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "orders")
+public class Order {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String orderNo;
+    private Long userId;
+
+    // 买家快照 (新增)
+    private String buyerName;
+    private String buyerAvatar;
+
+    // 商品快照
+    private String productName;
+    private String productImage;
+    private Double price;
+    private String description;
+
+    // 地址快照
+    private String receiverName;
+    private String receiverPhone;
+    private String addressSnapshot;
+    private LocalDateTime shippingTime;
+
+    private String status; // 已支付, 已发货, 已完成
+
+    @Column(name = "create_time", insertable = false, updatable = false)
+    private LocalDateTime createTime;
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public String getOrderNo() { return orderNo; }
+    public void setOrderNo(String orderNo) { this.orderNo = orderNo; }
+    public Long getUserId() { return userId; }
+    public void setUserId(Long userId) { this.userId = userId; }
+    public String getBuyerName() { return buyerName; }
+    public void setBuyerName(String buyerName) { this.buyerName = buyerName; }
+    public String getBuyerAvatar() { return buyerAvatar; }
+    public void setBuyerAvatar(String buyerAvatar) { this.buyerAvatar = buyerAvatar; }
+    public String getProductName() { return productName; }
+    public void setProductName(String productName) { this.productName = productName; }
+    public String getProductImage() { return productImage; }
+    public void setProductImage(String productImage) { this.productImage = productImage; }
+    public Double getPrice() { return price; }
+    public void setPrice(Double price) { this.price = price; }
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
+    public String getReceiverName() { return receiverName; }
+    public void setReceiverName(String receiverName) { this.receiverName = receiverName; }
+    public String getReceiverPhone() { return receiverPhone; }
+    public void setReceiverPhone(String receiverPhone) { this.receiverPhone = receiverPhone; }
+    public String getAddressSnapshot() { return addressSnapshot; }
+    public void setAddressSnapshot(String addressSnapshot) { this.addressSnapshot = addressSnapshot; }
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+    public LocalDateTime getCreateTime() { return createTime; }
+    public void setCreateTime(LocalDateTime createTime) { this.createTime = createTime; }
+    public LocalDateTime getShippingTime() { return shippingTime; }
+    public void setShippingTime(LocalDateTime shippingTime) { this.shippingTime = shippingTime; }
+}
+
+
+src/main/java/com/example/monkey/entity/User.java
+package com.example.monkey.entity;
+
+import jakarta.persistence.*;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "user")
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String username;
+    private String password;
+    private String phone;
+    private String avatar;
+
+    @Column(name = "create_time", insertable = false, updatable = false)
+    private LocalDateTime createTime;
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public String getUsername() { return username; }
+    public void setUsername(String username) { this.username = username; }
+    public String getPassword() { return password; }
+    public void setPassword(String password) { this.password = password; }
+    public String getPhone() { return phone; }
+    public void setPhone(String phone) { this.phone = phone; }
+    public String getAvatar() { return avatar; }
+    public void setAvatar(String avatar) { this.avatar = avatar; }
+    public LocalDateTime getCreateTime() { return createTime; }
+    public void setCreateTime(LocalDateTime createTime) { this.createTime = createTime; }
+}
+
+
+src/main/java/com/example/monkey/entity/VisitLog.java
+package com.example.monkey.entity;
+
+import jakarta.persistence.*;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "visit_log")
+public class VisitLog {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private LocalDateTime visitTime;
+    private String ipAddress;
+
+    public VisitLog() {}
+    public VisitLog(LocalDateTime visitTime, String ipAddress) {
+        this.visitTime = visitTime;
+        this.ipAddress = ipAddress;
+    }
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public LocalDateTime getVisitTime() { return visitTime; }
+    public void setVisitTime(LocalDateTime visitTime) { this.visitTime = visitTime; }
+    public String getIpAddress() { return ipAddress; }
+    public void setIpAddress(String ipAddress) { this.ipAddress = ipAddress; }
+}
+
+
+src/main/java/com/example/monkey/interceptor/VisitInterceptor.java
+package com.example.monkey.entity;
+
+import jakarta.persistence.*;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "visit_log")
+public class VisitLog {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private LocalDateTime visitTime;
+    private String ipAddress;
+
+    public VisitLog() {}
+    public VisitLog(LocalDateTime visitTime, String ipAddress) {
+        this.visitTime = visitTime;
+        this.ipAddress = ipAddress;
+    }
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public LocalDateTime getVisitTime() { return visitTime; }
+    public void setVisitTime(LocalDateTime visitTime) { this.visitTime = visitTime; }
+    public String getIpAddress() { return ipAddress; }
+    public void setIpAddress(String ipAddress) { this.ipAddress = ipAddress; }
+}
+
+
+src/main/java/com/example/monkey/repository/AddressRepository.java
+package com.example.monkey.repository;
+
+import com.example.monkey.entity.Address;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+
+public interface AddressRepository extends JpaRepository<Address, Long> {
+    // 查某人的所有地址
+    List<Address> findByUserId(Long userId);
+
+    // 把某人的所有地址设为非默认 (用于设置新默认前的重置)
+    @Modifying
+    @Transactional
+    @Query("UPDATE Address a SET a.isDefault = 0 WHERE a.userId = ?1")
+    void clearDefault(Long userId);
+}
+
+
+src/main/java/com/example/monkey/repository/AdminRepository.java
+package com.example.monkey.repository;
+
+import com.example.monkey.entity.Admin;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface AdminRepository extends JpaRepository<Admin, Long> {
+    Admin findByUsername(String username);
+}
+
+
+src/main/java/com/example/monkey/repository/MonkeyRepository.java
+package com.example.monkey.repository;
+
+import com.example.monkey.entity.Monkey;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import java.util.List;
+
+public interface MonkeyRepository extends JpaRepository<Monkey, Long> {
+    long countByImageUrl(String imageUrl);
+    @Query("SELECT m.imageUrl FROM Monkey m WHERE m.imageUrl IS NOT NULL")
+    List<String> findAllImageUrls();
+    @Modifying
+    @Query("UPDATE Monkey m SET m.stock = m.stock - 1 WHERE m.id = :id AND m.stock > 0")
+    int deductStock(@Param("id") Long id);
+    @Modifying
+    @Query("UPDATE Monkey m SET m.stock = m.stock + 1 WHERE m.id = :id")
+    void restoreStock(@Param("id") Long id);
+}
+
+
+src/main/java/com/example/monkey/repository/OrderRepository.java
+package com.example.monkey.repository;
+
+import com.example.monkey.entity.Order;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import java.util.List;
+
+public interface OrderRepository extends JpaRepository<Order, Long> {
+    List<Order> findByUserIdOrderByCreateTimeDesc(Long userId);
+    long countByProductImage(String productImage);
+    long countByBuyerAvatar(String buyerAvatar);
+
+    // 新增：查出所有订单快照里的图片
+    @Query("SELECT o.productImage FROM Order o WHERE o.productImage IS NOT NULL")
+    List<String> findAllProductImages();
+    @Query("SELECT o.buyerAvatar FROM Order o WHERE o.buyerAvatar IS NOT NULL")
+    List<String> findAllBuyerAvatars();
+}
+
+
+src/main/java/com/example/monkey/repository/UserRepository.java
+package com.example.monkey.repository;
+
+import com.example.monkey.entity.User;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import java.util.List;
+
+public interface UserRepository extends JpaRepository<User, Long> {
+    User findByUsername(String username);
+    long countByAvatar(String avatar);
+
+    // 新增：查出所有用户头像路径
+    @Query("SELECT u.avatar FROM User u WHERE u.avatar IS NOT NULL")
+    List<String> findAllAvatars();
+}
+
+
+src/main/java/com/example/monkey/repository/VisitLogRepository.java
+package com.example.monkey.repository;
+
+import com.example.monkey.entity.VisitLog;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import java.time.LocalDateTime;
+import java.util.List;
+
+public interface VisitLogRepository extends JpaRepository<VisitLog, Long> {
+    // 查询指定时间段内的所有访问记录
+    List<VisitLog> findByVisitTimeBetween(LocalDateTime start, LocalDateTime end);
+    // 统计总访问量
+    long count();
+}
+
+
+src/main/java/com/example/monkey/service/CaptchaService.java
+package com.example.monkey.service;
+
+import com.example.monkey.util.CaptchaUtil;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
+import org.springframework.stereotype.Service;
+
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.IOException;
+
+@Service
+public class CaptchaService {
+    // 生成验证码并写入响应流
+    public void createCaptcha(HttpServletResponse response, HttpSession session) throws IOException {
+        String code = CaptchaUtil.generateCode();
+        session.setAttribute("CAPTCHA_CODE", code);
+        // 设置响应头，禁止缓存
+        response.setHeader("Pragma", "No-cache");
+        response.setHeader("Cache-Control", "no-cache");
+        response.setDateHeader("Expires", 0);
+        response.setContentType("image/jpeg");
+        BufferedImage image = CaptchaUtil.createImage(code, 100, 40);
+        ImageIO.write(image, "JPEG", response.getOutputStream());
+    }
+    // 校验验证码 (校验成功后立即销毁，防止重复使用)
+    public boolean validate(HttpSession session, String inputCode) {
+        String sessionCode = (String) session.getAttribute("CAPTCHA_CODE");
+        if (sessionCode == null || inputCode == null) return false;
+        boolean isValid = sessionCode.equalsIgnoreCase(inputCode);
+        if (isValid) {
+            session.removeAttribute("CAPTCHA_CODE"); // 验证一次即销毁
+        }
+        return isValid;
+    }
+}
+
+
+src/main/java/com/example/monkey/service/FileService.java
+package com.example.monkey.service;
+
+import com.example.monkey.config.WebConfig;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.IOException;
+import java.util.UUID;
+
+@Service
+public class FileService {
+    public String uploadFile(MultipartFile file, String type) {
+        if (file == null || file.isEmpty()) return "error:空文件";
+        try {
+            // 1. 读取图片
+            BufferedImage originalImage = ImageIO.read(file.getInputStream());
+            if (originalImage == null) return "error:图片格式不支持";
+            int width = originalImage.getWidth();
+            int height = originalImage.getHeight();
+            BufferedImage finalImage = originalImage;
+            boolean isCropped = false;
+            // 2. 自动裁剪逻辑 (仅针对商品图 product)
+            if ("product".equals(type) && width != height) {
+                int size = Math.min(width, height);
+                int x = (width - size) / 2;
+                int y = (height - size) / 2;
+                finalImage = originalImage.getSubimage(x, y, size, size);
+                isCropped = true;
+            }
+            // 3. 生成路径
+            String subDir = "avatar".equals(type) ? "avatar/" : "product/";
+            String suffix = ".jpg";
+            String originalFilename = file.getOriginalFilename();
+            if (originalFilename != null && originalFilename.contains(".")) {
+                suffix = originalFilename.substring(originalFilename.lastIndexOf("."));
+            }
+            String newFileName = UUID.randomUUID().toString() + suffix;
+            File dest = new File(WebConfig.UPLOAD_PATH + subDir + newFileName);
+            if (!dest.getParentFile().exists()) dest.getParentFile().mkdirs();
+            // 4. 保存
+            String formatName = suffix.replace(".", "");
+            if (formatName.isEmpty()) formatName = "jpg";
+            ImageIO.write(finalImage, formatName, dest);
+            // 5. 返回结果 (带状态前缀)
+            String path = "/images/" + subDir + newFileName;
+            return (isCropped ? "cropped:" : "ok:") + path;
+
+        } catch (IOException e) {
+            e.printStackTrace();
+            return "error:上传处理失败";
+        }
+    }
+}
+
+
+src/main/java/com/example/monkey/service/ImageCleanupService.java
+package com.example.monkey.service;
+
+import com.example.monkey.config.WebConfig;
+import com.example.monkey.repository.MonkeyRepository;
+import com.example.monkey.repository.OrderRepository;
+import com.example.monkey.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.io.File;
+
+@Service
+public class ImageCleanupService {
+
+    @Autowired
+    private MonkeyRepository monkeyRepository;
+    @Autowired
+    private UserRepository userRepository;
+    @Autowired
+    private OrderRepository orderRepository;
+
+    public void tryDelete(String imagePath) {
+        // 1. 基础校验
+        if (imagePath == null || imagePath.isEmpty()) return;
+        if (imagePath.contains("default_product") || imagePath.contains("default_avatar")) {
+            return;
+        }
+        if (monkeyRepository.countByImageUrl(imagePath) > 0) return;
+        if (userRepository.countByAvatar(imagePath) > 0) return;
+        if (orderRepository.countByProductImage(imagePath) > 0) return;
+        if (orderRepository.countByBuyerAvatar(imagePath) > 0) return;
+        try {
+            String relativePath = imagePath.replace("/images/", "");
+            if (relativePath.contains("..")) return;
+            File file = new File(WebConfig.UPLOAD_PATH + relativePath);
+            if (file.exists() && file.isFile()) {
+                boolean deleted = file.delete();
+                if (deleted) {
+                    System.out.println("【垃圾回收】成功删除冗余图片: " + imagePath);
+                } else {
+                    System.err.println("【垃圾回收】文件存在但删除失败: " + imagePath);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("【垃圾回收】删除出错: " + e.getMessage());
+        }
+    }
+}
+
+
+src/main/java/com/example/monkey/service/OrderService.java
+package com.example.monkey.service;
+
+import com.example.monkey.entity.Address;
+import com.example.monkey.entity.Monkey;
+import com.example.monkey.entity.Order;
+import com.example.monkey.entity.User;
+import com.example.monkey.repository.AddressRepository;
+import com.example.monkey.repository.MonkeyRepository;
+import com.example.monkey.repository.OrderRepository;
+import com.example.monkey.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.List;
+
+@Service
+public class OrderService {
+
+    @Autowired private OrderRepository orderRepository;
+    @Autowired private MonkeyRepository monkeyRepository;
+    @Autowired private AddressRepository addressRepository;
+    @Autowired private UserRepository userRepository;
+    @Autowired private ImageCleanupService imageCleanupService;
+
+    // 1. 创建订单 (核心业务)
+    @Transactional
+    public String createOrder(Long userId, Long monkeyId, Long addressId) {
+        Monkey monkey = monkeyRepository.findById(monkeyId).orElse(null);
+        Address address = addressRepository.findById(addressId).orElse(null);
+        User user = userRepository.findById(userId).orElse(null);
+
+        if (monkey == null) return "error:商品不存在";
+        if (address == null) return "error:地址不存在";
+        if (user == null) return "error:用户异常";
+        if (!address.getUserId().equals(userId)) return "error:地址非法";
+
+        // 原子扣减库存
+        int rows = monkeyRepository.deductStock(monkeyId);
+        if (rows == 0) return "error:手慢了，库存不足！";
+
+        // 组装订单快照
+        Order order = new Order();
+        order.setUserId(userId);
+        String orderNo = new SimpleDateFormat("yyyyMMddHHmmss").format(new Date()) + (int)(Math.random()*1000);
+        order.setOrderNo(orderNo);
+
+        order.setBuyerName(user.getUsername());
+        order.setBuyerAvatar(user.getAvatar());
+
+        order.setProductName(monkey.getName());
+        order.setProductImage(monkey.getImageUrl());
+        order.setPrice(monkey.getPrice());
+        order.setDescription(monkey.getDescription());
+
+        order.setReceiverName(address.getReceiverName());
+        order.setReceiverPhone(address.getPhone());
+        order.setAddressSnapshot(address.getDetailAddress());
+
+        order.setStatus("已支付");
+        order.setShippingTime(null);
+
+        orderRepository.save(order);
+        return "ok";
+    }
+    // 2. 发货
+    public String shipOrder(Long orderId) {
+        Order order = orderRepository.findById(orderId).orElse(null);
+        if (order != null) {
+            order.setStatus("已发货");
+            order.setShippingTime(java.time.LocalDateTime.now());
+            orderRepository.save(order);
+            return "ok";
+        }
+        return "error:订单不存在";
+    }
+    // 3. 确认收货
+    public String receiveOrder(Long orderId, Long userId) {
+        Order order = orderRepository.findById(orderId).orElse(null);
+        if (order != null && order.getUserId().equals(userId) && "已发货".equals(order.getStatus())) {
+            order.setStatus("已完成");
+            orderRepository.save(order);
+            return "ok";
+        }
+        return "error:操作失败";
+    }
+    // 4. 删除订单 (含库存回滚 + 图片清理)
+    @Transactional
+    public String deleteOrder(Long orderId) {
+        Order order = orderRepository.findById(orderId).orElse(null);
+        if (order != null) {
+            String pImg = order.getProductImage();
+            String bImg = order.getBuyerAvatar();
+            // 如果订单未完成/未退款，删除时回滚库存
+            if (!"已完成".equals(order.getStatus()) && !"已退款".equals(order.getStatus())) {
+                restoreStockByName(order.getProductName());
+            }
+            orderRepository.deleteById(orderId);
+            // 尝试清理图片
+            imageCleanupService.tryDelete(pImg);
+            imageCleanupService.tryDelete(bImg);
+            return "ok";
+        }
+        return "error:订单不存在";
+    }
+    // 5. 状态流转 (申请退货/发货/确认退货)
+    public String updateStatus(Long orderId, String targetStatus, String expectedCurrentStatus) {
+        Order order = orderRepository.findById(orderId).orElse(null);
+        if (order != null && expectedCurrentStatus.equals(order.getStatus())) {
+            order.setStatus(targetStatus);
+            orderRepository.save(order);
+            return "ok";
+        }
+        return "error:状态不对";
+    }
+    // 6. 确认退货 (退款 + 回滚库存)
+    @Transactional
+    public String confirmReturn(Long orderId) {
+        Order order = orderRepository.findById(orderId).orElse(null);
+        if (order != null && "退货中".equals(order.getStatus())) {
+            order.setStatus("已退款");
+            orderRepository.save(order);
+            restoreStockByName(order.getProductName());
+            return "ok";
+        }
+        return "error:状态不对";
+    }
+    // 辅助：根据名字恢复库存
+    private void restoreStockByName(String productName) {
+        List<Monkey> monkeys = monkeyRepository.findAll();
+        for (Monkey m : monkeys) {
+            if (m.getName().equals(productName)) {
+                monkeyRepository.restoreStock(m.getId());
+                break;
+            }
+        }
+    }
+}
+
+
+src/main/java/com/example/monkey/service/UserService.java
+package com.example.monkey.service;
+
+import com.example.monkey.entity.Admin;
+import com.example.monkey.entity.User;
+import com.example.monkey.repository.AdminRepository;
+import com.example.monkey.repository.UserRepository;
+import jakarta.servlet.http.HttpSession;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import java.util.HashMap;
+import java.util.Map;
+
+@Service
+public class UserService {
+
+    @Autowired private UserRepository userRepository;
+    @Autowired private AdminRepository adminRepository;
+    @Autowired private PasswordEncoder passwordEncoder;
+    @Autowired private ImageCleanupService imageCleanupService;
+
+    // 注册
+    public String register(String username, String password, String phone, String avatarPath) {
+        if (userRepository.findByUsername(username) != null) return "用户名已存在";
+        if (adminRepository.findByUsername(username) != null) return "用户名不可用";
+        try {
+            User user = new User();
+            user.setUsername(username);
+            user.setPassword(passwordEncoder.encode(password)); // 加密
+            user.setPhone(phone);
+            user.setAvatar(avatarPath != null ? avatarPath : "/images/default_avatar.png");
+            userRepository.save(user);
+            return "ok";
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "数据库保存失败";
+        }
+    }
+    // 登录
+    public String login(String username, String rawPassword, HttpSession session) {
+        // 1. 查管理员
+        Admin admin = adminRepository.findByUsername(username);
+        if (admin != null) {
+            if (passwordEncoder.matches(rawPassword, admin.getPassword())) {
+                session.setAttribute("USER_ID", admin.getId());
+                session.setAttribute("IDENTITY", "ADMIN");
+                return "ok:ADMIN";
+            }
+            return "密码错误";
+        }
+        // 2. 查普通用户
+        User user = userRepository.findByUsername(username);
+        if (user != null) {
+            if (passwordEncoder.matches(rawPassword, user.getPassword())) {
+                session.setAttribute("USER_ID", user.getId());
+                session.setAttribute("IDENTITY", "USER");
+                return "ok:USER";
+            }
+            return "密码错误";
+        }
+        return "账号不存在";
+    }
+    // 获取用户信息 (用于 /me 和 /profile)
+    public Map<String, Object> getUserInfo(HttpSession session, boolean details) {
+        Map<String, Object> result = new HashMap<>();
+        Long userId = (Long) session.getAttribute("USER_ID");
+        String identity = (String) session.getAttribute("IDENTITY");
+        if (userId == null || identity == null) {
+            result.put("isLogin", false);
+            return result;
+        }
+        result.put("isLogin", true);
+        result.put("identity", identity);
+        if ("ADMIN".equals(identity)) {
+            Admin admin = adminRepository.findById(userId).orElse(null);
+            if (admin != null) {
+                result.put("username", admin.getNickname());
+                result.put("avatar", "/images/default_avatar.png");
+                if (details) result.put("maskedPhone", "管理员账号");
+            } else {
+                result.put("isLogin", false);
+            }
+        } else {
+            User user = userRepository.findById(userId).orElse(null);
+            if (user != null) {
+                result.put("username", user.getUsername());
+                result.put("avatar", user.getAvatar() != null ? user.getAvatar() : "/images/default_avatar.png");
+                if (details) {
+                    String phone = user.getPhone();
+                    if (phone != null && phone.length() >= 7) {
+                        String masked = phone.substring(0, 3) + "****" + phone.substring(phone.length() - 4);
+                        result.put("maskedPhone", masked);
+                    } else {
+                        result.put("maskedPhone", phone == null ? "未绑定" : phone);
+                    }
+                }
+            } else {
+                result.put("isLogin", false);
+            }
+        }
+        return result;
+    }
+    // 修改头像
+    public String updateAvatar(Long userId, String newAvatarPath) {
+        User user = userRepository.findById(userId).orElse(null);
+        if (user != null) {
+            String oldAvatar = user.getAvatar();
+            user.setAvatar(newAvatarPath);
+            userRepository.save(user);
+            // 清理旧图
+            if (oldAvatar != null && !oldAvatar.equals(newAvatarPath)) {
+                imageCleanupService.tryDelete(oldAvatar);
+            }
+            return "ok";
+        }
+        return "error:用户不存在";
+    }
+    // 修改密码
+    public String updatePassword(Long userId, String phone, String newPassword) {
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null) return "用户不存在";
+
+        if (user.getPhone() == null || !user.getPhone().equals(phone)) {
+            return "手机号验证失败";
+        }
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+        return "ok";
+    }
+
+    public String updatePassword(Long userId, String phone, String newPassword, String username) {
+        User user;
+        if (userId != null) {
+            user = userRepository.findById(userId).orElse(null);
+        } else {
+            user = userRepository.findByUsername(username);
+        }
+        if (user == null) return "用户不存在";
+        if (user.getPhone() == null || !user.getPhone().equals(phone)) {
+            return "手机号验证失败";
+        }
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+        return "ok";
+    }
+}
+
+
+src/main/java/com/example/monkey/task/ImageTask.java
+package com.example.monkey.task;
+
+import com.example.monkey.config.WebConfig;
+import com.example.monkey.repository.MonkeyRepository;
+import com.example.monkey.repository.OrderRepository;
+import com.example.monkey.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+import java.io.File;
+import java.util.HashSet;
+import java.util.Set;
+
+@Component
+public class ImageTask {
+
+    @Autowired
+    private MonkeyRepository monkeyRepository;
+    @Autowired
+    private UserRepository userRepository;
+    @Autowired
+    private OrderRepository orderRepository;
+
+    //@Scheduled(cron = "0 * * * * ?")    //每分钟
+    @Scheduled(cron = "0 0 3 * * ?")  //每天凌晨3点
+    public void cleanUpOrphanImages() {
+        System.out.println("【定时任务】开始扫描冗余图片...");
+        // 1. 构建白名单 (数据库里所有正在使用的图片路径)
+        Set<String> whitelist = new HashSet<>();
+        whitelist.addAll(monkeyRepository.findAllImageUrls());
+        whitelist.addAll(userRepository.findAllAvatars());
+        whitelist.addAll(orderRepository.findAllProductImages());
+        whitelist.addAll(orderRepository.findAllBuyerAvatars());
+        // 2. 扫描硬盘文件夹
+        // 这里的路径结构是: static/images/product/ 和 static/images/avatar/
+        cleanDirectory(new File(WebConfig.UPLOAD_PATH + "product"), "/images/product/", whitelist);
+        cleanDirectory(new File(WebConfig.UPLOAD_PATH + "avatar"), "/images/avatar/", whitelist);
+        System.out.println("【定时任务】扫描结束。");
+    }
+    private void cleanDirectory(File dir, String urlPrefix, Set<String> whitelist) {
+        if (!dir.exists() || !dir.isDirectory()) return;
+        File[] files = dir.listFiles();
+        if (files == null) return;
+        long now = System.currentTimeMillis();
+        long gracePeriod = 1 * 60 * 1000;
+        for (File file : files) {
+            if (file.isFile()) {
+                String fileName = file.getName();
+                String dbPath = urlPrefix + fileName;
+                if (fileName.contains("default_")) continue;
+                if (!whitelist.contains(dbPath) && (now - file.lastModified() > gracePeriod)) {
+                    boolean deleted = file.delete();
+                    if (deleted) {
+                        System.out.println("【定时清理】已删除垃圾文件: " + dbPath);
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+src/main/java/com/example/monkey/MonkeyShopApplication.java
+package com.example.monkey;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
+
+@EnableScheduling
+@SpringBootApplication
+public class MonkeyShopApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(MonkeyShopApplication.class, args);
+    }
+}
+
+
+src/main/resources/static/admin.html
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>后台管理 | Monkey Shop</title>
+    <!-- 引入资源 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+
+    <style>
+        /* --- 通用设置 --- */
+        [v-cloak] { display: none; }
+        body {
+            background-color: #f8f9fa;
+            font-family: sans-serif;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* --- 侧边栏样式 --- */
+        .sidebar {
+            width: 250px;
+            background: #212529;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+        }
+        .sidebar-brand {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 40px;
+            color: #3b82f6;
+            text-decoration: none;
+        }
+        .nav-link {
+            color: rgba(255,255,255,0.7);
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-bottom: 5px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .nav-link:hover, .nav-link.active { background: #3b82f6; color: white; }
+        .nav-link i { margin-right: 10px; }
+
+        /* --- 主要内容区域 --- */
+        .main-content { flex: 1; padding: 30px; overflow-y: auto; }
+        .content-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+
+        /* --- 数据看板组件 --- */
+        .stat-card {
+            background: white; border-radius: 12px; padding: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05); transition: 0.2s;
+        }
+        .stat-card:hover { transform: translateY(-5px); box-shadow: 0 8px 20px rgba(0,0,0,0.1); }
+        .stat-title { color: #6c757d; font-size: 0.9rem; margin-bottom: 10px; }
+        .stat-value { font-size: 1.8rem; font-weight: bold; color: #333; }
+        .stat-icon { font-size: 2.5rem; opacity: 0.1; position: absolute; right: 20px; top: 20px; }
+
+        .chart-wrapper {
+            background: white; border-radius: 12px; padding: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 30px;
+        }
+        .chart-box { height: 400px; width: 100%; }
+
+        .filter-bar {
+            background: white; padding: 15px; border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px;
+            display: flex; gap: 10px; align-items: center;
+        }
+        .date-input { width: 150px; }
+
+        /* --- 表格与列表 --- */
+        .custom-table {
+            background: white; border-radius: 12px; overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        .table thead { background: #f8f9fa; }
+        .table th {
+            border: none; padding: 15px; font-weight: 600;
+            color: #666; font-size: 0.9rem; cursor: pointer; user-select: none;
+        }
+        .table td { border-bottom: 1px solid #eee; padding: 15px; vertical-align: middle; font-size: 0.95rem; }
+
+        .avatar-sm { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; border: 1px solid #eee; margin-right: 10px; }
+        .product-thumb { width: 50px; height: 50px; border-radius: 6px; object-fit: cover; border: 1px solid #eee; margin-right: 10px; }
+
+        /* --- 状态标签 --- */
+        .status-badge { font-size: 0.8rem; padding: 4px 10px; border-radius: 20px; font-weight: 600; }
+        .status-paid { background-color: #e0f2fe; color: #0284c7; }
+        .status-shipped { background-color: #dcfce7; color: #16a34a; }
+        .status-return { background-color: #fee2e2; color: #dc2626; }
+        .status-done { background-color: #f3f4f6; color: #6b7280; }
+
+        /* --- 上传组件 --- */
+        .upload-box {
+            border: 2px dashed #ddd; border-radius: 8px; padding: 20px;
+            text-align: center; cursor: pointer; transition: 0.2s; position: relative;
+        }
+        .upload-box:hover { border-color: #3b82f6; background: #f0f7ff; }
+        .preview-img { max-width: 100%; max-height: 200px; border-radius: 8px; display: block; margin: 0 auto; }
+        .upload-input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+
+        /* --- 反馈组件 (Toast & Auth) --- */
+        .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; }
+        .custom-toast {
+            background: white; border-radius: 8px; padding: 15px 20px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1); margin-bottom: 10px;
+            border-left: 4px solid #3b82f6; animation: slideIn 0.3s; min-width: 300px;
+        }
+        .custom-toast.error { border-left-color: #dc3545; }
+        .custom-toast.warning { border-left-color: #ffc107; }
+        @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+
+        .auth-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(33, 37, 41, 0.95); z-index: 10000;
+            display: flex; justify-content: center; align-items: center;
+            backdrop-filter: blur(5px);
+        }
+        .login-card {
+            width: 400px; background: white; border-radius: 20px;
+            padding: 40px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); text-align: center;
+        }
+        .login-input { margin-bottom: 20px; border-radius: 8px; height: 45px; }
+        .btn-login { width: 100%; height: 45px; border-radius: 8px; font-weight: bold; background: #3b82f6; border: none; }
+
+        .sort-icon { font-size: 0.8rem; margin-left: 5px; color: #bbb; }
+        .sort-icon.active { color: #3b82f6; }
+    </style>
+</head>
+<body>
+
+<div id="app" style="display: flex; width: 100%;" v-cloak>
+
+    <!-- 1. 权限遮罩 -->
+    <div v-if="showAuthOverlay" class="auth-overlay">
+        <div class="login-card">
+            <h3 class="mb-4 fw-bold">管理员登录</h3>
+            <form @submit.prevent="handleAdminLogin">
+                <input type="text" class="form-control login-input" v-model="loginForm.username" placeholder="管理员账号">
+                <input type="password" class="form-control login-input" v-model="loginForm.password" placeholder="密码">
+                <button type="submit" class="btn btn-primary btn-login">立即进入</button>
+            </form>
+            <div class="mt-3"><a href="/" class="text-decoration-none text-muted small">返回商城首页</a></div>
+        </div>
+    </div>
+
+    <!-- 2. 全局 Toast 提示 -->
+    <div class="toast-container">
+        <div v-for="t in toasts" :key="t.id" :class="['custom-toast', t.type]">
+            <strong>
+                <span v-if="t.type==='error'">错误</span>
+                <span v-else-if="t.type==='warning'">提示</span>
+                <span v-else>成功</span>
+            </strong>: {{ t.msg }}
+        </div>
+    </div>
+
+    <!-- 3. 左侧侧边栏 -->
+    <div class="sidebar">
+        <a href="/shop.html" class="sidebar-brand"><i class="bi bi-box-seam-fill me-2"></i>MonkeyAdmin</a>
+        <nav class="nav flex-column">
+            <a class="nav-link" :class="{active: currentTab === 'dashboard'}" @click="switchTab('dashboard')">
+                <i class="bi bi-speedometer2"></i> 数据看板
+            </a>
+            <a class="nav-link" :class="{active: currentTab === 'product'}" @click="switchTab('product')">
+                <i class="bi bi-grid"></i> 商品管理
+            </a>
+            <a class="nav-link" :class="{active: currentTab === 'order'}" @click="switchTab('order')">
+                <i class="bi bi-receipt"></i> 订单管理
+            </a>
+            <div class="mt-auto">
+                <a class="nav-link text-danger" @click="logout"><i class="bi bi-box-arrow-right"></i> 退出登录</a>
+            </div>
+        </nav>
+    </div>
+
+    <!-- 4. 右侧主内容区域 -->
+    <div class="main-content">
+
+        <!-- Tab 1: 数据看板 -->
+        <div v-show="currentTab === 'dashboard'">
+            <div class="content-header">
+                <h3>数据概览</h3>
+                <button class="btn btn-light rounded-pill" @click="fetchStats"><i class="bi bi-arrow-clockwise"></i> 刷新</button>
+            </div>
+
+            <!-- 统计卡片 -->
+            <div class="row g-4 mb-4">
+                <div class="col-md-3">
+                    <div class="stat-card position-relative">
+                        <div class="stat-title">历史总成交 (GMV)</div>
+                        <div class="stat-value text-primary">¥{{ stats.totalGmv }}</div>
+                        <i class="bi bi-currency-yen stat-icon text-primary"></i>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat-card position-relative">
+                        <div class="stat-title">历史订单总量</div>
+                        <div class="stat-value text-success">{{ stats.totalOrders }}</div>
+                        <i class="bi bi-bag-check stat-icon text-success"></i>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat-card position-relative">
+                        <div class="stat-title">历史总访问量</div>
+                        <div class="stat-value text-info">{{ stats.totalVisits }}</div>
+                        <i class="bi bi-people stat-icon text-info"></i>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat-card position-relative">
+                        <div class="stat-title">退货率</div>
+                        <div class="stat-value text-danger">{{ stats.returnRate }}%</div>
+                        <i class="bi bi-arrow-counterclockwise stat-icon text-danger"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 筛选工具栏 -->
+            <div class="filter-bar">
+                <span class="fw-bold text-secondary me-2"><i class="bi bi-funnel"></i> 统计范围:</span>
+                <div class="btn-group me-3">
+                    <button class="btn btn-sm btn-outline-primary" :class="{active: rangeType==='7d'}" @click="setRange('7d')">近7天</button>
+                    <button class="btn btn-sm btn-outline-primary" :class="{active: rangeType==='30d'}" @click="setRange('30d')">近30天</button>
+                    <button class="btn btn-sm btn-outline-primary" :class="{active: rangeType==='1y'}" @click="setRange('1y')">近1年</button>
+                </div>
+                <div class="d-flex align-items-center gap-2 border-start ps-3">
+                    <span class="small text-muted">自定义:</span>
+                    <input type="date" class="form-control form-control-sm date-input" v-model="customStart">
+                    <span class="text-muted">-</span>
+                    <input type="date" class="form-control form-control-sm date-input" v-model="customEnd">
+                    <button class="btn btn-sm btn-primary" @click="setRange('custom')">查询</button>
+                </div>
+            </div>
+
+            <!-- ECharts 图表 -->
+            <div class="row">
+                <div class="col-md-8">
+                    <div class="chart-wrapper">
+                        <h5 class="fw-bold mb-3">趋势分析 (双轴)</h5>
+                        <div id="trendChart" class="chart-box"></div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="chart-wrapper">
+                        <h5 class="fw-bold mb-3">销售额统计</h5>
+                        <div id="barChart" class="chart-box"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 2: 商品管理 -->
+        <div v-show="currentTab === 'product'">
+            <div class="content-header">
+                <h3>商品列表</h3>
+                <button class="btn btn-primary rounded-pill" @click="openModal('add')"><i class="bi bi-plus-lg"></i> 上架新猴子</button>
+            </div>
+            <div class="custom-table">
+                <table class="table table-hover mb-0">
+                    <thead>
+                    <tr>
+                        <th>ID</th><th>图片</th><th>名称</th><th>品种</th><th>价格</th><th>库存</th><th>操作</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr v-for="m in monkeys" :key="m.id">
+                        <td>{{ m.id }}</td>
+                        <td><img :src="m.imageUrl" class="product-thumb" onerror="this.src='/images/default_product.png'"></td>
+                        <td class="fw-bold">{{ m.name }}</td>
+                        <td><span class="badge bg-light text-dark">{{ m.breed }}</span></td>
+                        <td class="text-danger fw-bold">¥{{ m.price }}</td>
+                        <td><span :class="['badge', m.stock > 5 ? 'bg-success' : 'bg-warning']">{{ m.stock }}</span></td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-primary me-2" @click="openModal('edit', m)">编辑</button>
+                            <button class="btn btn-sm btn-outline-danger" @click="openDeleteModal(m.id, 'product')">下架</button>
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Tab 3: 订单管理 -->
+        <div v-show="currentTab === 'order'">
+            <div class="content-header">
+                <h3>订单管理</h3>
+                <div class="d-flex gap-2">
+                    <div class="input-group" style="width: 300px;">
+                        <span class="input-group-text bg-white border-end-0"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control border-start-0 ps-0" v-model="orderSearch" placeholder="搜订单/买家/商品...">
+                    </div>
+                    <button class="btn btn-light rounded-pill" @click="fetchOrders"><i class="bi bi-arrow-clockwise"></i></button>
+                </div>
+            </div>
+
+            <div class="custom-table">
+                <table class="table table-hover mb-0">
+                    <thead>
+                    <tr>
+                        <th @click="sortOrders('createTime')">订单号/时间 <i :class="getSortIcon('createTime')"></i></th>
+                        <th @click="sortOrders('buyerName')">买家信息 <i :class="getSortIcon('buyerName')"></i></th>
+                        <th @click="sortOrders('productName')">商品信息 <i :class="getSortIcon('productName')"></i></th>
+                        <th>收货信息</th>
+                        <th @click="sortOrders('status')">状态/发货时间 <i :class="getSortIcon('status')"></i></th>
+                        <th>操作</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr v-for="o in filteredOrders" :key="o.id">
+                        <td>
+                            <div class="fw-bold small">{{ o.orderNo }}</div>
+                            <div class="text-muted small">{{ formatDate(o.createTime) }}</div>
+                        </td>
+                        <td>
+                            <div class="d-flex align-items-center">
+                                <img :src="o.buyerAvatar || '/images/default_avatar.png'" class="avatar-sm" onerror="this.src='/images/default_avatar.png'">
+                                <span class="fw-bold text-dark">{{ o.buyerName }}</span>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="d-flex align-items-center">
+                                <img :src="o.productImage" class="product-thumb" onerror="this.src='/images/default_product.png'">
+                                <div><div class="fw-bold">{{ o.productName }}</div><div class="text-danger small">¥{{ o.price }}</div></div>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="fw-bold">{{ o.receiverName }} <span class="fw-normal text-muted">{{ o.receiverPhone }}</span></div>
+                            <div class="small text-muted text-truncate" style="max-width: 200px;" :title="o.addressSnapshot">{{ o.addressSnapshot }}</div>
+                        </td>
+                        <td>
+                            <div class="mb-1"><span :class="['status-badge', getStatusClass(o.status)]">{{ o.status }}</span></div>
+                            <div v-if="o.shippingTime" class="text-muted small" style="font-size: 0.75rem;"><i class="bi bi-truck"></i> {{ formatDate(o.shippingTime) }}</div>
+                        </td>
+                        <td>
+                            <!-- 订单操作按钮组 -->
+                            <button v-if="o.status === '已支付'" class="btn btn-sm btn-primary me-1" @click="openActionModal(o.id, 'ship', '确认发货？')">发货</button>
+                            <button v-if="o.status === '申请退货'" class="btn btn-sm btn-warning text-white me-1" @click="openActionModal(o.id, 'approve_return', '同意用户的退货申请？')">同意退货</button>
+                            <button v-if="o.status === '退货中'" class="btn btn-sm btn-success me-1" @click="openActionModal(o.id, 'confirm_return', '确认收到退货？库存将+1')">收货退款</button>
+                            <button class="btn btn-sm btn-outline-danger" @click="openDeleteModal(o.id, 'order')"><i class="bi bi-trash"></i></button>
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+                <div v-if="filteredOrders.length === 0" class="text-center py-5 text-muted">暂无匹配数据</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. 模态框 (Modals) - 已展开便于阅读 -->
+    <!-- 商品编辑/新增模态框 -->
+    <div class="modal fade" id="productModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">{{ modalMode === 'add' ? '上架新商品' : '编辑商品' }}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <label class="form-label">图片</label>
+                            <div class="upload-box">
+                                <img :src="form.imageUrl || '/images/default_product.png'" class="preview-img">
+                                <div class="mt-2 text-muted small" v-if="!form.imageUrl">点击上传</div>
+                                <input type="file" class="upload-input" @change="uploadProductImage" accept="image/*">
+                            </div>
+                        </div>
+                        <div class="col-md-8">
+                            <div class="row g-3">
+                                <div class="col-md-6"><label class="form-label">名称</label><input type="text" class="form-control" v-model="form.name"></div>
+                                <div class="col-md-6"><label class="form-label">品种</label><input type="text" class="form-control" v-model="form.breed"></div>
+                                <div class="col-md-6"><label class="form-label">价格</label><input type="number" class="form-control" v-model="form.price"></div>
+                                <div class="col-md-6"><label class="form-label">库存</label><input type="number" class="form-control" v-model="form.stock"></div>
+                                <div class="col-12"><label class="form-label">描述</label><textarea class="form-control" rows="4" v-model="form.description"></textarea></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" @click="saveProduct">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 删除确认模态框 -->
+    <div class="modal fade" id="deleteModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content text-center p-3">
+                <div class="modal-body">
+                    <i class="bi bi-exclamation-circle text-danger display-4 mb-3 d-block"></i>
+                    <h5 class="fw-bold">确认{{ deleteType === 'product' ? '下架' : '删除' }}？</h5>
+                    <p class="text-muted small">操作后无法恢复</p>
+                    <div class="d-flex justify-content-center gap-2 mt-4">
+                        <button class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">取消</button>
+                        <button class="btn btn-danger rounded-pill px-4" @click="confirmDelete">确认</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 通用操作确认模态框 -->
+    <div class="modal fade" id="actionModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content text-center p-3">
+                <div class="modal-body">
+                    <i class="bi bi-question-circle text-primary display-4 mb-3 d-block"></i>
+                    <h5 class="fw-bold mb-2">请确认</h5>
+                    <p class="text-muted small">{{ actionText }}</p>
+                    <div class="d-flex justify-content-center gap-2 mt-4">
+                        <button class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">取消</button>
+                        <button class="btn btn-primary rounded-pill px-4" @click="confirmAction">确定</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+<script>
+    const { createApp } = Vue;
+
+    createApp({
+        data() {
+            return {
+                showAuthOverlay: true,
+                loginForm: { username: '', password: '' },
+                currentTab: 'dashboard',
+
+                // 数据源
+                monkeys: [],
+                orders: [],
+                stats: {},
+                toasts: [],
+
+                // 表单与模态框状态
+                modalMode: 'add',
+                form: { id: null, name: '', breed: '', price: 0, stock: 10, description: '', imageUrl: '' },
+                productModal: null,
+                deleteModal: null,
+                actionModal: null,
+
+                // 操作暂存 ID
+                pendingDeleteId: null,
+                deleteType: 'product',
+                currentActionId: null,
+                currentActionType: '',
+                actionText: '',
+
+                // 搜索与排序
+                orderSearch: '',
+                sortKey: '',
+                sortAsc: false,
+
+                // 图表相关
+                rangeType: '7d',
+                customStart: '',
+                customEnd: '',
+                chartInstance: null,
+                barInstance: null
+            }
+        },
+        computed: {
+            // 前端过滤与排序订单逻辑
+            filteredOrders() {
+                let result = this.orders;
+                // 1. 搜索
+                if (this.orderSearch) {
+                    const lower = this.orderSearch.toLowerCase();
+                    result = result.filter(o =>
+                        (o.orderNo && o.orderNo.toLowerCase().includes(lower)) ||
+                        (o.buyerName && o.buyerName.toLowerCase().includes(lower)) ||
+                        (o.productName && o.productName.toLowerCase().includes(lower)) ||
+                        (o.price && o.price.toString().includes(lower)) ||
+                        (o.createTime && o.createTime.includes(lower))
+                    );
+                }
+                // 2. 排序
+                if (this.sortKey) {
+                    result.sort((a, b) => {
+                        let valA = a[this.sortKey];
+                        let valB = b[this.sortKey];
+                        if (typeof valA === 'string') valA = valA.toLowerCase();
+                        if (typeof valB === 'string') valB = valB.toLowerCase();
+                        if (valA < valB) return this.sortAsc ? -1 : 1;
+                        if (valA > valB) return this.sortAsc ? 1 : -1;
+                        return 0;
+                    });
+                }
+                return result;
+            }
+        },
+        async mounted() {
+            await this.checkPermission();
+            this.productModal = new bootstrap.Modal(document.getElementById('productModal'));
+            this.deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+            this.actionModal = new bootstrap.Modal(document.getElementById('actionModal'));
+
+            // 窗口调整时重绘图表
+            window.addEventListener('resize', () => {
+                if(this.chartInstance) this.chartInstance.resize();
+                if(this.barInstance) this.barInstance.resize();
+            });
+        },
+        methods: {
+            showToast(msg, type='success') {
+                const id = Date.now();
+                this.toasts.push({id, msg, type});
+                setTimeout(() => this.toasts = this.toasts.filter(t => t.id !== id), 3000);
+            },
+
+            switchTab(tab) {
+                this.currentTab = tab;
+                if (tab === 'product') this.fetchMonkeys();
+                else if (tab === 'order') this.fetchOrders();
+                else if (tab === 'dashboard') this.$nextTick(() => this.fetchStats());
+            },
+
+            // --- 核心业务：数据看板 ---
+            setRange(type) {
+                this.rangeType = type;
+                if (type === 'custom') {
+                    const d = new Date();
+                    const year = d.getFullYear();
+                    const month = (d.getMonth() + 1).toString().padStart(2, '0');
+                    const day = d.getDate().toString().padStart(2, '0');
+                    const today = `${year}-${month}-${day}`;
+                    if (!this.customStart || !this.customEnd) {
+                        this.showToast("请选择日期范围", 'error'); return;
+                    }
+                    if (this.customStart > today || this.customEnd > today) { this.showToast("不能选择未来日期", 'error'); return; }
+                    if (this.customStart > this.customEnd) { this.showToast("开始日期不能晚于结束日期", 'error'); return; }
+                    this.fetchStats(this.customStart, this.customEnd);
+                } else {
+                    // 快捷按钮逻辑保持不变
+                    const end = new Date();
+                    const start = new Date();
+                    if (type === '7d') start.setDate(end.getDate() - 6);
+                    if (type === '30d') start.setDate(end.getDate() - 29);
+                    if (type === '1y') start.setFullYear(end.getFullYear() - 1);
+                    // 这里也要用本地时间格式化，防止快捷按钮也跨天出问题
+                    const formatDate = (date) => {
+                        const y = date.getFullYear();
+                        const m = (date.getMonth() + 1).toString().padStart(2, '0');
+                        const d = date.getDate().toString().padStart(2, '0');
+                        return `${y}-${m}-${d}`;
+                    };
+                    this.fetchStats(formatDate(start), formatDate(end));
+                }
+            },
+
+            async fetchStats(start = null, end = null) {
+                let url = '/api/stats/data';
+                if (start && end) url += `?start=${start}&end=${end}`;
+                try {
+                    const res = await fetch(url);
+                    this.stats = await res.json();
+                    this.initCharts();
+                } catch (e) {
+                    console.error("获取统计失败");
+                }
+            },
+
+            initCharts() {
+                if (this.chartInstance) this.chartInstance.dispose();
+                this.chartInstance = echarts.init(document.getElementById('trendChart'));
+                this.chartInstance.setOption({
+                    title: { text: '流量与订单趋势' },
+                    tooltip: { trigger: 'axis' },
+                    legend: { data: ['订单量', '访问量'] },
+                    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+                    xAxis: { type: 'category', data: this.stats.xAxis },
+                    yAxis: [
+                        { type: 'value', name: '订单量', position: 'left', axisLine: { show: true }, axisLabel: { formatter: '{value}' } },
+                        { type: 'value', name: '访问量', position: 'right', axisLine: { show: true }, axisLabel: { formatter: '{value}' }, splitLine: { show: false } }
+                    ],
+                    series: [
+                        { name: '订单量', type: 'line', yAxisIndex: 0, data: this.stats.seriesOrder, smooth: true, itemStyle: { color: '#3b82f6' } },
+                        { name: '访问量', type: 'line', yAxisIndex: 1, data: this.stats.seriesVisit, smooth: true, itemStyle: { color: '#10b981' } }
+                    ]
+                });
+
+                if (this.barInstance) this.barInstance.dispose();
+                this.barInstance = echarts.init(document.getElementById('barChart'));
+                this.barInstance.setOption({
+                    title: { text: '销售额 (GMV)' },
+                    tooltip: { trigger: 'axis' },
+                    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+                    xAxis: { type: 'category', data: this.stats.xAxis },
+                    yAxis: { type: 'value' },
+                    series: [{ name: '销售额', type: 'bar', data: this.stats.seriesGmv, itemStyle: { color: '#8b5cf6' } }]
+                });
+            },
+
+            // --- 核心业务：图片上传与裁剪 ---
+            async uploadProductImage(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('type', 'product');
+
+                try {
+                    const res = await fetch('/api/upload', { method: 'POST', body: formData });
+                    const path = await res.text();
+
+                    if (path.startsWith('error')) {
+                        this.showToast(path.replace('error:', ''), 'error');
+                    } else if (path.startsWith('cropped:')) {
+                        this.form.imageUrl = path.replace('cropped:', '');
+                        this.showToast("图片已自动裁剪适配", 'warning');
+                    } else if (path.startsWith('ok:')) {
+                        this.form.imageUrl = path.replace('ok:', '');
+                        this.showToast("上传成功");
+                    } else {
+                        this.form.imageUrl = path;
+                        this.showToast("上传成功");
+                    }
+                } catch (e) {
+                    this.showToast("上传失败", 'error');
+                }
+            },
+
+            // --- 权限管理 ---
+            async checkPermission() {
+                try {
+                    const res = await fetch('/api/user/me');
+                    const data = await res.json();
+                    if (data.isLogin && data.identity === 'ADMIN') {
+                        this.showAuthOverlay = false;
+                        this.fetchStats();
+                    } else {
+                        this.showAuthOverlay = true;
+                    }
+                } catch (e) {
+                    this.showAuthOverlay = true;
+                }
+            },
+
+            async handleAdminLogin() {
+                if (!this.loginForm.username || !this.loginForm.password) {
+                    this.showToast("请输入账号密码", 'error');
+                    return;
+                }
+                try {
+                    const res = await fetch('/api/auth/login', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(this.loginForm)
+                    });
+                    let result = await res.text();
+                    if (result.trim() === 'ok:ADMIN') {
+                        this.showToast("登录成功");
+                        this.showAuthOverlay = false;
+                        this.fetchStats();
+                        this.loginForm = { username: '', password: '' };
+                    } else {
+                        this.showToast("登录失败或无权限", 'error');
+                    }
+                } catch (e) {
+                    this.showToast("网络错误", 'error');
+                }
+            },
+
+            // --- 商品 CRUD ---
+            async fetchMonkeys() {
+                const res = await fetch('/api/monkeys');
+                this.monkeys = await res.json();
+            },
+
+            openModal(mode, item = null) {
+                this.modalMode = mode;
+                this.form = mode === 'edit' && item
+                    ? { ...item }
+                    : { id: null, name: '', breed: '', price: 0, stock: 10, description: '', imageUrl: '' };
+                this.productModal.show();
+            },
+
+            async saveProduct() {
+                if (!this.form.name || !this.form.price) {
+                    this.showToast("请填写完整", 'error');
+                    return;
+                }
+                const url = this.modalMode === 'add' ? '/api/monkeys/add' : '/api/monkeys/update';
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(this.form)
+                });
+                if (await res.text() === 'ok') {
+                    this.showToast("保存成功");
+                    this.productModal.hide();
+                    this.fetchMonkeys();
+                } else {
+                    this.showToast("保存失败", 'error');
+                }
+            },
+
+            openDeleteModal(id, type) {
+                this.pendingDeleteId = id;
+                this.deleteType = type;
+                this.deleteModal.show();
+            },
+
+            async confirmDelete() {
+                if (!this.pendingDeleteId) return;
+                const url = this.deleteType === 'product'
+                    ? `/api/monkeys/${this.pendingDeleteId}`
+                    : `/api/orders/${this.pendingDeleteId}`;
+
+                const res = await fetch(url, { method: 'DELETE' });
+
+                if (await res.text() === 'ok') {
+                    this.showToast(this.deleteType === 'product' ? "已下架" : "订单已删除");
+                    this.deleteType === 'product' ? this.fetchMonkeys() : this.fetchOrders();
+                    this.deleteModal.hide();
+                } else {
+                    this.showToast("删除失败", 'error');
+                }
+            },
+
+            // --- 订单管理逻辑 ---
+            async fetchOrders() {
+                const res = await fetch('/api/orders/all');
+                this.orders = await res.json();
+            },
+
+            openActionModal(id, type, text) {
+                this.currentActionId = id;
+                this.currentActionType = type;
+                this.actionText = text;
+                this.actionModal.show();
+            },
+
+            async confirmAction() {
+                if(!this.currentActionId) return;
+                let url = '';
+
+                if (this.currentActionType === 'ship') url = `/api/orders/ship/${this.currentActionId}`;
+                else if (this.currentActionType === 'approve_return') url = `/api/orders/return/approve/${this.currentActionId}`;
+                else if (this.currentActionType === 'confirm_return') url = `/api/orders/return/confirm/${this.currentActionId}`;
+
+                const res = await fetch(url, { method: 'POST' });
+                if(await res.text() === 'ok') {
+                    this.showToast("操作成功");
+                    this.fetchOrders();
+                    this.actionModal.hide();
+                } else {
+                    this.showToast("操作失败", 'error');
+                }
+            },
+
+            sortOrders(key) {
+                if (this.sortKey === key) this.sortAsc = !this.sortAsc;
+                else { this.sortKey = key; this.sortAsc = false; }
+            },
+
+            getSortIcon(key) {
+                if (this.sortKey !== key) return 'bi bi-arrow-down-up sort-icon';
+                return this.sortAsc ? 'bi bi-arrow-up sort-icon active' : 'bi bi-arrow-down sort-icon active';
+            },
+
+            getStatusClass(status) {
+                if (status === '已发货') return 'status-shipped';
+                if (status === '已完成') return 'status-done';
+                if (status.includes('退货') || status === '已退款') return 'status-return';
+                return 'status-paid';
+            },
+
+            formatDate(dateStr) {
+                if(!dateStr) return '';
+                return new Date(dateStr).toLocaleString();
+            },
+
+            async logout() {
+                await fetch('/api/user/logout');
+                this.showAuthOverlay = true;
+                this.showToast("已退出登录");
+            }
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>
+
+
+src/main/resources/static/index.html
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monkey Shop | 探索灵长类</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+
+    <style>
+        body, html { height: 100%; margin: 0; font-family: 'Inter', sans-serif; overflow: hidden; }
+        .bg-wrapper { background-image: url('/images/monkey.png'); height: 100%; width: 100%; background-position: center; background-size: cover; position: relative; }
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(90deg, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0) 100%); z-index: 1; }
+
+        .hero-content { position: relative; z-index: 2; height: 100%; display: flex; flex-direction: column; justify-content: center; padding-left: 10%; max-width: 800px; }
+        .brand-tag { color: #60a5fa; font-weight: 700; letter-spacing: 2px; font-size: 1rem; margin-bottom: 1rem; text-transform: uppercase; display: flex; align-items: center; }
+        .main-title { color: #fff; font-size: 4rem; font-weight: 800; line-height: 1.1; margin-bottom: 1.5rem; text-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+        .sub-title { color: rgba(255, 255, 255, 0.85); font-size: 1.2rem; font-weight: 300; margin-bottom: 2.5rem; max-width: 600px; }
+
+        .btn-start { background-color: #3b82f6; color: white; padding: 15px 40px; border-radius: 50px; font-weight: 600; border: none; font-size: 1.1rem; width: fit-content; transition: all 0.3s; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4); }
+        .btn-start:hover { background-color: #2563eb; transform: translateY(-2px); box-shadow: 0 8px 25px rgba(59, 130, 246, 0.6); }
+
+        .custom-modal-dialog { max-width: 420px; }
+        .modal-content { border-radius: 20px; border: none; padding: 40px 30px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); background-color: #fff; }
+        .login-header { text-align: center; margin-bottom: 30px; }
+        .login-title { font-size: 1.8rem; font-weight: 800; color: #333; margin-bottom: 5px; }
+        .login-subtitle { color: #888; font-size: 0.9rem; }
+
+        .input-group { margin-bottom: 20px; border: 1px solid #eee; border-radius: 8px; transition: border-color 0.2s; overflow: hidden; }
+        .input-group:focus-within { border-color: #3b82f6; }
+        .input-group-text { background: #fff; border: none; color: #999; padding-left: 15px; }
+        .form-control { border: none; height: 48px; font-size: 1rem; color: #333; padding-left: 10px; }
+        .form-control:focus { box-shadow: none; }
+
+        .btn-primary-custom { width: 100%; height: 50px; background-color: #3b82f6; border: none; border-radius: 8px; color: white; font-size: 1rem; font-weight: 600; margin-top: 10px; margin-bottom: 20px; }
+        .btn-primary-custom:hover { background-color: #2563eb; }
+
+        .footer-link { text-align: center; font-size: 0.9rem; color: #666; }
+        .footer-link a { color: #3b82f6; text-decoration: none; font-weight: 600; cursor: pointer; }
+
+        .captcha-img { height: 48px; cursor: pointer; border-left: 1px solid #eee; width: 120px; object-fit: cover; }
+        .avatar-preview { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 3px solid #eee; display: block; margin: 0 auto 15px auto; }
+        .upload-btn-wrapper { position: relative; overflow: hidden; display: inline-block; width: 100%; }
+        .upload-btn-wrapper input[type=file] { font-size: 100px; position: absolute; left: 0; top: 0; opacity: 0; cursor: pointer; }
+
+        /* Toast */
+        .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; }
+        .custom-toast { background: white; border-radius: 12px; padding: 15px 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); display: flex; align-items: center; margin-bottom: 10px; animation: slideIn 0.3s ease; border-left: 5px solid #3b82f6; min-width: 300px; }
+        .custom-toast.error { border-left-color: #ef4444; }
+        .custom-toast i { font-size: 1.5rem; margin-right: 15px; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    </style>
+</head>
+<body>
+
+<div id="app" class="bg-wrapper">
+    <div class="overlay"></div>
+
+    <div class="toast-container">
+        <div v-for="toast in toasts" :key="toast.id" :class="['custom-toast', {error: toast.type === 'error'}]">
+            <i :class="toast.type === 'error' ? 'bi bi-x-circle-fill text-danger' : 'bi bi-check-circle-fill text-primary'"></i>
+            <div>
+                <div class="fw-bold">{{ toast.title }}</div>
+                <div class="small text-muted">{{ toast.msg }}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="hero-content">
+        <div class="brand-tag"><i class="bi bi-globe-americas me-2"></i> MonkeyShop Global</div>
+        <div class="main-title">探索世界，<br>从一只灵长类开始。</div>
+        <div class="sub-title">连接全球 100+ 珍稀品种保护区，<br>为您提供安全、合规、智能的交易体验。</div>
+        <button class="btn btn-start" data-bs-toggle="modal" data-bs-target="#loginModal">开启您的体验 <i class="bi bi-arrow-right ms-2"></i></button>
+    </div>
+
+    <!-- 1. 登录弹窗 -->
+    <div class="modal fade" id="loginModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered custom-modal-dialog">
+            <div class="modal-content">
+                <div class="login-header">
+                    <div class="login-title">欢迎回来</div>
+                    <div class="login-subtitle">登录以选购心仪的灵长类伙伴</div>
+                </div>
+
+                <form @submit.prevent="handleLogin">
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-person"></i></span>
+                        <input type="text" class="form-control" v-model="loginForm.username" placeholder="用户名/账号">
+                    </div>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-lock"></i></span>
+                        <input type="password" class="form-control" v-model="loginForm.password" placeholder="密码">
+                    </div>
+                    <button type="submit" class="btn btn-primary-custom">登录系统</button>
+                </form>
+
+                <div class="d-flex justify-content-between px-2 footer-link">
+                    <a @click="switchToReset" class="text-secondary small">忘记密码？</a>
+                    <a @click="switchToRegister">立即注册</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. 注册弹窗 -->
+    <div class="modal fade" id="registerModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered custom-modal-dialog">
+            <div class="modal-content">
+                <div class="login-header mb-3">
+                    <div class="login-title">创建账号</div>
+                    <div class="login-subtitle">上传头像，开启个性化之旅</div>
+                </div>
+
+                <div class="text-center mb-3">
+                    <img :src="previewAvatar || '/images/default_avatar.png'" class="avatar-preview" alt="头像">
+                    <div class="upload-btn-wrapper">
+                        <button class="btn btn-outline-secondary btn-sm rounded-pill px-3">
+                            <i class="bi bi-camera-fill me-1"></i> 点击选择头像
+                        </button>
+                        <input type="file" @change="handleFileChange" accept="image/*">
+                    </div>
+                </div>
+
+                <form @submit.prevent="handleRegister">
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-person-plus"></i></span>
+                        <input type="text" class="form-control" v-model="regForm.username" placeholder="设置用户名">
+                    </div>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-phone"></i></span>
+                        <input type="text" class="form-control" v-model="regForm.phone" placeholder="手机号">
+                    </div>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-key"></i></span>
+                        <input type="password" class="form-control" v-model="regForm.password" placeholder="设置密码">
+                    </div>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-shield-check"></i></span>
+                        <input type="text" class="form-control" v-model="regForm.captcha" placeholder="验证码">
+                        <img :src="captchaUrl" class="captcha-img" @click="refreshCaptcha" title="点击刷新">
+                    </div>
+                    <button type="submit" class="btn btn-primary-custom">立即注册</button>
+                </form>
+                <div class="footer-link">已有账号？ <a @click="switchToLogin">返回登录</a></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. 找回密码弹窗 (修复版) -->
+    <div class="modal fade" id="resetModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered custom-modal-dialog">
+            <div class="modal-content">
+                <div class="login-header">
+                    <div class="login-title">重置密码</div>
+                    <div class="login-subtitle">验证身份以重置</div>
+                </div>
+
+                <form @submit.prevent="handleReset">
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-person"></i></span>
+                        <input type="text" class="form-control" v-model="resetForm.username" placeholder="用户名">
+                    </div>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-phone"></i></span>
+                        <input type="text" class="form-control" v-model="resetForm.phone" placeholder="手机号">
+                    </div>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-key-fill"></i></span>
+                        <input type="password" class="form-control" v-model="resetForm.newPassword" placeholder="新密码">
+                    </div>
+                    <!-- 新增：验证码 -->
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-shield-check"></i></span>
+                        <input type="text" class="form-control" v-model="resetForm.captcha" placeholder="验证码">
+                        <img :src="captchaUrl" class="captcha-img" @click="refreshCaptcha" title="点击刷新">
+                    </div>
+                    <button type="submit" class="btn btn-primary-custom">确认重置</button>
+                </form>
+                <div class="footer-link"><a @click="switchToLogin">返回登录</a></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+<script>
+    const { createApp } = Vue;
+    createApp({
+        data() {
+            return {
+                loginForm: { username: '', password: '' },
+                regForm: { username: '', password: '', phone: '', captcha: '' },
+                regFile: null,
+                previewAvatar: '',
+                captchaUrl: '/api/auth/captcha?t=' + Date.now(),
+
+                // 修复：resetForm 增加 captcha 字段
+                resetForm: { username: '', phone: '', newPassword: '', captcha: '' },
+
+                loginModal: null, registerModal: null, resetModal: null,
+                toasts: []
+            }
+        },
+        mounted() {
+            this.loginModal = new bootstrap.Modal(document.getElementById('loginModal'));
+            this.registerModal = new bootstrap.Modal(document.getElementById('registerModal'));
+            this.resetModal = new bootstrap.Modal(document.getElementById('resetModal'));
+        },
+        methods: {
+            showToast(msg, type = 'success') {
+                const id = Date.now();
+                this.toasts.push({ id, msg, type, title: type === 'error' ? '操作失败' : '操作成功' });
+                setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id); }, 3000);
+            },
+
+            switchToRegister() {
+                this.loginModal.hide(); this.resetModal.hide(); this.registerModal.show();
+                this.refreshCaptcha(); this.regFile = null; this.previewAvatar = '';
+            },
+            switchToLogin() {
+                this.registerModal.hide(); this.resetModal.hide(); this.loginModal.show();
+            },
+            switchToReset() {
+                this.loginModal.hide(); this.resetModal.show();
+                this.refreshCaptcha(); // 打开重置密码也刷新验证码
+            },
+            refreshCaptcha() { this.captchaUrl = '/api/auth/captcha?t=' + Date.now(); },
+
+            handleFileChange(event) {
+                const file = event.target.files[0];
+                if (file) {
+                    this.regFile = file;
+                    this.previewAvatar = URL.createObjectURL(file);
+                }
+            },
+
+            async handleRegister() {
+                if(!this.regForm.username || !this.regForm.password || !this.regForm.phone || !this.regForm.captcha) {
+                    this.showToast("请填写完整信息", 'error'); return;
+                }
+                const formData = new FormData();
+                formData.append('username', this.regForm.username);
+                formData.append('password', this.regForm.password);
+                formData.append('phone', this.regForm.phone);
+                formData.append('captcha', this.regForm.captcha);
+                if (this.regFile) formData.append('avatarFile', this.regFile);
+
+                try {
+                    const res = await fetch('/api/auth/register', { method: 'POST', body: formData });
+                    const result = await res.text();
+                    if (result === 'ok') {
+                        this.showToast("注册成功！正在跳转...", 'success');
+                        setTimeout(() => { this.loginForm.username = this.regForm.username; this.switchToLogin(); }, 1500);
+                    } else {
+                        this.showToast(result, 'error');
+                        this.refreshCaptcha();
+                    }
+                } catch (e) { this.showToast("网络错误", 'error'); }
+            },
+
+            async handleLogin() {
+                if(!this.loginForm.username || !this.loginForm.password) {
+                    this.showToast("请输入账号和密码", 'error'); return;
+                }
+                try {
+                    const res = await fetch('/api/auth/login', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(this.loginForm)
+                    });
+                    let result = await res.text();
+                    result = result.trim();
+                    if (result.startsWith('ok')) {
+                        const role = result.split(':')[1];
+                        if (role === 'ADMIN') {
+                            this.showToast("欢迎管理员！即将进入后台...", 'success');
+                            setTimeout(() => window.location.href = '/admin.html', 1500);
+                        } else {
+                            this.showToast("登录成功！即将进入商城...", 'success');
+                            setTimeout(() => window.location.href = '/shop.html', 1500);
+                        }
+                    } else { this.showToast(result, 'error'); }
+                } catch (e) { this.showToast("服务器连接失败", 'error'); }
+            },
+
+            //  重置密码逻辑
+            async handleReset() {
+                // 1. 检查 resetForm 而不是 loginForm
+                if(!this.resetForm.username || !this.resetForm.phone || !this.resetForm.newPassword || !this.resetForm.captcha) {
+                    this.showToast("请填写完整信息", 'error'); return;
+                }
+                try {
+                    // 2. 调用正确的接口 /reset-password
+                    const res = await fetch('/api/auth/reset-password', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(this.resetForm)
+                    });
+                    const result = await res.text();
+                    if (result === 'ok') {
+                        this.showToast("重置成功！请登录", 'success');
+                        setTimeout(() => this.switchToLogin(), 1500);
+                    } else {
+                        this.showToast(result, 'error');
+                        this.refreshCaptcha();
+                    }
+                } catch (e) { this.showToast("服务器错误", 'error'); }
+            }
+        }
+    }).mount('#app');
+</script>
+
+</body>
+</html>
+
+
+src/main/resources/static/orders.html
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>我的订单 | Monkey Shop</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #f8f9fa; font-family: sans-serif; padding-top: 80px; }
+        .navbar-custom { background: white; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        .order-card { border: none; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); margin-bottom: 20px; overflow: hidden; transition: 0.2s; }
+        .order-card:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.08); }
+        .order-header { background-color: #fff; border-bottom: 1px solid #f0f0f0; padding: 15px 20px; font-size: 0.9rem; color: #666; display: flex; justify-content: space-between; align-items: center; }
+        .order-body { padding: 20px; }
+        .product-img { width: 80px; height: 80px; border-radius: 8px; object-fit: cover; border: 1px solid #eee; }
+
+        /* 状态徽章 */
+        .status-badge { font-size: 0.8rem; padding: 5px 12px; border-radius: 20px; font-weight: 600; }
+        .status-paid { background-color: #e0f2fe; color: #0284c7; }
+        .status-shipped { background-color: #dcfce7; color: #16a34a; }
+        .status-done { background-color: #f3f4f6; color: #6b7280; }
+        .status-return { background-color: #fee2e2; color: #dc2626; } /* 退货相关 */
+
+        /* Toast */
+        .toast-container { position: fixed; top: 100px; right: 20px; z-index: 9999; }
+        .custom-toast { background: white; border-radius: 12px; padding: 15px 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); display: flex; align-items: center; margin-bottom: 10px; animation: slideIn 0.3s ease; border-left: 5px solid #3b82f6; }
+        .custom-toast.error { border-left-color: #ef4444; }
+        .custom-toast i { font-size: 1.2rem; margin-right: 10px; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    </style>
+</head>
+<body>
+
+<div id="app">
+
+    <div class="toast-container">
+        <div v-for="toast in toasts" :key="toast.id" :class="['custom-toast', {error: toast.type === 'error'}]">
+            <i :class="toast.type === 'error' ? 'bi bi-x-circle-fill text-danger' : 'bi bi-check-circle-fill text-primary'"></i>
+            <div>
+                <div class="fw-bold">{{ toast.title }}</div>
+                <div class="small text-muted">{{ toast.msg }}</div>
+            </div>
+        </div>
+    </div>
+
+    <nav class="navbar navbar-expand-lg navbar-custom fixed-top">
+        <div class="container">
+            <a class="navbar-brand fw-bold text-primary" href="/shop.html"><i class="bi bi-box-seam-fill me-2"></i>MonkeyShop</a>
+            <div class="d-flex align-items-center">
+                <a href="/shop.html" class="btn btn-outline-secondary btn-sm rounded-pill"><i class="bi bi-arrow-left me-1"></i> 继续购物</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container py-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h4 class="fw-bold mb-0">我的订单</h4>
+            <button class="btn btn-light rounded-pill btn-sm" @click="fetchOrders"><i class="bi bi-arrow-clockwise"></i> 刷新状态</button>
+        </div>
+
+        <div v-if="orders.length === 0" class="text-center py-5 text-muted">
+            <i class="bi bi-cart-x display-1"></i>
+            <p class="mt-3">您还没有订单，快去选购吧！</p>
+        </div>
+
+        <div v-for="order in orders" :key="order.id" class="card order-card">
+            <div class="order-header">
+                <div>
+                    <span class="me-3 fw-bold text-dark">订单号：{{ order.orderNo }}</span>
+                    <span class="text-muted small">{{ formatDate(order.createTime) }}</span>
+                </div>
+                <span :class="['status-badge', getStatusClass(order.status)]">{{ order.status }}</span>
+            </div>
+            <div class="order-body">
+                <div class="row align-items-center">
+                    <div class="col-md-2">
+                        <img :src="order.productImage" class="product-img" onerror="this.onerror=null;this.src='/images/default_product.png'">
+                    </div>
+                    <div class="col-md-4">
+                        <h6 class="fw-bold mb-1">{{ order.productName }}</h6>
+                        <div class="text-muted small text-truncate">{{ order.description }}</div>
+                        <div class="text-danger fw-bold mt-1">¥{{ order.price }}</div>
+                    </div>
+                    <div class="col-md-4 border-start ps-md-4 mt-3 mt-md-0">
+                        <div class="small text-muted mb-1">收货信息</div>
+                        <div class="fw-bold">{{ order.receiverName }} <span class="fw-normal ms-2">{{ order.receiverPhone }}</span></div>
+                        <div class="small text-secondary">{{ order.addressSnapshot }}</div>
+                    </div>
+
+                    <div class="col-md-2 text-end mt-3 mt-md-0">
+                        <div v-if="order.shippingTime" class="text-muted small mb-2" style="font-size: 0.75rem;">
+                            发货于: <br>{{ formatDate(order.shippingTime) }}
+                        </div>
+
+                        <!-- 按钮组 -->
+                        <button v-if="order.status === '已发货'"
+                                class="btn btn-primary btn-sm rounded-pill px-3 w-100 mb-2"
+                                @click="openActionModal(order.id, 'receive', '确认收到商品了吗？')">
+                            确认收货
+                        </button>
+
+                        <button v-if="order.status === '已完成'"
+                                class="btn btn-outline-danger btn-sm rounded-pill px-3 w-100"
+                                @click="openActionModal(order.id, 'return_apply', '申请退货？需等待商家审核')">
+                            申请退货
+                        </button>
+
+                        <button v-if="order.status === '待退货发货'"
+                                class="btn btn-warning btn-sm rounded-pill px-3 w-100 text-white"
+                                @click="openActionModal(order.id, 'return_ship', '确认已寄出退货商品？')">
+                            我已发货
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 通用操作确认模态框 -->
+    <div class="modal fade" id="actionModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content text-center p-3">
+                <div class="modal-body">
+                    <i class="bi bi-question-circle text-primary display-4 mb-3 d-block"></i>
+                    <h5 class="fw-bold mb-2">请确认</h5>
+                    <p class="text-muted small">{{ actionText }}</p>
+                    <div class="d-flex justify-content-center gap-2 mt-4">
+                        <button class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">取消</button>
+                        <button class="btn btn-primary rounded-pill px-4" @click="confirmAction">确定</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+<script>
+    const { createApp } = Vue;
+    createApp({
+        data() {
+            return {
+                orders: [],
+                toasts: [],
+                actionModal: null,
+                currentActionId: null,
+                currentActionType: '',
+                actionText: ''
+            }
+        },
+        mounted() {
+            this.fetchOrders();
+            this.actionModal = new bootstrap.Modal(document.getElementById('actionModal'));
+        },
+        methods: {
+            showToast(msg, type = 'success') {
+                const id = Date.now();
+                this.toasts.push({ id, msg, type, title: type === 'error' ? '操作失败' : '操作成功' });
+                setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id); }, 3000);
+            },
+
+            async fetchOrders() {
+                try {
+                    const res = await fetch('/api/orders/my');
+                    this.orders = await res.json();
+                } catch (e) { console.error("获取订单失败"); }
+            },
+
+            // 打开通用模态框
+            openActionModal(id, type, text) {
+                this.currentActionId = id;
+                this.currentActionType = type;
+                this.actionText = text;
+                this.actionModal.show();
+            },
+
+            async confirmAction() {
+                if(!this.currentActionId) return;
+
+                let url = '';
+                if (this.currentActionType === 'receive') url = `/api/orders/receive/${this.currentActionId}`;
+                else if (this.currentActionType === 'return_apply') url = `/api/orders/return/apply/${this.currentActionId}`;
+                else if (this.currentActionType === 'return_ship') url = `/api/orders/return/ship/${this.currentActionId}`;
+
+                try {
+                    const res = await fetch(url, { method: 'POST' });
+                    if(await res.text() === 'ok') {
+                        this.showToast("操作成功");
+                        this.fetchOrders();
+                        this.actionModal.hide();
+                    } else {
+                        this.showToast("操作失败", 'error');
+                    }
+                } catch(e) {
+                    this.showToast("网络错误", 'error');
+                }
+            },
+
+            getStatusClass(status) {
+                if (status === '已发货') return 'status-shipped';
+                if (status === '已完成') return 'status-done';
+                if (status.includes('退货') || status === '已退款') return 'status-return';
+                return 'status-paid';
+            },
+
+            formatDate(dateStr) {
+                if(!dateStr) return '';
+                return new Date(dateStr).toLocaleString();
+            }
+        }
+    }).mount('#app');
+</script>
+
+</body>
+</html>
+
+
+src/main/resources/static/profile.html
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>个人中心 | Monkey Shop</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #f8f9fa; font-family: sans-serif; padding-top: 80px; }
+        .navbar-custom { background: white; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+
+        /* 侧边栏 */
+        .sidebar-card { border: none; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        .list-group-item { border: none; padding: 15px 20px; font-weight: 500; color: #555; cursor: pointer; transition: 0.2s; border-left: 4px solid transparent; }
+        .list-group-item:hover { background-color: #f1f5f9; }
+        .list-group-item.active { background-color: #eef2ff; color: #3b82f6; border-left-color: #3b82f6; font-weight: 700; }
+
+        /* 右侧内容 */
+        .content-card { border: none; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); min-height: 500px; }
+        .avatar-lg { width: 100px; height: 100px; border-radius: 50%; object-fit: cover; border: 4px solid #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+
+        /* 地址卡片 */
+        .address-item { border: 1px solid #eee; border-radius: 8px; padding: 15px; margin-bottom: 15px; position: relative; transition: 0.2s; }
+        .address-item:hover { border-color: #b3d1ff; background-color: #fbfdff; }
+        .address-item.default { border-color: #3b82f6; background-color: #eff6ff; }
+        .tag-default { font-size: 12px; background: #3b82f6; color: white; padding: 2px 6px; border-radius: 4px; margin-left: 10px; }
+
+        /* 验证码图片 */
+        .captcha-img { height: 38px; cursor: pointer; border-radius: 4px; border: 1px solid #dee2e6; }
+
+        /* --- 全局 Toast 样式 --- */
+        .toast-container { position: fixed; top: 100px; right: 20px; z-index: 9999; }
+        .custom-toast { background: white; border-radius: 12px; padding: 15px 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); display: flex; align-items: center; margin-bottom: 10px; animation: slideIn 0.3s ease; border-left: 5px solid #3b82f6; }
+        .custom-toast.error { border-left-color: #ef4444; }
+        .custom-toast i { font-size: 1.2rem; margin-right: 10px; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <!-- 1. 全局 Toast 容器 -->
+    <div class="toast-container">
+        <div v-for="toast in toasts" :key="toast.id" :class="['custom-toast', {error: toast.type === 'error'}]">
+            <i :class="toast.type === 'error' ? 'bi bi-x-circle-fill text-danger' : 'bi bi-check-circle-fill text-primary'"></i>
+            <div>
+                <div class="fw-bold">{{ toast.title }}</div>
+                <div class="small text-muted">{{ toast.msg }}</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 导航栏 -->
+    <nav class="navbar navbar-expand-lg navbar-custom fixed-top">
+        <div class="container">
+            <a class="navbar-brand fw-bold text-primary" href="/shop.html"><i class="bi bi-box-seam-fill me-2"></i>MonkeyShop</a>
+            <div class="d-flex align-items-center">
+                <a href="/shop.html" class="btn btn-outline-secondary btn-sm rounded-pill"><i class="bi bi-arrow-left me-1"></i> 返回商城</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container py-4">
+        <div class="row g-4">
+            <!-- 左侧菜单 -->
+            <div class="col-md-3">
+                <div class="card sidebar-card">
+                    <div class="card-body text-center py-4 bg-white">
+                        <img :src="user.avatar || '/images/default_avatar.png'" class="avatar-lg mb-3" onerror="this.src='/images/default_avatar.png'">
+                        <h5 class="fw-bold">{{ user.username }}</h5>
+                        <p class="text-muted small mb-0">{{ user.maskedPhone }}</p>
+                    </div>
+                    <div class="list-group list-group-flush">
+                        <a class="list-group-item" :class="{active: currentTab==='info'}" @click="currentTab='info'">
+                            <i class="bi bi-person-badge me-2"></i> 个人资料
+                        </a>
+                        <a class="list-group-item" :class="{active: currentTab==='address'}" @click="currentTab='address'">
+                            <i class="bi bi-geo-alt me-2"></i> 收货地址
+                        </a>
+                        <a class="list-group-item" :class="{active: currentTab==='security'}" @click="currentTab='security'">
+                            <i class="bi bi-shield-lock me-2"></i> 账号安全
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧内容 -->
+            <div class="col-md-9">
+                <div class="card content-card">
+                    <div class="card-body p-4">
+
+                        <!-- 面板 1: 个人资料 -->
+                        <div v-if="currentTab==='info'">
+                            <h4 class="mb-4 fw-bold">个人资料</h4>
+                            <div class="row align-items-center">
+                                <div class="col-md-3 text-center">
+                                    <img :src="user.avatar || '/images/default_avatar.png'" class="avatar-lg mb-3" onerror="this.src='/images/default_avatar.png'">
+                                    <div class="position-relative overflow-hidden btn btn-sm btn-outline-primary rounded-pill">
+                                        更换头像
+                                        <input type="file" @change="handleAvatarUpload" style="position:absolute; top:0; left:0; opacity:0; width:100%; height:100%; cursor:pointer;">
+                                    </div>
+                                </div>
+                                <div class="col-md-9">
+                                    <div class="mb-3">
+                                        <label class="form-label text-muted">用户名</label>
+                                        <input type="text" class="form-control" :value="user.username" disabled>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label text-muted">绑定手机</label>
+                                        <input type="text" class="form-control" :value="user.maskedPhone" disabled>
+                                        <div class="form-text">如需修改手机号请前往账号安全</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 面板 2: 收货地址 -->
+                        <div v-if="currentTab==='address'">
+                            <div class="d-flex justify-content-between align-items-center mb-4">
+                                <h4 class="fw-bold mb-0">收货地址</h4>
+                                <button class="btn btn-primary btn-sm rounded-pill" @click="showAddAddressModal">
+                                    <i class="bi bi-plus-lg"></i> 新增地址
+                                </button>
+                            </div>
+
+                            <div v-if="addresses.length === 0" class="text-center text-muted py-5">
+                                <i class="bi bi-inbox display-4"></i>
+                                <p class="mt-3">暂无收货地址</p>
+                            </div>
+
+                            <div v-for="addr in addresses" :key="addr.id" :class="['address-item', {default: addr.isDefault}]">
+                                <div class="d-flex justify-content-between">
+                                    <div>
+                                        <h6 class="fw-bold mb-1">
+                                            {{ addr.receiverName }}
+                                            <span class="text-muted fw-normal ms-2">{{ addr.phone }}</span>
+                                            <span v-if="addr.isDefault" class="tag-default">默认</span>
+                                        </h6>
+                                        <p class="mb-0 text-secondary small">{{ addr.detailAddress }}</p>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <button v-if="!addr.isDefault" @click="setAsDefault(addr.id)" class="btn btn-link btn-sm text-decoration-none p-0">设为默认</button>
+                                        <!-- 修改：点击删除不再弹原生 confirm，而是打开模态框 -->
+                                        <button @click="openDeleteModal(addr.id)" class="btn btn-link btn-sm text-danger text-decoration-none p-0"><i class="bi bi-trash"></i></button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 面板 3: 账号安全 -->
+                        <div v-if="currentTab==='security'">
+                            <h4 class="mb-4 fw-bold">修改密码</h4>
+                            <div class="alert alert-light border small text-muted mb-4">
+                                <i class="bi bi-info-circle me-2"></i> 为了您的账号安全，修改密码需要验证绑定的手机号。
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-8">
+                                    <form @submit.prevent="updatePassword">
+                                        <div class="mb-3">
+                                            <label class="form-label">完整手机号</label>
+                                            <input type="text" class="form-control" v-model="security.phone" placeholder="请输入注册时绑定的手机号">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">验证码</label>
+                                            <div class="d-flex gap-2">
+                                                <input type="text" class="form-control" v-model="security.captcha" placeholder="右侧字符">
+                                                <img :src="captchaUrl" class="captcha-img" @click="refreshCaptcha" title="点击刷新">
+                                            </div>
+                                        </div>
+                                        <div class="mb-4">
+                                            <label class="form-label">新密码</label>
+                                            <input type="password" class="form-control" v-model="security.newPassword" placeholder="设置新密码">
+                                        </div>
+                                        <button type="submit" class="btn btn-primary rounded-pill px-4">确认修改</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. 新增地址弹窗 -->
+    <div class="modal fade" id="addressModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header border-0">
+                    <h5 class="modal-title fw-bold">新增收货地址</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">收货人</label>
+                        <input type="text" class="form-control" v-model="newAddr.receiverName">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">手机号</label>
+                        <input type="text" class="form-control" v-model="newAddr.phone">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">详细地址</label>
+                        <textarea class="form-control" v-model="newAddr.detailAddress" rows="3"></textarea>
+                    </div>
+                    <button class="btn btn-primary w-100 rounded-pill" @click="saveAddress">保存地址</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. 删除确认弹窗 (替代 confirm) -->
+    <div class="modal fade" id="deleteModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content text-center p-3">
+                <div class="modal-body">
+                    <i class="bi bi-exclamation-circle text-warning display-4 mb-3 d-block"></i>
+                    <h5 class="fw-bold">确定删除吗？</h5>
+                    <p class="text-muted small">删除后无法恢复</p>
+                    <div class="d-flex justify-content-center gap-2 mt-4">
+                        <button class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">取消</button>
+                        <button class="btn btn-danger rounded-pill px-4" @click="confirmDelete">删除</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+<script>
+    const { createApp } = Vue;
+    createApp({
+        data() {
+            return {
+                currentTab: 'info',
+                user: {},
+                addresses: [],
+                newAddr: { receiverName: '', phone: '', detailAddress: '' },
+                security: { phone: '', captcha: '', newPassword: '' },
+                captchaUrl: '/api/user/captcha?t=' + Date.now(),
+
+                // 弹窗状态
+                addrModal: null,
+                deleteModal: null,
+                pendingDeleteId: null, // 待删除的ID
+                toasts: [] // 消息队列
+            }
+        },
+        mounted() {
+            this.fetchProfile();
+            this.fetchAddresses();
+            this.addrModal = new bootstrap.Modal(document.getElementById('addressModal'));
+            this.deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+        },
+        methods: {
+            // --- Toast 工具 ---
+            showToast(msg, type = 'success') {
+                const id = Date.now();
+                this.toasts.push({ id, msg, type, title: type === 'error' ? '操作失败' : '操作成功' });
+                setTimeout(() => {
+                    this.toasts = this.toasts.filter(t => t.id !== id);
+                }, 3000);
+            },
+
+            async fetchProfile() {
+                const res = await fetch('/api/user/profile');
+                const data = await res.json();
+                if(data.isLogin) this.user = data;
+                else window.location.href = '/shop.html';
+            },
+            async fetchAddresses() {
+                const res = await fetch('/api/address');
+                this.addresses = await res.json();
+            },
+
+            // 上传头像
+            async handleAvatarUpload(e) {
+                const file = e.target.files[0];
+                if(!file) return;
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('type', 'avatar');
+
+                const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
+                const path = await uploadRes.text();
+                if(path.startsWith('error')) {
+                    this.showToast(path, 'error');
+                    return;
+                }
+
+                const updateRes = await fetch('/api/user/update-avatar', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                    body: 'avatarPath=' + encodeURIComponent(path)
+                });
+
+                if(await updateRes.text() === 'ok') {
+                    this.user.avatar = path;
+                    this.showToast("头像修改成功！");
+                }
+            },
+
+            // 地址相关
+            showAddAddressModal() {
+                this.newAddr = { receiverName: '', phone: '', detailAddress: '' };
+                this.addrModal.show();
+            },
+            async saveAddress() {
+                if(!this.newAddr.receiverName || !this.newAddr.phone || !this.newAddr.detailAddress) {
+                    this.showToast("请填写完整", 'error'); return;
+                }
+                const res = await fetch('/api/address', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(this.newAddr)
+                });
+                if(await res.text() === 'ok') {
+                    this.addrModal.hide();
+                    this.showToast("地址保存成功");
+                    this.fetchAddresses();
+                }
+            },
+            async setAsDefault(id) {
+                await fetch(`/api/address/set-default/${id}`, { method: 'POST' });
+                this.showToast("已设为默认地址");
+                this.fetchAddresses();
+            },
+
+            // --- 删除逻辑 (改用模态框) ---
+            openDeleteModal(id) {
+                this.pendingDeleteId = id; // 暂存ID
+                this.deleteModal.show();   // 显示弹窗
+            },
+            async confirmDelete() {
+                if(!this.pendingDeleteId) return;
+                await fetch(`/api/address/${this.pendingDeleteId}`, { method: 'DELETE' });
+                this.deleteModal.hide();
+                this.showToast("地址已删除");
+                this.fetchAddresses();
+            },
+
+            // 安全设置
+            refreshCaptcha() {
+                this.captchaUrl = '/api/user/captcha?t=' + Date.now();
+            },
+            async updatePassword() {
+                if(!this.security.phone || !this.security.captcha || !this.security.newPassword) {
+                    this.showToast("请填写完整信息", 'error'); return;
+                }
+
+                try {
+                    const res = await fetch('/api/user/update-password', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(this.security)
+                    });
+                    const result = await res.text();
+
+                    if(result === 'ok') {
+                        this.showToast("密码修改成功！请重新登录");
+                        setTimeout(() => window.location.href = '/', 1500);
+                    } else {
+                        this.showToast(result, 'error');
+                        this.refreshCaptcha();
+                    }
+                } catch(e) {
+                    this.showToast("网络错误", 'error');
+                }
+            }
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>
+
+
+src/main/resources/static/shop.html
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>商城首页 | Monkey Shop</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body { background-color: #f3f4f6; font-family: 'Inter', sans-serif; padding-top: 80px; }
+
+        /* 导航栏 */
+        .navbar-custom { background-color: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); box-shadow: 0 4px 20px rgba(0,0,0,0.05); padding: 15px 0; }
+        .navbar-brand { font-weight: 800; color: #3b82f6 !important; font-size: 1.5rem; letter-spacing: -0.5px; }
+        .user-profile { display: flex; align-items: center; cursor: pointer; padding: 5px 15px; border-radius: 30px; transition: background 0.2s; }
+        .user-profile:hover { background-color: #f1f5f9; }
+        .user-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid #e2e8f0; margin-right: 10px; }
+        .user-name { font-weight: 600; color: #333; font-size: 0.95rem; }
+
+        /* 轮播图 */
+        .custom-carousel { border-radius: 20px; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.15); margin-bottom: 30px; position: relative; }
+        .carousel-item { height: 400px; }
+        .carousel-item img { width: 100%; height: 100%; object-fit: cover; object-position: center; }
+        .carousel-caption { background: linear-gradient(to top, rgba(0,0,0,0.8), transparent); bottom: 0; left: 0; right: 0; padding-bottom: 40px; padding-top: 80px; }
+
+        /* 搜索工具栏 (新增) */
+        .search-bar { background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); margin-bottom: 30px; }
+        .form-control:focus, .form-select:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
+
+        /* 商品卡片 */
+        .monkey-card { border: none; border-radius: 16px; background: white; transition: all 0.3s ease; overflow: hidden; height: 100%; box-shadow: 0 4px 6px rgba(0,0,0,0.02); }
+        .monkey-card:hover { transform: translateY(-8px); box-shadow: 0 20px 30px rgba(0,0,0,0.08); }
+        .card-img-wrapper { height: 240px; overflow: hidden; position: relative; }
+        .card-img-top { width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s; }
+        .monkey-card:hover .card-img-top { transform: scale(1.05); }
+        .card-body { padding: 20px; }
+        .card-title { font-weight: 700; font-size: 1.1rem; margin-bottom: 5px; }
+        .breed-badge { font-size: 0.75rem; background-color: #eff6ff; color: #3b82f6; padding: 4px 10px; border-radius: 6px; font-weight: 600; margin-left: 8px; vertical-align: middle; }
+        .stock-badge { font-size: 0.75rem; background-color: #f0fdf4; color: #16a34a; padding: 4px 10px; border-radius: 6px; margin-left: 5px; }
+        .stock-badge.out { background-color: #fef2f2; color: #dc2626; }
+        .card-desc { color: #64748b; font-size: 0.9rem; margin-bottom: 20px; line-height: 1.5; height: 40px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+        .price-row { display: flex; justify-content: space-between; align-items: center; margin-top: auto; }
+        .price-tag { color: #ef4444; font-weight: 800; font-size: 1.4rem; }
+        .price-symbol { font-size: 0.9rem; margin-right: 2px; }
+        .btn-buy { background-color: #111; color: white; border: none; padding: 8px 20px; border-radius: 50px; font-weight: 600; font-size: 0.9rem; transition: background 0.2s; }
+        .btn-buy:hover { background-color: #333; }
+        .btn-buy:disabled { background-color: #e5e7eb; color: #9ca3af; cursor: not-allowed; }
+
+        /* Toast */
+        .toast-container { position: fixed; top: 100px; right: 20px; z-index: 9999; }
+        .custom-toast { background: white; border-radius: 12px; padding: 15px 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); display: flex; align-items: center; margin-bottom: 10px; animation: slideIn 0.3s ease; border-left: 5px solid #3b82f6; }
+        .custom-toast.error { border-left-color: #ef4444; }
+        .custom-toast i { font-size: 1.2rem; margin-right: 10px; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        /* 订单确认弹窗 */
+        .order-product-img { width: 80px; height: 80px; border-radius: 8px; object-fit: cover; }
+        .address-option { border: 1px solid #eee; border-radius: 8px; padding: 10px; margin-bottom: 10px; cursor: pointer; transition: 0.2s; position: relative; }
+        .address-option:hover { background-color: #f8f9fa; }
+        .address-option.selected { border-color: #3b82f6; background-color: #eff6ff; }
+        .address-option.selected::after { content: "\F26B"; font-family: "bootstrap-icons"; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #3b82f6; font-size: 1.2rem; }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <div class="toast-container">
+        <div v-for="toast in toasts" :key="toast.id" :class="['custom-toast', {error: toast.type === 'error'}]">
+            <i :class="toast.type === 'error' ? 'bi bi-x-circle-fill text-danger' : 'bi bi-check-circle-fill text-primary'"></i>
+            <div>
+                <div class="fw-bold">{{ toast.title }}</div>
+                <div class="small text-muted">{{ toast.msg }}</div>
+            </div>
+        </div>
+    </div>
+
+    <nav class="navbar navbar-expand-lg navbar-custom fixed-top">
+        <div class="container">
+            <a class="navbar-brand" href="#"><i class="bi bi-box-seam-fill me-2"></i>MonkeyShop</a>
+            <div class="d-flex align-items-center">
+                <div v-if="!user.isLogin"><a href="/" class="btn btn-primary rounded-pill px-4">登录 / 注册</a></div>
+                <div v-else class="dropdown">
+                    <div class="user-profile" data-bs-toggle="dropdown">
+                        <img :src="user.avatar || '/images/default_avatar.png'" class="user-avatar" alt="User" onerror="this.src='/images/default_avatar.png'">
+                        <span class="user-name">{{ user.username }}</span>
+                        <i class="bi bi-chevron-down ms-2 small text-muted"></i>
+                    </div>
+                    <ul class="dropdown-menu dropdown-menu-end shadow border-0 rounded-4 mt-2">
+                        <li><h6 class="dropdown-header">账号管理</h6></li>
+                        <li><a class="dropdown-item" href="/profile.html"><i class="bi bi-person me-2"></i>个人中心</a></li>
+                        <li><a class="dropdown-item" href="/orders.html"><i class="bi bi-bag-check me-2"></i>我的订单</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item text-danger" href="#" @click="logout"><i class="bi bi-box-arrow-right me-2"></i>退出登录</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <!-- 轮播图 -->
+        <div id="mainCarousel" class="carousel slide custom-carousel" data-bs-ride="carousel" data-bs-interval="3000">
+            <div class="carousel-indicators">
+                <button v-for="(banner, index) in banners" :key="index" type="button" data-bs-target="#mainCarousel" :data-bs-slide-to="index" :class="{ active: index === 0 }"></button>
+            </div>
+            <div class="carousel-inner">
+                <div v-for="(banner, index) in banners" :key="index" :class="['carousel-item', { active: index === 0 }]">
+                    <img :src="banner.img" class="d-block w-100" alt="Banner">
+                    <div class="carousel-caption d-none d-md-block">
+                        <h2 class="fw-bold">{{ banner.title }}</h2>
+                        <p class="lead">{{ banner.desc }}</p>
+                    </div>
+                </div>
+            </div>
+            <button class="carousel-control-prev" type="button" data-bs-target="#mainCarousel" data-bs-slide="prev"><span class="carousel-control-prev-icon"></span></button>
+            <button class="carousel-control-next" type="button" data-bs-target="#mainCarousel" data-bs-slide="next"><span class="carousel-control-next-icon"></span></button>
+        </div>
+
+        <!-- 搜索与筛选工具栏 (新增) -->
+        <div class="search-bar">
+            <div class="row g-3 align-items-center">
+                <div class="col-md-4">
+                    <div class="input-group">
+                        <span class="input-group-text bg-light border-end-0"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control border-start-0" v-model="filters.keyword" placeholder="搜索商品名称或品种...">
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="input-group">
+                        <span class="input-group-text bg-light">¥</span>
+                        <input type="number" class="form-control" v-model="filters.minPrice" placeholder="最低价">
+                        <span class="input-group-text bg-light">-</span>
+                        <input type="number" class="form-control" v-model="filters.maxPrice" placeholder="最高价">
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="form-check form-switch pt-2">
+                        <input class="form-check-input" type="checkbox" id="stockCheck" v-model="filters.inStockOnly">
+                        <label class="form-check-label" for="stockCheck">仅看有货</label>
+                    </div>
+                </div>
+                <div class="col-md-2 text-end">
+                    <button class="btn btn-light w-100" @click="resetFilters"><i class="bi bi-arrow-counterclockwise"></i> 重置</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 商品列表 -->
+        <div class="row g-4 pb-5">
+            <!-- 空状态提示 -->
+            <div v-if="filteredMonkeys.length === 0" class="col-12 text-center py-5">
+                <i class="bi bi-search display-1 text-muted opacity-25"></i>
+                <p class="mt-3 text-muted">没有找到符合条件的商品</p>
+                <button class="btn btn-outline-primary btn-sm rounded-pill mt-2" @click="resetFilters">清除筛选条件</button>
+            </div>
+
+            <!-- 渲染筛选后的列表 -->
+            <div class="col-md-6 col-lg-3" v-for="monkey in filteredMonkeys" :key="monkey.id">
+                <div class="card monkey-card">
+                    <div class="card-img-wrapper">
+                        <img :src="monkey.imageUrl" class="card-img-top" :alt="monkey.name" onerror="this.onerror=null;this.src='/images/default_product.png'">
+                    </div>
+                    <div class="card-body d-flex flex-column">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <h5 class="card-title">{{ monkey.name }}</h5>
+                            <div class="d-flex flex-column align-items-end">
+                                <span class="breed-badge">{{ monkey.breed }}</span>
+                                <span :class="['stock-badge', monkey.stock > 0 ? '' : 'out']">
+                                    {{ monkey.stock > 0 ? '库存: ' + monkey.stock : '已售罄' }}
+                                </span>
+                            </div>
+                        </div>
+                        <p class="card-desc">{{ monkey.description }}</p>
+                        <div class="price-row">
+                            <div class="price-tag"><span class="price-symbol">¥</span>{{ monkey.price }}</div>
+                            <button class="btn btn-buy" @click="openBuyModal(monkey)" :disabled="!monkey.stock || monkey.stock <= 0">
+                                <i class="bi bi-cart-plus me-1"></i> {{ monkey.stock > 0 ? '购买' : '缺货' }}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 订单确认模态框 -->
+    <div class="modal fade" id="buyModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header border-0">
+                    <h5 class="modal-title fw-bold">{{ isAddingAddress ? '添加新地址' : '确认订单' }}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+
+                    <!-- 状态 1: 确认订单界面 -->
+                    <div v-if="!isAddingAddress">
+                        <div class="d-flex align-items-center mb-4 p-3 bg-light rounded-3">
+                            <img :src="currentProduct.imageUrl" class="order-product-img me-3" onerror="this.src='/images/default_product.png'">
+                            <div class="flex-grow-1">
+                                <h6 class="fw-bold mb-1">{{ currentProduct.name }}</h6>
+                                <div class="text-muted small mb-1 text-truncate" style="max-width: 250px;">{{ currentProduct.description }}</div>
+                                <div class="text-danger fw-bold">¥{{ currentProduct.price }}</div>
+                            </div>
+                        </div>
+
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h6 class="fw-bold mb-0">收货地址</h6>
+                            <button class="btn btn-sm btn-outline-primary rounded-pill" @click="isAddingAddress = true">
+                                <i class="bi bi-plus-lg"></i> 新增地址
+                            </button>
+                        </div>
+
+                        <div v-if="addresses.length === 0" class="text-center py-4 text-muted border rounded mb-3 bg-light">
+                            <i class="bi bi-geo-alt display-6 d-block mb-2"></i>
+                            暂无地址，请点击上方新增
+                        </div>
+                        <div v-else class="mb-4" style="max-height: 200px; overflow-y: auto;">
+                            <div v-for="addr in addresses" :key="addr.id"
+                                 :class="['address-option', {selected: selectedAddressId === addr.id}]"
+                                 @click="selectedAddressId = addr.id">
+                                <div class="d-flex justify-content-between">
+                                    <strong>{{ addr.receiverName }}</strong>
+                                    <span>{{ addr.phone }}</span>
+                                </div>
+                                <div class="small text-muted text-truncate">{{ addr.detailAddress }}</div>
+                            </div>
+                        </div>
+
+                        <button class="btn btn-primary w-100 rounded-pill py-2" @click="submitOrder" :disabled="!selectedAddressId">
+                            确认支付 ¥{{ currentProduct.price }}
+                        </button>
+                    </div>
+
+                    <!-- 状态 2: 新增地址界面 -->
+                    <div v-else>
+                        <div class="mb-3">
+                            <label class="form-label small text-muted">收货人姓名</label>
+                            <input type="text" class="form-control" v-model="newAddr.receiverName" placeholder="例如：孙悟空">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small text-muted">手机号码</label>
+                            <input type="text" class="form-control" v-model="newAddr.phone" placeholder="例如：13800000000">
+                        </div>
+                        <div class="mb-4">
+                            <label class="form-label small text-muted">详细地址</label>
+                            <textarea class="form-control" v-model="newAddr.detailAddress" rows="3" placeholder="街道、门牌号等"></textarea>
+                        </div>
+
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-light w-50 rounded-pill" @click="isAddingAddress = false">取消</button>
+                            <button class="btn btn-primary w-50 rounded-pill" @click="saveAddressInModal">保存并使用</button>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+<script>
+    const { createApp } = Vue;
+    createApp({
+        data() {
+            return {
+                monkeys: [],
+                toasts: [],
+                user: { isLogin: false, username: '', avatar: '' },
+                banners: [
+                    { img: '/images/banner/1.jpg', title: '年终灵长类大促', desc: '全场金丝猴、大猩猩限时 8 折起！' },
+                    { img: '/images/banner/2.jpg', title: '新到货：马达加斯加狐猴', desc: '眼神清澈，舞姿优美，适合居家饲养' },
+                    { img: '/images/banner/3.jpg', title: '会员尊享服务', desc: '购买即送全套香蕉护理套餐' }
+                ],
+
+                // 筛选条件 (新增)
+                filters: {
+                    keyword: '',
+                    minPrice: '',
+                    maxPrice: '',
+                    inStockOnly: false
+                },
+
+                buyModal: null,
+                currentProduct: {},
+                addresses: [],
+                selectedAddressId: null,
+                isAddingAddress: false,
+                newAddr: { receiverName: '', phone: '', detailAddress: '' }
+            }
+        },
+        computed: {
+            // --- 核心：前端实时筛选逻辑 ---
+            filteredMonkeys() {
+                return this.monkeys.filter(m => {
+                    // 1. 关键词匹配 (名称 或 品种)
+                    const keyword = this.filters.keyword.toLowerCase().trim();
+                    const matchKeyword = !keyword ||
+                                         (m.name && m.name.toLowerCase().includes(keyword)) ||
+                                         (m.breed && m.breed.toLowerCase().includes(keyword));
+
+                    // 2. 价格区间
+                    const price = m.price;
+                    const min = this.filters.minPrice;
+                    const max = this.filters.maxPrice;
+                    const matchPrice = (min === '' || price >= min) &&
+                                       (max === '' || price <= max);
+
+                    // 3. 库存状态
+                    const matchStock = !this.filters.inStockOnly || (m.stock && m.stock > 0);
+
+                    return matchKeyword && matchPrice && matchStock;
+                });
+            }
+        },
+        mounted() {
+            this.checkUser();
+            this.fetchMonkeys();
+            this.buyModal = new bootstrap.Modal(document.getElementById('buyModal'));
+        },
+        methods: {
+            showToast(msg, type = 'success') {
+                const id = Date.now();
+                this.toasts.push({ id, msg, type, title: type === 'error' ? '操作失败' : '操作成功' });
+                setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id); }, 3000);
+            },
+
+            // 重置筛选
+            resetFilters() {
+                this.filters = { keyword: '', minPrice: '', maxPrice: '', inStockOnly: false };
+            },
+
+            async checkUser() {
+                try {
+                    const res = await fetch('/api/user/me');
+                    const data = await res.json();
+                    if (data.isLogin) this.user = data;
+                } catch (e) { console.error("获取用户失败", e); }
+            },
+            async fetchMonkeys() {
+                try {
+                    const response = await fetch('/api/monkeys');
+                    this.monkeys = await response.json();
+                } catch (error) { console.error('Err:', error); }
+            },
+            async logout() {
+                await fetch('/api/user/logout');
+                window.location.href = '/';
+            },
+
+            async openBuyModal(product) {
+                if (!this.user.isLogin) {
+                    this.showToast("请先登录！", 'error');
+                    setTimeout(() => window.location.href = '/', 1500);
+                    return;
+                }
+                this.currentProduct = product;
+                this.isAddingAddress = false;
+                await this.loadAddresses();
+                this.buyModal.show();
+            },
+
+            async loadAddresses() {
+                const res = await fetch('/api/address');
+                this.addresses = await res.json();
+                const defaultAddr = this.addresses.find(a => a.isDefault === 1);
+                if (defaultAddr) {
+                    this.selectedAddressId = defaultAddr.id;
+                } else if (this.addresses.length > 0) {
+                    this.selectedAddressId = this.addresses[0].id;
+                } else {
+                    this.selectedAddressId = null;
+                }
+            },
+
+            async saveAddressInModal() {
+                if(!this.newAddr.receiverName || !this.newAddr.phone || !this.newAddr.detailAddress) {
+                    this.showToast("请填写完整", 'error'); return;
+                }
+                try {
+                    const res = await fetch('/api/address', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(this.newAddr)
+                    });
+                    if(await res.text() === 'ok') {
+                        this.showToast("地址添加成功");
+                        this.newAddr = { receiverName: '', phone: '', detailAddress: '' };
+                        await this.loadAddresses();
+                        this.isAddingAddress = false;
+                    } else {
+                        this.showToast("添加失败", 'error');
+                    }
+                } catch(e) {
+                    this.showToast("网络错误", 'error');
+                }
+            },
+
+            async submitOrder() {
+                if (!this.selectedAddressId) {
+                    this.showToast("请选择收货地址", 'error'); return;
+                }
+                try {
+                    const res = await fetch('/api/orders/create', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            monkeyId: this.currentProduct.id,
+                            addressId: this.selectedAddressId
+                        })
+                    });
+                    const result = await res.text();
+                    if (result === 'ok') {
+                        this.buyModal.hide();
+                        this.showToast("支付成功！正在跳转...", 'success');
+                        setTimeout(() => window.location.href = '/orders.html', 1500);
+                    } else {
+                        this.showToast(result.replace('error:', ''), 'error');
+                    }
+                } catch (e) {
+                    this.showToast("网络错误", 'error');
+                }
+            }
+        }
+    }).mount('#app');
+</script>
+
+</body>
+</html>
+
+
+src/main/resources/application.properties
+spring.application.name=MonkeyShop
+server.port=8888
+spring.datasource.url=jdbc:mysql://localhost:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=false
+spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
+spring.datasource.username=root
+spring.datasource.password=123456
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=true
+spring.jpa.database-platform=org.hibernate.dialect.MySQLDialect
+spring.servlet.multipart.max-file-size=10MB
+spring.servlet.multipart.max-request-size=10MB
+
+
+pom.xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.0</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.example</groupId>
+    <artifactId>MonkeyShop</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>demo</name>
+    <description>Monkey Shop Demo</description>
+
+    <properties>
+        <!-- 重点：改成 21 或者 17。绝对不能用 24 -->
+        <java.version>21</java.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
+
+
+README.md
+# 🐵 MonkeyShop | 网购猴子平台
+
+> 基于 **Spring Boot 3** + **Vue 3** 的前后端一体化轻量级电商平台。
+>
+> A lightweight full-stack e-commerce platform built with Spring Boot 3 and Vue 3.
+
+![Java](https://img.shields.io/badge/Java-17%2B-orange) ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.0-green) ![Vue](https://img.shields.io/badge/Vue.js-3.0-4FC08D) ![MySQL](https://img.shields.io/badge/MySQL-8.0-blue) ![Bootstrap](https://img.shields.io/badge/Bootstrap-5.3-purple)
+
+## 📖 项目简介 (Introduction)
+
+**Monkey Shop** 是一个模拟灵长类动物交易的电商平台（仅供学习演示）。项目采用前后端一体化架构，后端使用 Spring Boot 3 提供 RESTful API，前端使用原生 HTML 结合 Vue 3 (CDN) 进行渲染。
+
+本项目摒弃了复杂的前端工程化构建（如 Webpack/Vite），回归最纯粹的开发体验，同时在后端实现了企业级的业务逻辑，如**订单快照**、**库存并发控制**、**图片垃圾回收**、**Spring Security 安全认证**、**数据可视化看板**等。
+
+## 🛠 技术栈 (Tech Stack)
+
+### 后端 (Backend)
+*   **核心框架**: Spring Boot 3.2.0
+*   **安全框架**: Spring Security (BCrypt 加密)
+*   **数据库**: MySQL 8.0
+*   **ORM**: Spring Data JPA
+*   **工具**: Maven, Lombok (已移除，采用原生 Getter/Setter)
+*   **定时任务**: Spring Scheduled (用于清理冗余图片)
+
+### 前端 (Frontend)
+*   **框架**: Vue.js 3 (Composition API, CDN引入)
+*   **UI 库**: Bootstrap 5.3
+*   **图表**: ECharts 5.4
+*   **图标**: Bootstrap Icons
+
+## ✨ 核心功能 (Features)
+
+### 👤 用户端 (User)
+*   **账户体系**: 注册/登录 (含图形验证码)、找回密码、个人资料修改、头像上传。
+*   **商品浏览**: 首页轮播图、商品列表、**多维筛选** (关键词/价格区间/库存)、**实时搜索**。
+*   **购物流程**: 商品详情弹窗、**库存检查**、选择收货地址 (支持临时新增)、提交订单。
+*   **订单中心**: 查看历史订单、**发货状态追踪** (含发货时间)、**确认收货**、**申请退货**。
+*   **地址管理**: 多地址增删改查、设置默认地址。
+
+### 🛡️ 管理端 (Admin)
+*   **数据看板**: ECharts 可视化展示 (GMV/订单量/访问量/退货率)、**双轴趋势图**、多时间维度筛选 (7天/30天/1年/自定义)。
+*   **商品管理**: 商品上架/编辑/下架、**图片自动裁剪** (后端居中裁剪适配)、库存管理。
+*   **订单管理**: 订单全览 (含**买家/商品快照**)、**一键发货**、**退货审批** (同意/确认收货)、删除订单 (自动回滚库存)。
+*   **权限控制**: 独立的管理员表、登录拦截、敏感操作鉴权、**原地登录** (Session过期不跳转)。
+
+## 🌟 项目亮点 (Highlights)
+
+1.  **订单快照机制 (Order Snapshot)**
+    *   下单时将商品信息（名称、价格、图片）和收货地址**物理复制**到订单表。即使后续商品涨价、修改或用户删除了地址，历史订单信息依然准确无误。
+
+2.  **智能图片管理 (Smart Image Cleanup)**
+    *   **引用计数**: 删除图片时，自动检查该图片是否被其他商品、用户头像或历史订单快照引用。
+    *   **定时任务**: 每日凌晨自动扫描硬盘，清理数据库中不存在的“孤儿文件”，防止磁盘空间浪费。
+    *   **自动裁剪**: 管理员上传非正方形图片时，后端自动进行**居中裁剪**，保证前端展示整齐。
+
+3.  **高并发库存控制**
+    *   使用数据库原子更新 (`UPDATE ... SET stock = stock - 1 WHERE stock > 0`) 防止超卖。
+
+4.  **无感交互体验**
+    *   全站拒绝原生 `alert/confirm`，封装了全局 **Toast 轻提示** 和 **Bootstrap Modal**。
+    *   管理后台采用**原地登录**机制，Session 过期后无需跳转页面即可重新登录。
+
+## ⚡ 快速开始 (Getting Started)
+
+### 1. 环境准备
+*   JDK 21 或 17（不要用24因为不稳定）
+*   MySQL 8.0
+*   IntelliJ IDEA (推荐)
+
+### 2. 数据库配置
+在 MySQL 中创建数据库 `monkeyshop`，并执行以下 SQL 初始化表结构：
+
+```sql
+CREATE DATABASE monkeyshop;
+USE monkeyshop;
+
+-- 管理员表
+CREATE TABLE admin (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  username VARCHAR(50) NOT NULL UNIQUE,
+  password VARCHAR(100) NOT NULL,
+  nickname VARCHAR(50) DEFAULT '管理员',
+  create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 用户表
+CREATE TABLE user (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  username VARCHAR(50) NOT NULL UNIQUE,
+  password VARCHAR(100) NOT NULL,
+  phone VARCHAR(20),
+  avatar VARCHAR(255),
+  create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 商品表
+CREATE TABLE monkey (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255),
+  breed VARCHAR(255),
+  price DOUBLE,
+  stock INT DEFAULT 10,
+  description VARCHAR(500),
+  image_url VARCHAR(500)
+);
+
+-- 订单表
+CREATE TABLE orders (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  order_no VARCHAR(64) NOT NULL UNIQUE,
+  user_id BIGINT NOT NULL,
+  buyer_name VARCHAR(50),
+  buyer_avatar VARCHAR(255),
+  product_name VARCHAR(255),
+  product_image VARCHAR(255),
+  price DOUBLE,
+  description VARCHAR(500),
+  receiver_name VARCHAR(50),
+  receiver_phone VARCHAR(20),
+  address_snapshot VARCHAR(500),
+  status VARCHAR(20),
+  create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 地址表
+CREATE TABLE address (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  receiver_name VARCHAR(50),
+  phone VARCHAR(20),
+  detail_address VARCHAR(255),
+  is_default TINYINT(1) DEFAULT 0
+);
+
+-- 访问日志表
+CREATE TABLE visit_log (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  visit_time DATETIME,
+  ip_address VARCHAR(50)
+);
+```
+
+### 3. 修改配置
+打开 `src/main/resources/application.properties`，配置你的数据库账号密码：
+
+```properties
+# 端口配置
+server.port=8888
+
+# 数据库连接配置
+spring.datasource.url=jdbc:mysql://localhost:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8
+spring.datasource.username=root
+spring.datasource.password=你的数据库密码
+
+# JPA 配置
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=true
+spring.jpa.database-platform=org.hibernate.dialect.MySQLDialect
+
+# 文件上传限制 (支持大图自动裁剪)
+spring.servlet.multipart.max-file-size=10MB
+spring.servlet.multipart.max-request-size=10MB
+```
+
+### 4. 运行项目
+1.  找到启动类 `src/main/java/com/example/monkey/MonkeyShopApplication.java`。
+2.  运行 `main` 方法启动 Spring Boot。
+3.  后端会自动在项目根目录下创建 `src/main/resources/static/images/` 文件夹用于存储上传的图片（头像/商品图）。
+4.  打开浏览器访问：
+    *   **用户登录首页**: [http://localhost:8888](http://localhost:8081) (端口取决于你的配置)
+    *   **管理员后台**: [http://localhost:8888/admin.html](http://localhost:8081/admin.html) (需先登录管理员账号)
+
+## 📂 目录结构 (Directory Structure)
+
+```text
+src/main/java/com/example/monkey
+├── config          # 配置类
+│   ├── DataInitializer.java   # 启动加载器 (自动创建默认管理员)
+│   ├── SecurityConfig.java    # 安全配置 (BCrypt加密、CSRF禁用)
+│   └── WebConfig.java         # 拦截器注册、本地图片资源映射
+├── controller      # 控制器 (Web层，只负责路由分发，业务移交Service)
+│   ├── AddressController.java # 收货地址管理
+│   ├── AuthController.java    # 登录、注册、找回密码
+│   ├── MonkeyController.java  # 商品管理接口
+│   ├── OrderController.java   # 订单流程接口
+│   ├── StatsController.java   # 数据可视化看板接口
+│   ├── UploadController.java  # 图片上传入口
+│   └── UserController.java    # 个人中心、头像管理、权限检查
+├── entity          # 实体类 (数据库表映射)
+│   ├── Address.java           # 收货地址
+│   ├── Admin.java             # 管理员表
+│   ├── Monkey.java            # 商品表 (含库存)
+│   ├── Order.java             # 订单表 (含商品/买家快照、发货时间)
+│   ├── User.java              # 普通用户表
+│   └── VisitLog.java          # 访问日志表
+├── interceptor     # 拦截器
+│   └── VisitInterceptor.java  # 拦截页面请求，统计真实访问量
+├── repository      # 数据仓库 (Spring Data JPA 接口)
+│   ├── AddressRepository.java
+│   ├── AdminRepository.java
+│   ├── MonkeyRepository.java  # 含库存原子扣减 SQL
+│   ├── OrderRepository.java
+│   ├── UserRepository.java
+│   └── VisitLogRepository.java
+├── service         # 业务逻辑层 (核心业务、事务控制 @Transactional)
+│   ├── CaptchaService.java    # 验证码生成与校验逻辑
+│   ├── FileService.java       # 文件上传、智能裁剪、路径处理
+│   ├── ImageCleanupService.java # 图片垃圾回收 (引用计数检查)
+│   ├── OrderService.java      # 订单流转、库存回滚、快照组装
+│   └── UserService.java       # 用户认证、加密、资料更新
+├── task            # 定时任务
+│   └── ImageTask.java         # 定时扫描硬盘，清理未引用的孤儿图片
+└── util            # 工具类
+    └── CaptchaUtil.java       # 验证码绘图工具
+```
+
+## 🤝 贡献与反馈 (Contribution)
+本项目为全栈开发学习演示作品，涵盖了电商系统的核心闭环逻辑。
+欢迎提交 Issue 或 Pull Request!

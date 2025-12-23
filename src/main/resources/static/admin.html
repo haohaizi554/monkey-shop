@@ -532,18 +532,32 @@
             setRange(type) {
                 this.rangeType = type;
                 if (type === 'custom') {
-                    const today = new Date().toISOString().split('T')[0];
-                    if (!this.customStart || !this.customEnd) { this.showToast("请选择日期范围", 'error'); return; }
+                    const d = new Date();
+                    const year = d.getFullYear();
+                    const month = (d.getMonth() + 1).toString().padStart(2, '0');
+                    const day = d.getDate().toString().padStart(2, '0');
+                    const today = `${year}-${month}-${day}`;
+                    if (!this.customStart || !this.customEnd) {
+                        this.showToast("请选择日期范围", 'error'); return;
+                    }
                     if (this.customStart > today || this.customEnd > today) { this.showToast("不能选择未来日期", 'error'); return; }
                     if (this.customStart > this.customEnd) { this.showToast("开始日期不能晚于结束日期", 'error'); return; }
                     this.fetchStats(this.customStart, this.customEnd);
                 } else {
+                    // 快捷按钮逻辑保持不变
                     const end = new Date();
                     const start = new Date();
                     if (type === '7d') start.setDate(end.getDate() - 6);
                     if (type === '30d') start.setDate(end.getDate() - 29);
                     if (type === '1y') start.setFullYear(end.getFullYear() - 1);
-                    this.fetchStats(start.toISOString().split('T')[0], end.toISOString().split('T')[0]);
+                    // 这里也要用本地时间格式化，防止快捷按钮也跨天出问题
+                    const formatDate = (date) => {
+                        const y = date.getFullYear();
+                        const m = (date.getMonth() + 1).toString().padStart(2, '0');
+                        const d = date.getDate().toString().padStart(2, '0');
+                        return `${y}-${m}-${d}`;
+                    };
+                    this.fetchStats(formatDate(start), formatDate(end));
                 }
             },
 
@@ -749,7 +763,6 @@
                 }
             },
 
-            // --- 辅助工具 ---
             sortOrders(key) {
                 if (this.sortKey === key) this.sortAsc = !this.sortAsc;
                 else { this.sortKey = key; this.sortAsc = false; }
