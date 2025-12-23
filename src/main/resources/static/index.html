@@ -21,7 +21,6 @@
         .btn-start { background-color: #3b82f6; color: white; padding: 15px 40px; border-radius: 50px; font-weight: 600; border: none; font-size: 1.1rem; width: fit-content; transition: all 0.3s; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4); }
         .btn-start:hover { background-color: #2563eb; transform: translateY(-2px); box-shadow: 0 8px 25px rgba(59, 130, 246, 0.6); }
 
-        /* 弹窗通用样式 */
         .custom-modal-dialog { max-width: 420px; }
         .modal-content { border-radius: 20px; border: none; padding: 40px 30px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); background-color: #fff; }
         .login-header { text-align: center; margin-bottom: 30px; }
@@ -45,7 +44,7 @@
         .upload-btn-wrapper { position: relative; overflow: hidden; display: inline-block; width: 100%; }
         .upload-btn-wrapper input[type=file] { font-size: 100px; position: absolute; left: 0; top: 0; opacity: 0; cursor: pointer; }
 
-        /* --- 全局 Toast 样式 (替代 alert) --- */
+        /* Toast */
         .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; }
         .custom-toast { background: white; border-radius: 12px; padding: 15px 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); display: flex; align-items: center; margin-bottom: 10px; animation: slideIn 0.3s ease; border-left: 5px solid #3b82f6; min-width: 300px; }
         .custom-toast.error { border-left-color: #ef4444; }
@@ -58,7 +57,6 @@
 <div id="app" class="bg-wrapper">
     <div class="overlay"></div>
 
-    <!-- 全局 Toast 容器 -->
     <div class="toast-container">
         <div v-for="toast in toasts" :key="toast.id" :class="['custom-toast', {error: toast.type === 'error'}]">
             <i :class="toast.type === 'error' ? 'bi bi-x-circle-fill text-danger' : 'bi bi-check-circle-fill text-primary'"></i>
@@ -149,7 +147,7 @@
         </div>
     </div>
 
-    <!-- 3. 找回密码弹窗 -->
+    <!-- 3. 找回密码弹窗 (修复版) -->
     <div class="modal fade" id="resetModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered custom-modal-dialog">
             <div class="modal-content">
@@ -171,6 +169,12 @@
                         <span class="input-group-text"><i class="bi bi-key-fill"></i></span>
                         <input type="password" class="form-control" v-model="resetForm.newPassword" placeholder="新密码">
                     </div>
+                    <!-- 新增：验证码 -->
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-shield-check"></i></span>
+                        <input type="text" class="form-control" v-model="resetForm.captcha" placeholder="验证码">
+                        <img :src="captchaUrl" class="captcha-img" @click="refreshCaptcha" title="点击刷新">
+                    </div>
                     <button type="submit" class="btn btn-primary-custom">确认重置</button>
                 </form>
                 <div class="footer-link"><a @click="switchToLogin">返回登录</a></div>
@@ -188,16 +192,16 @@
         data() {
             return {
                 loginForm: { username: '', password: '' },
-
                 regForm: { username: '', password: '', phone: '', captcha: '' },
                 regFile: null,
                 previewAvatar: '',
                 captchaUrl: '/api/auth/captcha?t=' + Date.now(),
 
-                resetForm: { username: '', phone: '', newPassword: '' },
+                // 修复：resetForm 增加 captcha 字段
+                resetForm: { username: '', phone: '', newPassword: '', captcha: '' },
 
                 loginModal: null, registerModal: null, resetModal: null,
-                toasts: [] // 消息队列
+                toasts: []
             }
         },
         mounted() {
@@ -206,25 +210,22 @@
             this.resetModal = new bootstrap.Modal(document.getElementById('resetModal'));
         },
         methods: {
-            // --- 全局 Toast 工具 ---
             showToast(msg, type = 'success') {
                 const id = Date.now();
                 this.toasts.push({ id, msg, type, title: type === 'error' ? '操作失败' : '操作成功' });
-                setTimeout(() => {
-                    this.toasts = this.toasts.filter(t => t.id !== id);
-                }, 3000);
+                setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id); }, 3000);
             },
 
             switchToRegister() {
                 this.loginModal.hide(); this.resetModal.hide(); this.registerModal.show();
-                this.refreshCaptcha();
-                this.regFile = null; this.previewAvatar = '';
+                this.refreshCaptcha(); this.regFile = null; this.previewAvatar = '';
             },
             switchToLogin() {
                 this.registerModal.hide(); this.resetModal.hide(); this.loginModal.show();
             },
             switchToReset() {
                 this.loginModal.hide(); this.resetModal.show();
+                this.refreshCaptcha(); // 打开重置密码也刷新验证码
             },
             refreshCaptcha() { this.captchaUrl = '/api/auth/captcha?t=' + Date.now(); },
 
@@ -236,32 +237,23 @@
                 }
             },
 
-            // 注册
             async handleRegister() {
                 if(!this.regForm.username || !this.regForm.password || !this.regForm.phone || !this.regForm.captcha) {
                     this.showToast("请填写完整信息", 'error'); return;
                 }
-
                 const formData = new FormData();
                 formData.append('username', this.regForm.username);
                 formData.append('password', this.regForm.password);
                 formData.append('phone', this.regForm.phone);
                 formData.append('captcha', this.regForm.captcha);
-
-                if (this.regFile) {
-                    formData.append('avatarFile', this.regFile);
-                }
+                if (this.regFile) formData.append('avatarFile', this.regFile);
 
                 try {
                     const res = await fetch('/api/auth/register', { method: 'POST', body: formData });
                     const result = await res.text();
-
                     if (result === 'ok') {
                         this.showToast("注册成功！正在跳转...", 'success');
-                        setTimeout(() => {
-                            this.loginForm.username = this.regForm.username;
-                            this.switchToLogin();
-                        }, 1500);
+                        setTimeout(() => { this.loginForm.username = this.regForm.username; this.switchToLogin(); }, 1500);
                     } else {
                         this.showToast(result, 'error');
                         this.refreshCaptcha();
@@ -269,7 +261,6 @@
                 } catch (e) { this.showToast("网络错误", 'error'); }
             },
 
-            // 登录 (修复了管理员跳转逻辑)
             async handleLogin() {
                 if(!this.loginForm.username || !this.loginForm.password) {
                     this.showToast("请输入账号和密码", 'error'); return;
@@ -280,8 +271,8 @@
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify(this.loginForm)
                     });
-                    const result = await res.text();
-
+                    let result = await res.text();
+                    result = result.trim();
                     if (result.startsWith('ok')) {
                         const role = result.split(':')[1];
                         if (role === 'ADMIN') {
@@ -291,48 +282,32 @@
                             this.showToast("登录成功！即将进入商城...", 'success');
                             setTimeout(() => window.location.href = '/shop.html', 1500);
                         }
-                    } else {
-                        this.showToast(result, 'error');
-                    }
+                    } else { this.showToast(result, 'error'); }
                 } catch (e) { this.showToast("服务器连接失败", 'error'); }
             },
 
-            // 重置密码
+            //  重置密码逻辑
             async handleReset() {
-                if(!this.loginForm.username || !this.loginForm.password) {
-                    this.showToast("请输入账号和密码", 'error'); return;
+                // 1. 检查 resetForm 而不是 loginForm
+                if(!this.resetForm.username || !this.resetForm.phone || !this.resetForm.newPassword || !this.resetForm.captcha) {
+                    this.showToast("请填写完整信息", 'error'); return;
                 }
                 try {
-                    const res = await fetch('/api/auth/login', {
+                    // 2. 调用正确的接口 /reset-password
+                    const res = await fetch('/api/auth/reset-password', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(this.loginForm)
+                        body: JSON.stringify(this.resetForm)
                     });
-
-                    // 1. 获取文本并去除首尾空格 (关键修复)
-                    let result = await res.text();
-                    result = result.trim();
-
-                    console.log("登录返回结果:", result); // 打开F12看这里输出了什么
-
-                    if (result.startsWith('ok')) {
-                        const role = result.split(':')[1];
-
-                        if (role === 'ADMIN') {
-                            this.showToast("欢迎管理员！即将进入后台...", 'success');
-                            // 延时跳转，加个随机数防止缓存
-                            setTimeout(() => window.location.href = '/admin.html?t=' + Date.now(), 1000);
-                        } else {
-                            this.showToast("登录成功！即将进入商城...", 'success');
-                            setTimeout(() => window.location.href = '/shop.html?t=' + Date.now(), 1000);
-                        }
+                    const result = await res.text();
+                    if (result === 'ok') {
+                        this.showToast("重置成功！请登录", 'success');
+                        setTimeout(() => this.switchToLogin(), 1500);
                     } else {
                         this.showToast(result, 'error');
+                        this.refreshCaptcha();
                     }
-                } catch (e) {
-                    console.error(e);
-                    this.showToast("服务器连接失败", 'error');
-                }
+                } catch (e) { this.showToast("服务器错误", 'error'); }
             }
         }
     }).mount('#app');

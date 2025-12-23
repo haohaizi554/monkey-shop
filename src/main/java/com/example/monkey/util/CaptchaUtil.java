@@ -9,18 +9,15 @@ public class CaptchaUtil {
     public static BufferedImage createImage(String code, int width, int height) {
         BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
         Graphics g = image.getGraphics();
-
         // 背景色
         g.setColor(new Color(240, 240, 240));
         g.fillRect(0, 0, width, height);
-
         // 绘制干扰线
         Random r = new Random();
         for (int i = 0; i < 20; i++) {
             g.setColor(new Color(r.nextInt(255), r.nextInt(255), r.nextInt(255)));
             g.drawLine(r.nextInt(width), r.nextInt(height), r.nextInt(width), r.nextInt(height));
         }
-
         // 绘制验证码
         g.setFont(new Font("Arial", Font.BOLD, 24));
         for (int i = 0; i < code.length(); i++) {
@@ -30,7 +27,6 @@ public class CaptchaUtil {
         g.dispose();
         return image;
     }
-
     // 生成随机4位字符
     public static String generateCode() {
         String chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
