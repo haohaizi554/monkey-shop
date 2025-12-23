@@ -184,6 +184,6 @@ src/main/java/com/example/monkey
 └── util            # 工具类 (CaptchaUtil)
 ```
 
-🤝 贡献与反馈 (Contribution)
+## 🤝 贡献与反馈 (Contribution)
 本项目为全栈开发学习演示作品，涵盖了电商系统的核心闭环逻辑。
 欢迎提交 Issue 或 Pull Request!
