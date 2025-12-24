@@ -3994,7 +3994,7 @@ docker-compose up -d --build
     - **用户名**：monkeyuser
     - **密码**：monkeypass
     - **数据库名**：monkeyshop
-
+- 如果你想要初始化数据，可以删除表，执行方法一中的SQL代码
 启动成功后，访问 http://localhost:8888 即可。上传的图片将保存在项目根目录下的 uploads 文件夹中。
 
 ## 📂 目录结构 (Directory Structure)
