@@ -174,7 +174,7 @@ spring.servlet.multipart.max-request-size=10MB
 
 ### 方式二：🐳 Docker 部署 (Docker Deployment)
 
-## 1. 创建 Docker 配置文件（项目中有）
+### 1. 创建 Docker 配置文件（项目中有）
 1.  在项目根目录下创建文件 Dockerfile：
 ```Dockerfile
 FROM openjdk:21-jdk-slim
@@ -232,13 +232,13 @@ services:
 volumes:
   mysql_data:
 ```
-## 2. 打包与启动
+### 2. 打包与启动
 在项目根目录执行以下命令：
 ```Bash
 # Docker 一键编排启动
 docker-compose up -d --build
 ```
-## 3. ⚠️ 数据库连接注意事项
+### 3. ⚠️ 数据库连接注意事项
    Docker 启动的是一个全新的 MySQL 环境。
 - **自动建表**：项目配置了 spring.jpa.hibernate.ddl-auto=update，容器启动后应用会自动在 Docker 数据库中创建所需的表结构。
 - **手动管理数据库**：如果你需要使用 Navicat/DBeaver 连接 Docker 中的数据库（例如手动插入初始数据），请使用以下信息连接：
@@ -247,8 +247,8 @@ docker-compose up -d --build
     - **用户名**：monkeyuser
     - **密码**：monkeypass
     - **数据库名**：monkeyshop
-
-启动成功后，访问 http://localhost:8888 即可。上传的图片将保存在项目根目录下的 uploads 文件夹中。
+- 如果你想要初始化数据，可以删除表，执行方法一中的SQL代码
+- 启动成功后，访问 http://localhost:8888 即可。上传的图片将保存在项目根目录下的 uploads 文件夹中。
 
 ## 📂 目录结构 (Directory Structure)
 
