@@ -246,6 +246,21 @@ docker-compose up -d --build
 
 启动成功后，访问 http://localhost:8888 即可。上传的图片将保存在项目根目录下的 uploads 文件夹中。
 
+### 4. 停止与关闭 Docker 服务
+   在项目根目录（docker-compose.yml 所在目录）执行以下命令：
+```Bash
+# 1. 停止并删除容器、网络（保留数据库数据和上传的图片）
+docker-compose down
+
+# 2. 如果想彻底清理（包括删除 MySQL 数据卷和 uploads 文件夹里的图片，谨慎使用！）
+docker-compose down -v
+# 注意：-v 参数会删除 volumes 中定义的 mysql_data 卷，数据库会重置为初始状态
+```
+
+- **docker-compose down**：仅停止并删除容器和网络，**数据库数据和 uploads 文件夹内容会保留**，下次 up 还能继续使用。
+- **docker-compose down -v**：彻底删除，包括数据库卷，适合想完全重置环境时使用。
+- 关闭后，您可以随时再次执行 **docker-compose up -d --build** 重新启动服务。
+
 ## 📂 目录结构 (Directory Structure)
 
 ```text
