@@ -9,7 +9,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 @Configuration
 public class DataInitializer {
-
     @Bean
     public CommandLineRunner initData(AdminRepository adminRepository, PasswordEncoder passwordEncoder) {
         return args -> {
@@ -19,7 +18,6 @@ public class DataInitializer {
                 admin.setUsername("admin");
                 admin.setPassword(passwordEncoder.encode("123456"));
                 admin.setNickname("超级管理员");
-
                 adminRepository.save(admin);
                 System.out.println("【初始化】管理员创建成功！账号: admin / 密码: 123456");
             }
