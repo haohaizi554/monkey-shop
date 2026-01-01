@@ -1,3 +1,67 @@
+src/main/java/com/example/monkey/config/DataInitializer.java
+package com.example.monkey.config;
+
+import com.example.monkey.entity.Admin;
+import com.example.monkey.repository.AdminRepository;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+@Configuration
+public class DataInitializer {
+
+    @Bean
+    public CommandLineRunner initData(AdminRepository adminRepository, PasswordEncoder passwordEncoder) {
+        return args -> {
+            if (adminRepository.count() == 0) {
+                System.out.println("【初始化】检测到管理员表为空，正在创建默认管理员...");
+                Admin admin = new Admin();
+                admin.setUsername("admin");
+                admin.setPassword(passwordEncoder.encode("123456"));
+                admin.setNickname("超级管理员");
+
+                adminRepository.save(admin);
+                System.out.println("【初始化】管理员创建成功！账号: admin / 密码: 123456");
+            }
+        };
+    }
+}
+
+
+src/main/java/com/example/monkey/config/SecurityConfig.java
+package com.example.monkey.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+    // 1. 注册密码加密器 (BCrypt)
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+    // 2. 配置安全过滤器链
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+                .csrf(AbstractHttpConfigurer::disable)
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .formLogin(AbstractHttpConfigurer::disable)
+                .logout(AbstractHttpConfigurer::disable);
+        return http.build();
+    }
+}
+
+
 src/main/java/com/example/monkey/config/WebConfig.java
 package com.example.monkey.config;
 
@@ -13,9 +77,15 @@ import java.io.File;
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
+    private static boolean isLocalDev() {
+        String os = System.getProperty("os.name").toLowerCase();
+        return os.contains("win") || os.contains("mac");
+    }
+
     // 1. 定义图片路径常量
-    public static final String PROJECT_PATH = System.getProperty("user.dir");
-    public static final String UPLOAD_PATH = PROJECT_PATH + "/src/main/resources/static/images/";
+    public static final String UPLOAD_PATH = isLocalDev()
+            ? System.getProperty("user.dir") + "/src/main/resources/static/images/"
+            : "/data/images/";
 
     // 2. 注入访问统计拦截器 (这是为了实现数据看板的真实访问量)
     @Autowired
@@ -25,7 +95,10 @@ public class WebConfig implements WebMvcConfigurer {
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         registry.addResourceHandler("/images/**")
-                .addResourceLocations("file:" + UPLOAD_PATH + File.separator);
+                .addResourceLocations(
+                        "file:" + UPLOAD_PATH,       // 1. 优先找外部上传目录 (用户上传的)
+                        "classpath:/static/images/"  // 2. 找不到再去 JAR 包内找 (系统默认的)
+                );
     }
 
     // 4. 配置拦截器 (访问统计功能)
@@ -111,38 +184,29 @@ public class AddressController {
     }
 }
 
+
 src/main/java/com/example/monkey/controller/AuthController.java
 package com.example.monkey.controller;
 
-import com.example.monkey.config.WebConfig;
-import com.example.monkey.entity.Admin;
-import com.example.monkey.entity.User;
-import com.example.monkey.repository.AdminRepository;
-import com.example.monkey.repository.UserRepository;
 import com.example.monkey.service.CaptchaService;
+import com.example.monkey.service.FileService;
+import com.example.monkey.service.UserService;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import javax.imageio.ImageIO;
-import java.awt.image.BufferedImage;
-import java.io.File;
 import java.io.IOException;
 import java.util.Map;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
 
-    @Autowired
-    private UserRepository userRepository;
-    @Autowired
-    private AdminRepository adminRepository;
-    @Autowired
-    private CaptchaService captchaService;
+    @Autowired private UserService userService;
+    @Autowired private CaptchaService captchaService;
+    @Autowired private FileService fileService;
 
     @GetMapping("/captcha")
     public void getCaptcha(HttpServletResponse response, HttpSession session) throws IOException {
@@ -158,90 +222,32 @@ public class AuthController {
             @RequestParam(value = "avatarFile", required = false) MultipartFile avatarFile,
             HttpSession session
     ) {
+        // 1. 校验验证码
         if (!captchaService.validate(session, inputCode)) return "验证码错误";
 
-        if (userRepository.findByUsername(username) != null) return "用户名已存在";
-        if (adminRepository.findByUsername(username) != null) return "用户名不可用";
-
-        String avatarPath = "/images/default_avatar.png";
-
+        // 2. 处理文件
+        String avatarPath = null;
         if (avatarFile != null && !avatarFile.isEmpty()) {
-            try {
-                String originalFilename = avatarFile.getOriginalFilename();
-                String suffix = originalFilename.substring(originalFilename.lastIndexOf("."));
-                String newFileName = UUID.randomUUID().toString() + suffix;
-
-                File dest = new File(WebConfig.UPLOAD_PATH + "avatar/" + newFileName);
-                if (!dest.getParentFile().exists()) dest.getParentFile().mkdirs();
-                avatarFile.transferTo(dest);
-
-                avatarPath = "/images/avatar/" + newFileName;
-            } catch (IOException e) {
-                e.printStackTrace();
-                return "头像保存失败";
-            }
+            String result = fileService.uploadFile(avatarFile, "avatar");
+            if (result.startsWith("error:")) return "头像保存失败";
+            // 去掉前缀 "ok:" 或 "cropped:"
+            avatarPath = result.substring(result.indexOf(":") + 1);
         }
-
-        try {
-            User user = new User();
-            user.setUsername(username);
-            user.setPassword(password);
-            user.setPhone(phone);
-            user.setAvatar(avatarPath);
-            userRepository.save(user);
-            return "ok";
-        } catch (Exception e) {
-            e.printStackTrace();
-            return "数据库保存失败";
-        }
+        // 3. 注册
+        return userService.register(username, password, phone, avatarPath);
     }
-
     @PostMapping("/login")
     public String login(@RequestBody Map<String, String> params, HttpSession session) {
-        String username = params.get("username");
-        String password = params.get("password");
-
-        Admin admin = adminRepository.findByUsername(username);
-        if (admin != null) {
-            if (admin.getPassword().equals(password)) {
-                session.setAttribute("USER_ID", admin.getId());
-                session.setAttribute("IDENTITY", "ADMIN");
-                return "ok:ADMIN";
-            }
-            return "密码错误";
-        }
-
-        User user = userRepository.findByUsername(username);
-        if (user != null) {
-            if (user.getPassword().equals(password)) {
-                session.setAttribute("USER_ID", user.getId());
-                session.setAttribute("IDENTITY", "USER");
-                return "ok:USER";
-            }
-            return "密码错误";
-        }
-        return "账号不存在";
+        return userService.login(params.get("username"), params.get("password"), session);
     }
-
     @PostMapping("/reset-password")
     public String resetPassword(@RequestBody Map<String, String> params, HttpSession session) {
-        String username = params.get("username");
-        String phone = params.get("phone");
-        String newPassword = params.get("newPassword");
-        String captcha = params.get("captcha"); // 获取验证码
-        if (!captchaService.validate(session, captcha)) {
-            return "验证码错误";
-        }
-        User user = userRepository.findByUsername(username);
-        if (user == null) return "账号不存在";
-        if (user.getPhone() == null || !user.getPhone().equals(phone)) {
-            return "手机号验证失败";
-        }
-        user.setPassword(newPassword);
-        userRepository.save(user);
-        return "ok";
+        String captcha = params.get("captcha");
+        if (!captchaService.validate(session, captcha)) return "验证码错误";
+        return userService.updatePassword(null, params.get("phone"), params.get("newPassword"), params.get("username"));
     }
 }
+
 
 src/main/java/com/example/monkey/controller/MonkeyController.java
 package com.example.monkey.controller;
@@ -312,215 +318,81 @@ public class MonkeyController {
 src/main/java/com/example/monkey/controller/OrderController.java
 package com.example.monkey.controller;
 
-import com.example.monkey.entity.Address;
-import com.example.monkey.entity.Monkey;
 import com.example.monkey.entity.Order;
-import com.example.monkey.entity.User;
-import com.example.monkey.repository.AddressRepository;
-import com.example.monkey.repository.MonkeyRepository;
 import com.example.monkey.repository.OrderRepository;
-import com.example.monkey.repository.UserRepository;
-import com.example.monkey.service.ImageCleanupService;
+import com.example.monkey.service.OrderService;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Sort;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
-import java.text.SimpleDateFormat;
-import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/orders")
 public class OrderController {
-    @Autowired
-    private OrderRepository orderRepository;
-    @Autowired
-    private MonkeyRepository monkeyRepository;
-    @Autowired
-    private AddressRepository addressRepository;
-    @Autowired
-    private UserRepository userRepository;
-    @Autowired
-    private ImageCleanupService imageCleanupService;
-
-    // 1. 提交订单 (修复并发漏洞)
-    @Transactional
+    @Autowired private OrderService orderService;
+    @Autowired private OrderRepository orderRepository;
     @PostMapping("/create")
     public String createOrder(@RequestBody Map<String, Long> params, HttpSession session) {
         Long userId = (Long) session.getAttribute("USER_ID");
         if (userId == null) return "error:请先登录";
-        Long monkeyId = params.get("monkeyId");
-        Long addressId = params.get("addressId");
-
-        // 1. 先查询基础信息 (用于快照和校验)
-        Monkey monkey = monkeyRepository.findById(monkeyId).orElse(null);
-        Address address = addressRepository.findById(addressId).orElse(null);
-        User user = userRepository.findById(userId).orElse(null);
-
-        if (monkey == null) return "error:商品不存在";
-        if (address == null) return "error:地址不存在";
-        if (user == null) return "error:用户异常";
-        if (!address.getUserId().equals(userId)) return "error:地址非法";
-
-        int rowsAffected = monkeyRepository.deductStock(monkeyId);
-
-        if (rowsAffected == 0) {
-            // 如果受影响行数为 0，说明库存已经是 0 了，或者并发扣减失败
-            return "error:手慢了，库存不足！";
-        }
-
-        // 3. 库存扣减成功，生成订单
-        Order order = new Order();
-        order.setUserId(userId);
-        String orderNo = new SimpleDateFormat("yyyyMMddHHmmss").format(new Date()) + (int)(Math.random()*1000);
-        order.setOrderNo(orderNo);
-
-        order.setBuyerName(user.getUsername());
-        order.setBuyerAvatar(user.getAvatar());
-
-        order.setProductName(monkey.getName());
-        order.setProductImage(monkey.getImageUrl());
-        order.setPrice(monkey.getPrice());
-        order.setDescription(monkey.getDescription());
-
-        order.setReceiverName(address.getReceiverName());
-        order.setReceiverPhone(address.getPhone());
-        order.setAddressSnapshot(address.getDetailAddress());
-
-        order.setStatus("已支付");
-        order.setShippingTime(null);
-
-        orderRepository.save(order);
-        return "ok";
+        return orderService.createOrder(userId, params.get("monkeyId"), params.get("addressId"));
     }
-
     @GetMapping("/my")
     public List<Order> myOrders(HttpSession session) {
         Long userId = (Long) session.getAttribute("USER_ID");
         if (userId == null) return null;
         return orderRepository.findByUserIdOrderByCreateTimeDesc(userId);
     }
-
     @GetMapping("/all")
     public List<Order> getAllOrders(HttpSession session) {
         if (!isAdmin(session)) return null;
         return orderRepository.findAll(Sort.by(Sort.Direction.DESC, "createTime"));
     }
-
     @PostMapping("/ship/{id}")
     public String shipOrder(@PathVariable Long id, HttpSession session) {
         if (!isAdmin(session)) return "error:无权操作";
-        Order order = orderRepository.findById(id).orElse(null);
-        if (order != null) {
-            order.setStatus("已发货");
-            // 记录发货时间，不使用 isShipped 字段了
-            order.setShippingTime(java.time.LocalDateTime.now());
-            orderRepository.save(order);
-            return "ok";
-        }
-        return "error:订单不存在";
+        return orderService.shipOrder(id);
     }
-
     @PostMapping("/receive/{id}")
     public String receiveOrder(@PathVariable Long id, HttpSession session) {
         Long userId = (Long) session.getAttribute("USER_ID");
-        Order order = orderRepository.findById(id).orElse(null);
-        if (order != null && order.getUserId().equals(userId) && "已发货".equals(order.getStatus())) {
-            order.setStatus("已完成");
-            orderRepository.save(order);
-            return "ok";
-        }
-        return "error:操作失败";
+        if (userId == null) return "error:请先登录";
+        return orderService.receiveOrder(id, userId);
     }
-
-    @Transactional
     @DeleteMapping("/{id}")
     public String deleteOrder(@PathVariable Long id, HttpSession session) {
         if (!isAdmin(session)) return "error:无权操作";
-
-        Order order = orderRepository.findById(id).orElse(null);
-        if (order != null) {
-            String productImg = order.getProductImage();
-            String buyerImg = order.getBuyerAvatar();
-
-            if (!"已完成".equals(order.getStatus()) && !"已退款".equals(order.getStatus())) {
-                restoreStockByName(order.getProductName());
-            }
-
-            orderRepository.deleteById(id);
-
-            imageCleanupService.tryDelete(productImg);
-            imageCleanupService.tryDelete(buyerImg);
-            return "ok";
-        }
-        return "error:订单不存在";
+        return orderService.deleteOrder(id);
     }
+    // --- 退货流程 ---
     @PostMapping("/return/apply/{id}")
     public String applyReturn(@PathVariable Long id, HttpSession session) {
         Long userId = (Long) session.getAttribute("USER_ID");
-        Order order = orderRepository.findById(id).orElse(null);
-        if (order != null && order.getUserId().equals(userId) && "已完成".equals(order.getStatus())) {
-            order.setStatus("申请退货");
-            orderRepository.save(order);
-            return "ok";
-        }
-        return "error:无法申请";
+        // 校验是否是本人操作逻辑在 Service 内部或这里校验均可，Service 里有校验
+        return orderService.updateStatus(id, "申请退货", "已完成");
     }
     @PostMapping("/return/approve/{id}")
     public String approveReturn(@PathVariable Long id, HttpSession session) {
         if (!isAdmin(session)) return "error:无权操作";
-        Order order = orderRepository.findById(id).orElse(null);
-        if (order != null && "申请退货".equals(order.getStatus())) {
-            order.setStatus("待退货发货");
-            orderRepository.save(order);
-            return "ok";
-        }
-        return "error:状态不对";
+        return orderService.updateStatus(id, "待退货发货", "申请退货");
     }
     @PostMapping("/return/ship/{id}")
     public String userShipReturn(@PathVariable Long id, HttpSession session) {
-        Long userId = (Long) session.getAttribute("USER_ID");
-        Order order = orderRepository.findById(id).orElse(null);
-        if (order != null && order.getUserId().equals(userId) && "待退货发货".equals(order.getStatus())) {
-            order.setStatus("退货中");
-            orderRepository.save(order);
-            return "ok";
-        }
-        return "error:状态不对";
+        return orderService.updateStatus(id, "退货中", "待退货发货");
     }
-    @Transactional
     @PostMapping("/return/confirm/{id}")
     public String confirmReturn(@PathVariable Long id, HttpSession session) {
         if (!isAdmin(session)) return "error:无权操作";
-        Order order = orderRepository.findById(id).orElse(null);
-        if (order != null && "退货中".equals(order.getStatus())) {
-            order.setStatus("已退款");
-            orderRepository.save(order);
-            // 确认退货后，库存 + 1
-            restoreStockByName(order.getProductName());
-            return "ok";
-        }
-        return "error:状态不对";
-    }
-    // 辅助：根据名字查找商品并恢复库存
-    private void restoreStockByName(String productName) {
-        // 实际生产环境订单表应该存 productId，这里通过名字反查
-        List<Monkey> monkeys = monkeyRepository.findAll();
-        for (Monkey m : monkeys) {
-            if (m.getName().equals(productName)) {
-                // 使用原子恢复
-                monkeyRepository.restoreStock(m.getId());
-                break;
-            }
-        }
+        return orderService.confirmReturn(id);
     }
     private boolean isAdmin(HttpSession session) {
         return "ADMIN".equals(session.getAttribute("IDENTITY"));
     }
 }
+
 
 src/main/java/com/example/monkey/controller/StatsController.java
 package com.example.monkey.controller;
@@ -632,108 +504,46 @@ public class StatsController {
     }
 }
 
+
 src/main/java/com/example/monkey/controller/UploadController.java
 package com.example.monkey.controller;
 
-import com.example.monkey.config.WebConfig;
+import com.example.monkey.service.FileService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-
-import javax.imageio.ImageIO;
-import java.awt.image.BufferedImage;
-import java.io.File;
-import java.io.IOException;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/upload")
 public class UploadController {
-
+    @Autowired
+    private FileService fileService;
     @PostMapping
     public String upload(@RequestParam("file") MultipartFile file, @RequestParam("type") String type) {
-        if (file.isEmpty()) return "error:空文件";
-
-        try {
-            BufferedImage originalImage = ImageIO.read(file.getInputStream());
-            if (originalImage == null) return "error:图片格式不支持";
-
-            int width = originalImage.getWidth();
-            int height = originalImage.getHeight();
-            boolean isCropped = false;
-
-            BufferedImage finalImage = originalImage;
-
-            if (width != height) {
-                int size = Math.min(width, height); // 取短边作为正方形边长
-                int x = (width - size) / 2;         // 计算X轴偏移量 (居中)
-                int y = (height - size) / 2;        // 计算Y轴偏移量 (居中)
-
-                // 执行裁剪 (保留中间部分)
-                finalImage = originalImage.getSubimage(x, y, size, size);
-                isCropped = true;
-            }
-
-            // 3. 准备保存路径
-            String subDir = "avatar".equals(type) ? "avatar/" : "product/";
-            String suffix = ".jpg"; // 统一转存为 jpg，避免某些 png 透明底变黑问题，或者保留原后缀
-
-            String originalFilename = file.getOriginalFilename();
-            if (originalFilename != null && originalFilename.contains(".")) {
-                suffix = originalFilename.substring(originalFilename.lastIndexOf("."));
-            }
-
-            String newFileName = UUID.randomUUID().toString() + suffix;
-            File dest = new File(WebConfig.UPLOAD_PATH + subDir + newFileName);
-
-            if (!dest.getParentFile().exists()) {
-                dest.getParentFile().mkdirs();
-            }
-
-            String formatName = suffix.replace(".", "");
-            if (formatName.isEmpty()) formatName = "jpg";
-
-            ImageIO.write(finalImage, formatName, dest);
-
-            String path = "/images/" + subDir + newFileName;
-            return (isCropped ? "cropped:" : "ok:") + path;
-
-        } catch (IOException e) {
-            e.printStackTrace();
-            return "error:上传处理失败";
-        }
+        return fileService.uploadFile(file, type);
     }
 }
+
 
 src/main/java/com/example/monkey/controller/UserController.java
 package com.example.monkey.controller;
 
-import com.example.monkey.entity.Admin;
-import com.example.monkey.entity.User;
-import com.example.monkey.repository.AdminRepository;
-import com.example.monkey.repository.UserRepository;
 import com.example.monkey.service.CaptchaService;
-import com.example.monkey.service.ImageCleanupService; // 引入服务
+import com.example.monkey.service.UserService;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/user")
 public class UserController {
 
-    @Autowired
-    private UserRepository userRepository;
-    @Autowired
-    private AdminRepository adminRepository;
-    @Autowired
-    private CaptchaService captchaService;
-    @Autowired
-    private ImageCleanupService imageCleanupService; // 注入
+    @Autowired private UserService userService;
+    @Autowired private CaptchaService captchaService;
 
     @GetMapping("/captcha")
     public void getCaptcha(HttpServletResponse response, HttpSession session) throws IOException {
@@ -742,81 +552,19 @@ public class UserController {
 
     @GetMapping("/me")
     public Map<String, Object> getCurrentUser(HttpSession session) {
-        return getUserInfo(session, false);
+        return userService.getUserInfo(session, false);
     }
 
     @GetMapping("/profile")
     public Map<String, Object> getProfile(HttpSession session) {
-        return getUserInfo(session, true);
+        return userService.getUserInfo(session, true);
     }
 
-    private Map<String, Object> getUserInfo(HttpSession session, boolean details) {
-        Map<String, Object> result = new HashMap<>();
-        Long userId = (Long) session.getAttribute("USER_ID");
-        String identity = (String) session.getAttribute("IDENTITY");
-
-        if (userId == null || identity == null) {
-            result.put("isLogin", false);
-            return result;
-        }
-
-        result.put("isLogin", true);
-        result.put("identity", identity);
-
-        if ("ADMIN".equals(identity)) {
-            Admin admin = adminRepository.findById(userId).orElse(null);
-            if (admin != null) {
-                result.put("username", admin.getNickname());
-                result.put("avatar", "/images/default_avatar.png");
-                if (details) result.put("maskedPhone", "管理员账号");
-            } else {
-                result.put("isLogin", false);
-            }
-        } else {
-            User user = userRepository.findById(userId).orElse(null);
-            if (user != null) {
-                result.put("username", user.getUsername());
-                result.put("avatar", user.getAvatar() != null ? user.getAvatar() : "/images/default_avatar.png");
-
-                if (details) {
-                    String phone = user.getPhone();
-                    if (phone != null && phone.length() >= 7) {
-                        String masked = phone.substring(0, 3) + "****" + phone.substring(phone.length() - 4);
-                        result.put("maskedPhone", masked);
-                    } else {
-                        result.put("maskedPhone", phone == null ? "未绑定" : phone);
-                    }
-                }
-            } else {
-                result.put("isLogin", false);
-            }
-        }
-        return result;
-    }
-
-    // --- 修改头像 ---
     @PostMapping("/update-avatar")
-    public String updateAvatar(@RequestParam("avatarPath") String newAvatarPath, HttpSession session) {
+    public String updateAvatar(@RequestParam("avatarPath") String avatarPath, HttpSession session) {
         Long userId = (Long) session.getAttribute("USER_ID");
-        String identity = (String) session.getAttribute("IDENTITY");
-
-        if (userId == null || !"USER".equals(identity)) return "error:未登录或无权限";
-
-        User user = userRepository.findById(userId).orElse(null);
-        if (user != null) {
-            String oldAvatar = user.getAvatar();
-
-            // 1. 更新
-            user.setAvatar(newAvatarPath);
-            userRepository.save(user);
-
-            // 2. 尝试清理旧图
-            if (oldAvatar != null && !oldAvatar.equals(newAvatarPath)) {
-                imageCleanupService.tryDelete(oldAvatar);
-            }
-            return "ok";
-        }
-        return "error:用户不存在";
+        if (userId == null) return "error:未登录";
+        return userService.updateAvatar(userId, avatarPath);
     }
 
     @PostMapping("/update-password")
@@ -824,23 +572,11 @@ public class UserController {
         Long userId = (Long) session.getAttribute("USER_ID");
         if (userId == null) return "请先登录";
 
-        String phone = params.get("phone");
-        String captcha = params.get("captcha");
-        String newPassword = params.get("newPassword");
+        if (!captchaService.validate(session, params.get("captcha"))) return "验证码错误";
 
-        if (!captchaService.validate(session, captcha)) return "验证码错误";
-
-        User user = userRepository.findById(userId).orElse(null);
-        if (user == null) return "用户不存在";
-
-        if (user.getPhone() == null || !user.getPhone().equals(phone)) {
-            return "手机号验证失败";
-        }
-
-        user.setPassword(newPassword);
-        userRepository.save(user);
-        session.invalidate();
-        return "ok";
+        String result = userService.updatePassword(userId, params.get("phone"), params.get("newPassword"), null);
+        if ("ok".equals(result)) session.invalidate();
+        return result;
     }
 
     @GetMapping("/logout")
@@ -881,6 +617,7 @@ public class Address {
     public void setIsDefault(Integer isDefault) { this.isDefault = isDefault; }
 }
 
+
 src/main/java/com/example/monkey/entity/Admin.java
 package com.example.monkey.entity;
 
@@ -912,6 +649,7 @@ public class Admin {
     public LocalDateTime getCreateTime() { return createTime; }
     public void setCreateTime(LocalDateTime createTime) { this.createTime = createTime; }
 }
+
 
 src/main/java/com/example/monkey/entity/Monkey.java
 package com.example.monkey.entity;
@@ -963,6 +701,7 @@ public class Monkey {
     public Integer getStock() { return stock; }
     public void setStock(Integer stock) { this.stock = stock; }
 }
+
 
 src/main/java/com/example/monkey/entity/Order.java
 package com.example.monkey.entity;
@@ -1032,6 +771,7 @@ public class Order {
     public void setShippingTime(LocalDateTime shippingTime) { this.shippingTime = shippingTime; }
 }
 
+
 src/main/java/com/example/monkey/entity/User.java
 package com.example.monkey.entity;
 
@@ -1053,43 +793,20 @@ public class User {
     @Column(name = "create_time", insertable = false, updatable = false)
     private LocalDateTime createTime;
 
-    public Long getId() {
-        return id;
-    }
-    public void setId(Long id) {
-        this.id = id;
-    }
-    public String getUsername() {
-        return username;
-    }
-    public void setUsername(String username) {
-        this.username = username;
-    }
-    public String getPassword() {
-        return password;
-    }
-    public void setPassword(String password) {
-        this.password = password;
-    }
-    public String getPhone() {
-        return phone;
-    }
-    public void setPhone(String phone) {
-        this.phone = phone;
-    }
-    public String getAvatar() {
-        return avatar;
-    }
-    public void setAvatar(String avatar) {
-        this.avatar = avatar;
-    }
-    public LocalDateTime getCreateTime() {
-        return createTime;
-    }
-    public void setCreateTime(LocalDateTime createTime) {
-        this.createTime = createTime;
-    }
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public String getUsername() { return username; }
+    public void setUsername(String username) { this.username = username; }
+    public String getPassword() { return password; }
+    public void setPassword(String password) { this.password = password; }
+    public String getPhone() { return phone; }
+    public void setPhone(String phone) { this.phone = phone; }
+    public String getAvatar() { return avatar; }
+    public void setAvatar(String avatar) { this.avatar = avatar; }
+    public LocalDateTime getCreateTime() { return createTime; }
+    public void setCreateTime(LocalDateTime createTime) { this.createTime = createTime; }
 }
+
 
 src/main/java/com/example/monkey/entity/VisitLog.java
 package com.example.monkey.entity;
@@ -1120,35 +837,36 @@ public class VisitLog {
     public void setIpAddress(String ipAddress) { this.ipAddress = ipAddress; }
 }
 
+
 src/main/java/com/example/monkey/interceptor/VisitInterceptor.java
-package com.example.monkey.interceptor;
+package com.example.monkey.entity;
 
-import com.example.monkey.entity.VisitLog;
-import com.example.monkey.repository.VisitLogRepository;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
-import org.springframework.web.servlet.HandlerInterceptor;
-
+import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
-@Component
-public class VisitInterceptor implements HandlerInterceptor {
+@Entity
+@Table(name = "visit_log")
+public class VisitLog {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private LocalDateTime visitTime;
+    private String ipAddress;
 
-    @Autowired
-    private VisitLogRepository visitLogRepository;
-
-    @Override
-    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
-        // 只记录 GET 请求，且排除 API 接口和静态资源（由 WebConfig 配置拦截路径）
-        if ("GET".equalsIgnoreCase(request.getMethod())) {
-            String ip = request.getRemoteAddr();
-            visitLogRepository.save(new VisitLog(LocalDateTime.now(), ip));
-        }
-        return true;
+    public VisitLog() {}
+    public VisitLog(LocalDateTime visitTime, String ipAddress) {
+        this.visitTime = visitTime;
+        this.ipAddress = ipAddress;
     }
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public LocalDateTime getVisitTime() { return visitTime; }
+    public void setVisitTime(LocalDateTime visitTime) { this.visitTime = visitTime; }
+    public String getIpAddress() { return ipAddress; }
+    public void setIpAddress(String ipAddress) { this.ipAddress = ipAddress; }
 }
+
 
 src/main/java/com/example/monkey/repository/AddressRepository.java
 package com.example.monkey.repository;
@@ -1172,6 +890,7 @@ public interface AddressRepository extends JpaRepository<Address, Long> {
     void clearDefault(Long userId);
 }
 
+
 src/main/java/com/example/monkey/repository/AdminRepository.java
 package com.example.monkey.repository;
 
@@ -1181,6 +900,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface AdminRepository extends JpaRepository<Admin, Long> {
     Admin findByUsername(String username);
 }
+
 
 src/main/java/com/example/monkey/repository/MonkeyRepository.java
 package com.example.monkey.repository;
@@ -1204,6 +924,7 @@ public interface MonkeyRepository extends JpaRepository<Monkey, Long> {
     void restoreStock(@Param("id") Long id);
 }
 
+
 src/main/java/com/example/monkey/repository/OrderRepository.java
 package com.example.monkey.repository;
 
@@ -1224,6 +945,7 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     List<String> findAllBuyerAvatars();
 }
 
+
 src/main/java/com/example/monkey/repository/UserRepository.java
 package com.example.monkey.repository;
 
@@ -1241,6 +963,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     List<String> findAllAvatars();
 }
 
+
 src/main/java/com/example/monkey/repository/VisitLogRepository.java
 package com.example.monkey.repository;
 
@@ -1256,6 +979,7 @@ public interface VisitLogRepository extends JpaRepository<VisitLog, Long> {
     // 统计总访问量
     long count();
 }
+
 
 src/main/java/com/example/monkey/service/CaptchaService.java
 package com.example.monkey.service;
@@ -1294,6 +1018,66 @@ public class CaptchaService {
         return isValid;
     }
 }
+
+
+src/main/java/com/example/monkey/service/FileService.java
+package com.example.monkey.service;
+
+import com.example.monkey.config.WebConfig;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.IOException;
+import java.util.UUID;
+
+@Service
+public class FileService {
+    public String uploadFile(MultipartFile file, String type) {
+        if (file == null || file.isEmpty()) return "error:空文件";
+        try {
+            // 1. 读取图片
+            BufferedImage originalImage = ImageIO.read(file.getInputStream());
+            if (originalImage == null) return "error:图片格式不支持";
+            int width = originalImage.getWidth();
+            int height = originalImage.getHeight();
+            BufferedImage finalImage = originalImage;
+            boolean isCropped = false;
+            // 2. 自动裁剪逻辑 (仅针对商品图 product)
+            if ("product".equals(type) && width != height) {
+                int size = Math.min(width, height);
+                int x = (width - size) / 2;
+                int y = (height - size) / 2;
+                finalImage = originalImage.getSubimage(x, y, size, size);
+                isCropped = true;
+            }
+            // 3. 生成路径
+            String subDir = "avatar".equals(type) ? "avatar/" : "product/";
+            String suffix = ".jpg";
+            String originalFilename = file.getOriginalFilename();
+            if (originalFilename != null && originalFilename.contains(".")) {
+                suffix = originalFilename.substring(originalFilename.lastIndexOf("."));
+            }
+            String newFileName = UUID.randomUUID().toString() + suffix;
+            File dest = new File(WebConfig.UPLOAD_PATH + subDir + newFileName);
+            if (!dest.getParentFile().exists()) dest.getParentFile().mkdirs();
+            // 4. 保存
+            String formatName = suffix.replace(".", "");
+            if (formatName.isEmpty()) formatName = "jpg";
+            ImageIO.write(finalImage, formatName, dest);
+            // 5. 返回结果 (带状态前缀)
+            String path = "/images/" + subDir + newFileName;
+            return (isCropped ? "cropped:" : "ok:") + path;
+
+        } catch (IOException e) {
+            e.printStackTrace();
+            return "error:上传处理失败";
+        }
+    }
+}
+
 
 src/main/java/com/example/monkey/service/ImageCleanupService.java
 package com.example.monkey.service;
@@ -1344,6 +1128,299 @@ public class ImageCleanupService {
         }
     }
 }
+
+
+src/main/java/com/example/monkey/service/OrderService.java
+package com.example.monkey.service;
+
+import com.example.monkey.entity.Address;
+import com.example.monkey.entity.Monkey;
+import com.example.monkey.entity.Order;
+import com.example.monkey.entity.User;
+import com.example.monkey.repository.AddressRepository;
+import com.example.monkey.repository.MonkeyRepository;
+import com.example.monkey.repository.OrderRepository;
+import com.example.monkey.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.List;
+
+@Service
+public class OrderService {
+
+    @Autowired private OrderRepository orderRepository;
+    @Autowired private MonkeyRepository monkeyRepository;
+    @Autowired private AddressRepository addressRepository;
+    @Autowired private UserRepository userRepository;
+    @Autowired private ImageCleanupService imageCleanupService;
+
+    // 1. 创建订单 (核心业务)
+    @Transactional
+    public String createOrder(Long userId, Long monkeyId, Long addressId) {
+        Monkey monkey = monkeyRepository.findById(monkeyId).orElse(null);
+        Address address = addressRepository.findById(addressId).orElse(null);
+        User user = userRepository.findById(userId).orElse(null);
+
+        if (monkey == null) return "error:商品不存在";
+        if (address == null) return "error:地址不存在";
+        if (user == null) return "error:用户异常";
+        if (!address.getUserId().equals(userId)) return "error:地址非法";
+
+        // 原子扣减库存
+        int rows = monkeyRepository.deductStock(monkeyId);
+        if (rows == 0) return "error:手慢了，库存不足！";
+
+        // 组装订单快照
+        Order order = new Order();
+        order.setUserId(userId);
+        String orderNo = new SimpleDateFormat("yyyyMMddHHmmss").format(new Date()) + (int)(Math.random()*1000);
+        order.setOrderNo(orderNo);
+
+        order.setBuyerName(user.getUsername());
+        order.setBuyerAvatar(user.getAvatar());
+
+        order.setProductName(monkey.getName());
+        order.setProductImage(monkey.getImageUrl());
+        order.setPrice(monkey.getPrice());
+        order.setDescription(monkey.getDescription());
+
+        order.setReceiverName(address.getReceiverName());
+        order.setReceiverPhone(address.getPhone());
+        order.setAddressSnapshot(address.getDetailAddress());
+
+        order.setStatus("已支付");
+        order.setShippingTime(null);
+
+        orderRepository.save(order);
+        return "ok";
+    }
+    // 2. 发货
+    public String shipOrder(Long orderId) {
+        Order order = orderRepository.findById(orderId).orElse(null);
+        if (order != null) {
+            order.setStatus("已发货");
+            order.setShippingTime(java.time.LocalDateTime.now());
+            orderRepository.save(order);
+            return "ok";
+        }
+        return "error:订单不存在";
+    }
+    // 3. 确认收货
+    public String receiveOrder(Long orderId, Long userId) {
+        Order order = orderRepository.findById(orderId).orElse(null);
+        if (order != null && order.getUserId().equals(userId) && "已发货".equals(order.getStatus())) {
+            order.setStatus("已完成");
+            orderRepository.save(order);
+            return "ok";
+        }
+        return "error:操作失败";
+    }
+    // 4. 删除订单 (含库存回滚 + 图片清理)
+    @Transactional
+    public String deleteOrder(Long orderId) {
+        Order order = orderRepository.findById(orderId).orElse(null);
+        if (order != null) {
+            String pImg = order.getProductImage();
+            String bImg = order.getBuyerAvatar();
+            // 如果订单未完成/未退款，删除时回滚库存
+            if (!"已完成".equals(order.getStatus()) && !"已退款".equals(order.getStatus())) {
+                restoreStockByName(order.getProductName());
+            }
+            orderRepository.deleteById(orderId);
+            // 尝试清理图片
+            imageCleanupService.tryDelete(pImg);
+            imageCleanupService.tryDelete(bImg);
+            return "ok";
+        }
+        return "error:订单不存在";
+    }
+    // 5. 状态流转 (申请退货/发货/确认退货)
+    public String updateStatus(Long orderId, String targetStatus, String expectedCurrentStatus) {
+        Order order = orderRepository.findById(orderId).orElse(null);
+        if (order != null && expectedCurrentStatus.equals(order.getStatus())) {
+            order.setStatus(targetStatus);
+            orderRepository.save(order);
+            return "ok";
+        }
+        return "error:状态不对";
+    }
+    // 6. 确认退货 (退款 + 回滚库存)
+    @Transactional
+    public String confirmReturn(Long orderId) {
+        Order order = orderRepository.findById(orderId).orElse(null);
+        if (order != null && "退货中".equals(order.getStatus())) {
+            order.setStatus("已退款");
+            orderRepository.save(order);
+            restoreStockByName(order.getProductName());
+            return "ok";
+        }
+        return "error:状态不对";
+    }
+    // 辅助：根据名字恢复库存
+    private void restoreStockByName(String productName) {
+        List<Monkey> monkeys = monkeyRepository.findAll();
+        for (Monkey m : monkeys) {
+            if (m.getName().equals(productName)) {
+                monkeyRepository.restoreStock(m.getId());
+                break;
+            }
+        }
+    }
+}
+
+
+src/main/java/com/example/monkey/service/UserService.java
+package com.example.monkey.service;
+
+import com.example.monkey.entity.Admin;
+import com.example.monkey.entity.User;
+import com.example.monkey.repository.AdminRepository;
+import com.example.monkey.repository.UserRepository;
+import jakarta.servlet.http.HttpSession;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import java.util.HashMap;
+import java.util.Map;
+
+@Service
+public class UserService {
+
+    @Autowired private UserRepository userRepository;
+    @Autowired private AdminRepository adminRepository;
+    @Autowired private PasswordEncoder passwordEncoder;
+    @Autowired private ImageCleanupService imageCleanupService;
+
+    // 注册
+    public String register(String username, String password, String phone, String avatarPath) {
+        if (userRepository.findByUsername(username) != null) return "用户名已存在";
+        if (adminRepository.findByUsername(username) != null) return "用户名不可用";
+        try {
+            User user = new User();
+            user.setUsername(username);
+            user.setPassword(passwordEncoder.encode(password)); // 加密
+            user.setPhone(phone);
+            user.setAvatar(avatarPath != null ? avatarPath : "/images/default_avatar.png");
+            userRepository.save(user);
+            return "ok";
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "数据库保存失败";
+        }
+    }
+    // 登录
+    public String login(String username, String rawPassword, HttpSession session) {
+        // 1. 查管理员
+        Admin admin = adminRepository.findByUsername(username);
+        if (admin != null) {
+            if (passwordEncoder.matches(rawPassword, admin.getPassword())) {
+                session.setAttribute("USER_ID", admin.getId());
+                session.setAttribute("IDENTITY", "ADMIN");
+                return "ok:ADMIN";
+            }
+            return "密码错误";
+        }
+        // 2. 查普通用户
+        User user = userRepository.findByUsername(username);
+        if (user != null) {
+            if (passwordEncoder.matches(rawPassword, user.getPassword())) {
+                session.setAttribute("USER_ID", user.getId());
+                session.setAttribute("IDENTITY", "USER");
+                return "ok:USER";
+            }
+            return "密码错误";
+        }
+        return "账号不存在";
+    }
+    // 获取用户信息 (用于 /me 和 /profile)
+    public Map<String, Object> getUserInfo(HttpSession session, boolean details) {
+        Map<String, Object> result = new HashMap<>();
+        Long userId = (Long) session.getAttribute("USER_ID");
+        String identity = (String) session.getAttribute("IDENTITY");
+        if (userId == null || identity == null) {
+            result.put("isLogin", false);
+            return result;
+        }
+        result.put("isLogin", true);
+        result.put("identity", identity);
+        if ("ADMIN".equals(identity)) {
+            Admin admin = adminRepository.findById(userId).orElse(null);
+            if (admin != null) {
+                result.put("username", admin.getNickname());
+                result.put("avatar", "/images/default_avatar.png");
+                if (details) result.put("maskedPhone", "管理员账号");
+            } else {
+                result.put("isLogin", false);
+            }
+        } else {
+            User user = userRepository.findById(userId).orElse(null);
+            if (user != null) {
+                result.put("username", user.getUsername());
+                result.put("avatar", user.getAvatar() != null ? user.getAvatar() : "/images/default_avatar.png");
+                if (details) {
+                    String phone = user.getPhone();
+                    if (phone != null && phone.length() >= 7) {
+                        String masked = phone.substring(0, 3) + "****" + phone.substring(phone.length() - 4);
+                        result.put("maskedPhone", masked);
+                    } else {
+                        result.put("maskedPhone", phone == null ? "未绑定" : phone);
+                    }
+                }
+            } else {
+                result.put("isLogin", false);
+            }
+        }
+        return result;
+    }
+    // 修改头像
+    public String updateAvatar(Long userId, String newAvatarPath) {
+        User user = userRepository.findById(userId).orElse(null);
+        if (user != null) {
+            String oldAvatar = user.getAvatar();
+            user.setAvatar(newAvatarPath);
+            userRepository.save(user);
+            // 清理旧图
+            if (oldAvatar != null && !oldAvatar.equals(newAvatarPath)) {
+                imageCleanupService.tryDelete(oldAvatar);
+            }
+            return "ok";
+        }
+        return "error:用户不存在";
+    }
+    // 修改密码
+    public String updatePassword(Long userId, String phone, String newPassword) {
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null) return "用户不存在";
+
+        if (user.getPhone() == null || !user.getPhone().equals(phone)) {
+            return "手机号验证失败";
+        }
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+        return "ok";
+    }
+
+    public String updatePassword(Long userId, String phone, String newPassword, String username) {
+        User user;
+        if (userId != null) {
+            user = userRepository.findById(userId).orElse(null);
+        } else {
+            user = userRepository.findByUsername(username);
+        }
+        if (user == null) return "用户不存在";
+        if (user.getPhone() == null || !user.getPhone().equals(phone)) {
+            return "手机号验证失败";
+        }
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+        return "ok";
+    }
+}
+
 
 src/main/java/com/example/monkey/task/ImageTask.java
 package com.example.monkey.task;
@@ -1408,47 +1485,6 @@ public class ImageTask {
     }
 }
 
-src/main/java/com/example/monkey/util/CaptchaUtil.java
-package com.example.monkey.util;
-
-import java.awt.*;
-import java.awt.image.BufferedImage;
-import java.util.Random;
-
-public class CaptchaUtil {
-    // 生成验证码图片
-    public static BufferedImage createImage(String code, int width, int height) {
-        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
-        Graphics g = image.getGraphics();
-        // 背景色
-        g.setColor(new Color(240, 240, 240));
-        g.fillRect(0, 0, width, height);
-        // 绘制干扰线
-        Random r = new Random();
-        for (int i = 0; i < 20; i++) {
-            g.setColor(new Color(r.nextInt(255), r.nextInt(255), r.nextInt(255)));
-            g.drawLine(r.nextInt(width), r.nextInt(height), r.nextInt(width), r.nextInt(height));
-        }
-        // 绘制验证码
-        g.setFont(new Font("Arial", Font.BOLD, 24));
-        for (int i = 0; i < code.length(); i++) {
-            g.setColor(new Color(r.nextInt(150), r.nextInt(150), r.nextInt(150)));
-            g.drawString(String.valueOf(code.charAt(i)), 20 * i + 10, 28);
-        }
-        g.dispose();
-        return image;
-    }
-    // 生成随机4位字符
-    public static String generateCode() {
-        String chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-        StringBuilder sb = new StringBuilder();
-        Random r = new Random();
-        for (int i = 0; i < 4; i++) {
-            sb.append(chars.charAt(r.nextInt(chars.length())));
-        }
-        return sb.toString();
-    }
-}
 
 src/main/java/com/example/monkey/MonkeyShopApplication.java
 package com.example.monkey;
@@ -1464,6 +1500,7 @@ public class MonkeyShopApplication {
         SpringApplication.run(MonkeyShopApplication.class, args);
     }
 }
+
 
 src/main/resources/static/admin.html
 <!DOCTYPE html>
@@ -2000,18 +2037,32 @@ src/main/resources/static/admin.html
             setRange(type) {
                 this.rangeType = type;
                 if (type === 'custom') {
-                    const today = new Date().toISOString().split('T')[0];
-                    if (!this.customStart || !this.customEnd) { this.showToast("请选择日期范围", 'error'); return; }
+                    const d = new Date();
+                    const year = d.getFullYear();
+                    const month = (d.getMonth() + 1).toString().padStart(2, '0');
+                    const day = d.getDate().toString().padStart(2, '0');
+                    const today = `${year}-${month}-${day}`;
+                    if (!this.customStart || !this.customEnd) {
+                        this.showToast("请选择日期范围", 'error'); return;
+                    }
                     if (this.customStart > today || this.customEnd > today) { this.showToast("不能选择未来日期", 'error'); return; }
                     if (this.customStart > this.customEnd) { this.showToast("开始日期不能晚于结束日期", 'error'); return; }
                     this.fetchStats(this.customStart, this.customEnd);
                 } else {
+                    // 快捷按钮逻辑保持不变
                     const end = new Date();
                     const start = new Date();
                     if (type === '7d') start.setDate(end.getDate() - 6);
                     if (type === '30d') start.setDate(end.getDate() - 29);
                     if (type === '1y') start.setFullYear(end.getFullYear() - 1);
-                    this.fetchStats(start.toISOString().split('T')[0], end.toISOString().split('T')[0]);
+                    // 这里也要用本地时间格式化，防止快捷按钮也跨天出问题
+                    const formatDate = (date) => {
+                        const y = date.getFullYear();
+                        const m = (date.getMonth() + 1).toString().padStart(2, '0');
+                        const d = date.getDate().toString().padStart(2, '0');
+                        return `${y}-${m}-${d}`;
+                    };
+                    this.fetchStats(formatDate(start), formatDate(end));
                 }
             },
 
@@ -2217,7 +2268,6 @@ src/main/resources/static/admin.html
                 }
             },
 
-            // --- 辅助工具 ---
             sortOrders(key) {
                 if (this.sortKey === key) this.sortAsc = !this.sortAsc;
                 else { this.sortKey = key; this.sortAsc = false; }
@@ -2250,6 +2300,7 @@ src/main/resources/static/admin.html
 </script>
 </body>
 </html>
+
 
 src/main/resources/static/index.html
 <!DOCTYPE html>
@@ -2570,6 +2621,7 @@ src/main/resources/static/index.html
 </body>
 </html>
 
+
 src/main/resources/static/orders.html
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -2789,6 +2841,7 @@ src/main/resources/static/orders.html
 
 </body>
 </html>
+
 
 src/main/resources/static/profile.html
 <!DOCTYPE html>
@@ -3171,6 +3224,7 @@ src/main/resources/static/profile.html
 </script>
 </body>
 </html>
+
 
 src/main/resources/static/shop.html
 <!DOCTYPE html>
@@ -3609,6 +3663,7 @@ src/main/resources/static/shop.html
 </body>
 </html>
 
+
 src/main/resources/application.properties
 spring.application.name=MonkeyShop
 server.port=8888
@@ -3621,184 +3676,6 @@ spring.jpa.show-sql=true
 spring.jpa.database-platform=org.hibernate.dialect.MySQLDialect
 spring.servlet.multipart.max-file-size=10MB
 spring.servlet.multipart.max-request-size=10MB
-
-
-monkeyshop.sql
-/*
- Navicat Premium Dump SQL
-
- Source Server         : static
- Source Server Type    : MySQL
- Source Server Version : 80041 (8.0.41)
- Source Host           : localhost:3306
- Source Schema         : monkeyshop
-
- Target Server Type    : MySQL
- Target Server Version : 80041 (8.0.41)
- File Encoding         : 65001
-
- Date: 22/12/2025 22:00:08
-*/
-
-SET NAMES utf8mb4;
-SET FOREIGN_KEY_CHECKS = 0;
-
--- ----------------------------
--- Table structure for address
--- ----------------------------
-DROP TABLE IF EXISTS `address`;
-CREATE TABLE `address`  (
-  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '地址ID',
-  `user_id` bigint NOT NULL COMMENT '关联的用户ID',
-  `receiver_name` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '收货人姓名',
-  `phone` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '收货人电话',
-  `detail_address` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '详细地址',
-  `is_default` int NULL DEFAULT NULL,
-  `create_time` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 5 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '收货地址表' ROW_FORMAT = Dynamic;
-
--- ----------------------------
--- Records of address
--- ----------------------------
-INSERT INTO `address` VALUES (1, 1, '测试用户', '13800138000', '花果山水帘洞5号', 1, '2025-12-22 08:50:59');
-INSERT INTO `address` VALUES (2, 2, '熊大', '15603838733', '狗熊岭', 0, '2025-12-22 09:18:00');
-INSERT INTO `address` VALUES (3, 2, '熊二', '13838388888', '团结屯', 1, '2025-12-22 09:18:23');
-INSERT INTO `address` VALUES (4, 3, '曹岩磊', '18888888888', '月球阿波罗洼', 1, '2025-12-22 12:20:44');
-
--- ----------------------------
--- Table structure for admin
--- ----------------------------
-DROP TABLE IF EXISTS `admin`;
-CREATE TABLE `admin`  (
-  `id` bigint NOT NULL AUTO_INCREMENT,
-  `username` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-  `password` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-  `nickname` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT '管理员',
-  `create_time` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE INDEX `username`(`username` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 2 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = Dynamic;
-
--- ----------------------------
--- Records of admin
--- ----------------------------
-INSERT INTO `admin` VALUES (1, 'admin', '123456', '超级管理员', '2025-12-22 00:31:05');
-
--- ----------------------------
--- Table structure for monkey
--- ----------------------------
-DROP TABLE IF EXISTS `monkey`;
-CREATE TABLE `monkey`  (
-  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '商品名称',
-  `breed` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '品种',
-  `price` double NULL DEFAULT NULL COMMENT '价格',
-  `description` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '描述',
-  `image_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '图片地址',
-  `stock` int NULL DEFAULT 10 COMMENT '库存',
-  PRIMARY KEY (`id`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 6 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '猴子商品表' ROW_FORMAT = Dynamic;
-
--- ----------------------------
--- Records of monkey
--- ----------------------------
-INSERT INTO `monkey` VALUES (1, '悟空', '金丝猴', 9998, '性格活泼，会耍金箍棒，西游记联名款', '/images/product/c9f11d47-adaa-4774-a05a-f2ef6e12f453.jpg', 9);
-INSERT INTO `monkey` VALUES (2, '杰克', '卷尾猴', 5000, '加勒比海盗同款，非常聪明，适合看家', '/images/product/33ba344f-c179-4d9e-b4e3-f94811f374d6.jpg', 10);
-INSERT INTO `monkey` VALUES (3, '金刚', '大猩猩', 12000, '体型巨大，虽然不是猴子但很强壮，安全感爆棚', '/images/product/fb59ce47-9806-442c-861e-8d63a46615cd.jpg', 10);
-INSERT INTO `monkey` VALUES (4, '莫莫', '狐猴', 3000, '马达加斯加特产，喜欢跳舞，眼神清澈愚蠢', '/images/product/5de3868f-4de4-452b-8bbc-bc9a0eb85f94.jpg', 10);
-INSERT INTO `monkey` VALUES (5, '大草猪', '肥猪', 1, '这是一头大笨猪', '/images/product/57736ad2-eb28-4924-88b5-4e496e6bd68e.jpg', 10);
-
--- ----------------------------
--- Table structure for orders
--- ----------------------------
-DROP TABLE IF EXISTS `orders`;
-CREATE TABLE `orders`  (
-  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键',
-  `order_no` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '订单编号(对外展示)',
-  `user_id` bigint NOT NULL COMMENT '买家ID',
-  `product_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-  `product_image` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
-  `price` double NOT NULL,
-  `receiver_name` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
-  `receiver_phone` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
-  `address_snapshot` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '完整的收货地址',
-  `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT '已支付' COMMENT '状态: 待支付/已支付/已发货',
-  `create_time` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  `description` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '商品描述快照',
-  `buyer_name` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '买家昵称快照',
-  `buyer_avatar` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '买家头像快照',
-  `shipping_time` datetime NULL DEFAULT NULL COMMENT '发货时间',
-  PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE INDEX `order_no`(`order_no` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 8 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '订单表' ROW_FORMAT = Dynamic;
-
--- ----------------------------
--- Records of orders
--- ----------------------------
-INSERT INTO `orders` VALUES (7, '2025122220410359', 3, '悟空', '/images/product/c9f11d47-adaa-4774-a05a-f2ef6e12f453.jpg', 9998, '曹岩磊', '18888888888', '月球阿波罗洼', '已支付', '2025-12-22 20:41:03', '性格活泼，会耍金箍棒，西游记联名款', '好孩子', '/images/avatar/e8f2c468-d9b2-4e85-ac7e-99018e5e0034.png', NULL);
-
--- ----------------------------
--- Table structure for user
--- ----------------------------
-DROP TABLE IF EXISTS `user`;
-CREATE TABLE `user`  (
-  `id` bigint NOT NULL AUTO_INCREMENT,
-  `username` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-  `password` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-  `phone` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
-  `avatar` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
-  `create_time` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE INDEX `username`(`username` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 4 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = Dynamic;
-
--- ----------------------------
--- Records of user
--- ----------------------------
-INSERT INTO `user` VALUES (1, 'test', '123456', '13800138000', NULL, '2025-12-22 00:31:05');
-INSERT INTO `user` VALUES (2, '111', '123456', '15603838733', NULL, '2025-12-22 00:36:38');
-INSERT INTO `user` VALUES (3, '好孩子', '123456', '16650668913', '/images/avatar/e8f2c468-d9b2-4e85-ac7e-99018e5e0034.png', '2025-12-22 12:14:37');
-
--- ----------------------------
--- Table structure for visit_log
--- ----------------------------
-DROP TABLE IF EXISTS `visit_log`;
-CREATE TABLE `visit_log`  (
-  `id` bigint NOT NULL AUTO_INCREMENT,
-  `visit_time` datetime NOT NULL COMMENT '访问时间',
-  `ip_address` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '访客IP (可选)',
-  PRIMARY KEY (`id`) USING BTREE,
-  INDEX `idx_visit_time`(`visit_time` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 23 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = Dynamic;
-
--- ----------------------------
--- Records of visit_log
--- ----------------------------
-INSERT INTO `visit_log` VALUES (1, '2025-12-22 19:22:07', '127.0.0.1');
-INSERT INTO `visit_log` VALUES (2, '2025-12-22 19:22:08', '0:0:0:0:0:0:0:1');
-INSERT INTO `visit_log` VALUES (3, '2025-12-22 19:22:08', '127.0.0.1');
-INSERT INTO `visit_log` VALUES (4, '2025-12-22 19:22:09', '127.0.0.1');
-INSERT INTO `visit_log` VALUES (5, '2025-12-22 19:22:09', '0:0:0:0:0:0:0:1');
-INSERT INTO `visit_log` VALUES (6, '2025-12-22 19:22:10', '127.0.0.1');
-INSERT INTO `visit_log` VALUES (7, '2025-12-22 19:22:10', '0:0:0:0:0:0:0:1');
-INSERT INTO `visit_log` VALUES (8, '2025-12-22 19:22:11', '127.0.0.1');
-INSERT INTO `visit_log` VALUES (9, '2025-12-22 19:22:12', '0:0:0:0:0:0:0:1');
-INSERT INTO `visit_log` VALUES (10, '2025-12-22 19:22:13', '127.0.0.1');
-INSERT INTO `visit_log` VALUES (11, '2025-12-22 19:22:14', '0:0:0:0:0:0:0:1');
-INSERT INTO `visit_log` VALUES (12, '2025-12-22 19:22:14', '127.0.0.1');
-INSERT INTO `visit_log` VALUES (13, '2025-12-22 19:22:15', '127.0.0.1');
-INSERT INTO `visit_log` VALUES (14, '2025-12-22 19:22:16', '0:0:0:0:0:0:0:1');
-INSERT INTO `visit_log` VALUES (15, '2025-12-22 19:58:40', '0:0:0:0:0:0:0:1');
-INSERT INTO `visit_log` VALUES (16, '2025-12-22 19:58:41', '0:0:0:0:0:0:0:1');
-INSERT INTO `visit_log` VALUES (17, '2025-12-22 20:23:30', '0:0:0:0:0:0:0:1');
-INSERT INTO `visit_log` VALUES (18, '2025-12-22 20:53:04', '0:0:0:0:0:0:0:1');
-INSERT INTO `visit_log` VALUES (19, '2025-12-22 21:16:45', '0:0:0:0:0:0:0:1');
-INSERT INTO `visit_log` VALUES (20, '2025-12-22 21:16:46', '0:0:0:0:0:0:0:1');
-INSERT INTO `visit_log` VALUES (21, '2025-12-22 21:31:45', '0:0:0:0:0:0:0:1');
-INSERT INTO `visit_log` VALUES (22, '2025-12-22 21:33:12', '0:0:0:0:0:0:0:1');
-
-SET FOREIGN_KEY_CHECKS = 1;
 
 
 pom.xml
@@ -3815,7 +3692,7 @@ pom.xml
     </parent>
 
     <groupId>com.example</groupId>
-    <artifactId>demo</artifactId>
+    <artifactId>MonkeyShop</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>demo</name>
     <description>Monkey Shop Demo</description>
@@ -3829,6 +3706,11 @@ pom.xml
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
 
         <dependency>
@@ -3848,11 +3730,6 @@ pom.xml
             <scope>test</scope>
         </dependency>
 
-	<dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-security</artifactId>
-        </dependency>
-
     </dependencies>
 
     <build>
@@ -3866,6 +3743,7 @@ pom.xml
 
 </project>
 
+
 README.md
 # 🐵 MonkeyShop | 网购猴子平台
 
@@ -3877,14 +3755,15 @@ README.md
 
 ## 📖 项目简介 (Introduction)
 
-**Monkey Shop** 是一个模拟灵长类动物交易的电商平台（仅供学习演示）。项目采用前后端一体化架构，后端使用 Spring Boot 3 提供 RESTful API，前端使用原生 HTML 结合 Vue 3 (CDN) 进行渲染。
+**MonkeyShop** 是一个模拟灵长类动物交易的电商平台（仅供学习演示）。项目采用前后端一体化架构，后端使用 Spring Boot 3 提供 RESTful API，前端使用原生 HTML 结合 Vue 3 (CDN) 进行渲染。
 
-本项目摒弃了复杂的前端工程化构建（如 Webpack/Vite），回归最纯粹的开发体验，同时在后端实现了企业级的业务逻辑，如**订单快照**、**库存并发控制**、**图片垃圾回收**、**数据可视化看板**等。
+本项目摒弃了复杂的前端工程化构建（如 Webpack/Vite），回归最纯粹的开发体验，同时在后端实现了企业级的业务逻辑，如**订单快照**、**库存并发控制**、**图片垃圾回收**、**Spring Security 安全认证**、**数据可视化看板**等。
 
 ## 🛠 技术栈 (Tech Stack)
 
 ### 后端 (Backend)
 *   **核心框架**: Spring Boot 3.2.0
+*   **安全框架**: Spring Security (BCrypt 加密)
 *   **数据库**: MySQL 8.0
 *   **ORM**: Spring Data JPA
 *   **工具**: Maven, Lombok (已移除，采用原生 Getter/Setter)
@@ -3901,7 +3780,7 @@ README.md
 ### 👤 用户端 (User)
 *   **账户体系**: 注册/登录 (含图形验证码)、找回密码、个人资料修改、头像上传。
 *   **商品浏览**: 首页轮播图、商品列表、**多维筛选** (关键词/价格区间/库存)、**实时搜索**。
-*   **购物流程**: 商品详情弹窗、**库存检查**、选择收货地址、提交订单。
+*   **购物流程**: 商品详情弹窗、**库存检查**、选择收货地址 (支持临时新增)、提交订单。
 *   **订单中心**: 查看历史订单、**发货状态追踪** (含发货时间)、**确认收货**、**申请退货**。
 *   **地址管理**: 多地址增删改查、设置默认地址。
 
@@ -3909,7 +3788,7 @@ README.md
 *   **数据看板**: ECharts 可视化展示 (GMV/订单量/访问量/退货率)、**双轴趋势图**、多时间维度筛选 (7天/30天/1年/自定义)。
 *   **商品管理**: 商品上架/编辑/下架、**图片自动裁剪** (后端居中裁剪适配)、库存管理。
 *   **订单管理**: 订单全览 (含**买家/商品快照**)、**一键发货**、**退货审批** (同意/确认收货)、删除订单 (自动回滚库存)。
-*   **权限控制**: 独立的管理员表、登录拦截、敏感操作鉴权。
+*   **权限控制**: 独立的管理员表、登录拦截、敏感操作鉴权、**原地登录** (Session过期不跳转)。
 
 ## 🌟 项目亮点 (Highlights)
 
@@ -3921,95 +3800,129 @@ README.md
     *   **定时任务**: 每日凌晨自动扫描硬盘，清理数据库中不存在的“孤儿文件”，防止磁盘空间浪费。
     *   **自动裁剪**: 管理员上传非正方形图片时，后端自动进行**居中裁剪**，保证前端展示整齐。
 
-3.  **无感交互体验**
+3.  **高并发库存控制**
+    *   使用数据库原子更新 (`UPDATE ... SET stock = stock - 1 WHERE stock > 0`) 防止超卖。
+
+4.  **无感交互体验**
     *   全站拒绝原生 `alert/confirm`，封装了全局 **Toast 轻提示** 和 **Bootstrap Modal**。
     *   管理后台采用**原地登录**机制，Session 过期后无需跳转页面即可重新登录。
 
 ## ⚡ 快速开始 (Getting Started)
 
+### 方式一：本地运行 (Local IDE)
+
 ### 1. 环境准备
-*   JDK 21 或 17
+*   JDK 21 或 17（不要用24因为不稳定）
 *   MySQL 8.0
 *   IntelliJ IDEA (推荐)
 
 ### 2. 数据库配置
-在 MySQL 中创建数据库 `monkeyshop`，并执行以下 SQL 初始化表结构：
+在 MySQL 中创建数据库 `monkeyshop`，并执行以下 SQL 初始化表结构和数据：
 
 ```sql
-CREATE DATABASE monkeyshop;
-USE monkeyshop;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+DROP TABLE IF EXISTS `address`;
+CREATE TABLE `address`  (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '地址ID',
+  `user_id` bigint NOT NULL COMMENT '关联的用户ID',
+  `receiver_name` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '收货人姓名',
+  `phone` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '收货人电话',
+  `detail_address` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '详细地址',
+  `is_default` int NULL DEFAULT NULL,
+  `create_time` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 4 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '收货地址表' ROW_FORMAT = Dynamic;
 
--- 管理员表
-CREATE TABLE admin (
-  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  username VARCHAR(50) NOT NULL UNIQUE,
-  password VARCHAR(100) NOT NULL,
-  nickname VARCHAR(50) DEFAULT '管理员',
-  create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-INSERT INTO admin (username, password, nickname) VALUES ('admin', '123456', '超级管理员');
+DROP TABLE IF EXISTS `admin`;
+CREATE TABLE `admin`  (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `username` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  `password` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  `nickname` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT '管理员',
+  `create_time` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE INDEX `username`(`username` ASC) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 3 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = Dynamic;
 
--- 用户表
-CREATE TABLE user (
-  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  username VARCHAR(50) NOT NULL UNIQUE,
-  password VARCHAR(100) NOT NULL,
-  phone VARCHAR(20),
-  avatar VARCHAR(255),
-  create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+DROP TABLE IF EXISTS `monkey`;
+CREATE TABLE `monkey`  (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '商品名称',
+  `breed` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '品种',
+  `price` double NULL DEFAULT NULL COMMENT '价格',
+  `description` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '描述',
+  `image_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '图片地址',
+  `stock` int NULL DEFAULT 10 COMMENT '库存',
+  PRIMARY KEY (`id`) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 8 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '猴子商品表' ROW_FORMAT = Dynamic;
+INSERT INTO `monkey` VALUES (1, '悟空', '金丝猴', 9998, '性格活泼，会耍金箍棒，西游记联名款', '/images/product/c9f11d47-adaa-4774-a05a-f2ef6e12f453.jpg', 10);
+INSERT INTO `monkey` VALUES (2, '杰克', '卷尾猴', 5000, '加勒比海盗同款，非常聪明，适合看家', '/images/product/33ba344f-c179-4d9e-b4e3-f94811f374d6.jpg', 10);
+INSERT INTO `monkey` VALUES (3, '金刚', '大猩猩', 12000, '体型巨大，虽然不是猴子但很强壮，安全感爆棚', '/images/product/fb59ce47-9806-442c-861e-8d63a46615cd.jpg', 10);
+INSERT INTO `monkey` VALUES (4, '莫莫', '狐猴', 3000, '马达加斯加特产，喜欢跳舞，眼神清澈愚蠢', '/images/product/5de3868f-4de4-452b-8bbc-bc9a0eb85f94.jpg', 10);
+INSERT INTO `monkey` VALUES (5, '大草猪', '肥猪', 1, '这是一头大笨猪', '/images/product/57736ad2-eb28-4924-88b5-4e496e6bd68e.jpg', 10);
+INSERT INTO `monkey` VALUES (6, '大笨蛋', '超级大笨蛋', 888, '这是一个超级大笨蛋', '/images/default_product.png', 100);
+INSERT INTO `monkey` VALUES (7, '哈哈哈', '', 688, '', '/images/product/1203392d-1efc-4d5b-8802-d1a1cf8aed20.png', 10);
 
--- 商品表
-CREATE TABLE monkey (
-  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(255),
-  breed VARCHAR(255),
-  price DOUBLE,
-  stock INT DEFAULT 10,
-  description VARCHAR(500),
-  image_url VARCHAR(500)
-);
+DROP TABLE IF EXISTS `orders`;
+CREATE TABLE `orders`  (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `order_no` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '订单编号(对外展示)',
+  `user_id` bigint NOT NULL COMMENT '买家ID',
+  `product_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  `product_image` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
+  `price` double NOT NULL,
+  `receiver_name` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
+  `receiver_phone` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
+  `address_snapshot` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '完整的收货地址',
+  `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT '已支付' COMMENT '状态: 待支付/已支付/已发货',
+  `create_time` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `description` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '商品描述快照',
+  `buyer_name` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '买家昵称快照',
+  `buyer_avatar` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '买家头像快照',
+  `shipping_time` datetime NULL DEFAULT NULL COMMENT '发货时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE INDEX `order_no`(`order_no` ASC) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 11 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '订单表' ROW_FORMAT = Dynamic;
+INSERT INTO `orders` VALUES (10, '20251224012838152', 2, '杰克', '/images/product/33ba344f-c179-4d9e-b4e3-f94811f374d6.jpg', 5000, '你猜我是谁', '18888888888', '南天门', '已退款', '2025-12-24 01:28:38', '加勒比海盗同款，非常聪明，适合看家', '佳怡', '/images/avatar/4e837b67-0a29-4cc4-9c0f-ea29d6d27edf.png', '2025-12-24 01:30:36');
 
--- 订单表
-CREATE TABLE orders (
-  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  order_no VARCHAR(64) NOT NULL UNIQUE,
-  user_id BIGINT NOT NULL,
-  buyer_name VARCHAR(50),
-  buyer_avatar VARCHAR(255),
-  product_name VARCHAR(255),
-  product_image VARCHAR(255),
-  price DOUBLE,
-  description VARCHAR(500),
-  receiver_name VARCHAR(50),
-  receiver_phone VARCHAR(20),
-  address_snapshot VARCHAR(500),
-  status VARCHAR(20),
-  create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+DROP TABLE IF EXISTS `user`;
+CREATE TABLE `user`  (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `username` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  `password` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  `phone` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
+  `avatar` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
+  `create_time` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE INDEX `username`(`username` ASC) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 3 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = Dynamic;
 
--- 地址表
-CREATE TABLE address (
-  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  user_id BIGINT NOT NULL,
-  receiver_name VARCHAR(50),
-  phone VARCHAR(20),
-  detail_address VARCHAR(255),
-  is_default TINYINT(1) DEFAULT 0
-);
+DROP TABLE IF EXISTS `visit_log`;
+CREATE TABLE `visit_log`  (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `visit_time` datetime NOT NULL COMMENT '访问时间',
+  `ip_address` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '访客IP (可选)',
+  PRIMARY KEY (`id`) USING BTREE,
+  INDEX `idx_visit_time`(`visit_time` ASC) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 101 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = Dynamic;
+INSERT INTO `visit_log` VALUES (1, '2025-12-22 19:22:07', '127.0.0.1');
+INSERT INTO `visit_log` VALUES (2, '2025-12-22 19:22:08', '0:0:0:0:0:0:0:1');
+INSERT INTO `visit_log` VALUES (3, '2025-12-22 19:22:08', '127.0.0.1');
+INSERT INTO `visit_log` VALUES (4, '2025-12-22 19:22:09', '127.0.0.1');
+INSERT INTO `visit_log` VALUES (5, '2025-12-22 19:22:09', '0:0:0:0:0:0:0:1');
+INSERT INTO `visit_log` VALUES (6, '2025-12-22 19:22:10', '127.0.0.1');
 
--- 访问日志表
-CREATE TABLE visit_log (
-  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  visit_time DATETIME,
-  ip_address VARCHAR(50)
-);
+SET FOREIGN_KEY_CHECKS = 1;
 ```
 
 ### 3. 修改配置
 打开 `src/main/resources/application.properties`，配置你的数据库账号密码：
 
 ```properties
+# 端口配置
+server.port=8888
+
 # 数据库连接配置
 spring.datasource.url=jdbc:mysql://localhost:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8
 spring.datasource.username=root
@@ -4033,24 +3946,141 @@ spring.servlet.multipart.max-request-size=10MB
     *   **用户登录首页**: [http://localhost:8888](http://localhost:8081) (端口取决于你的配置)
     *   **管理员后台**: [http://localhost:8888/admin.html](http://localhost:8081/admin.html) (需先登录管理员账号)
 
+### 方式二：🐳 Docker 部署 (Docker Deployment)
+
+## 1. 创建 Docker 配置文件（项目中有）
+1.  在项目根目录下创建文件 Dockerfile：
+```Dockerfile
+FROM openjdk:21-jdk-slim
+RUN apt-get update && apt-get install -y \
+    fontconfig \
+    libfreetype6 \
+    fonts-dejavu \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY target/*.jar app.jar
+EXPOSE 8888
+ENTRYPOINT ["java", "-jar", "app.jar"]
+```
+2.  在项目根目录下创建文件 docker-compose.yml：
+```YAML
+services:
+  # --- MySQL 容器 ---
+  mysql:
+    image: mysql:8.0
+    container_name: monkey-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: monkeyshop
+      MYSQL_USER: monkeyuser       # 应用专用账户
+      MYSQL_PASSWORD: monkeypass   # 应用专用密码
+    ports:
+      - "3307:3306"                # 映射宿主机 3307 端口 -> 容器 3306
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # --- Java 应用容器 ---
+  myshop:
+    build: .
+    container_name: monkey-app
+    ports:
+      - "8888:8888"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      # 覆盖 application.properties 中的配置
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: monkeyuser
+      SPRING_DATASOURCE_PASSWORD: monkeypass
+      SERVER_PORT: 8888
+    volumes:
+      # 挂载图片上传目录：宿主机 ./uploads -> 容器 /data/images
+      - ./uploads:/data/images
+
+volumes:
+  mysql_data:
+```
+## 2. 打包与启动
+在项目根目录执行以下命令：
+```Bash
+# Docker 一键编排启动
+docker-compose up -d --build
+```
+## 3. ⚠️ 数据库连接注意事项
+   Docker 启动的是一个全新的 MySQL 环境。
+- **自动建表**：项目配置了 spring.jpa.hibernate.ddl-auto=update，容器启动后应用会自动在 Docker 数据库中创建所需的表结构。
+- **手动管理数据库**：如果你需要使用 Navicat/DBeaver 连接 Docker 中的数据库（例如手动插入初始数据），请使用以下信息连接：
+    - **主机**：localhost
+    - **端口**：3307（注意：不是 3306，3306 已经被映射到宿主机的 3307）
+    - **用户名**：monkeyuser
+    - **密码**：monkeypass
+    - **数据库名**：monkeyshop
+- 如果你想要初始化数据，可以删除表，执行方法一中的SQL代码
+启动成功后，访问 http://localhost:8888 即可。上传的图片将保存在项目根目录下的 uploads 文件夹中。
+
+### 4. 停止与关闭 Docker 服务
+   在项目根目录（docker-compose.yml 所在目录）执行以下命令：
+```Bash
+# 1. 停止并删除容器、网络（保留数据库数据和上传的图片）
+docker-compose down
+
+# 2. 如果想彻底清理（包括删除 MySQL 数据卷和 uploads 文件夹里的图片，谨慎使用！）
+docker-compose down -v
+# 注意：-v 参数会删除 volumes 中定义的 mysql_data 卷，数据库会重置为初始状态
+```
+
+- **docker-compose down**：仅停止并删除容器和网络，**数据库数据和 uploads 文件夹内容会保留**，下次 up 还能继续使用。
+- **docker-compose down -v**：彻底删除，包括数据库卷，适合想完全重置环境时使用。
+- 关闭后，您可以随时再次执行 **docker-compose up -d --build** 重新启动服务。
+
 ## 📂 目录结构 (Directory Structure)
 
 ```text
 src/main/java/com/example/monkey
-├── config          # Web配置 (拦截器注册、静态资源映射)
-├── controller      # 控制器 (处理 HTTP 请求)
-│   ├── AuthController.java    # 登录/注册/验证码
-│   ├── MonkeyController.java  # 商品管理
-│   ├── OrderController.java   # 订单/支付/发货/退货
-│   ├── StatsController.java   # 数据可视化接口
-│   ├── UploadController.java  # 图片上传与自动裁剪
-│   └── UserController.java    # 用户个人中心/头像管理
-├── entity          # 实体类 (User, Admin, Monkey, Order, Address, VisitLog)
-├── interceptor     # 拦截器 (VisitInterceptor 用于统计真实访问量)
+├── config          # 配置类
+│   ├── DataInitializer.java   # 启动加载器 (自动创建默认管理员)
+│   ├── SecurityConfig.java    # 安全配置 (BCrypt加密、CSRF禁用)
+│   └── WebConfig.java         # 拦截器注册、本地图片资源映射
+├── controller      # 控制器 (Web层，只负责路由分发，业务移交Service)
+│   ├── AddressController.java # 收货地址管理
+│   ├── AuthController.java    # 登录、注册、找回密码
+│   ├── MonkeyController.java  # 商品管理接口
+│   ├── OrderController.java   # 订单流程接口
+│   ├── StatsController.java   # 数据可视化看板接口
+│   ├── UploadController.java  # 图片上传入口
+│   └── UserController.java    # 个人中心、头像管理、权限检查
+├── entity          # 实体类 (数据库表映射)
+│   ├── Address.java           # 收货地址
+│   ├── Admin.java             # 管理员表
+│   ├── Monkey.java            # 商品表 (含库存)
+│   ├── Order.java             # 订单表 (含商品/买家快照、发货时间)
+│   ├── User.java              # 普通用户表
+│   └── VisitLog.java          # 访问日志表
+├── interceptor     # 拦截器
+│   └── VisitInterceptor.java  # 拦截页面请求，统计真实访问量
 ├── repository      # 数据仓库 (Spring Data JPA 接口)
-├── service         # 业务逻辑 (CaptchaService, ImageCleanupService)
-├── task            # 定时任务 (ImageTask 用于清理冗余图片)
-└── util            # 工具类 (CaptchaUtil)
+│   ├── AddressRepository.java
+│   ├── AdminRepository.java
+│   ├── MonkeyRepository.java  # 含库存原子扣减 SQL
+│   ├── OrderRepository.java
+│   ├── UserRepository.java
+│   └── VisitLogRepository.java
+├── service         # 业务逻辑层 (核心业务、事务控制 @Transactional)
+│   ├── CaptchaService.java    # 验证码生成与校验逻辑
+│   ├── FileService.java       # 文件上传、智能裁剪、路径处理
+│   ├── ImageCleanupService.java # 图片垃圾回收 (引用计数检查)
+│   ├── OrderService.java      # 订单流转、库存回滚、快照组装
+│   └── UserService.java       # 用户认证、加密、资料更新
+├── task            # 定时任务
+│   └── ImageTask.java         # 定时扫描硬盘，清理未引用的孤儿图片
+└── util            # 工具类
+    └── CaptchaUtil.java       # 验证码绘图工具
 ```
 
 ## 🤝 贡献与反馈 (Contribution)
