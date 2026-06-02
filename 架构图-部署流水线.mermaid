@@ -1,5 +1,5 @@
 %% MonkeyShop 部署流水线图
-%% 展示从代码提交到生产部署的完整 CI/CD 流程
+%% 展示从代码提交到生产部署的完整流程（多阶段构建）
 flowchart LR
     subgraph Dev["开发环境 (Windows/Mac)"]
         direction TB
@@ -11,20 +11,30 @@ flowchart LR
     subgraph Build["构建环境 (Ubuntu)"]
         direction TB
         Clone["⬇️ git clone<br/>github.com/haohaizi554/monkey-shop"]
-        Compile["🔨 mvn clean package<br/>-DskipTests"]
-        Jar["📦 target/*.jar<br/>~60MB"]
-        Clone --> Compile --> Jar
+        Env["⚙️ 配置 .env 密码"]
+        Clone --> Env
     end
 
-    subgraph DockerBuild["Docker 构建"]
+    subgraph DockerBuild["Docker 多阶段构建"]
         direction TB
-        BaseImg["FROM openjdk:21-jdk-slim<br/>(华为云 SWR 加速)"]
-        AptMirror["APT → 阿里云源"]
-        Fonts["安装字体库<br/>DejaVu + Liberation"]
-        Timezone["TZ=Asia/Shanghai"]
-        CopyJar["COPY target/*.jar app.jar"]
-        Entrypoint["COPY entrypoint.sh"]
-        BaseImg --> AptMirror --> Fonts --> Timezone --> CopyJar --> Entrypoint
+        subgraph Stage1["阶段1: builder (Maven 编译)"]
+            direction TB
+            MavenImg["FROM maven:3.9-eclipse-temurin-21<br/>(华为云 SWR 加速)"]
+            Deps["COPY pom.xml<br/>mvn dependency:go-offline<br/>(缓存层: 依赖不变则跳过)"]
+            Compile["COPY src<br/>mvn clean package -DskipTests"]
+            MavenImg --> Deps --> Compile
+        end
+        subgraph Stage2["阶段2: runtime (运行时镜像)"]
+            direction TB
+            JdkImg["FROM openjdk:21-jdk-slim"]
+            AptMirror["APT → 阿里云源"]
+            Fonts["安装字体库<br/>DejaVu + Liberation"]
+            Timezone["TZ=Asia/Shanghai"]
+            CopyJar["COPY --from=builder<br/>/build/target/*.jar app.jar"]
+            Entrypoint["COPY entrypoint.sh"]
+            JdkImg --> AptMirror --> Fonts --> Timezone --> CopyJar --> Entrypoint
+        end
+        Compile -->|"JAR 包"| CopyJar
     end
 
     subgraph Compose["Docker Compose 编排"]
@@ -74,15 +84,18 @@ flowchart LR
     Code:::dev
     Git:::dev
     Clone:::build
-    Compile:::build
-    Jar:::build
-    BaseImg:::docker
+    Env:::build
+    MavenImg:::docker
+    Deps:::docker
+    Compile:::docker
+    JdkImg:::docker
     AptMirror:::docker
     Fonts:::docker
     Timezone:::docker
     CopyJar:::docker
     Entrypoint:::docker
     MImg:::docker
+    MTZ:::docker
     MHealth:::docker
     MVol:::docker
     AImg:::docker

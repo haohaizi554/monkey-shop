@@ -1,6 +1,7 @@
 # Ubuntu 虚拟机部署 MonkeyShop 完整指南
 
 > 从零开始，在 Ubuntu 虚拟机上克隆项目、安装 Docker、一键部署
+> 采用多阶段构建，宿主机无需安装 JDK/Maven
 
 ---
 
@@ -120,63 +121,9 @@ docker run hello-world
 
 ---
 
-## 第三阶段：安装 JDK 21（编译打包需要）
+## 第三阶段：配置环境变量
 
-> Docker 容器内运行的是编译好的 JAR 包，所以宿主机需要 JDK 来编译。
-
-### 3.1 安装 JDK 21
-
-```bash
-sudo apt install -y openjdk-21-jdk
-```
-
-### 3.2 验证
-
-```bash
-java -version
-```
-
-应该输出 `openjdk version "21.x.x"`。
-
----
-
-## 第四阶段：编译打包
-
-### 4.1 安装 Maven（如果没有）
-
-项目自带 pom.xml，需要 Maven 来编译：
-
-```bash
-sudo apt install -y maven
-```
-
-### 4.2 编译打包
-
-```bash
-cd ~/monkey-shop
-mvn clean package -DskipTests
-```
-
-> `-DskipTests` 跳过测试，加快打包速度。
-> 首次编译会下载大量依赖，可能需要 3-5 分钟。
-
-### 4.3 验证 JAR 包生成
-
-```bash
-ls -lh target/*.jar
-```
-
-应该看到类似：
-
-```
-target/MonkeyShop-0.0.1-SNAPSHOT.jar  ~60MB
-```
-
----
-
-## 第五阶段：配置环境变量
-
-### 5.1 创建 .env 文件
+### 3.1 检查 .env 文件
 
 项目已自带 `.env` 文件，检查一下内容：
 
@@ -192,7 +139,7 @@ MYSQL_USER=monkeyuser
 MYSQL_PASSWORD=monkeypass
 ```
 
-### 5.2 修改密码（建议）
+### 3.2 修改密码（建议）
 
 ```bash
 nano .env
@@ -210,29 +157,33 @@ MYSQL_PASSWORD=MyStr0ng!AppP@ss
 
 ---
 
-## 第六阶段：一键部署
+## 第四阶段：一键部署
 
-### 6.1 确保 entrypoint.sh 有执行权限
+> 项目采用 Docker 多阶段构建，编译在 Docker 内自动完成，**宿主机无需安装 JDK 和 Maven**。
+
+### 4.1 确保 entrypoint.sh 有执行权限
 
 ```bash
 chmod +x entrypoint.sh
 ```
 
-### 6.2 构建并启动
+### 4.2 构建并启动
 
 ```bash
 docker compose up -d --build
 ```
 
 这个命令会：
-1. 根据 Dockerfile 构建 Java 应用镜像
-2. 拉取 MySQL 8.0 镜像
-3. 启动 MySQL 容器并等待健康检查通过
-4. 启动 Java 应用容器（自动初始化默认图片）
+1. **阶段1 (builder)**：在 Docker 内拉取 Maven 镜像，自动编译打包 JAR
+2. **阶段2 (runtime)**：构建运行时镜像，拷贝 JAR，安装字体库
+3. 拉取 MySQL 8.0 镜像
+4. 启动 MySQL 容器并等待健康检查通过
+5. 启动 Java 应用容器（自动初始化默认图片）
 
-> 首次构建需要下载基础镜像，可能需要 5-10 分钟。
+> 首次构建需要下载基础镜像 + Maven 依赖，可能需要 5-10 分钟。
+> 后续构建利用 Docker 缓存层，只重新编译变更的代码，速度很快。
 
-### 6.3 查看启动日志
+### 4.3 查看启动日志
 
 ```bash
 docker compose logs -f myshop
@@ -249,7 +200,7 @@ docker compose logs -f myshop
 
 按 `Ctrl+C` 退出日志查看。
 
-### 6.4 检查容器状态
+### 4.4 检查容器状态
 
 ```bash
 docker compose ps
@@ -265,9 +216,9 @@ monkey-mysql    Up (healthy) ...
 
 ---
 
-## 第七阶段：访问验证
+## 第五阶段：访问验证
 
-### 7.1 本机访问
+### 5.1 本机访问
 
 在 Ubuntu 虚拟机内：
 
@@ -277,7 +228,7 @@ curl -I http://localhost:8888
 
 应该返回 `HTTP/1.1 200`。
 
-### 7.2 浏览器访问
+### 5.2 浏览器访问
 
 - 如果 Ubuntu 有图形界面，直接打开浏览器访问 `http://localhost:8888`
 - 如果是宿主机 Windows 访问虚拟机，需要知道虚拟机 IP：
@@ -288,7 +239,7 @@ ip addr show | grep "inet " | grep -v 127.0.0.1
 
 然后在 Windows 浏览器访问 `http://虚拟机IP:8888`
 
-### 7.3 验证功能清单
+### 5.3 验证功能清单
 
 | 验证项 | 操作 | 预期结果 |
 |--------|------|----------|
@@ -333,14 +284,14 @@ docker compose restart
 ```bash
 cd ~/monkey-shop
 git pull origin main
-mvn clean package -DskipTests
 docker compose up -d --build
 ```
+
+> 多阶段构建确保每次 `--build` 都会重新编译最新代码，不会出现"忘了打包就部署旧代码"的问题。
 
 > ⚠️ 如果更新涉及 MySQL 时区或字符集变更，需要清除旧数据卷重新初始化：
 > ```bash
 > docker compose down -v
-> mvn clean package -DskipTests
 > docker compose up -d --build
 > ```
 > 这会删除所有数据库数据，请提前备份。
@@ -419,12 +370,9 @@ docker compose up -d --build
 # 查看退出日志
 docker compose logs myshop
 
-# 常见原因：JAR 包没打成功
-ls -lh target/*.jar
-
-# 重新打包
-mvn clean package -DskipTests
-docker compose up -d --build
+# 重新构建（多阶段构建会自动编译）
+docker compose build --no-cache myshop
+docker compose up -d
 ```
 
 ### Q5: 宿主机 Windows 无法访问虚拟机
@@ -447,6 +395,17 @@ docker compose build --no-cache myshop
 docker compose up -d
 ```
 
+### Q7: 构建很慢 / Maven 依赖下载失败
+
+首次构建需要下载大量 Maven 依赖，如果网络不好可以配置 Maven 国内镜像。在 Dockerfile 的 builder 阶段添加：
+
+```dockerfile
+# 在 COPY pom.xml 之前添加
+COPY settings.xml /root/.m2/settings.xml
+```
+
+创建 `settings.xml` 配置阿里云 Maven 仓库。
+
 ---
 
 ## 部署流程总结
@@ -456,15 +415,16 @@ Ubuntu 虚拟机
     │
     ├── 1. git clone 项目
     │
-    ├── 2. 安装 Docker + JDK 21 + Maven
+    ├── 2. 安装 Docker（宿主机无需 JDK/Maven）
     │
-    ├── 3. mvn clean package -DskipTests
+    ├── 3. 配置 .env 密码
     │
-    ├── 4. 配置 .env 密码
+    ├── 4. chmod +x entrypoint.sh
     │
-    ├── 5. chmod +x entrypoint.sh
-    │
-    ├── 6. docker compose up -d --build
+    ├── 5. docker compose up -d --build
+    │       │
+    │       ├── Docker 阶段1: Maven 自动编译 JAR
+    │       ├── Docker 阶段2: 构建运行时镜像
     │       │
     │       ├── MySQL 容器启动 → 健康检查通过
     │       │
@@ -472,5 +432,5 @@ Ubuntu 虚拟机
     │           ├── entrypoint.sh 初始化默认图片
     │           └── java -jar app.jar
     │
-    └── 7. 浏览器访问 http://IP:8888 ✅
+    └── 6. 浏览器访问 http://IP:8888 ✅
 ```
