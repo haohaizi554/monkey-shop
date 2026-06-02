@@ -1,0 +1,98 @@
+%% MonkeyShop 图片存储与容器化适配流程图
+%% 展示图片从上传到展示的完整链路，以及容器化适配方案
+flowchart TB
+    subgraph Upload["图片上传流程"]
+        direction TB
+        A["用户上传图片<br/><input type='file'>"] --> B["POST /api/upload"]
+        B --> C["FileService.uploadFile()"]
+        C --> D{"图片类型?"}
+        D -->|"商品图"| E["自动裁剪为正方形<br/>ImageIO + Graphics2D"]
+        D -->|"头像"| F["直接保存"]
+        E --> G["生成 UUID 文件名<br/>保存到 UPLOAD_PATH"]
+        F --> G
+        G --> H["返回 URL: /images/xxx/uuid.png"]
+    end
+
+    subgraph Serve["图片请求流程"]
+        direction TB
+        I["浏览器请求<br/>GET /images/product/uuid.png"] --> J["Spring ResourceHandler<br/>/images/**"]
+        J --> K{"查找 file:UPLOAD_PATH"}
+        K -->|"找到"| L["返回图片 ✅"]
+        K -->|"未找到"| M{"查找 classpath:/static/images/"}
+        M -->|"找到"| L
+        M -->|"未找到"| N["404 Not Found ❌"]
+    end
+
+    subgraph Cleanup["图片清理机制 (双重保障)"]
+        direction TB
+        O["触发方式1: 实时引用计数"]
+        P["触发方式2: 定时全盘扫描<br/>@Scheduled(cron=0 0 3 * * ?)"]
+        O --> Q["删除商品时检查<br/>imageUrl 是否被其他引用"]
+        P --> R["扫描 /data/images/ 全部文件"]
+        R --> S["对比数据库 imageUrl 字段"]
+        S --> T{"引用计数 = 0?"}
+        Q --> T
+        T -->|"是"| U["物理删除文件 🗑️"]
+        T -->|"否"| V["保留文件"]
+    end
+
+    subgraph DockerAdapt["Docker 容器化适配"]
+        direction TB
+        W["entrypoint.sh 启动"] --> X["unzip app.jar<br/>BOOT-INF/classes/static/images/*"]
+        X --> Y["cp -rn → /data/images/<br/>(不覆盖已有文件)"]
+        Y --> Z["exec java -jar app.jar"]
+
+        AA["WebConfig.UPLOAD_PATH"] --> BB{"app.upload-path<br/>配置值?"}
+        BB -->|"有值"| CC["使用配置值<br/>(Docker: /data/images/)"]
+        BB -->|"空"| DD{"OS 检测"}
+        DD -->|"Win/Mac"| EE["本地开发路径<br/>src/main/resources/static/images/"]
+        DD -->|"Linux"| FF["容器默认路径<br/>/data/images/"]
+
+        GG["docker-compose.yml"] --> HH["./uploads ↔ /data/images<br/>(绑定挂载)"]
+    end
+
+    Upload --> Serve
+    Serve -.->|"商品删除"| Cleanup
+    DockerAdapt -.->|"初始化默认图片"| Serve
+
+    classDef process fill:#01579b,stroke:#00e5ff,stroke-width:2px,color:#e1f5fe
+    classDef decision fill:#f57f17,stroke:#ffeb3b,stroke-width:2px,color:#fffde7
+    classDef storage fill:#4a148c,stroke:#ea80fc,stroke-width:3px,color:#f3e5f5
+    classDef success fill:#1b5e20,stroke:#66bb6a,stroke-width:2px,color:#e8f5e9
+    classDef error fill:#b71c1c,stroke:#ef5350,stroke-width:2px,color:#ffebee
+    classDef adapt fill:#e65100,stroke:#ffab40,stroke-width:2px,color:#fff3e0
+
+    A:::process
+    B:::process
+    C:::process
+    D:::decision
+    E:::process
+    F:::process
+    G:::process
+    H:::success
+    I:::process
+    J:::process
+    K:::decision
+    L:::success
+    M:::decision
+    N:::error
+    O:::process
+    P:::process
+    Q:::process
+    R:::process
+    S:::process
+    T:::decision
+    U:::process
+    V:::success
+    W:::adapt
+    X:::adapt
+    Y:::adapt
+    Z:::adapt
+    AA:::adapt
+    BB:::decision
+    CC:::adapt
+    DD:::decision
+    EE:::adapt
+    FF:::adapt
+    GG:::adapt
+    HH:::adapt

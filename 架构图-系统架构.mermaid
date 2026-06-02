@@ -1,0 +1,126 @@
+%% MonkeyShop 系统架构图
+%% 展示整体分层架构与模块间依赖关系
+flowchart TB
+    subgraph Client["客户端层 (Client Layer)"]
+        direction LR
+        Browser["🌐 浏览器"]
+        SPA["Vue 3 SPA<br/>index / shop / orders / profile / admin"]
+    end
+
+    subgraph CDN["CDN 资源层"]
+        direction LR
+        BootCSS["Bootstrap 5.3 CSS"]
+        BootJS["Bootstrap 5.3 JS"]
+        BootIcons["Bootstrap Icons 1.11"]
+        VueCDN["Vue 3.3.4"]
+        EChartsCDN["ECharts 5.4.3"]
+        FontsCDN["Google Fonts (Inter)"]
+    end
+
+    subgraph Gateway["Spring Boot 统一入口 (Port 8888)"]
+        direction TB
+        StaticHandler["静态资源处理器<br/>ResourceHandler"]
+        APIRouter["API 路由分发<br/>DispatcherServlet"]
+        SecurityFilter["Spring Security 过滤器链<br/>CSRF: OFF / permitAll"]
+    end
+
+    subgraph Controllers["控制器层 (Controller Layer)"]
+        direction LR
+        AuthCtrl["AuthController<br/>/api/auth/*"]
+        UserCtrl["UserController<br/>/api/user/*"]
+        MonkeyCtrl["MonkeyController<br/>/api/monkeys/*"]
+        OrderCtrl["OrderController<br/>/api/orders/*"]
+        AddressCtrl["AddressController<br/>/api/address/*"]
+        UploadCtrl["UploadController<br/>/api/upload"]
+        StatsCtrl["StatsController<br/>/api/stats/*"]
+    end
+
+    subgraph Services["服务层 (Service Layer)"]
+        direction LR
+        UserSvc["UserService<br/>注册/登录/密码管理"]
+        OrderSvc["OrderService<br/>订单生命周期"]
+        FileSvc["FileService<br/>上传/裁剪/存储"]
+        CaptchaSvc["CaptchaService<br/>验证码生成校验"]
+        CleanupSvc["ImageCleanupService<br/>引用计数GC"]
+    end
+
+    subgraph Repos["数据访问层 (Repository Layer)"]
+        direction LR
+        UserRepo["UserRepository"]
+        AdminRepo["AdminRepository"]
+        MonkeyRepo["MonkeyRepository<br/>+ deductStock()"]
+        OrderRepo["OrderRepository"]
+        AddressRepo["AddressRepository"]
+        VisitRepo["VisitLogRepository"]
+    end
+
+    subgraph Infra["基础设施层 (Infrastructure)"]
+        direction LR
+        MySQL[("MySQL 8.0<br/>utf8mb4")]
+        FileSystem[("文件系统<br/>/data/images/")]
+        SessionStore["HttpSession<br/>内存级"]
+        Scheduler["@Scheduled<br/>定时任务"]
+        Interceptor["VisitInterceptor<br/>访问统计"]
+    end
+
+    Browser --> SPA
+    SPA --> CDN
+    SPA -->|"fetch /api/*"| Gateway
+    SPA -->|"<img> /images/*"| StaticHandler
+
+    Gateway --> SecurityFilter
+    SecurityFilter --> APIRouter
+    SecurityFilter --> StaticHandler
+
+    APIRouter --> Controllers
+    Controllers --> Services
+    Services --> Repos
+    Repos --> MySQL
+    FileSvc --> FileSystem
+    UserSvc --> SessionStore
+    OrderSvc -->|"退款"| MonkeyRepo
+    Scheduler --> CleanupSvc
+    CleanupSvc --> FileSystem
+    Interceptor -->|"记录"| VisitRepo
+
+    Client:::layer
+    Gateway:::layer
+    Controllers:::layer
+    Services:::layer
+    Repos:::layer
+    Infra:::layer
+
+    classDef layer fill:none,stroke:#333,stroke-width:2px
+    classDef terminal fill:#37474f,stroke:#b0bec5,stroke-width:2px,color:#eceff1
+    classDef process fill:#01579b,stroke:#00e5ff,stroke-width:2px,color:#e1f5fe
+    classDef storage fill:#4a148c,stroke:#ea80fc,stroke-width:3px,color:#f3e5f5
+    classDef decision fill:#f57f17,stroke:#ffeb3b,stroke-width:2px,color:#fffde7
+
+    Browser:::terminal
+    SPA:::terminal
+    StaticHandler:::process
+    APIRouter:::process
+    SecurityFilter:::process
+    AuthCtrl:::process
+    UserCtrl:::process
+    MonkeyCtrl:::process
+    OrderCtrl:::process
+    AddressCtrl:::process
+    UploadCtrl:::process
+    StatsCtrl:::process
+    UserSvc:::process
+    OrderSvc:::process
+    FileSvc:::process
+    CaptchaSvc:::process
+    CleanupSvc:::process
+    UserRepo:::storage
+    AdminRepo:::storage
+    MonkeyRepo:::storage
+    OrderRepo:::storage
+    AddressRepo:::storage
+    VisitRepo:::storage
+    MySQL:::storage
+    FileSystem:::storage
+    SessionStore:::storage
+    Scheduler:::decision
+    Interceptor:::decision

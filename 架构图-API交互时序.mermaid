@@ -1,0 +1,93 @@
+%% MonkeyShop API 交互时序图
+%% 展示用户购物核心流程的请求时序
+sequenceDiagram
+    actor User as 用户
+    participant Browser as 浏览器 (Vue 3)
+    participant Server as Spring Boot (8888)
+    participant Service as Service 层
+    participant DB as MySQL 8.0
+    participant FS as 文件系统
+
+    rect rgb(13, 71, 161, 0.1)
+        Note over User,FS: 阶段1: 用户注册与登录
+        User->>Browser: 填写注册信息
+        Browser->>Server: GET /api/user/captcha
+        Server->>Service: CaptchaService.generate()
+        Service-->>Server: 返回验证码图片
+        Server-->>Browser: 图片流 (image/png)
+
+        Browser->>Server: POST /api/auth/register<br/>{username, password, phone, captcha}
+        Server->>Service: CaptchaService.verify()
+        Service-->>Server: 验证通过
+        Server->>Service: UserService.register()
+        Service->>DB: INSERT INTO user
+        DB-->>Service: OK
+        Service-->>Server: 注册成功
+        Server-->>Browser: 200 OK
+    end
+
+    rect rgb(27, 94, 32, 0.1)
+        Note over User,FS: 阶段2: 用户登录
+        User->>Browser: 填写登录信息
+        Browser->>Server: POST /api/auth/login<br/>{username, password}
+        Server->>Service: UserService.login()
+        Service->>DB: SELECT * FROM user WHERE username=?
+        DB-->>Service: User 实体
+        Service->>Service: BCrypt.matches()
+        Service->>Service: session.setAttribute()
+        Service-->>Server: 登录成功
+        Server-->>Browser: 200 OK + Set-Cookie: JSESSIONID
+    end
+
+    rect rgb(230, 81, 0, 0.1)
+        Note over User,FS: 阶段3: 浏览商品与下单
+        Browser->>Server: GET /api/monkeys
+        Server->>DB: SELECT * FROM monkey
+        DB-->>Server: 商品列表
+        Server-->>Browser: JSON 商品数据
+
+        User->>Browser: 点击购买
+        Browser->>Server: GET /api/address
+        Server->>DB: SELECT * FROM address WHERE user_id=?
+        DB-->>Server: 地址列表
+        Server-->>Browser: JSON 地址数据
+
+        User->>Browser: 确认下单
+        Browser->>Server: POST /api/orders/create<br/>{monkeyId, addressId}
+        Server->>Service: OrderService.createOrder()
+        Service->>DB: UPDATE monkey SET stock=stock-1 WHERE id=? AND stock>0
+        DB-->>Service: 影响行数 (原子扣减)
+        alt 库存不足
+            Service-->>Server: 下单失败
+            Server-->>Browser: 错误提示
+        else 库存充足
+            Service->>Service: 生成订单快照
+            Service->>DB: INSERT INTO orders
+            DB-->>Service: OK
+            Service-->>Server: 订单创建成功
+            Server-->>Browser: 200 OK
+        end
+    end
+
+    rect rgb(74, 20, 140, 0.1)
+        Note over User,FS: 阶段4: 管理员发货
+        actor Admin as 管理员
+        Admin->>Browser: 点击发货
+        Browser->>Server: POST /api/orders/ship/{id}
+        Server->>Service: OrderService.shipOrder()
+        Service->>DB: UPDATE orders SET status=1, shipping_time=NOW()
+        DB-->>Service: OK
+        Service-->>Server: 发货成功
+        Server-->>Browser: 200 OK
+    end
+
+    rect rgb(191, 54, 12, 0.1)
+        Note over User,FS: 阶段5: 用户确认收货
+        User->>Browser: 点击确认收货
+        Browser->>Server: POST /api/orders/receive/{id}
+        Server->>Service: OrderService.receiveOrder()
+        Service->>DB: UPDATE orders SET status=2
+        DB-->>Service: OK
+        Service-->>Server: 收货成功
+        Server-->>Browser: 200 OK
+    end
