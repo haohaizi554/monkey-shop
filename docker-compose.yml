@@ -3,13 +3,15 @@ services:
   mysql:
     image: mysql:8.0
     container_name: monkey-mysql
+    restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: anystrongpassword   # root密码，随便强一点
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: monkeyshop
-      MYSQL_USER: monkeyuser                   # 新增：自动创建的应用专用用户
-      MYSQL_PASSWORD: monkeypass               # 新增：这个用户的密码
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: Asia/Shanghai
     ports:
-      - "3307:3306"                            # 主机映射到3307，避免和本机MySQL冲突
+      - "3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
@@ -22,19 +24,21 @@ services:
   myshop:
     build: .
     container_name: monkey-app
+    restart: unless-stopped
     ports:
       - "8888:8888"
     depends_on:
       mysql:
         condition: service_healthy
     environment:
-      # 数据库配置保持不变
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=false&allowPublicKeyRetrieval=true
-      SPRING_DATASOURCE_USERNAME: monkeyuser
-      SPRING_DATASOURCE_PASSWORD: monkeypass
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
       SERVER_PORT: 8888
+      SPRING_JPA_SHOW_SQL: "false"
+      APP_UPLOAD_PATH: /data/images/
+      TZ: Asia/Shanghai
     volumes:
-      # 【重要修改】将宿主机的 ./uploads 映射到容器内的 /data/images
       - ./uploads:/data/images
 
 volumes:
