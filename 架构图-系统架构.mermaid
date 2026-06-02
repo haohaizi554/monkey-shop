@@ -56,7 +56,7 @@ flowchart TB
 
     subgraph Infra["基础设施层 (Infrastructure)"]
         direction LR
-        MySQL[("MySQL 8.0<br/>utf8mb4")]
+        MySQL[("MySQL 8.0<br/>utf8mb4<br/>timezone: +08:00")]
         FileSystem[("文件系统<br/>/data/images/")]
         SessionStore["HttpSession<br/>内存级"]
         Scheduler["@Scheduled<br/>定时任务"]

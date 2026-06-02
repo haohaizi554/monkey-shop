@@ -337,6 +337,14 @@ mvn clean package -DskipTests
 docker compose up -d --build
 ```
 
+> ⚠️ 如果更新涉及 MySQL 时区或字符集变更，需要清除旧数据卷重新初始化：
+> ```bash
+> docker compose down -v
+> mvn clean package -DskipTests
+> docker compose up -d --build
+> ```
+> 这会删除所有数据库数据，请提前备份。
+
 ### 停止服务
 
 ```bash

@@ -25,7 +25,7 @@ flowchart TB
                     direction TB
                     MySQL["MySQL 8.0 Server"]
                     InitDB["初始化脚本<br/>CREATE DATABASE monkeyshop<br/>CREATE USER monkeyuser"]
-                    CharSet["--character-set-server=utf8mb4<br/>--collation-server=utf8mb4_unicode_ci"]
+                    CharSet["--character-set-server=utf8mb4<br/>--collation-server=utf8mb4_unicode_ci<br/>--default-time-zone=+08:00"]
                     TZ_DB["TZ=Asia/Shanghai"]
                     HealthCheck["健康检查<br/>mysqladmin ping<br/>timeout: 20s / retries: 10"]
 

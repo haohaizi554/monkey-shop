@@ -31,9 +31,10 @@ flowchart LR
         direction TB
         subgraph MySQLSvc["MySQL 服务"]
             MImg["mysql:8.0"]
+            MTZ["--default-time-zone=+08:00<br/>--character-set-server=utf8mb4"]
             MHealth["健康检查<br/>mysqladmin ping"]
             MVol["mysql_data 卷"]
-            MImg --> MHealth --> MVol
+            MImg --> MTZ --> MHealth --> MVol
         end
         subgraph AppSvc["App 服务"]
             AImg["构建 Dockerfile"]
