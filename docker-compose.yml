@@ -5,10 +5,10 @@ services:
     container_name: monkey-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123}
       MYSQL_DATABASE: monkeyshop
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_USER: ${MYSQL_USER:-monkey}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-monkey123}
       TZ: Asia/Shanghai
     ports:
       - "3307:3306"
@@ -32,8 +32,8 @@ services:
         condition: service_healthy
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=false&allowPublicKeyRetrieval=true
-      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER}
-      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-monkey}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-monkey123}
       SERVER_PORT: 8888
       SPRING_JPA_SHOW_SQL: "false"
       APP_UPLOAD_PATH: /data/images/
