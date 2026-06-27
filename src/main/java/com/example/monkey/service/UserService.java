@@ -69,14 +69,10 @@ public class UserService {
     }
 
     public String login(String username, String rawPassword, HttpServletRequest request) {
-        HttpSession session = request.getSession();
-
         Admin admin = adminRepository.findByUsername(username);
         if (admin != null) {
             if (passwordEncoder.matches(rawPassword, admin.getPassword())) {
-                request.changeSessionId();
-                session.setAttribute(SessionIdentity.USER_ID_ATTRIBUTE, admin.getId());
-                session.setAttribute(SessionIdentity.IDENTITY_ATTRIBUTE, SessionIdentity.ROLE_ADMIN);
+                establishSessionIdentity(request, admin.getId(), SessionIdentity.ROLE_ADMIN);
                 return "ok:" + SessionIdentity.ROLE_ADMIN;
             }
             return INVALID_LOGIN_MESSAGE;
@@ -85,14 +81,19 @@ public class UserService {
         User user = userRepository.findByUsername(username);
         if (user != null) {
             if (passwordEncoder.matches(rawPassword, user.getPassword())) {
-                request.changeSessionId();
-                session.setAttribute(SessionIdentity.USER_ID_ATTRIBUTE, user.getId());
-                session.setAttribute(SessionIdentity.IDENTITY_ATTRIBUTE, SessionIdentity.ROLE_USER);
+                establishSessionIdentity(request, user.getId(), SessionIdentity.ROLE_USER);
                 return "ok:" + SessionIdentity.ROLE_USER;
             }
             return INVALID_LOGIN_MESSAGE;
         }
         return INVALID_LOGIN_MESSAGE;
+    }
+
+    private static void establishSessionIdentity(HttpServletRequest request, Long id, String role) {
+        HttpSession session = request.getSession();
+        request.changeSessionId();
+        session.setAttribute(SessionIdentity.USER_ID_ATTRIBUTE, id);
+        session.setAttribute(SessionIdentity.IDENTITY_ATTRIBUTE, role);
     }
 
     public Map<String, Object> getUserInfo(SessionUser currentUser, boolean details) {

@@ -10,6 +10,7 @@ import com.example.monkey.entity.User;
 import com.example.monkey.repository.AdminRepository;
 import com.example.monkey.repository.UserRepository;
 import com.example.monkey.security.PasswordPolicy;
+import com.example.monkey.security.SessionIdentity;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,6 +19,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.mock.web.MockHttpServletRequest;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
@@ -64,6 +66,37 @@ class UserServiceTest {
         assertThat(user.getUsername()).isEqualTo("alice");
         assertThat(user.getPassword()).isEqualTo("encoded-password");
         assertThat(user.getAvatar()).isEqualTo("/images/default_avatar.png");
+    }
+
+    @Test
+    void failedLoginDoesNotCreateSession() {
+        User user = new User();
+        user.setPassword("encoded-password");
+        when(userRepository.findByUsername("alice")).thenReturn(user);
+        when(passwordEncoder.matches("wrong-password", "encoded-password")).thenReturn(false);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+
+        String result = userService.login("alice", "wrong-password", request);
+
+        assertThat(result).isEqualTo("username or password is incorrect");
+        assertThat(request.getSession(false)).isNull();
+    }
+
+    @Test
+    void successfulLoginCreatesSessionIdentityAfterPasswordMatch() {
+        User user = new User();
+        user.setId(7L);
+        user.setPassword("encoded-password");
+        when(userRepository.findByUsername("alice")).thenReturn(user);
+        when(passwordEncoder.matches("StrongPass1!", "encoded-password")).thenReturn(true);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+
+        String result = userService.login("alice", "StrongPass1!", request);
+
+        assertThat(result).isEqualTo("ok:USER");
+        assertThat(request.getSession(false)).isNotNull();
+        assertThat(request.getSession(false).getAttribute(SessionIdentity.USER_ID_ATTRIBUTE)).isEqualTo(7L);
+        assertThat(request.getSession(false).getAttribute(SessionIdentity.IDENTITY_ATTRIBUTE)).isEqualTo("USER");
     }
 
     @Test
