@@ -1,140 +1,18 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <title>后台管理 | Monkey Shop</title>
     <!-- 引入资源 -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" integrity="sha384-QuGBSgV5Im3DzL2z+8Ko9/hqNy/N0O7zwvXAtfd1MvPKWa/UbeLV65cfm4BV5Wgq" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js" integrity="sha384-BQKzmHvQLMCAnL3UtDBA1Al5tFjsCz1wrMlIUA1wkzo14DYkRWjywW+p9pCj0cwd" crossorigin="anonymous"></script>
 
-    <style>
-        /* --- 通用设置 --- */
-        [v-cloak] { display: none; }
-        body {
-            background-color: #f8f9fa;
-            font-family: sans-serif;
-            display: flex;
-            height: 100vh;
-            overflow: hidden;
-        }
-
-        /* --- 侧边栏样式 --- */
-        .sidebar {
-            width: 250px;
-            background: #212529;
-            color: white;
-            display: flex;
-            flex-direction: column;
-            padding: 20px;
-        }
-        .sidebar-brand {
-            font-size: 1.5rem;
-            font-weight: bold;
-            margin-bottom: 40px;
-            color: #3b82f6;
-            text-decoration: none;
-        }
-        .nav-link {
-            color: rgba(255,255,255,0.7);
-            padding: 12px 15px;
-            border-radius: 8px;
-            margin-bottom: 5px;
-            cursor: pointer;
-            transition: 0.2s;
-        }
-        .nav-link:hover, .nav-link.active { background: #3b82f6; color: white; }
-        .nav-link i { margin-right: 10px; }
-
-        /* --- 主要内容区域 --- */
-        .main-content { flex: 1; padding: 30px; overflow-y: auto; }
-        .content-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
-
-        /* --- 数据看板组件 --- */
-        .stat-card {
-            background: white; border-radius: 12px; padding: 20px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05); transition: 0.2s;
-        }
-        .stat-card:hover { transform: translateY(-5px); box-shadow: 0 8px 20px rgba(0,0,0,0.1); }
-        .stat-title { color: #6c757d; font-size: 0.9rem; margin-bottom: 10px; }
-        .stat-value { font-size: 1.8rem; font-weight: bold; color: #333; }
-        .stat-icon { font-size: 2.5rem; opacity: 0.1; position: absolute; right: 20px; top: 20px; }
-
-        .chart-wrapper {
-            background: white; border-radius: 12px; padding: 20px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 30px;
-        }
-        .chart-box { height: 400px; width: 100%; }
-
-        .filter-bar {
-            background: white; padding: 15px; border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px;
-            display: flex; gap: 10px; align-items: center;
-        }
-        .date-input { width: 150px; }
-
-        /* --- 表格与列表 --- */
-        .custom-table {
-            background: white; border-radius: 12px; overflow: hidden;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-        }
-        .table thead { background: #f8f9fa; }
-        .table th {
-            border: none; padding: 15px; font-weight: 600;
-            color: #666; font-size: 0.9rem; cursor: pointer; user-select: none;
-        }
-        .table td { border-bottom: 1px solid #eee; padding: 15px; vertical-align: middle; font-size: 0.95rem; }
-
-        .avatar-sm { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; border: 1px solid #eee; margin-right: 10px; }
-        .product-thumb { width: 50px; height: 50px; border-radius: 6px; object-fit: cover; border: 1px solid #eee; margin-right: 10px; }
-
-        /* --- 状态标签 --- */
-        .status-badge { font-size: 0.8rem; padding: 4px 10px; border-radius: 20px; font-weight: 600; }
-        .status-paid { background-color: #e0f2fe; color: #0284c7; }
-        .status-shipped { background-color: #dcfce7; color: #16a34a; }
-        .status-return { background-color: #fee2e2; color: #dc2626; }
-        .status-done { background-color: #f3f4f6; color: #6b7280; }
-
-        /* --- 上传组件 --- */
-        .upload-box {
-            border: 2px dashed #ddd; border-radius: 8px; padding: 20px;
-            text-align: center; cursor: pointer; transition: 0.2s; position: relative;
-        }
-        .upload-box:hover { border-color: #3b82f6; background: #f0f7ff; }
-        .preview-img { max-width: 100%; max-height: 200px; border-radius: 8px; display: block; margin: 0 auto; }
-        .upload-input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
-
-        /* --- 反馈组件 (Toast & Auth) --- */
-        .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; }
-        .custom-toast {
-            background: white; border-radius: 8px; padding: 15px 20px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1); margin-bottom: 10px;
-            border-left: 4px solid #3b82f6; animation: slideIn 0.3s; min-width: 300px;
-        }
-        .custom-toast.error { border-left-color: #dc3545; }
-        .custom-toast.warning { border-left-color: #ffc107; }
-        @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
-
-        .auth-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(33, 37, 41, 0.95); z-index: 10000;
-            display: flex; justify-content: center; align-items: center;
-            backdrop-filter: blur(5px);
-        }
-        .login-card {
-            width: 400px; background: white; border-radius: 20px;
-            padding: 40px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); text-align: center;
-        }
-        .login-input { margin-bottom: 20px; border-radius: 8px; height: 45px; }
-        .btn-login { width: 100%; height: 45px; border-radius: 8px; font-weight: bold; background: #3b82f6; border: none; }
-
-        .sort-icon { font-size: 0.8rem; margin-left: 5px; color: #bbb; }
-        .sort-icon.active { color: #3b82f6; }
-    </style>
+    <link rel="stylesheet" href="/css/admin.css">
 </head>
 <body>
 
-<div id="app" style="display: flex; width: 100%;" v-cloak>
+<div id="app" class="admin-app-shell" v-cloak>
 
     <!-- 1. 权限遮罩 -->
     <div v-if="showAuthOverlay" class="auth-overlay">
@@ -271,7 +149,7 @@
                     <tbody>
                     <tr v-for="m in monkeys" :key="m.id">
                         <td>{{ m.id }}</td>
-                        <td><img :src="m.imageUrl" class="product-thumb" onerror="this.src='/images/default_product.png'"></td>
+                        <td><img :src="m.imageUrl" class="product-thumb" v-fallback-img="'/images/default_product.png'"></td>
                         <td class="fw-bold">{{ m.name }}</td>
                         <td><span class="badge bg-light text-dark">{{ m.breed }}</span></td>
                         <td class="text-danger fw-bold">¥{{ m.price }}</td>
@@ -291,7 +169,7 @@
             <div class="content-header">
                 <h3>订单管理</h3>
                 <div class="d-flex gap-2">
-                    <div class="input-group" style="width: 300px;">
+                    <div class="input-group admin-order-search">
                         <span class="input-group-text bg-white border-end-0"><i class="bi bi-search"></i></span>
                         <input type="text" class="form-control border-start-0 ps-0" v-model="orderSearch" placeholder="搜订单/买家/商品...">
                     </div>
@@ -319,23 +197,23 @@
                         </td>
                         <td>
                             <div class="d-flex align-items-center">
-                                <img :src="o.buyerAvatar || '/images/default_avatar.png'" class="avatar-sm" onerror="this.src='/images/default_avatar.png'">
+                                <img :src="o.buyerAvatar || '/images/default_avatar.png'" class="avatar-sm" v-fallback-img="'/images/default_avatar.png'">
                                 <span class="fw-bold text-dark">{{ o.buyerName }}</span>
                             </div>
                         </td>
                         <td>
                             <div class="d-flex align-items-center">
-                                <img :src="o.productImage" class="product-thumb" onerror="this.src='/images/default_product.png'">
+                                <img :src="o.productImage" class="product-thumb" v-fallback-img="'/images/default_product.png'">
                                 <div><div class="fw-bold">{{ o.productName }}</div><div class="text-danger small">¥{{ o.price }}</div></div>
                             </div>
                         </td>
                         <td>
                             <div class="fw-bold">{{ o.receiverName }} <span class="fw-normal text-muted">{{ o.receiverPhone }}</span></div>
-                            <div class="small text-muted text-truncate" style="max-width: 200px;" :title="o.addressSnapshot">{{ o.addressSnapshot }}</div>
+                            <div class="small text-muted text-truncate admin-address-snapshot" :title="o.addressSnapshot">{{ o.addressSnapshot }}</div>
                         </td>
                         <td>
                             <div class="mb-1"><span :class="['status-badge', getStatusClass(o.status)]">{{ o.status }}</span></div>
-                            <div v-if="o.shippingTime" class="text-muted small" style="font-size: 0.75rem;"><i class="bi bi-truck"></i> {{ formatDate(o.shippingTime) }}</div>
+                            <div v-if="o.shippingTime" class="text-muted small admin-shipping-time"><i class="bi bi-truck"></i> {{ formatDate(o.shippingTime) }}</div>
                         </td>
                         <td>
                             <!-- 订单操作按钮组 -->
@@ -426,372 +304,11 @@
 
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" integrity="sha384-geWF76RCwLtnZ8qwWowPQNguL3RmwHVBC9FhGdlKrxdiJJigb/j/68SIy3Te4Bkz" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vue@3.5.24/dist/vue.global.prod.js" integrity="sha384-p6n0UPgWa805beutC9KJNaH/mexY+ABykG5NWhUHHRg/YkgnVJ3sDkrwaVJHNtPw" crossorigin="anonymous"></script>
 
-<script>
-    const { createApp } = Vue;
+<script src="/js/monkeyshop-shared.js"></script>
 
-    createApp({
-        data() {
-            return {
-                showAuthOverlay: true,
-                loginForm: { username: '', password: '' },
-                currentTab: 'dashboard',
-
-                // 数据源
-                monkeys: [],
-                orders: [],
-                stats: {},
-                toasts: [],
-
-                // 表单与模态框状态
-                modalMode: 'add',
-                form: { id: null, name: '', breed: '', price: 0, stock: 10, description: '', imageUrl: '' },
-                productModal: null,
-                deleteModal: null,
-                actionModal: null,
-
-                // 操作暂存 ID
-                pendingDeleteId: null,
-                deleteType: 'product',
-                currentActionId: null,
-                currentActionType: '',
-                actionText: '',
-
-                // 搜索与排序
-                orderSearch: '',
-                sortKey: '',
-                sortAsc: false,
-
-                // 图表相关
-                rangeType: '7d',
-                customStart: '',
-                customEnd: '',
-                chartInstance: null,
-                barInstance: null
-            }
-        },
-        computed: {
-            // 前端过滤与排序订单逻辑
-            filteredOrders() {
-                let result = this.orders;
-                // 1. 搜索
-                if (this.orderSearch) {
-                    const lower = this.orderSearch.toLowerCase();
-                    result = result.filter(o =>
-                        (o.orderNo && o.orderNo.toLowerCase().includes(lower)) ||
-                        (o.buyerName && o.buyerName.toLowerCase().includes(lower)) ||
-                        (o.productName && o.productName.toLowerCase().includes(lower)) ||
-                        (o.price && o.price.toString().includes(lower)) ||
-                        (o.createTime && o.createTime.includes(lower))
-                    );
-                }
-                // 2. 排序
-                if (this.sortKey) {
-                    result.sort((a, b) => {
-                        let valA = a[this.sortKey];
-                        let valB = b[this.sortKey];
-                        if (typeof valA === 'string') valA = valA.toLowerCase();
-                        if (typeof valB === 'string') valB = valB.toLowerCase();
-                        if (valA < valB) return this.sortAsc ? -1 : 1;
-                        if (valA > valB) return this.sortAsc ? 1 : -1;
-                        return 0;
-                    });
-                }
-                return result;
-            }
-        },
-        async mounted() {
-            await this.checkPermission();
-            this.productModal = new bootstrap.Modal(document.getElementById('productModal'));
-            this.deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
-            this.actionModal = new bootstrap.Modal(document.getElementById('actionModal'));
-
-            // 窗口调整时重绘图表
-            window.addEventListener('resize', () => {
-                if(this.chartInstance) this.chartInstance.resize();
-                if(this.barInstance) this.barInstance.resize();
-            });
-        },
-        methods: {
-            showToast(msg, type='success') {
-                const id = Date.now();
-                this.toasts.push({id, msg, type});
-                setTimeout(() => this.toasts = this.toasts.filter(t => t.id !== id), 3000);
-            },
-
-            switchTab(tab) {
-                this.currentTab = tab;
-                if (tab === 'product') this.fetchMonkeys();
-                else if (tab === 'order') this.fetchOrders();
-                else if (tab === 'dashboard') this.$nextTick(() => this.fetchStats());
-            },
-
-            // --- 核心业务：数据看板 ---
-            setRange(type) {
-                this.rangeType = type;
-                if (type === 'custom') {
-                    const d = new Date();
-                    const year = d.getFullYear();
-                    const month = (d.getMonth() + 1).toString().padStart(2, '0');
-                    const day = d.getDate().toString().padStart(2, '0');
-                    const today = `${year}-${month}-${day}`;
-                    if (!this.customStart || !this.customEnd) {
-                        this.showToast("请选择日期范围", 'error'); return;
-                    }
-                    if (this.customStart > today || this.customEnd > today) { this.showToast("不能选择未来日期", 'error'); return; }
-                    if (this.customStart > this.customEnd) { this.showToast("开始日期不能晚于结束日期", 'error'); return; }
-                    this.fetchStats(this.customStart, this.customEnd);
-                } else {
-                    // 快捷按钮逻辑保持不变
-                    const end = new Date();
-                    const start = new Date();
-                    if (type === '7d') start.setDate(end.getDate() - 6);
-                    if (type === '30d') start.setDate(end.getDate() - 29);
-                    if (type === '1y') start.setFullYear(end.getFullYear() - 1);
-                    // 这里也要用本地时间格式化，防止快捷按钮也跨天出问题
-                    const formatDate = (date) => {
-                        const y = date.getFullYear();
-                        const m = (date.getMonth() + 1).toString().padStart(2, '0');
-                        const d = date.getDate().toString().padStart(2, '0');
-                        return `${y}-${m}-${d}`;
-                    };
-                    this.fetchStats(formatDate(start), formatDate(end));
-                }
-            },
-
-            async fetchStats(start = null, end = null) {
-                let url = '/api/stats/data';
-                if (start && end) url += `?start=${start}&end=${end}`;
-                try {
-                    const res = await fetch(url);
-                    this.stats = await res.json();
-                    this.initCharts();
-                } catch (e) {
-                    console.error("获取统计失败");
-                }
-            },
-
-            initCharts() {
-                if (this.chartInstance) this.chartInstance.dispose();
-                this.chartInstance = echarts.init(document.getElementById('trendChart'));
-                this.chartInstance.setOption({
-                    title: { text: '流量与订单趋势' },
-                    tooltip: { trigger: 'axis' },
-                    legend: { data: ['订单量', '访问量'] },
-                    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-                    xAxis: { type: 'category', data: this.stats.xAxis },
-                    yAxis: [
-                        { type: 'value', name: '订单量', position: 'left', axisLine: { show: true }, axisLabel: { formatter: '{value}' } },
-                        { type: 'value', name: '访问量', position: 'right', axisLine: { show: true }, axisLabel: { formatter: '{value}' }, splitLine: { show: false } }
-                    ],
-                    series: [
-                        { name: '订单量', type: 'line', yAxisIndex: 0, data: this.stats.seriesOrder, smooth: true, itemStyle: { color: '#3b82f6' } },
-                        { name: '访问量', type: 'line', yAxisIndex: 1, data: this.stats.seriesVisit, smooth: true, itemStyle: { color: '#10b981' } }
-                    ]
-                });
-
-                if (this.barInstance) this.barInstance.dispose();
-                this.barInstance = echarts.init(document.getElementById('barChart'));
-                this.barInstance.setOption({
-                    title: { text: '销售额 (GMV)' },
-                    tooltip: { trigger: 'axis' },
-                    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-                    xAxis: { type: 'category', data: this.stats.xAxis },
-                    yAxis: { type: 'value' },
-                    series: [{ name: '销售额', type: 'bar', data: this.stats.seriesGmv, itemStyle: { color: '#8b5cf6' } }]
-                });
-            },
-
-            // --- 核心业务：图片上传与裁剪 ---
-            async uploadProductImage(e) {
-                const file = e.target.files[0];
-                if (!file) return;
-
-                const formData = new FormData();
-                formData.append('file', file);
-                formData.append('type', 'product');
-
-                try {
-                    const res = await fetch('/api/upload', { method: 'POST', body: formData });
-                    const path = await res.text();
-
-                    if (path.startsWith('error')) {
-                        this.showToast(path.replace('error:', ''), 'error');
-                    } else if (path.startsWith('cropped:')) {
-                        this.form.imageUrl = path.replace('cropped:', '');
-                        this.showToast("图片已自动裁剪适配", 'warning');
-                    } else if (path.startsWith('ok:')) {
-                        this.form.imageUrl = path.replace('ok:', '');
-                        this.showToast("上传成功");
-                    } else {
-                        this.form.imageUrl = path;
-                        this.showToast("上传成功");
-                    }
-                } catch (e) {
-                    this.showToast("上传失败", 'error');
-                }
-            },
-
-            // --- 权限管理 ---
-            async checkPermission() {
-                try {
-                    const res = await fetch('/api/user/me');
-                    const data = await res.json();
-                    if (data.isLogin && data.identity === 'ADMIN') {
-                        this.showAuthOverlay = false;
-                        this.fetchStats();
-                    } else {
-                        this.showAuthOverlay = true;
-                    }
-                } catch (e) {
-                    this.showAuthOverlay = true;
-                }
-            },
-
-            async handleAdminLogin() {
-                if (!this.loginForm.username || !this.loginForm.password) {
-                    this.showToast("请输入账号密码", 'error');
-                    return;
-                }
-                try {
-                    const res = await fetch('/api/auth/login', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(this.loginForm)
-                    });
-                    let result = await res.text();
-                    if (result.trim() === 'ok:ADMIN') {
-                        this.showToast("登录成功");
-                        this.showAuthOverlay = false;
-                        this.fetchStats();
-                        this.loginForm = { username: '', password: '' };
-                    } else {
-                        this.showToast("登录失败或无权限", 'error');
-                    }
-                } catch (e) {
-                    this.showToast("网络错误", 'error');
-                }
-            },
-
-            // --- 商品 CRUD ---
-            async fetchMonkeys() {
-                const res = await fetch('/api/monkeys');
-                this.monkeys = await res.json();
-            },
-
-            openModal(mode, item = null) {
-                this.modalMode = mode;
-                this.form = mode === 'edit' && item
-                    ? { ...item }
-                    : { id: null, name: '', breed: '', price: 0, stock: 10, description: '', imageUrl: '' };
-                this.productModal.show();
-            },
-
-            async saveProduct() {
-                if (!this.form.name || !this.form.price) {
-                    this.showToast("请填写完整", 'error');
-                    return;
-                }
-                const url = this.modalMode === 'add' ? '/api/monkeys/add' : '/api/monkeys/update';
-                const res = await fetch(url, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(this.form)
-                });
-                if (await res.text() === 'ok') {
-                    this.showToast("保存成功");
-                    this.productModal.hide();
-                    this.fetchMonkeys();
-                } else {
-                    this.showToast("保存失败", 'error');
-                }
-            },
-
-            openDeleteModal(id, type) {
-                this.pendingDeleteId = id;
-                this.deleteType = type;
-                this.deleteModal.show();
-            },
-
-            async confirmDelete() {
-                if (!this.pendingDeleteId) return;
-                const url = this.deleteType === 'product'
-                    ? `/api/monkeys/${this.pendingDeleteId}`
-                    : `/api/orders/${this.pendingDeleteId}`;
-
-                const res = await fetch(url, { method: 'DELETE' });
-
-                if (await res.text() === 'ok') {
-                    this.showToast(this.deleteType === 'product' ? "已下架" : "订单已删除");
-                    this.deleteType === 'product' ? this.fetchMonkeys() : this.fetchOrders();
-                    this.deleteModal.hide();
-                } else {
-                    this.showToast("删除失败", 'error');
-                }
-            },
-
-            // --- 订单管理逻辑 ---
-            async fetchOrders() {
-                const res = await fetch('/api/orders/all');
-                this.orders = await res.json();
-            },
-
-            openActionModal(id, type, text) {
-                this.currentActionId = id;
-                this.currentActionType = type;
-                this.actionText = text;
-                this.actionModal.show();
-            },
-
-            async confirmAction() {
-                if(!this.currentActionId) return;
-                let url = '';
-
-                if (this.currentActionType === 'ship') url = `/api/orders/ship/${this.currentActionId}`;
-                else if (this.currentActionType === 'approve_return') url = `/api/orders/return/approve/${this.currentActionId}`;
-                else if (this.currentActionType === 'confirm_return') url = `/api/orders/return/confirm/${this.currentActionId}`;
-
-                const res = await fetch(url, { method: 'POST' });
-                if(await res.text() === 'ok') {
-                    this.showToast("操作成功");
-                    this.fetchOrders();
-                    this.actionModal.hide();
-                } else {
-                    this.showToast("操作失败", 'error');
-                }
-            },
-
-            sortOrders(key) {
-                if (this.sortKey === key) this.sortAsc = !this.sortAsc;
-                else { this.sortKey = key; this.sortAsc = false; }
-            },
-
-            getSortIcon(key) {
-                if (this.sortKey !== key) return 'bi bi-arrow-down-up sort-icon';
-                return this.sortAsc ? 'bi bi-arrow-up sort-icon active' : 'bi bi-arrow-down sort-icon active';
-            },
-
-            getStatusClass(status) {
-                if (status === '已发货') return 'status-shipped';
-                if (status === '已完成') return 'status-done';
-                if (status.includes('退货') || status === '已退款') return 'status-return';
-                return 'status-paid';
-            },
-
-            formatDate(dateStr) {
-                if(!dateStr) return '';
-                return new Date(dateStr).toLocaleString();
-            },
-
-            async logout() {
-                await fetch('/api/user/logout');
-                this.showAuthOverlay = true;
-                this.showToast("已退出登录");
-            }
-        }
-    }).mount('#app');
-</script>
+<script src="/js/admin.js"></script>
 </body>
 </html>

@@ -1,51 +1,71 @@
 package com.example.monkey.service;
-
-import com.example.monkey.config.WebConfig;
 import com.example.monkey.repository.MonkeyRepository;
 import com.example.monkey.repository.OrderRepository;
 import com.example.monkey.repository.UserRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-
-import java.io.File;
+import org.springframework.util.StringUtils;
 
 @Service
 public class ImageCleanupService {
 
-    @Autowired
-    private MonkeyRepository monkeyRepository;
-    @Autowired
-    private UserRepository userRepository;
-    @Autowired
-    private OrderRepository orderRepository;
+    private static final Logger log = LoggerFactory.getLogger(ImageCleanupService.class);
+
+    private final MonkeyRepository monkeyRepository;
+    private final UserRepository userRepository;
+    private final OrderRepository orderRepository;
+    private final Path uploadRoot;
+
+    public ImageCleanupService(
+            MonkeyRepository monkeyRepository,
+            UserRepository userRepository,
+            OrderRepository orderRepository,
+            @Value("${app.upload.path:uploads/images}") String uploadPath) {
+        this.monkeyRepository = monkeyRepository;
+        this.userRepository = userRepository;
+        this.orderRepository = orderRepository;
+        this.uploadRoot = Path.of(uploadPath).toAbsolutePath().normalize();
+    }
 
     public void tryDelete(String imagePath) {
-        // 1. 基础校验
-        if (imagePath == null || imagePath.isEmpty()) return;
-
+        if (!StringUtils.hasText(imagePath)) {
+            return;
+        }
         if (imagePath.contains("default_product") || imagePath.contains("default_avatar")) {
             return;
         }
+        if (monkeyRepository.countByImageUrl(imagePath) > 0) {
+            return;
+        }
+        if (userRepository.countByAvatar(imagePath) > 0) {
+            return;
+        }
+        if (orderRepository.countByProductImage(imagePath) > 0) {
+            return;
+        }
+        if (orderRepository.countByBuyerAvatar(imagePath) > 0) {
+            return;
+        }
 
-        if (monkeyRepository.countByImageUrl(imagePath) > 0) return;
-        if (userRepository.countByAvatar(imagePath) > 0) return;
-        if (orderRepository.countByProductImage(imagePath) > 0) return;
-        if (orderRepository.countByBuyerAvatar(imagePath) > 0) return;
+        String relativePath = imagePath.replaceFirst("^/images/", "");
+        Path file = uploadRoot.resolve(relativePath).normalize();
+        if (!file.startsWith(uploadRoot)) {
+            log.warn("Rejected image cleanup path outside upload root");
+            return;
+        }
 
         try {
-            String relativePath = imagePath.replace("/images/", "");
-            if (relativePath.contains("..")) return;
-            File file = new File(WebConfig.UPLOAD_PATH + relativePath);
-            if (file.exists() && file.isFile()) {
-                boolean deleted = file.delete();
-                if (deleted) {
-                    System.out.println("【垃圾回收】成功删除冗余图片: " + imagePath);
-                } else {
-                    System.err.println("【垃圾回收】文件存在但删除失败: " + imagePath);
-                }
+            if (Files.isRegularFile(file)) {
+                Files.delete(file);
+                log.info("Deleted unreferenced image {}", imagePath);
             }
-        } catch (Exception e) {
-            System.err.println("【垃圾回收】删除出错: " + e.getMessage());
+        } catch (IOException e) {
+            log.warn("Failed to delete unreferenced image {}", imagePath, e);
         }
     }
 }

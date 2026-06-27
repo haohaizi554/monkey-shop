@@ -1,0 +1,12 @@
+title = "MonkeyShop gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Ignore generated and local runtime artifacts"
+paths = [
+    '''^target/''',
+    '''^uploads/''',
+    '''^\.trae/''',
+]

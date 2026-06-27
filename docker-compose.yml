@@ -1,40 +1,42 @@
 services:
-  # --- MySQL 数据库服务 ---
   mysql:
     image: mysql:8.0
     container_name: monkey-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: anystrongpassword   # root密码，随便强一点
-      MYSQL_DATABASE: monkeyshop
-      MYSQL_USER: monkeyuser                   # 新增：自动创建的应用专用用户
-      MYSQL_PASSWORD: monkeypass               # 新增：这个用户的密码
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-monkeyshop}
+      MYSQL_USER: ${MYSQL_USER:-monkeyuser}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
     ports:
-      - "3307:3306"                            # 主机映射到3307，避免和本机MySQL冲突
+      - "${MYSQL_PORT:-3307}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u$${MYSQL_USER} -p$${MYSQL_PASSWORD}"]
+      interval: 10s
       timeout: 20s
       retries: 10
 
-  # --- Java 应用服务 ---
   myshop:
     build: .
     container_name: monkey-app
     ports:
-      - "8888:8888"
+      - "${APP_PORT:-8888}:8888"
     depends_on:
       mysql:
         condition: service_healthy
     environment:
-      # 数据库配置保持不变
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=false&allowPublicKeyRetrieval=true
-      SPRING_DATASOURCE_USERNAME: monkeyuser
-      SPRING_DATASOURCE_PASSWORD: monkeypass
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      DB_URL: ${DB_URL:-jdbc:mysql://mysql:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=true&requireSSL=true&verifyServerCertificate=true}
+      DB_USERNAME: ${MYSQL_USER:-monkeyuser}
+      DB_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      ADMIN_INIT_USERNAME: ${ADMIN_INIT_USERNAME:-admin}
+      ADMIN_INIT_PASSWORD: ${ADMIN_INIT_PASSWORD:?set ADMIN_INIT_PASSWORD}
       SERVER_PORT: 8888
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      APP_UPLOAD_PATH: /data/images
     volumes:
-      # 【重要修改】将宿主机的 ./uploads 映射到容器内的 /data/images
       - ./uploads:/data/images
 
 volumes:

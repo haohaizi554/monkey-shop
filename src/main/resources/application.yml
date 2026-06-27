@@ -1,0 +1,50 @@
+spring:
+  application:
+    name: MonkeyShop
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=true&requireSSL=true&verifyServerCertificate=true}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: ${DB_USERNAME:monkeyshop}
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    database-platform: org.hibernate.dialect.MySQLDialect
+  servlet:
+    multipart:
+      max-file-size: ${APP_UPLOAD_MAX_FILE_SIZE:5MB}
+      max-request-size: ${APP_UPLOAD_MAX_REQUEST_SIZE:6MB}
+
+server:
+  port: ${SERVER_PORT:8888}
+  forward-headers-strategy: ${SERVER_FORWARD_HEADERS_STRATEGY:framework}
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        secure: ${SESSION_COOKIE_SECURE:true}
+        same-site: strict
+      timeout: ${SESSION_TIMEOUT:30m}
+
+app:
+  admin:
+    username: ${ADMIN_INIT_USERNAME:admin}
+    password: ${ADMIN_INIT_PASSWORD:}
+  security:
+    password-reset-enabled: ${PASSWORD_RESET_ENABLED:false}
+  upload:
+    path: ${APP_UPLOAD_PATH:uploads/images}
+    max-image-pixels: ${APP_UPLOAD_MAX_IMAGE_PIXELS:12000000}
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health

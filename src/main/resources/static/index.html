@@ -1,64 +1,19 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Monkey Shop | 探索灵长类</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" integrity="sha384-QuGBSgV5Im3DzL2z+8Ko9/hqNy/N0O7zwvXAtfd1MvPKWa/UbeLV65cfm4BV5Wgq" crossorigin="anonymous">
 
-    <style>
-        body, html { height: 100%; margin: 0; font-family: 'Inter', sans-serif; overflow: hidden; }
-        .bg-wrapper { background-image: url('/images/monkey.png'); height: 100%; width: 100%; background-position: center; background-size: cover; position: relative; }
-        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(90deg, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0) 100%); z-index: 1; }
-
-        .hero-content { position: relative; z-index: 2; height: 100%; display: flex; flex-direction: column; justify-content: center; padding-left: 10%; max-width: 800px; }
-        .brand-tag { color: #60a5fa; font-weight: 700; letter-spacing: 2px; font-size: 1rem; margin-bottom: 1rem; text-transform: uppercase; display: flex; align-items: center; }
-        .main-title { color: #fff; font-size: 4rem; font-weight: 800; line-height: 1.1; margin-bottom: 1.5rem; text-shadow: 0 2px 10px rgba(0,0,0,0.5); }
-        .sub-title { color: rgba(255, 255, 255, 0.85); font-size: 1.2rem; font-weight: 300; margin-bottom: 2.5rem; max-width: 600px; }
-
-        .btn-start { background-color: #3b82f6; color: white; padding: 15px 40px; border-radius: 50px; font-weight: 600; border: none; font-size: 1.1rem; width: fit-content; transition: all 0.3s; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4); }
-        .btn-start:hover { background-color: #2563eb; transform: translateY(-2px); box-shadow: 0 8px 25px rgba(59, 130, 246, 0.6); }
-
-        /* 弹窗通用样式 */
-        .custom-modal-dialog { max-width: 420px; }
-        .modal-content { border-radius: 20px; border: none; padding: 40px 30px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); background-color: #fff; }
-        .login-header { text-align: center; margin-bottom: 30px; }
-        .login-title { font-size: 1.8rem; font-weight: 800; color: #333; margin-bottom: 5px; }
-        .login-subtitle { color: #888; font-size: 0.9rem; }
-
-        .input-group { margin-bottom: 20px; border: 1px solid #eee; border-radius: 8px; transition: border-color 0.2s; overflow: hidden; }
-        .input-group:focus-within { border-color: #3b82f6; }
-        .input-group-text { background: #fff; border: none; color: #999; padding-left: 15px; }
-        .form-control { border: none; height: 48px; font-size: 1rem; color: #333; padding-left: 10px; }
-        .form-control:focus { box-shadow: none; }
-
-        .btn-primary-custom { width: 100%; height: 50px; background-color: #3b82f6; border: none; border-radius: 8px; color: white; font-size: 1rem; font-weight: 600; margin-top: 10px; margin-bottom: 20px; }
-        .btn-primary-custom:hover { background-color: #2563eb; }
-
-        .footer-link { text-align: center; font-size: 0.9rem; color: #666; }
-        .footer-link a { color: #3b82f6; text-decoration: none; font-weight: 600; cursor: pointer; }
-
-        .captcha-img { height: 48px; cursor: pointer; border-left: 1px solid #eee; width: 120px; object-fit: cover; }
-        .avatar-preview { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 3px solid #eee; display: block; margin: 0 auto 15px auto; }
-        .upload-btn-wrapper { position: relative; overflow: hidden; display: inline-block; width: 100%; }
-        .upload-btn-wrapper input[type=file] { font-size: 100px; position: absolute; left: 0; top: 0; opacity: 0; cursor: pointer; }
-
-        /* --- 全局 Toast 样式 (替代 alert) --- */
-        .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; }
-        .custom-toast { background: white; border-radius: 12px; padding: 15px 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); display: flex; align-items: center; margin-bottom: 10px; animation: slideIn 0.3s ease; border-left: 5px solid #3b82f6; min-width: 300px; }
-        .custom-toast.error { border-left-color: #ef4444; }
-        .custom-toast i { font-size: 1.5rem; margin-right: 15px; }
-        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-    </style>
+    <link rel="stylesheet" href="/css/index.css">
 </head>
 <body>
 
 <div id="app" class="bg-wrapper">
     <div class="overlay"></div>
 
-    <!-- 全局 Toast 容器 -->
     <div class="toast-container">
         <div v-for="toast in toasts" :key="toast.id" :class="['custom-toast', {error: toast.type === 'error'}]">
             <i :class="toast.type === 'error' ? 'bi bi-x-circle-fill text-danger' : 'bi bi-check-circle-fill text-primary'"></i>
@@ -149,7 +104,7 @@
         </div>
     </div>
 
-    <!-- 3. 找回密码弹窗 -->
+    <!-- 3. 找回密码弹窗 (修复版) -->
     <div class="modal fade" id="resetModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered custom-modal-dialog">
             <div class="modal-content">
@@ -171,6 +126,12 @@
                         <span class="input-group-text"><i class="bi bi-key-fill"></i></span>
                         <input type="password" class="form-control" v-model="resetForm.newPassword" placeholder="新密码">
                     </div>
+                    <!-- 新增：验证码 -->
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-shield-check"></i></span>
+                        <input type="text" class="form-control" v-model="resetForm.captcha" placeholder="验证码">
+                        <img :src="captchaUrl" class="captcha-img" @click="refreshCaptcha" title="点击刷新">
+                    </div>
                     <button type="submit" class="btn btn-primary-custom">确认重置</button>
                 </form>
                 <div class="footer-link"><a @click="switchToLogin">返回登录</a></div>
@@ -179,164 +140,12 @@
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" integrity="sha384-geWF76RCwLtnZ8qwWowPQNguL3RmwHVBC9FhGdlKrxdiJJigb/j/68SIy3Te4Bkz" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vue@3.5.24/dist/vue.global.prod.js" integrity="sha384-p6n0UPgWa805beutC9KJNaH/mexY+ABykG5NWhUHHRg/YkgnVJ3sDkrwaVJHNtPw" crossorigin="anonymous"></script>
 
-<script>
-    const { createApp } = Vue;
-    createApp({
-        data() {
-            return {
-                loginForm: { username: '', password: '' },
+<script src="/js/monkeyshop-shared.js"></script>
 
-                regForm: { username: '', password: '', phone: '', captcha: '' },
-                regFile: null,
-                previewAvatar: '',
-                captchaUrl: '/api/auth/captcha?t=' + Date.now(),
-
-                resetForm: { username: '', phone: '', newPassword: '' },
-
-                loginModal: null, registerModal: null, resetModal: null,
-                toasts: [] // 消息队列
-            }
-        },
-        mounted() {
-            this.loginModal = new bootstrap.Modal(document.getElementById('loginModal'));
-            this.registerModal = new bootstrap.Modal(document.getElementById('registerModal'));
-            this.resetModal = new bootstrap.Modal(document.getElementById('resetModal'));
-        },
-        methods: {
-            // --- 全局 Toast 工具 ---
-            showToast(msg, type = 'success') {
-                const id = Date.now();
-                this.toasts.push({ id, msg, type, title: type === 'error' ? '操作失败' : '操作成功' });
-                setTimeout(() => {
-                    this.toasts = this.toasts.filter(t => t.id !== id);
-                }, 3000);
-            },
-
-            switchToRegister() {
-                this.loginModal.hide(); this.resetModal.hide(); this.registerModal.show();
-                this.refreshCaptcha();
-                this.regFile = null; this.previewAvatar = '';
-            },
-            switchToLogin() {
-                this.registerModal.hide(); this.resetModal.hide(); this.loginModal.show();
-            },
-            switchToReset() {
-                this.loginModal.hide(); this.resetModal.show();
-            },
-            refreshCaptcha() { this.captchaUrl = '/api/auth/captcha?t=' + Date.now(); },
-
-            handleFileChange(event) {
-                const file = event.target.files[0];
-                if (file) {
-                    this.regFile = file;
-                    this.previewAvatar = URL.createObjectURL(file);
-                }
-            },
-
-            // 注册
-            async handleRegister() {
-                if(!this.regForm.username || !this.regForm.password || !this.regForm.phone || !this.regForm.captcha) {
-                    this.showToast("请填写完整信息", 'error'); return;
-                }
-
-                const formData = new FormData();
-                formData.append('username', this.regForm.username);
-                formData.append('password', this.regForm.password);
-                formData.append('phone', this.regForm.phone);
-                formData.append('captcha', this.regForm.captcha);
-
-                if (this.regFile) {
-                    formData.append('avatarFile', this.regFile);
-                }
-
-                try {
-                    const res = await fetch('/api/auth/register', { method: 'POST', body: formData });
-                    const result = await res.text();
-
-                    if (result === 'ok') {
-                        this.showToast("注册成功！正在跳转...", 'success');
-                        setTimeout(() => {
-                            this.loginForm.username = this.regForm.username;
-                            this.switchToLogin();
-                        }, 1500);
-                    } else {
-                        this.showToast(result, 'error');
-                        this.refreshCaptcha();
-                    }
-                } catch (e) { this.showToast("网络错误", 'error'); }
-            },
-
-            // 登录 (修复了管理员跳转逻辑)
-            async handleLogin() {
-                if(!this.loginForm.username || !this.loginForm.password) {
-                    this.showToast("请输入账号和密码", 'error'); return;
-                }
-                try {
-                    const res = await fetch('/api/auth/login', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(this.loginForm)
-                    });
-                    const result = await res.text();
-
-                    if (result.startsWith('ok')) {
-                        const role = result.split(':')[1];
-                        if (role === 'ADMIN') {
-                            this.showToast("欢迎管理员！即将进入后台...", 'success');
-                            setTimeout(() => window.location.href = '/admin.html', 1500);
-                        } else {
-                            this.showToast("登录成功！即将进入商城...", 'success');
-                            setTimeout(() => window.location.href = '/shop.html', 1500);
-                        }
-                    } else {
-                        this.showToast(result, 'error');
-                    }
-                } catch (e) { this.showToast("服务器连接失败", 'error'); }
-            },
-
-            // 重置密码
-            async handleReset() {
-                if(!this.loginForm.username || !this.loginForm.password) {
-                    this.showToast("请输入账号和密码", 'error'); return;
-                }
-                try {
-                    const res = await fetch('/api/auth/login', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(this.loginForm)
-                    });
-
-                    // 1. 获取文本并去除首尾空格 (关键修复)
-                    let result = await res.text();
-                    result = result.trim();
-
-                    console.log("登录返回结果:", result); // 打开F12看这里输出了什么
-
-                    if (result.startsWith('ok')) {
-                        const role = result.split(':')[1];
-
-                        if (role === 'ADMIN') {
-                            this.showToast("欢迎管理员！即将进入后台...", 'success');
-                            // 延时跳转，加个随机数防止缓存
-                            setTimeout(() => window.location.href = '/admin.html?t=' + Date.now(), 1000);
-                        } else {
-                            this.showToast("登录成功！即将进入商城...", 'success');
-                            setTimeout(() => window.location.href = '/shop.html?t=' + Date.now(), 1000);
-                        }
-                    } else {
-                        this.showToast(result, 'error');
-                    }
-                } catch (e) {
-                    console.error(e);
-                    this.showToast("服务器连接失败", 'error');
-                }
-            }
-        }
-    }).mount('#app');
-</script>
+<script src="/js/index.js"></script>
 
 </body>
 </html>

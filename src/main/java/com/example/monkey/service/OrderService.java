@@ -66,6 +66,7 @@ public class OrderService {
         return "ok";
     }
     // 2. 发货
+    @Transactional
     public String shipOrder(Long orderId) {
         Order order = orderRepository.findById(orderId).orElse(null);
         if (order != null) {
@@ -77,6 +78,7 @@ public class OrderService {
         return "error:订单不存在";
     }
     // 3. 确认收货
+    @Transactional
     public String receiveOrder(Long orderId, Long userId) {
         Order order = orderRepository.findById(orderId).orElse(null);
         if (order != null && order.getUserId().equals(userId) && "已发货".equals(order.getStatus())) {
@@ -106,6 +108,7 @@ public class OrderService {
         return "error:订单不存在";
     }
     // 5. 状态流转 (申请退货/发货/确认退货)
+    @Transactional
     public String updateStatus(Long orderId, String targetStatus, String expectedCurrentStatus) {
         Order order = orderRepository.findById(orderId).orElse(null);
         if (order != null && expectedCurrentStatus.equals(order.getStatus())) {
@@ -114,6 +117,20 @@ public class OrderService {
             return "ok";
         }
         return "error:状态不对";
+    }
+
+    @Transactional
+    public String updateStatusForOwner(Long orderId, Long userId, String targetStatus, String expectedCurrentStatus) {
+        Order order = orderRepository.findById(orderId).orElse(null);
+        if (order == null || !order.getUserId().equals(userId)) {
+            return "error:无权操作";
+        }
+        if (!expectedCurrentStatus.equals(order.getStatus())) {
+            return "error:状态不对";
+        }
+        order.setStatus(targetStatus);
+        orderRepository.save(order);
+        return "ok";
     }
     // 6. 确认退货 (退款 + 回滚库存)
     @Transactional

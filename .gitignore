@@ -1,21 +1,48 @@
-# 忽略编译生成的文件
+# Build output
 target/
 *.class
 
-# 忽略 IDEA 的配置文件 (别人的电脑不需要你的配置)
+# IDE/editor state
+.vscode/
 .idea/
+.trae/
 *.iml
 *.iws
 
-# 忽略 Maven 包装器 (可选，为了项目整洁可以忽略)
+# Maven local build state
 .mvn/
 mvnw
 mvnw.cmd
+.mvn/wrapper/maven-wrapper.jar
 
-# 忽略系统文件
+# OS files
 .DS_Store
 Thumbs.db
 
-# 忽略日志
+# Logs
 logs/
 *.log
+
+# Local runtime data and generated artifacts
+uploads/
+app.jar
+code.txt
+*.jar
+
+# Secrets and local environment files
+.env
+.env.*
+*.pem
+*.key
+application-*.properties
+secrets/*.yaml
+secrets/*.yml
+secrets/*.json
+!secrets/*.enc.yaml
+!secrets/*.enc.yml
+!secrets/*.enc.json
+secrets/*.dec.*
+
+# Security/tool reports generated during local checks
+dependency-check-report.*
+dependency-check/

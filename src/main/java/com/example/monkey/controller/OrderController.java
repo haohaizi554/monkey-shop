@@ -53,8 +53,8 @@ public class OrderController {
     @PostMapping("/return/apply/{id}")
     public String applyReturn(@PathVariable Long id, HttpSession session) {
         Long userId = (Long) session.getAttribute("USER_ID");
-        // 校验是否是本人操作逻辑在 Service 内部或这里校验均可，Service 里有校验
-        return orderService.updateStatus(id, "申请退货", "已完成");
+        if (userId == null) return "error:请先登录";
+        return orderService.updateStatusForOwner(id, userId, "申请退货", "已完成");
     }
     @PostMapping("/return/approve/{id}")
     public String approveReturn(@PathVariable Long id, HttpSession session) {
@@ -63,7 +63,9 @@ public class OrderController {
     }
     @PostMapping("/return/ship/{id}")
     public String userShipReturn(@PathVariable Long id, HttpSession session) {
-        return orderService.updateStatus(id, "退货中", "待退货发货");
+        Long userId = (Long) session.getAttribute("USER_ID");
+        if (userId == null) return "error:请先登录";
+        return orderService.updateStatusForOwner(id, userId, "退货中", "待退货发货");
     }
     @PostMapping("/return/confirm/{id}")
     public String confirmReturn(@PathVariable Long id, HttpSession session) {

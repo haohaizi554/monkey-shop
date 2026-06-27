@@ -1,40 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <title>个人中心 | Monkey Shop</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
-    <style>
-        body { background-color: #f8f9fa; font-family: sans-serif; padding-top: 80px; }
-        .navbar-custom { background: white; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
-
-        /* 侧边栏 */
-        .sidebar-card { border: none; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
-        .list-group-item { border: none; padding: 15px 20px; font-weight: 500; color: #555; cursor: pointer; transition: 0.2s; border-left: 4px solid transparent; }
-        .list-group-item:hover { background-color: #f1f5f9; }
-        .list-group-item.active { background-color: #eef2ff; color: #3b82f6; border-left-color: #3b82f6; font-weight: 700; }
-
-        /* 右侧内容 */
-        .content-card { border: none; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); min-height: 500px; }
-        .avatar-lg { width: 100px; height: 100px; border-radius: 50%; object-fit: cover; border: 4px solid #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-
-        /* 地址卡片 */
-        .address-item { border: 1px solid #eee; border-radius: 8px; padding: 15px; margin-bottom: 15px; position: relative; transition: 0.2s; }
-        .address-item:hover { border-color: #b3d1ff; background-color: #fbfdff; }
-        .address-item.default { border-color: #3b82f6; background-color: #eff6ff; }
-        .tag-default { font-size: 12px; background: #3b82f6; color: white; padding: 2px 6px; border-radius: 4px; margin-left: 10px; }
-
-        /* 验证码图片 */
-        .captcha-img { height: 38px; cursor: pointer; border-radius: 4px; border: 1px solid #dee2e6; }
-
-        /* --- 全局 Toast 样式 --- */
-        .toast-container { position: fixed; top: 100px; right: 20px; z-index: 9999; }
-        .custom-toast { background: white; border-radius: 12px; padding: 15px 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); display: flex; align-items: center; margin-bottom: 10px; animation: slideIn 0.3s ease; border-left: 5px solid #3b82f6; }
-        .custom-toast.error { border-left-color: #ef4444; }
-        .custom-toast i { font-size: 1.2rem; margin-right: 10px; }
-        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-    </style>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" integrity="sha384-QuGBSgV5Im3DzL2z+8Ko9/hqNy/N0O7zwvXAtfd1MvPKWa/UbeLV65cfm4BV5Wgq" crossorigin="anonymous">
+    <link rel="stylesheet" href="/css/profile.css">
 </head>
 <body>
 
@@ -66,7 +37,7 @@
             <div class="col-md-3">
                 <div class="card sidebar-card">
                     <div class="card-body text-center py-4 bg-white">
-                        <img :src="user.avatar || '/images/default_avatar.png'" class="avatar-lg mb-3" onerror="this.src='/images/default_avatar.png'">
+                        <img :src="user.avatar || '/images/default_avatar.png'" class="avatar-lg mb-3" v-fallback-img="'/images/default_avatar.png'">
                         <h5 class="fw-bold">{{ user.username }}</h5>
                         <p class="text-muted small mb-0">{{ user.maskedPhone }}</p>
                     </div>
@@ -94,10 +65,10 @@
                             <h4 class="mb-4 fw-bold">个人资料</h4>
                             <div class="row align-items-center">
                                 <div class="col-md-3 text-center">
-                                    <img :src="user.avatar || '/images/default_avatar.png'" class="avatar-lg mb-3" onerror="this.src='/images/default_avatar.png'">
+                                    <img :src="user.avatar || '/images/default_avatar.png'" class="avatar-lg mb-3" v-fallback-img="'/images/default_avatar.png'">
                                     <div class="position-relative overflow-hidden btn btn-sm btn-outline-primary rounded-pill">
                                         更换头像
-                                        <input type="file" @change="handleAvatarUpload" style="position:absolute; top:0; left:0; opacity:0; width:100%; height:100%; cursor:pointer;">
+                                        <input type="file" class="avatar-file-input" @change="handleAvatarUpload">
                                     </div>
                                 </div>
                                 <div class="col-md-9">
@@ -230,151 +201,11 @@
 
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" integrity="sha384-geWF76RCwLtnZ8qwWowPQNguL3RmwHVBC9FhGdlKrxdiJJigb/j/68SIy3Te4Bkz" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/vue@3.5.24/dist/vue.global.prod.js" integrity="sha384-p6n0UPgWa805beutC9KJNaH/mexY+ABykG5NWhUHHRg/YkgnVJ3sDkrwaVJHNtPw" crossorigin="anonymous"></script>
 
-<script>
-    const { createApp } = Vue;
-    createApp({
-        data() {
-            return {
-                currentTab: 'info',
-                user: {},
-                addresses: [],
-                newAddr: { receiverName: '', phone: '', detailAddress: '' },
-                security: { phone: '', captcha: '', newPassword: '' },
-                captchaUrl: '/api/user/captcha?t=' + Date.now(),
+<script src="/js/monkeyshop-shared.js"></script>
 
-                // 弹窗状态
-                addrModal: null,
-                deleteModal: null,
-                pendingDeleteId: null, // 待删除的ID
-                toasts: [] // 消息队列
-            }
-        },
-        mounted() {
-            this.fetchProfile();
-            this.fetchAddresses();
-            this.addrModal = new bootstrap.Modal(document.getElementById('addressModal'));
-            this.deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
-        },
-        methods: {
-            // --- Toast 工具 ---
-            showToast(msg, type = 'success') {
-                const id = Date.now();
-                this.toasts.push({ id, msg, type, title: type === 'error' ? '操作失败' : '操作成功' });
-                setTimeout(() => {
-                    this.toasts = this.toasts.filter(t => t.id !== id);
-                }, 3000);
-            },
-
-            async fetchProfile() {
-                const res = await fetch('/api/user/profile');
-                const data = await res.json();
-                if(data.isLogin) this.user = data;
-                else window.location.href = '/shop.html';
-            },
-            async fetchAddresses() {
-                const res = await fetch('/api/address');
-                this.addresses = await res.json();
-            },
-
-            // 上传头像
-            async handleAvatarUpload(e) {
-                const file = e.target.files[0];
-                if(!file) return;
-                const formData = new FormData();
-                formData.append('file', file);
-                formData.append('type', 'avatar');
-
-                const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
-                const path = await uploadRes.text();
-                if(path.startsWith('error')) {
-                    this.showToast(path, 'error');
-                    return;
-                }
-
-                const updateRes = await fetch('/api/user/update-avatar', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                    body: 'avatarPath=' + encodeURIComponent(path)
-                });
-
-                if(await updateRes.text() === 'ok') {
-                    this.user.avatar = path;
-                    this.showToast("头像修改成功！");
-                }
-            },
-
-            // 地址相关
-            showAddAddressModal() {
-                this.newAddr = { receiverName: '', phone: '', detailAddress: '' };
-                this.addrModal.show();
-            },
-            async saveAddress() {
-                if(!this.newAddr.receiverName || !this.newAddr.phone || !this.newAddr.detailAddress) {
-                    this.showToast("请填写完整", 'error'); return;
-                }
-                const res = await fetch('/api/address', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(this.newAddr)
-                });
-                if(await res.text() === 'ok') {
-                    this.addrModal.hide();
-                    this.showToast("地址保存成功");
-                    this.fetchAddresses();
-                }
-            },
-            async setAsDefault(id) {
-                await fetch(`/api/address/set-default/${id}`, { method: 'POST' });
-                this.showToast("已设为默认地址");
-                this.fetchAddresses();
-            },
-
-            // --- 删除逻辑 (改用模态框) ---
-            openDeleteModal(id) {
-                this.pendingDeleteId = id; // 暂存ID
-                this.deleteModal.show();   // 显示弹窗
-            },
-            async confirmDelete() {
-                if(!this.pendingDeleteId) return;
-                await fetch(`/api/address/${this.pendingDeleteId}`, { method: 'DELETE' });
-                this.deleteModal.hide();
-                this.showToast("地址已删除");
-                this.fetchAddresses();
-            },
-
-            // 安全设置
-            refreshCaptcha() {
-                this.captchaUrl = '/api/user/captcha?t=' + Date.now();
-            },
-            async updatePassword() {
-                if(!this.security.phone || !this.security.captcha || !this.security.newPassword) {
-                    this.showToast("请填写完整信息", 'error'); return;
-                }
-
-                try {
-                    const res = await fetch('/api/user/update-password', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(this.security)
-                    });
-                    const result = await res.text();
-
-                    if(result === 'ok') {
-                        this.showToast("密码修改成功！请重新登录");
-                        setTimeout(() => window.location.href = '/', 1500);
-                    } else {
-                        this.showToast(result, 'error');
-                        this.refreshCaptcha();
-                    }
-                } catch(e) {
-                    this.showToast("网络错误", 'error');
-                }
-            }
-        }
-    }).mount('#app');
-</script>
+<script src="/js/profile.js"></script>
 </body>
 </html>

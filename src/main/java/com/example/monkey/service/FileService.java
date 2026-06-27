@@ -1,56 +1,170 @@
 package com.example.monkey.service;
-
-import com.example.monkey.config.WebConfig;
+import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Iterator;
+import java.util.Locale;
+import java.util.UUID;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import javax.imageio.ImageIO;
-import java.awt.image.BufferedImage;
-import java.io.File;
-import java.io.IOException;
-import java.util.UUID;
-
 @Service
 public class FileService {
+
+    private static final Logger log = LoggerFactory.getLogger(FileService.class);
+    private static final long MAX_UPLOAD_BYTES = 5L * 1024L * 1024L;
+
+    private final long maxImagePixels;
+    private final Path uploadRoot;
+
+    public FileService(
+            @Value("${app.upload.max-image-pixels:12000000}") long maxImagePixels,
+            @Value("${app.upload.path:uploads/images}") String uploadPath) {
+        this.maxImagePixels = maxImagePixels;
+        this.uploadRoot = Path.of(uploadPath).toAbsolutePath().normalize();
+    }
+
     public String uploadFile(MultipartFile file, String type) {
-        if (file == null || file.isEmpty()) return "error:空文件";
+        if (file == null || file.isEmpty()) {
+            return "error:empty file";
+        }
+        if (file.getSize() > MAX_UPLOAD_BYTES) {
+            return "error:file too large";
+        }
+        if (!"avatar".equals(type) && !"product".equals(type)) {
+            return "error:unsupported upload type";
+        }
+
         try {
-            // 1. 读取图片
-            BufferedImage originalImage = ImageIO.read(file.getInputStream());
-            if (originalImage == null) return "error:图片格式不支持";
-            int width = originalImage.getWidth();
-            int height = originalImage.getHeight();
-            BufferedImage finalImage = originalImage;
+            ImageFormat format = detectFormat(file);
+            if (format == null) {
+                return "error:unsupported image format";
+            }
+
+            ImageReadResult readResult = readImageSafely(file);
+            BufferedImage finalImage = readResult.image();
             boolean isCropped = false;
-            // 2. 自动裁剪逻辑 (仅针对商品图 product)
-            if ("product".equals(type) && width != height) {
-                int size = Math.min(width, height);
-                int x = (width - size) / 2;
-                int y = (height - size) / 2;
-                finalImage = originalImage.getSubimage(x, y, size, size);
+            if ("product".equals(type) && readResult.width() != readResult.height()) {
+                int size = Math.min(readResult.width(), readResult.height());
+                int x = (readResult.width() - size) / 2;
+                int y = (readResult.height() - size) / 2;
+                finalImage = readResult.image().getSubimage(x, y, size, size);
                 isCropped = true;
             }
-            // 3. 生成路径
-            String subDir = "avatar".equals(type) ? "avatar/" : "product/";
-            String suffix = ".jpg";
-            String originalFilename = file.getOriginalFilename();
-            if (originalFilename != null && originalFilename.contains(".")) {
-                suffix = originalFilename.substring(originalFilename.lastIndexOf("."));
-            }
-            String newFileName = UUID.randomUUID().toString() + suffix;
-            File dest = new File(WebConfig.UPLOAD_PATH + subDir + newFileName);
-            if (!dest.getParentFile().exists()) dest.getParentFile().mkdirs();
-            // 4. 保存
-            String formatName = suffix.replace(".", "");
-            if (formatName.isEmpty()) formatName = "jpg";
-            ImageIO.write(finalImage, formatName, dest);
-            // 5. 返回结果 (带状态前缀)
-            String path = "/images/" + subDir + newFileName;
-            return (isCropped ? "cropped:" : "ok:") + path;
 
+            String subDir = "avatar".equals(type) ? "avatar" : "product";
+            String newFileName = UUID.randomUUID() + "." + format.extension();
+            Path uploadDir = uploadRoot.resolve(subDir).normalize();
+            if (!uploadDir.startsWith(uploadRoot)) {
+                return "error:invalid upload path";
+            }
+            Files.createDirectories(uploadDir);
+            Path dest = uploadDir.resolve(newFileName).normalize();
+            if (!dest.startsWith(uploadDir)) {
+                return "error:invalid upload path";
+            }
+
+            if (!ImageIO.write(finalImage, format.imageIoName(), dest.toFile())) {
+                return "error:image encoding failed";
+            }
+
+            return (isCropped ? "cropped:" : "ok:") + "/images/" + subDir + "/" + newFileName;
+        } catch (IllegalArgumentException e) {
+            return "error:" + e.getMessage();
         } catch (IOException e) {
-            e.printStackTrace();
-            return "error:上传处理失败";
+            log.warn("Image upload failed for type {}", type, e);
+            return "error:upload failed";
         }
     }
+
+    private ImageFormat detectFormat(MultipartFile file) throws IOException {
+        byte[] header = readHeader(file);
+        if (header.length >= 8
+                && header[0] == (byte) 0x89
+                && header[1] == 0x50
+                && header[2] == 0x4E
+                && header[3] == 0x47
+                && header[4] == 0x0D
+                && header[5] == 0x0A
+                && header[6] == 0x1A
+                && header[7] == 0x0A) {
+            return ImageFormat.PNG;
+        }
+        if (header.length >= 3
+                && header[0] == (byte) 0xFF
+                && header[1] == (byte) 0xD8
+                && header[2] == (byte) 0xFF) {
+            return ImageFormat.JPEG;
+        }
+        return null;
+    }
+
+    private byte[] readHeader(MultipartFile file) throws IOException {
+        byte[] header = new byte[12];
+        try (InputStream input = file.getInputStream()) {
+            int read = input.read(header);
+            return read <= 0 ? new byte[0] : Arrays.copyOf(header, read);
+        }
+    }
+
+    private ImageReadResult readImageSafely(MultipartFile file) throws IOException {
+        try (ImageInputStream imageInput = ImageIO.createImageInputStream(file.getInputStream())) {
+            if (imageInput == null) {
+                throw new IllegalArgumentException("unsupported image format");
+            }
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(imageInput);
+            if (!readers.hasNext()) {
+                throw new IllegalArgumentException("unsupported image format");
+            }
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(imageInput, true, true);
+                int width = reader.getWidth(0);
+                int height = reader.getHeight(0);
+                long pixels = (long) width * (long) height;
+                if (width <= 0 || height <= 0 || pixels > maxImagePixels) {
+                    throw new IllegalArgumentException("image dimensions are not allowed");
+                }
+                BufferedImage image = reader.read(0);
+                if (image == null) {
+                    throw new IllegalArgumentException("unsupported image format");
+                }
+                return new ImageReadResult(image, width, height);
+            } finally {
+                reader.dispose();
+            }
+        }
+    }
+
+    private enum ImageFormat {
+        JPEG("jpg", "jpg"),
+        PNG("png", "png");
+
+        private final String extension;
+        private final String imageIoName;
+
+        ImageFormat(String extension, String imageIoName) {
+            this.extension = extension.toLowerCase(Locale.ROOT);
+            this.imageIoName = imageIoName;
+        }
+
+        String extension() {
+            return extension;
+        }
+
+        String imageIoName() {
+            return imageIoName;
+        }
+    }
+
+    private record ImageReadResult(BufferedImage image, int width, int height) {}
 }

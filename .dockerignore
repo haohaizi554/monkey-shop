@@ -1,0 +1,14 @@
+.git
+.idea
+.trae
+target
+uploads
+logs
+*.log
+*.jar
+app.jar
+code.txt
+.env
+.env.*
+*.pem
+*.key
