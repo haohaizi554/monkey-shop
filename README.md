@@ -20,10 +20,12 @@ $env:DB_PASSWORD = "<local-db-password>"
 $env:ADMIN_INIT_PASSWORD = "<strong-initial-admin-password>"
 $env:SESSION_COOKIE_SECURE = "false"
 $env:APP_UPLOAD_PATH = "uploads/images"
+$env:APP_UPLOAD_VIRUS_SCAN_ENABLED = "false"
 $env:NVD_API_KEY = "<optional-but-recommended-for-dependency-check>"
 ```
 
 `ADMIN_INIT_PASSWORD` is only used when the admin table is empty. The application refuses to bootstrap a default administrator without this variable.
+Set `APP_UPLOAD_VIRUS_SCAN_ENABLED=true` only when `CLAMAV_HOST:CLAMAV_PORT` is reachable; enabled scanning rejects uploads if ClamAV is unavailable.
 New passwords must be at least 10 characters and include lowercase, uppercase, digit, and special characters with no whitespace.
 
 Schema changes are managed with Flyway from `src/main/resources/db/migration` before Hibernate validates the schema. New databases run from `V1__init_schema.sql`; existing manually-created demo schemas should be backed up and migrated deliberately. Only set `FLYWAY_BASELINE_ON_MIGRATE=true` after confirming the current schema already matches the baseline.
@@ -73,7 +75,7 @@ $env:SESSION_COOKIE_SECURE = "false"
 docker compose up -d --build
 ```
 
-The compose file requires database and admin bootstrap secrets and does not provide default passwords.
+The compose file requires database and admin bootstrap secrets and does not provide default passwords. It also starts ClamAV and enables upload virus scanning for the app container by default.
 
 ## TLS Edge
 
@@ -86,6 +88,6 @@ Spring Boot listens on the internal application port. Terminate public TLS 1.3 a
 - Uploaded images are stored outside the source tree through `APP_UPLOAD_PATH` and served from `/images/**` with packaged default images as fallback.
 - CSRF is enabled with a cookie token, and legacy pages attach `X-XSRF-TOKEN` for unsafe same-origin requests.
 - API authorization is centralized in Spring Security using the existing session identity until the WS2 JWT/RBAC migration.
-- Image upload now validates upload type, size, magic number, Tika-detected MIME type, image dimensions, and normalized destination paths.
+- Image upload now validates upload type, size, magic number, Tika-detected MIME type, ClamAV scan results when enabled, image dimensions, and normalized destination paths.
 - Admin bootstrap, registration, and password changes enforce the shared password complexity policy before hashing.
 - Password reset is fail-closed until an OTP provider is implemented.

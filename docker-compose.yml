@@ -18,6 +18,12 @@ services:
       timeout: 20s
       retries: 10
 
+  clamav:
+    image: clamav/clamav:1.4
+    container_name: monkey-clamav
+    expose:
+      - "3310"
+
   myshop:
     build: .
     container_name: monkey-app
@@ -26,6 +32,8 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      clamav:
+        condition: service_started
     environment:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
       DB_URL: ${DB_URL:-jdbc:mysql://mysql:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=true&requireSSL=true&verifyServerCertificate=true}
@@ -36,6 +44,9 @@ services:
       SERVER_PORT: 8888
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
       APP_UPLOAD_PATH: /data/images
+      APP_UPLOAD_VIRUS_SCAN_ENABLED: ${APP_UPLOAD_VIRUS_SCAN_ENABLED:-true}
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: 3310
     volumes:
       - ./uploads:/data/images
 

@@ -55,6 +55,40 @@ class FileServiceTest {
     }
 
     @Test
+    void rejectsWhenVirusScannerReportsMalware() throws IOException {
+        FileService fileService = new FileService(
+                12_000_000L,
+                uploadRoot.toString(),
+                file -> "image/png",
+                file -> {
+                    throw new MalwareDetectedException("stream: Eicar-Test-Signature FOUND");
+                });
+        MockMultipartFile file = imageFile("avatar", "avatar.png", "png", 2, 2);
+
+        String result = fileService.uploadFile(file, "avatar");
+
+        assertThat(result).isEqualTo("error:malware detected");
+        assertThat(uploadRoot).isEmptyDirectory();
+    }
+
+    @Test
+    void failsClosedWhenVirusScannerIsUnavailable() throws IOException {
+        FileService fileService = new FileService(
+                12_000_000L,
+                uploadRoot.toString(),
+                file -> "image/png",
+                file -> {
+                    throw new IOException("clamd unavailable");
+                });
+        MockMultipartFile file = imageFile("avatar", "avatar.png", "png", 2, 2);
+
+        String result = fileService.uploadFile(file, "avatar");
+
+        assertThat(result).isEqualTo("error:virus scan unavailable");
+        assertThat(uploadRoot).isEmptyDirectory();
+    }
+
+    @Test
     void rejectsUnsupportedUploadTypeBeforeWriting() {
         FileService fileService = new FileService(12_000_000L, uploadRoot.toString());
         MockMultipartFile file = new MockMultipartFile("file", "x.txt", "text/plain", "not-an-image".getBytes());

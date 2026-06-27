@@ -27,17 +27,37 @@ public class FileService {
     private final long maxImagePixels;
     private final Path uploadRoot;
     private final MimeDetector mimeDetector;
+    private final VirusScanner virusScanner;
 
     public FileService(
             @Value("${app.upload.max-image-pixels:12000000}") long maxImagePixels,
-            @Value("${app.upload.path:uploads/images}") String uploadPath) {
-        this(maxImagePixels, uploadPath, new TikaMimeDetector());
+            @Value("${app.upload.path:uploads/images}") String uploadPath,
+            @Value("${app.upload.virus-scan.enabled:false}") boolean virusScanEnabled,
+            @Value("${app.upload.virus-scan.host:127.0.0.1}") String virusScanHost,
+            @Value("${app.upload.virus-scan.port:3310}") int virusScanPort,
+            @Value("${app.upload.virus-scan.timeout-millis:5000}") int virusScanTimeoutMillis) {
+        this(
+                maxImagePixels,
+                uploadPath,
+                new TikaMimeDetector(),
+                virusScanEnabled
+                        ? new ClamAvVirusScanner(virusScanHost, virusScanPort, virusScanTimeoutMillis)
+                        : new NoOpVirusScanner());
+    }
+
+    FileService(long maxImagePixels, String uploadPath) {
+        this(maxImagePixels, uploadPath, new TikaMimeDetector(), new NoOpVirusScanner());
     }
 
     FileService(long maxImagePixels, String uploadPath, MimeDetector mimeDetector) {
+        this(maxImagePixels, uploadPath, mimeDetector, new NoOpVirusScanner());
+    }
+
+    FileService(long maxImagePixels, String uploadPath, MimeDetector mimeDetector, VirusScanner virusScanner) {
         this.maxImagePixels = maxImagePixels;
         this.uploadRoot = Path.of(uploadPath).toAbsolutePath().normalize();
         this.mimeDetector = mimeDetector;
+        this.virusScanner = virusScanner;
     }
 
     public String uploadFile(MultipartFile file, String type) {
@@ -59,6 +79,15 @@ public class FileService {
             String detectedMimeType = mimeDetector.detect(file);
             if (!format.mediaType().equalsIgnoreCase(detectedMimeType)) {
                 return "error:unsupported image MIME type";
+            }
+            try {
+                virusScanner.assertClean(file);
+            } catch (MalwareDetectedException e) {
+                log.warn("Rejected uploaded image after virus scan: {}", e.getMessage());
+                return "error:malware detected";
+            } catch (IOException e) {
+                log.warn("Virus scan failed for upload type {}", type, e);
+                return "error:virus scan unavailable";
             }
 
             ImageReadResult readResult = readImageSafely(file);

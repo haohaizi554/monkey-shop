@@ -40,6 +40,11 @@ app:
   upload:
     path: ${APP_UPLOAD_PATH:uploads/images}
     max-image-pixels: ${APP_UPLOAD_MAX_IMAGE_PIXELS:12000000}
+    virus-scan:
+      enabled: ${APP_UPLOAD_VIRUS_SCAN_ENABLED:false}
+      host: ${CLAMAV_HOST:127.0.0.1}
+      port: ${CLAMAV_PORT:3310}
+      timeout-millis: ${CLAMAV_TIMEOUT_MILLIS:5000}
 
 management:
   endpoint:

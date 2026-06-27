@@ -24,3 +24,11 @@ management:
   endpoint:
     env:
       show-values: NEVER
+
+app:
+  upload:
+    virus-scan:
+      enabled: ${APP_UPLOAD_VIRUS_SCAN_ENABLED:true}
+      host: ${CLAMAV_HOST:clamav}
+      port: ${CLAMAV_PORT:3310}
+      timeout-millis: ${CLAMAV_TIMEOUT_MILLIS:5000}
