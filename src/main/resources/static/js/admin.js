@@ -354,7 +354,7 @@
             },
 
             async logout() {
-                await fetch('/api/user/logout');
+                await fetch('/api/user/logout', { method: 'POST' });
                 this.showAuthOverlay = true;
                 this.showToast("已退出登录");
             }

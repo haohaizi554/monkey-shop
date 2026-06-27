@@ -82,7 +82,7 @@
                 } catch (error) { console.error('Err:', error); }
             },
             async logout() {
-                await fetch('/api/user/logout');
+                await fetch('/api/user/logout', { method: 'POST' });
                 window.location.href = '/';
             },
 

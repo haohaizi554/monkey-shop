@@ -96,6 +96,25 @@ class SecurityConfigTest {
     }
 
     @Test
+    void logoutIsPostOnlyAndRequiresCsrf() throws Exception {
+        mockMvc.perform(get("/api/user/logout")
+                        .sessionAttr(SessionIdentity.USER_ID_ATTRIBUTE, 7L)
+                        .sessionAttr(SessionIdentity.IDENTITY_ATTRIBUTE, SessionIdentity.ROLE_USER))
+                .andExpect(status().isMethodNotAllowed());
+
+        mockMvc.perform(post("/api/user/logout")
+                        .sessionAttr(SessionIdentity.USER_ID_ATTRIBUTE, 7L)
+                        .sessionAttr(SessionIdentity.IDENTITY_ATTRIBUTE, SessionIdentity.ROLE_USER))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/user/logout")
+                        .with(csrf())
+                        .sessionAttr(SessionIdentity.USER_ID_ATTRIBUTE, 7L)
+                        .sessionAttr(SessionIdentity.IDENTITY_ATTRIBUTE, SessionIdentity.ROLE_USER))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void sessionIdentityIsExposedAsAuthenticationPrincipal() throws Exception {
         mockMvc.perform(get("/api/user/me")
                         .sessionAttr(SessionIdentity.USER_ID_ATTRIBUTE, 7L)
@@ -119,6 +138,11 @@ class SecurityConfigTest {
 
         @PostMapping("/api/upload")
         String upload() {
+            return "ok";
+        }
+
+        @PostMapping("/api/user/logout")
+        String logout() {
             return "ok";
         }
 
