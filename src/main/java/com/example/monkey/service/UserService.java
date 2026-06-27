@@ -11,6 +11,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -28,6 +29,7 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final ImageCleanupService imageCleanupService;
     private final PasswordPolicy passwordPolicy;
+    private final String missingAccountPasswordHash;
 
     public UserService(
             UserRepository userRepository,
@@ -35,11 +37,28 @@ public class UserService {
             PasswordEncoder passwordEncoder,
             ImageCleanupService imageCleanupService,
             PasswordPolicy passwordPolicy) {
+        this(
+                userRepository,
+                adminRepository,
+                passwordEncoder,
+                imageCleanupService,
+                passwordPolicy,
+                passwordEncoder.encode(UUID.randomUUID().toString()));
+    }
+
+    UserService(
+            UserRepository userRepository,
+            AdminRepository adminRepository,
+            PasswordEncoder passwordEncoder,
+            ImageCleanupService imageCleanupService,
+            PasswordPolicy passwordPolicy,
+            String missingAccountPasswordHash) {
         this.userRepository = userRepository;
         this.adminRepository = adminRepository;
         this.passwordEncoder = passwordEncoder;
         this.imageCleanupService = imageCleanupService;
         this.passwordPolicy = passwordPolicy;
+        this.missingAccountPasswordHash = missingAccountPasswordHash;
     }
 
     public String register(String username, String password, String phone, String avatarPath) {
@@ -70,22 +89,25 @@ public class UserService {
 
     public String login(String username, String rawPassword, HttpServletRequest request) {
         Admin admin = adminRepository.findByUsername(username);
+        User user = userRepository.findByUsername(username);
+        String passwordToCheck = rawPassword == null ? "" : rawPassword;
+
+        if (admin != null && passwordEncoder.matches(passwordToCheck, admin.getPassword())) {
+            establishSessionIdentity(request, admin.getId(), SessionIdentity.ROLE_ADMIN);
+            return "ok:" + SessionIdentity.ROLE_ADMIN;
+        }
         if (admin != null) {
-            if (passwordEncoder.matches(rawPassword, admin.getPassword())) {
-                establishSessionIdentity(request, admin.getId(), SessionIdentity.ROLE_ADMIN);
-                return "ok:" + SessionIdentity.ROLE_ADMIN;
-            }
             return INVALID_LOGIN_MESSAGE;
         }
 
-        User user = userRepository.findByUsername(username);
+        if (user != null && passwordEncoder.matches(passwordToCheck, user.getPassword())) {
+            establishSessionIdentity(request, user.getId(), SessionIdentity.ROLE_USER);
+            return "ok:" + SessionIdentity.ROLE_USER;
+        }
         if (user != null) {
-            if (passwordEncoder.matches(rawPassword, user.getPassword())) {
-                establishSessionIdentity(request, user.getId(), SessionIdentity.ROLE_USER);
-                return "ok:" + SessionIdentity.ROLE_USER;
-            }
             return INVALID_LOGIN_MESSAGE;
         }
+        passwordEncoder.matches(passwordToCheck, missingAccountPasswordHash);
         return INVALID_LOGIN_MESSAGE;
     }
 

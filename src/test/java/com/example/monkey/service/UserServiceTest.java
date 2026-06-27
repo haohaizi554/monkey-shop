@@ -6,6 +6,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.example.monkey.entity.Admin;
 import com.example.monkey.entity.User;
 import com.example.monkey.repository.AdminRepository;
 import com.example.monkey.repository.UserRepository;
@@ -37,11 +38,17 @@ class UserServiceTest {
     private ImageCleanupService imageCleanupService;
 
     private UserService userService;
+    private static final String MISSING_ACCOUNT_PASSWORD_HASH = "missing-account-hash";
 
     @BeforeEach
     void setUp() {
         userService = new UserService(
-                userRepository, adminRepository, passwordEncoder, imageCleanupService, new PasswordPolicy());
+                userRepository,
+                adminRepository,
+                passwordEncoder,
+                imageCleanupService,
+                new PasswordPolicy(),
+                MISSING_ACCOUNT_PASSWORD_HASH);
     }
 
     @Test
@@ -83,6 +90,19 @@ class UserServiceTest {
     }
 
     @Test
+    void missingAccountStillRunsPasswordVerificationWithoutCreatingSession() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+
+        String result = userService.login("missing", "guess", request);
+
+        assertThat(result).isEqualTo("username or password is incorrect");
+        assertThat(request.getSession(false)).isNull();
+        verify(adminRepository).findByUsername("missing");
+        verify(userRepository).findByUsername("missing");
+        verify(passwordEncoder).matches("guess", MISSING_ACCOUNT_PASSWORD_HASH);
+    }
+
+    @Test
     void successfulLoginCreatesSessionIdentityAfterPasswordMatch() {
         User user = new User();
         user.setId(7L);
@@ -97,6 +117,24 @@ class UserServiceTest {
         assertThat(request.getSession(false)).isNotNull();
         assertThat(request.getSession(false).getAttribute(SessionIdentity.USER_ID_ATTRIBUTE)).isEqualTo(7L);
         assertThat(request.getSession(false).getAttribute(SessionIdentity.IDENTITY_ATTRIBUTE)).isEqualTo("USER");
+    }
+
+    @Test
+    void adminLoginQueriesBothAccountStoresBeforePasswordVerification() {
+        Admin admin = new Admin();
+        admin.setId(1L);
+        admin.setPassword("encoded-password");
+        when(adminRepository.findByUsername("admin")).thenReturn(admin);
+        when(passwordEncoder.matches("StrongPass1!", "encoded-password")).thenReturn(true);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+
+        String result = userService.login("admin", "StrongPass1!", request);
+
+        assertThat(result).isEqualTo("ok:ADMIN");
+        verify(adminRepository).findByUsername("admin");
+        verify(userRepository).findByUsername("admin");
+        assertThat(request.getSession(false).getAttribute(SessionIdentity.USER_ID_ATTRIBUTE)).isEqualTo(1L);
+        assertThat(request.getSession(false).getAttribute(SessionIdentity.IDENTITY_ATTRIBUTE)).isEqualTo("ADMIN");
     }
 
     @Test
