@@ -1,6 +1,8 @@
 package com.example.monkey.config;
 
 import com.example.monkey.security.SessionAuthenticationFilter;
+import java.security.SecureRandom;
+import java.util.Base64;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -14,12 +16,15 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.header.HeaderWriter;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.security.web.header.writers.StaticHeadersWriter;
 
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
+
+    static final String CSP_NONCE_ATTRIBUTE = "cspNonce";
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -81,16 +86,7 @@ public class SecurityConfig {
                         .anyRequest()
                         .denyAll())
                 .headers(headers -> headers
-                        .contentSecurityPolicy(csp -> csp.policyDirectives(
-                                "default-src 'self'; "
-                                        + "script-src 'self' https://cdn.jsdelivr.net; "
-                                        + "style-src 'self' https://cdn.jsdelivr.net; "
-                                        + "img-src 'self' data:; "
-                                        + "font-src 'self' data: https://cdn.jsdelivr.net; "
-                                        + "connect-src 'self'; "
-                                        + "base-uri 'self'; "
-                                        + "form-action 'self'; "
-                                        + "frame-ancestors 'none'"))
+                        .addHeaderWriter(new NonceContentSecurityPolicyHeaderWriter())
                         .httpStrictTransportSecurity(hsts -> hsts
                                 .includeSubDomains(true)
                                 .preload(true)
@@ -106,5 +102,38 @@ public class SecurityConfig {
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable);
         return http.build();
+    }
+
+    private static final class NonceContentSecurityPolicyHeaderWriter implements HeaderWriter {
+
+        private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+        private static final Base64.Encoder BASE64_ENCODER = Base64.getEncoder().withoutPadding();
+        private static final int NONCE_BYTES = 16;
+
+        @Override
+        public void writeHeaders(jakarta.servlet.http.HttpServletRequest request,
+                jakarta.servlet.http.HttpServletResponse response) {
+            String nonce = newNonce();
+            request.setAttribute(CSP_NONCE_ATTRIBUTE, nonce);
+            response.setHeader("Content-Security-Policy", policy(nonce));
+        }
+
+        private static String newNonce() {
+            byte[] nonceBytes = new byte[NONCE_BYTES];
+            SECURE_RANDOM.nextBytes(nonceBytes);
+            return BASE64_ENCODER.encodeToString(nonceBytes);
+        }
+
+        private static String policy(String nonce) {
+            return "default-src 'self'; "
+                    + "script-src 'self' 'nonce-" + nonce + "' https://cdn.jsdelivr.net; "
+                    + "style-src 'self' 'nonce-" + nonce + "' https://cdn.jsdelivr.net; "
+                    + "img-src 'self' data:; "
+                    + "font-src 'self' data: https://cdn.jsdelivr.net; "
+                    + "connect-src 'self'; "
+                    + "base-uri 'self'; "
+                    + "form-action 'self'; "
+                    + "frame-ancestors 'none'";
+        }
     }
 }

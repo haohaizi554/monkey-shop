@@ -9,6 +9,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.example.monkey.security.SessionIdentity;
 import com.example.monkey.security.SessionUser;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -16,6 +18,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -23,6 +26,9 @@ import org.springframework.web.bind.annotation.RestController;
 @WebMvcTest(controllers = SecurityConfigTest.TestApiController.class)
 @Import({SecurityConfig.class, SecurityConfigTest.TestApiController.class})
 class SecurityConfigTest {
+
+    private static final Pattern CSP_SCRIPT_NONCE = Pattern.compile("script-src [^;]*'nonce-([^']+)'");
+    private static final Pattern CSP_STYLE_NONCE = Pattern.compile("style-src [^;]*'nonce-([^']+)'");
 
     @Autowired
     private MockMvc mockMvc;
@@ -39,6 +45,12 @@ class SecurityConfigTest {
                         org.hamcrest.Matchers.containsString("default-src 'self'")))
                 .andExpect(header().string(
                         "Content-Security-Policy",
+                        org.hamcrest.Matchers.containsString("script-src 'self' 'nonce-")))
+                .andExpect(header().string(
+                        "Content-Security-Policy",
+                        org.hamcrest.Matchers.containsString("style-src 'self' 'nonce-")))
+                .andExpect(header().string(
+                        "Content-Security-Policy",
                         org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("unpkg.com"))))
                 .andExpect(header().string(
                         "Content-Security-Policy",
@@ -52,6 +64,26 @@ class SecurityConfigTest {
                 .andExpect(header().string("X-Frame-Options", "DENY"))
                 .andExpect(header().string("Referrer-Policy", "strict-origin-when-cross-origin"))
                 .andExpect(header().string("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()"));
+    }
+
+    @Test
+    void contentSecurityPolicyNonceChangesForEachRequest() throws Exception {
+        MvcResult first = mockMvc.perform(get("/api/monkeys").secure(true))
+                .andExpect(status().isOk())
+                .andReturn();
+        MvcResult second = mockMvc.perform(get("/api/monkeys").secure(true))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String firstPolicy = first.getResponse().getHeader("Content-Security-Policy");
+        String secondPolicy = second.getResponse().getHeader("Content-Security-Policy");
+        String firstScriptNonce = extractNonce(CSP_SCRIPT_NONCE, firstPolicy);
+        String firstStyleNonce = extractNonce(CSP_STYLE_NONCE, firstPolicy);
+        String secondScriptNonce = extractNonce(CSP_SCRIPT_NONCE, secondPolicy);
+
+        org.assertj.core.api.Assertions.assertThat(firstScriptNonce).isNotBlank();
+        org.assertj.core.api.Assertions.assertThat(firstStyleNonce).isEqualTo(firstScriptNonce);
+        org.assertj.core.api.Assertions.assertThat(secondScriptNonce).isNotEqualTo(firstScriptNonce);
     }
 
     @Test
@@ -155,5 +187,13 @@ class SecurityConfigTest {
         String unknown() {
             return "ok";
         }
+    }
+
+    private static String extractNonce(Pattern pattern, String policy) {
+        Matcher matcher = pattern.matcher(policy);
+        org.assertj.core.api.Assertions.assertThat(matcher.find())
+                .as("CSP nonce should exist in policy: " + policy)
+                .isTrue();
+        return matcher.group(1);
     }
 }
