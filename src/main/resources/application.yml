@@ -37,8 +37,6 @@ app:
   admin:
     username: ${ADMIN_INIT_USERNAME:admin}
     password: ${ADMIN_INIT_PASSWORD:}
-  security:
-    password-reset-enabled: ${PASSWORD_RESET_ENABLED:false}
   upload:
     path: ${APP_UPLOAD_PATH:uploads/images}
     max-image-pixels: ${APP_UPLOAD_MAX_IMAGE_PIXELS:12000000}
