@@ -86,6 +86,6 @@ Spring Boot listens on the internal application port. Terminate public TLS 1.3 a
 - Uploaded images are stored outside the source tree through `APP_UPLOAD_PATH` and served from `/images/**` with packaged default images as fallback.
 - CSRF is enabled with a cookie token, and legacy pages attach `X-XSRF-TOKEN` for unsafe same-origin requests.
 - API authorization is centralized in Spring Security using the existing session identity until the WS2 JWT/RBAC migration.
-- Image upload now validates upload type, size, magic number, image dimensions, and normalized destination paths.
+- Image upload now validates upload type, size, magic number, Tika-detected MIME type, image dimensions, and normalized destination paths.
 - Admin bootstrap, registration, and password changes enforce the shared password complexity policy before hashing.
 - Password reset is fail-closed until an OTP provider is implemented.

@@ -31,6 +31,30 @@ class FileServiceTest {
     }
 
     @Test
+    void storesImageUsingDetectedContentInsteadOfClientMetadata() throws IOException {
+        FileService fileService = new FileService(12_000_000L, uploadRoot.toString());
+        byte[] pngBytes = imageBytes("png", 2, 2);
+        MockMultipartFile file = new MockMultipartFile("avatar", "avatar.jpg", "text/plain", pngBytes);
+
+        String result = fileService.uploadFile(file, "avatar");
+
+        assertThat(result).startsWith("ok:/images/avatar/").endsWith(".png");
+        Path storedFile = uploadRoot.resolve(result.substring("ok:/images/".length()));
+        assertThat(storedFile).isRegularFile();
+    }
+
+    @Test
+    void rejectsWhenMagicNumberAndMimeDetectorDisagree() throws IOException {
+        FileService fileService = new FileService(12_000_000L, uploadRoot.toString(), file -> "application/pdf");
+        MockMultipartFile file = imageFile("avatar", "avatar.png", "png", 2, 2);
+
+        String result = fileService.uploadFile(file, "avatar");
+
+        assertThat(result).isEqualTo("error:unsupported image MIME type");
+        assertThat(uploadRoot).isEmptyDirectory();
+    }
+
+    @Test
     void rejectsUnsupportedUploadTypeBeforeWriting() {
         FileService fileService = new FileService(12_000_000L, uploadRoot.toString());
         MockMultipartFile file = new MockMultipartFile("file", "x.txt", "text/plain", "not-an-image".getBytes());
@@ -88,5 +112,17 @@ class FileServiceTest {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         ImageIO.write(image, format, output);
         return new MockMultipartFile(fieldName, originalName, "image/" + format, output.toByteArray());
+    }
+
+    private static byte[] imageBytes(String format, int width, int height) throws IOException {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        for (int x = 0; x < width; x++) {
+            for (int y = 0; y < height; y++) {
+                image.setRGB(x, y, Color.BLUE.getRGB());
+            }
+        }
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        ImageIO.write(image, format, output);
+        return output.toByteArray();
     }
 }

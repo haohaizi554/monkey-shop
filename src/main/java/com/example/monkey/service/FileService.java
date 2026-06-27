@@ -11,6 +11,7 @@ import java.util.UUID;
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
+import org.apache.tika.Tika;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,12 +26,18 @@ public class FileService {
 
     private final long maxImagePixels;
     private final Path uploadRoot;
+    private final MimeDetector mimeDetector;
 
     public FileService(
             @Value("${app.upload.max-image-pixels:12000000}") long maxImagePixels,
             @Value("${app.upload.path:uploads/images}") String uploadPath) {
+        this(maxImagePixels, uploadPath, new TikaMimeDetector());
+    }
+
+    FileService(long maxImagePixels, String uploadPath, MimeDetector mimeDetector) {
         this.maxImagePixels = maxImagePixels;
         this.uploadRoot = Path.of(uploadPath).toAbsolutePath().normalize();
+        this.mimeDetector = mimeDetector;
     }
 
     public String uploadFile(MultipartFile file, String type) {
@@ -48,6 +55,10 @@ public class FileService {
             ImageFormat format = detectFormat(file);
             if (format == null) {
                 return "error:unsupported image format";
+            }
+            String detectedMimeType = mimeDetector.detect(file);
+            if (!format.mediaType().equalsIgnoreCase(detectedMimeType)) {
+                return "error:unsupported image MIME type";
             }
 
             ImageReadResult readResult = readImageSafely(file);
@@ -146,15 +157,17 @@ public class FileService {
     }
 
     private enum ImageFormat {
-        JPEG("jpg", "jpg"),
-        PNG("png", "png");
+        JPEG("jpg", "jpg", "image/jpeg"),
+        PNG("png", "png", "image/png");
 
         private final String extension;
         private final String imageIoName;
+        private final String mediaType;
 
-        ImageFormat(String extension, String imageIoName) {
+        ImageFormat(String extension, String imageIoName, String mediaType) {
             this.extension = extension.toLowerCase(Locale.ROOT);
             this.imageIoName = imageIoName;
+            this.mediaType = mediaType;
         }
 
         String extension() {
@@ -163,6 +176,27 @@ public class FileService {
 
         String imageIoName() {
             return imageIoName;
+        }
+
+        String mediaType() {
+            return mediaType;
+        }
+    }
+
+    @FunctionalInterface
+    interface MimeDetector {
+        String detect(MultipartFile file) throws IOException;
+    }
+
+    private static final class TikaMimeDetector implements MimeDetector {
+
+        private final Tika tika = new Tika();
+
+        @Override
+        public String detect(MultipartFile file) throws IOException {
+            try (InputStream input = file.getInputStream()) {
+                return tika.detect(input);
+            }
         }
     }
 
