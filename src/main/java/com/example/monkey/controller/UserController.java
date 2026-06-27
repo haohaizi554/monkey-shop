@@ -1,10 +1,12 @@
 package com.example.monkey.controller;
 
+import com.example.monkey.security.SessionUser;
 import com.example.monkey.service.CaptchaService;
 import com.example.monkey.service.UserService;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
@@ -23,25 +25,30 @@ public class UserController {
     }
 
     @GetMapping("/me")
-    public Map<String, Object> getCurrentUser(HttpSession session) {
-        return userService.getUserInfo(session, false);
+    public Map<String, Object> getCurrentUser(@AuthenticationPrincipal SessionUser currentUser) {
+        return userService.getUserInfo(currentUser, false);
     }
 
     @GetMapping("/profile")
-    public Map<String, Object> getProfile(HttpSession session) {
-        return userService.getUserInfo(session, true);
+    public Map<String, Object> getProfile(@AuthenticationPrincipal SessionUser currentUser) {
+        return userService.getUserInfo(currentUser, true);
     }
 
     @PostMapping("/update-avatar")
-    public String updateAvatar(@RequestParam("avatarPath") String avatarPath, HttpSession session) {
-        Long userId = (Long) session.getAttribute("USER_ID");
+    public String updateAvatar(
+            @RequestParam("avatarPath") String avatarPath,
+            @AuthenticationPrincipal SessionUser currentUser) {
+        Long userId = currentUser == null ? null : currentUser.id();
         if (userId == null) return "error:未登录";
         return userService.updateAvatar(userId, avatarPath);
     }
 
     @PostMapping("/update-password")
-    public String updatePassword(@RequestBody Map<String, String> params, HttpSession session) {
-        Long userId = (Long) session.getAttribute("USER_ID");
+    public String updatePassword(
+            @RequestBody Map<String, String> params,
+            HttpSession session,
+            @AuthenticationPrincipal SessionUser currentUser) {
+        Long userId = currentUser == null ? null : currentUser.id();
         if (userId == null) return "请先登录";
 
         if (!captchaService.validate(session, params.get("captcha"))) return "验证码错误";

@@ -1,14 +1,9 @@
 package com.example.monkey.config;
 
-import jakarta.servlet.http.HttpSession;
-import java.util.Arrays;
-import java.util.Set;
-import java.util.function.Supplier;
+import com.example.monkey.security.SessionAuthenticationFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.authorization.AuthorizationDecision;
-import org.springframework.security.authorization.AuthorizationManager;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -17,7 +12,6 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
@@ -40,9 +34,16 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    public SessionAuthenticationFilter sessionAuthenticationFilter() {
+        return new SessionAuthenticationFilter();
+    }
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http, SessionAuthenticationFilter sessionAuthenticationFilter)
+            throws Exception {
         http
                 .csrf(csrf -> csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse()))
+                .addFilterBefore(sessionAuthenticationFilter, BasicAuthenticationFilter.class)
                 .addFilterAfter(new CsrfCookieFilter(), BasicAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
@@ -53,6 +54,8 @@ public class SecurityConfig {
                                 "/orders.html",
                                 "/profile.html",
                                 "/favicon.ico",
+                                "/css/**",
+                                "/js/**",
                                 "/images/**")
                         .permitAll()
                         .requestMatchers("/api/auth/captcha", "/api/auth/register", "/api/auth/login",
@@ -61,22 +64,22 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/monkeys", "/api/user/me")
                         .permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/upload")
-                        .access(hasAnySessionRole("USER", "ADMIN"))
+                        .hasAnyRole("USER", "ADMIN")
                         .requestMatchers("/api/address/**", "/api/user/captcha", "/api/user/profile",
                                 "/api/user/update-avatar", "/api/user/update-password", "/api/user/logout",
                                 "/api/orders/create", "/api/orders/my", "/api/orders/receive/**",
                                 "/api/orders/return/apply/**", "/api/orders/return/ship/**")
-                        .access(hasAnySessionRole("USER", "ADMIN"))
+                        .hasAnyRole("USER", "ADMIN")
                         .requestMatchers("/api/monkeys/add", "/api/monkeys/update", "/api/stats/**",
                                 "/api/orders/all", "/api/orders/ship/**", "/api/orders/return/approve/**",
                                 "/api/orders/return/confirm/**")
-                        .access(hasSessionRole("ADMIN"))
+                        .hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/monkeys/**", "/api/orders/**")
-                        .access(hasSessionRole("ADMIN"))
+                        .hasRole("ADMIN")
                         .requestMatchers("/api/**")
                         .denyAll()
                         .anyRequest()
-                        .permitAll())
+                        .denyAll())
                 .headers(headers -> headers
                         .contentSecurityPolicy(csp -> csp.policyDirectives(
                                 "default-src 'self'; "
@@ -103,19 +106,5 @@ public class SecurityConfig {
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable);
         return http.build();
-    }
-
-    private static AuthorizationManager<RequestAuthorizationContext> hasSessionRole(String role) {
-        return hasAnySessionRole(role);
-    }
-
-    private static AuthorizationManager<RequestAuthorizationContext> hasAnySessionRole(String... roles) {
-        Set<String> allowedRoles = Set.copyOf(Arrays.asList(roles));
-        return (Supplier<org.springframework.security.core.Authentication> authentication,
-                RequestAuthorizationContext context) -> {
-            HttpSession session = context.getRequest().getSession(false);
-            Object identity = session == null ? null : session.getAttribute("IDENTITY");
-            return new AuthorizationDecision(identity instanceof String && allowedRoles.contains(identity));
-        };
     }
 }

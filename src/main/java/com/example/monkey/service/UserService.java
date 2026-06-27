@@ -5,6 +5,8 @@ import com.example.monkey.entity.User;
 import com.example.monkey.repository.AdminRepository;
 import com.example.monkey.repository.UserRepository;
 import com.example.monkey.security.PasswordPolicy;
+import com.example.monkey.security.SessionIdentity;
+import com.example.monkey.security.SessionUser;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import java.util.HashMap;
@@ -73,9 +75,9 @@ public class UserService {
         if (admin != null) {
             if (passwordEncoder.matches(rawPassword, admin.getPassword())) {
                 request.changeSessionId();
-                session.setAttribute("USER_ID", admin.getId());
-                session.setAttribute("IDENTITY", "ADMIN");
-                return "ok:ADMIN";
+                session.setAttribute(SessionIdentity.USER_ID_ATTRIBUTE, admin.getId());
+                session.setAttribute(SessionIdentity.IDENTITY_ATTRIBUTE, SessionIdentity.ROLE_ADMIN);
+                return "ok:" + SessionIdentity.ROLE_ADMIN;
             }
             return INVALID_LOGIN_MESSAGE;
         }
@@ -84,28 +86,26 @@ public class UserService {
         if (user != null) {
             if (passwordEncoder.matches(rawPassword, user.getPassword())) {
                 request.changeSessionId();
-                session.setAttribute("USER_ID", user.getId());
-                session.setAttribute("IDENTITY", "USER");
-                return "ok:USER";
+                session.setAttribute(SessionIdentity.USER_ID_ATTRIBUTE, user.getId());
+                session.setAttribute(SessionIdentity.IDENTITY_ATTRIBUTE, SessionIdentity.ROLE_USER);
+                return "ok:" + SessionIdentity.ROLE_USER;
             }
             return INVALID_LOGIN_MESSAGE;
         }
         return INVALID_LOGIN_MESSAGE;
     }
 
-    public Map<String, Object> getUserInfo(HttpSession session, boolean details) {
+    public Map<String, Object> getUserInfo(SessionUser currentUser, boolean details) {
         Map<String, Object> result = new HashMap<>();
-        Long userId = (Long) session.getAttribute("USER_ID");
-        String identity = (String) session.getAttribute("IDENTITY");
-        if (userId == null || identity == null) {
+        if (currentUser == null) {
             result.put("isLogin", false);
             return result;
         }
 
         result.put("isLogin", true);
-        result.put("identity", identity);
-        if ("ADMIN".equals(identity)) {
-            Admin admin = adminRepository.findById(userId).orElse(null);
+        result.put("identity", currentUser.role());
+        if (currentUser.isAdmin()) {
+            Admin admin = adminRepository.findById(currentUser.id()).orElse(null);
             if (admin == null) {
                 result.put("isLogin", false);
                 return result;
@@ -118,7 +118,7 @@ public class UserService {
             return result;
         }
 
-        User user = userRepository.findById(userId).orElse(null);
+        User user = userRepository.findById(currentUser.id()).orElse(null);
         if (user == null) {
             result.put("isLogin", false);
             return result;

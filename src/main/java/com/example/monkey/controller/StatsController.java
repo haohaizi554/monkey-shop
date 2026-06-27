@@ -4,9 +4,10 @@ import com.example.monkey.entity.Order;
 import com.example.monkey.entity.VisitLog;
 import com.example.monkey.repository.OrderRepository;
 import com.example.monkey.repository.VisitLogRepository;
-import jakarta.servlet.http.HttpSession;
+import com.example.monkey.security.SessionUser;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -32,9 +33,9 @@ public class StatsController {
     public Map<String, Object> getStats(
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate start,
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate end,
-            HttpSession session
+            @AuthenticationPrincipal SessionUser currentUser
     ) {
-        if (!"ADMIN".equals(session.getAttribute("IDENTITY"))) return null;
+        if (currentUser == null || !currentUser.isAdmin()) return null;
 
         Map<String, Object> result = new HashMap<>();
 

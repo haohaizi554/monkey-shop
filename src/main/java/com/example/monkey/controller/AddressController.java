@@ -2,8 +2,9 @@ package com.example.monkey.controller;
 
 import com.example.monkey.entity.Address;
 import com.example.monkey.repository.AddressRepository;
-import jakarta.servlet.http.HttpSession;
+import com.example.monkey.security.SessionUser;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -17,16 +18,16 @@ public class AddressController {
 
     // 1. 获取我的地址列表
     @GetMapping
-    public List<Address> myAddresses(HttpSession session) {
-        Long userId = (Long) session.getAttribute("USER_ID");
+    public List<Address> myAddresses(@AuthenticationPrincipal SessionUser currentUser) {
+        Long userId = userId(currentUser);
         if (userId == null) return null;
         return addressRepository.findByUserId(userId);
     }
 
     // 2. 新增地址
     @PostMapping
-    public String addAddress(@RequestBody Address address, HttpSession session) {
-        Long userId = (Long) session.getAttribute("USER_ID");
+    public String addAddress(@RequestBody Address address, @AuthenticationPrincipal SessionUser currentUser) {
+        Long userId = userId(currentUser);
         if (userId == null) return "请先登录";
 
         address.setUserId(userId);
@@ -45,8 +46,8 @@ public class AddressController {
 
     // 3. 设为默认
     @PostMapping("/set-default/{id}")
-    public String setDefault(@PathVariable Long id, HttpSession session) {
-        Long userId = (Long) session.getAttribute("USER_ID");
+    public String setDefault(@PathVariable Long id, @AuthenticationPrincipal SessionUser currentUser) {
+        Long userId = userId(currentUser);
         if (userId == null) return "error";
 
         addressRepository.clearDefault(userId);
@@ -60,13 +61,17 @@ public class AddressController {
 
     // 4. 删除地址
     @DeleteMapping("/{id}")
-    public String delete(@PathVariable Long id, HttpSession session) {
-        Long userId = (Long) session.getAttribute("USER_ID");
+    public String delete(@PathVariable Long id, @AuthenticationPrincipal SessionUser currentUser) {
+        Long userId = userId(currentUser);
         Address address = addressRepository.findById(id).orElse(null);
         if (address != null && address.getUserId().equals(userId)) {
             addressRepository.delete(address);
             return "ok";
         }
         return "error";
+    }
+
+    private static Long userId(SessionUser currentUser) {
+        return currentUser == null ? null : currentUser.id();
     }
 }

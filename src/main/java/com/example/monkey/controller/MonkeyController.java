@@ -2,9 +2,10 @@ package com.example.monkey.controller;
 
 import com.example.monkey.entity.Monkey;
 import com.example.monkey.repository.MonkeyRepository;
+import com.example.monkey.security.SessionUser;
 import com.example.monkey.service.ImageCleanupService; // 引入服务
-import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -21,8 +22,8 @@ public class MonkeyController {
         return repository.findAll();
     }
     @PostMapping("/add")
-    public String addMonkey(@RequestBody Monkey monkey, HttpSession session) {
-        if (!isAdmin(session)) return "error:无权操作";
+    public String addMonkey(@RequestBody Monkey monkey, @AuthenticationPrincipal SessionUser currentUser) {
+        if (!isAdmin(currentUser)) return "error:无权操作";
         if (monkey.getImageUrl() == null || monkey.getImageUrl().isEmpty()) {
             monkey.setImageUrl("/images/default_product.png");
         }
@@ -30,8 +31,8 @@ public class MonkeyController {
         return "ok";
     }
     @PostMapping("/update")
-    public String updateMonkey(@RequestBody Monkey monkey, HttpSession session) {
-        if (!isAdmin(session)) return "error:无权操作";
+    public String updateMonkey(@RequestBody Monkey monkey, @AuthenticationPrincipal SessionUser currentUser) {
+        if (!isAdmin(currentUser)) return "error:无权操作";
         // 1. 查出旧数据
         Monkey oldMonkey = repository.findById(monkey.getId()).orElse(null);
         if (oldMonkey == null) return "error:商品不存在";
@@ -45,8 +46,8 @@ public class MonkeyController {
         return "ok";
     }
     @DeleteMapping("/{id}")
-    public String deleteMonkey(@PathVariable Long id, HttpSession session) {
-        if (!isAdmin(session)) return "error:无权操作";
+    public String deleteMonkey(@PathVariable Long id, @AuthenticationPrincipal SessionUser currentUser) {
+        if (!isAdmin(currentUser)) return "error:无权操作";
         Monkey monkey = repository.findById(id).orElse(null);
         if (monkey != null) {
             String imageToDelete = monkey.getImageUrl();
@@ -58,7 +59,7 @@ public class MonkeyController {
         }
         return "error:商品不存在";
     }
-    private boolean isAdmin(HttpSession session) {
-        return "ADMIN".equals(session.getAttribute("IDENTITY"));
+    private boolean isAdmin(SessionUser currentUser) {
+        return currentUser != null && currentUser.isAdmin();
     }
 }
