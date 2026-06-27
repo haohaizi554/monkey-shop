@@ -55,7 +55,7 @@ For local iteration when NVD is rate-limited, use:
 .\scripts\verify-ws1-security.ps1 -SkipDependencyCheck
 ```
 
-Without `NVD_API_KEY`, the full gate passes `-DnvdApiDelay=8000` by default. Override with `-UnauthenticatedNvdDelayMs` if your network needs a different cadence.
+Without `NVD_API_KEY`, the full gate passes `-DnvdApiDelay=8000` by default. Override with `-UnauthenticatedNvdDelayMs` if your network needs a different cadence. The Maven phase has a 30 minute timeout so dependency-check/NVD hangs fail clearly instead of leaving background Java processes; override with `-MavenTimeoutSeconds` for a planned fresh database hydration.
 
 ## Docker
 

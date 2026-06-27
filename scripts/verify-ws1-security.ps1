@@ -3,7 +3,8 @@ param(
     [string]$OutputDir = "target/ws1-security",
     [string]$GitleaksPath = "",
     [string]$TrivyPath = "",
-    [int]$UnauthenticatedNvdDelayMs = 8000
+    [int]$UnauthenticatedNvdDelayMs = 8000,
+    [int]$MavenTimeoutSeconds = 1800
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,10 +42,46 @@ function Invoke-GateCommand {
     param(
         [string]$Name,
         [string]$FilePath,
-        [string[]]$Arguments
+        [string[]]$Arguments,
+        [int]$TimeoutSeconds = 0
     )
 
     Write-Host "==> $Name"
+    if ($TimeoutSeconds -gt 0) {
+        $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = $FilePath
+        $startInfo.Arguments = ($Arguments | ForEach-Object {
+            if ($_ -match '[\s"]') {
+                '"' + ($_ -replace '"', '\"') + '"'
+            } else {
+                $_
+            }
+        }) -join " "
+        $startInfo.WorkingDirectory = (Get-Location).Path
+        $startInfo.UseShellExecute = $false
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+
+        $process = [System.Diagnostics.Process]::Start($startInfo)
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            & taskkill.exe /PID $process.Id /T /F | Out-Null
+            Write-Output $stdoutTask.GetAwaiter().GetResult()
+            Write-Output $stderrTask.GetAwaiter().GetResult()
+            throw "$Name timed out after $TimeoutSeconds seconds"
+        }
+        $process.WaitForExit()
+
+        Write-Output $stdoutTask.GetAwaiter().GetResult()
+        Write-Output $stderrTask.GetAwaiter().GetResult()
+        if ($process.ExitCode -ne 0) {
+            throw "$Name failed with exit code $($process.ExitCode)"
+        }
+        return
+    }
+
     & $FilePath @Arguments
     if ($LASTEXITCODE -ne 0) {
         throw "$Name failed with exit code $LASTEXITCODE"
@@ -111,7 +148,7 @@ if ($SkipDependencyCheck) {
 } elseif (-not $env:NVD_API_KEY) {
     $mavenArgs = @("-DnvdApiDelay=$UnauthenticatedNvdDelayMs", "clean", "verify")
 }
-Invoke-GateCommand -Name "Maven verify" -FilePath $mvn -Arguments $mavenArgs
+Invoke-GateCommand -Name "Maven verify" -FilePath $mvn -Arguments $mavenArgs -TimeoutSeconds $MavenTimeoutSeconds
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 Invoke-LiteralRiskScan -RipgrepPath $rg
