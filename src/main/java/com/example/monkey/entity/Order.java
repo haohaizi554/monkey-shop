@@ -1,6 +1,7 @@
 package com.example.monkey.entity;
 
 import jakarta.persistence.*;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
@@ -17,9 +18,11 @@ public class Order {
     private String buyerAvatar;
 
     // 商品快照
+    private Long productId;
     private String productName;
     private String productImage;
-    private Double price;
+    @Column(precision = 10, scale = 2)
+    private BigDecimal price;
     private String description;
 
     // 地址快照
@@ -44,12 +47,14 @@ public class Order {
     public void setBuyerName(String buyerName) { this.buyerName = buyerName; }
     public String getBuyerAvatar() { return buyerAvatar; }
     public void setBuyerAvatar(String buyerAvatar) { this.buyerAvatar = buyerAvatar; }
+    public Long getProductId() { return productId; }
+    public void setProductId(Long productId) { this.productId = productId; }
     public String getProductName() { return productName; }
     public void setProductName(String productName) { this.productName = productName; }
     public String getProductImage() { return productImage; }
     public void setProductImage(String productImage) { this.productImage = productImage; }
-    public Double getPrice() { return price; }
-    public void setPrice(Double price) { this.price = price; }
+    public BigDecimal getPrice() { return price; }
+    public void setPrice(BigDecimal price) { this.price = price; }
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
     public String getReceiverName() { return receiverName; }

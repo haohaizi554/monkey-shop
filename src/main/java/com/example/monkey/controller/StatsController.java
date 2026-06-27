@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -54,7 +55,11 @@ public class StatsController {
         List<VisitLog> rangeVisits = visitLogRepository.findByVisitTimeBetween(startDt, endDt);
 
         // 3. 计算顶部总览卡片 (Total)
-        double totalGmv = orders.stream().filter(o -> !"已退款".equals(o.getStatus())).mapToDouble(Order::getPrice).sum();
+        BigDecimal totalGmv = orders.stream()
+                .filter(o -> !"已退款".equals(o.getStatus()))
+                .map(Order::getPrice)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
         long totalOrderCount = orders.size();
         long totalVisitCount = visitLogRepository.count();
         long returnCount = orders.stream().filter(o -> o.getStatus().contains("退")).count();
@@ -68,7 +73,7 @@ public class StatsController {
         // 4. 生成图表数据 (Trend)
         List<String> xAxis = new ArrayList<>();
         List<Integer> seriesOrder = new ArrayList<>();
-        List<Double> seriesGmv = new ArrayList<>();
+        List<BigDecimal> seriesGmv = new ArrayList<>();
         List<Integer> seriesVisit = new ArrayList<>();
 
         // 判断按天还是按月分组
@@ -88,9 +93,11 @@ public class StatsController {
         for (String key : xAxis) {
             // 过滤该时间段的数据
             long orderCount = rangeOrders.stream().filter(o -> o.getCreateTime().format(formatter).equals(key)).count();
-            double gmv = rangeOrders.stream()
+            BigDecimal gmv = rangeOrders.stream()
                     .filter(o -> o.getCreateTime().format(formatter).equals(key) && !"已退款".equals(o.getStatus()))
-                    .mapToDouble(Order::getPrice).sum();
+                    .map(Order::getPrice)
+                    .filter(Objects::nonNull)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
             long visitCount = rangeVisits.stream().filter(v -> v.getVisitTime().format(formatter).equals(key)).count();
 
             seriesOrder.add((int) orderCount);

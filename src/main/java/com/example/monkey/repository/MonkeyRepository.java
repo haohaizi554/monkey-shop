@@ -16,5 +16,5 @@ public interface MonkeyRepository extends JpaRepository<Monkey, Long> {
     int deductStock(@Param("id") Long id);
     @Modifying
     @Query("UPDATE Monkey m SET m.stock = m.stock + 1 WHERE m.id = :id")
-    void restoreStock(@Param("id") Long id);
+    int restoreStock(@Param("id") Long id);
 }

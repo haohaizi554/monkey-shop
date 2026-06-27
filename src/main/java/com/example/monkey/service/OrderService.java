@@ -12,12 +12,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.List;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
+import java.util.UUID;
 
 @Service
 public class OrderService {
+
+    private static final DateTimeFormatter ORDER_NO_TIMESTAMP = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
     @Autowired private OrderRepository orderRepository;
     @Autowired private MonkeyRepository monkeyRepository;
@@ -44,12 +47,12 @@ public class OrderService {
         // 组装订单快照
         Order order = new Order();
         order.setUserId(userId);
-        String orderNo = new SimpleDateFormat("yyyyMMddHHmmss").format(new Date()) + (int)(Math.random()*1000);
-        order.setOrderNo(orderNo);
+        order.setOrderNo(generateOrderNo());
 
         order.setBuyerName(user.getUsername());
         order.setBuyerAvatar(user.getAvatar());
 
+        order.setProductId(monkey.getId());
         order.setProductName(monkey.getName());
         order.setProductImage(monkey.getImageUrl());
         order.setPrice(monkey.getPrice());
@@ -71,7 +74,7 @@ public class OrderService {
         Order order = orderRepository.findById(orderId).orElse(null);
         if (order != null) {
             order.setStatus("已发货");
-            order.setShippingTime(java.time.LocalDateTime.now());
+            order.setShippingTime(LocalDateTime.now());
             orderRepository.save(order);
             return "ok";
         }
@@ -97,7 +100,9 @@ public class OrderService {
             String bImg = order.getBuyerAvatar();
             // 如果订单未完成/未退款，删除时回滚库存
             if (!"已完成".equals(order.getStatus()) && !"已退款".equals(order.getStatus())) {
-                restoreStockByName(order.getProductName());
+                if (!restoreStockForOrder(order)) {
+                    return "error:product snapshot is missing product id";
+                }
             }
             orderRepository.deleteById(orderId);
             // 尝试清理图片
@@ -137,21 +142,23 @@ public class OrderService {
     public String confirmReturn(Long orderId) {
         Order order = orderRepository.findById(orderId).orElse(null);
         if (order != null && "退货中".equals(order.getStatus())) {
+            if (!restoreStockForOrder(order)) {
+                return "error:product snapshot is missing product id";
+            }
             order.setStatus("已退款");
             orderRepository.save(order);
-            restoreStockByName(order.getProductName());
             return "ok";
         }
         return "error:状态不对";
     }
-    // 辅助：根据名字恢复库存
-    private void restoreStockByName(String productName) {
-        List<Monkey> monkeys = monkeyRepository.findAll();
-        for (Monkey m : monkeys) {
-            if (m.getName().equals(productName)) {
-                monkeyRepository.restoreStock(m.getId());
-                break;
-            }
-        }
+
+    private boolean restoreStockForOrder(Order order) {
+        Long productId = order.getProductId();
+        return productId != null && monkeyRepository.restoreStock(productId) > 0;
+    }
+
+    private static String generateOrderNo() {
+        String entropy = UUID.randomUUID().toString().replace("-", "").toUpperCase(Locale.ROOT);
+        return "ORD" + LocalDateTime.now().format(ORDER_NO_TIMESTAMP) + entropy;
     }
 }
