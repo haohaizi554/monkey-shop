@@ -26,6 +26,8 @@ $env:NVD_API_KEY = "<optional-but-recommended-for-dependency-check>"
 `ADMIN_INIT_PASSWORD` is only used when the admin table is empty. The application refuses to bootstrap a default administrator without this variable.
 New passwords must be at least 10 characters and include lowercase, uppercase, digit, and special characters with no whitespace.
 
+Schema changes are managed with Flyway from `src/main/resources/db/migration` before Hibernate validates the schema. New databases run from `V1__init_schema.sql`; existing manually-created demo schemas should be backed up and migrated deliberately. Only set `FLYWAY_BASELINE_ON_MIGRATE=true` after confirming the current schema already matches the baseline.
+
 Encrypted secret material belongs under `secrets/*.enc.yaml` using the SOPS/age convention in `secrets/README.md`; plaintext secret files under `secrets/` are ignored.
 
 ## Build And Test

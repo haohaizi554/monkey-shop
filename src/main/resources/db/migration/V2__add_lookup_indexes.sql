@@ -1,0 +1,10 @@
+CREATE INDEX `idx_admin_username` ON `admin` (`username`);
+CREATE INDEX `idx_user_username` ON `user` (`username`);
+CREATE INDEX `idx_user_avatar` ON `user` (`avatar`);
+CREATE INDEX `idx_address_user_id` ON `address` (`user_id`);
+CREATE INDEX `idx_monkey_image_url` ON `monkey` (`image_url`);
+CREATE INDEX `idx_orders_user_id_create_time` ON `orders` (`user_id`, `create_time`);
+CREATE INDEX `idx_orders_status` ON `orders` (`status`);
+CREATE INDEX `idx_orders_product_image` ON `orders` (`product_image`);
+CREATE INDEX `idx_orders_buyer_avatar` ON `orders` (`buyer_avatar`);
+CREATE INDEX `idx_visit_log_visit_time` ON `visit_log` (`visit_time`);
