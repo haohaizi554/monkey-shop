@@ -59,6 +59,8 @@ For local iteration when NVD is rate-limited, use:
 
 Without `NVD_API_KEY`, the full gate passes `-DnvdApiDelay=8000` by default. Override with `-UnauthenticatedNvdDelayMs` if your network needs a different cadence. The Maven phase has a 30 minute timeout so dependency-check/NVD hangs fail clearly instead of leaving background Java processes; override with `-MavenTimeoutSeconds` for a planned fresh database hydration.
 
+GitHub Actions runs `.github/workflows/ws1-security.yml` on pushes and pull requests. The fast job runs Maven with dependency-check skipped plus literal-risk scanning, gitleaks current/history, Semgrep, and Trivy. The full dependency-check job requires a repository secret named `NVD_API_KEY`; it fails clearly when that secret is not configured.
+
 ## Docker
 
 Create a local `.env` file outside version control or export the variables in your shell:
