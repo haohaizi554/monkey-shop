@@ -1,4 +1,4 @@
-package com.example.monkey.service;
+package com.example.monkey.infrastructure.order;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -17,7 +17,7 @@ import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 
 @ExtendWith(MockitoExtension.class)
-class OrderDistributedLockServiceTest {
+class RedissonOrderLockManagerTest {
 
     @Mock
     private RedissonClient redissonClient;
@@ -30,10 +30,10 @@ class OrderDistributedLockServiceTest {
         when(redissonClient.getLock("order:user:42:monkey:7")).thenReturn(lock);
         when(lock.tryLock(2000L, 10000L, TimeUnit.MILLISECONDS)).thenReturn(true);
         when(lock.isHeldByCurrentThread()).thenReturn(true);
-        OrderDistributedLockService lockService =
-                new OrderDistributedLockService(redissonClient, Duration.ofSeconds(2), Duration.ofSeconds(10));
+        RedissonOrderLockManager lockManager =
+                new RedissonOrderLockManager(redissonClient, Duration.ofSeconds(2), Duration.ofSeconds(10));
 
-        String result = lockService.withCreateOrderLock(42L, 7L, () -> "created");
+        String result = lockManager.withCreateOrderLock(42L, 7L, () -> "created");
 
         assertThat(result).isEqualTo("created");
         verify(redissonClient).getLock("order:user:42:monkey:7");
@@ -44,10 +44,10 @@ class OrderDistributedLockServiceTest {
     void createOrderLockRejectsConcurrentRequestWhenLockCannotBeAcquired() throws Exception {
         when(redissonClient.getLock("order:user:42:monkey:7")).thenReturn(lock);
         when(lock.tryLock(2000L, 10000L, TimeUnit.MILLISECONDS)).thenReturn(false);
-        OrderDistributedLockService lockService =
-                new OrderDistributedLockService(redissonClient, Duration.ofSeconds(2), Duration.ofSeconds(10));
+        RedissonOrderLockManager lockManager =
+                new RedissonOrderLockManager(redissonClient, Duration.ofSeconds(2), Duration.ofSeconds(10));
 
-        assertThatThrownBy(() -> lockService.withCreateOrderLock(42L, 7L, () -> "created"))
+        assertThatThrownBy(() -> lockManager.withCreateOrderLock(42L, 7L, () -> "created"))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
@@ -58,10 +58,10 @@ class OrderDistributedLockServiceTest {
         when(redissonClient.getLock("order:user:42:monkey:7")).thenReturn(lock);
         when(lock.tryLock(2000L, 10000L, TimeUnit.MILLISECONDS))
                 .thenThrow(new IllegalStateException("redis unavailable"));
-        OrderDistributedLockService lockService =
-                new OrderDistributedLockService(redissonClient, Duration.ofSeconds(2), Duration.ofSeconds(10));
+        RedissonOrderLockManager lockManager =
+                new RedissonOrderLockManager(redissonClient, Duration.ofSeconds(2), Duration.ofSeconds(10));
 
-        assertThatThrownBy(() -> lockService.withCreateOrderLock(42L, 7L, () -> "created"))
+        assertThatThrownBy(() -> lockManager.withCreateOrderLock(42L, 7L, () -> "created"))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.SERVICE_UNAVAILABLE));
@@ -71,10 +71,10 @@ class OrderDistributedLockServiceTest {
     void createOrderLockRestoresInterruptFlagWhenInterrupted() throws Exception {
         when(redissonClient.getLock("order:user:42:monkey:7")).thenReturn(lock);
         when(lock.tryLock(2000L, 10000L, TimeUnit.MILLISECONDS)).thenThrow(new InterruptedException("interrupted"));
-        OrderDistributedLockService lockService =
-                new OrderDistributedLockService(redissonClient, Duration.ofSeconds(2), Duration.ofSeconds(10));
+        RedissonOrderLockManager lockManager =
+                new RedissonOrderLockManager(redissonClient, Duration.ofSeconds(2), Duration.ofSeconds(10));
 
-        assertThatThrownBy(() -> lockService.withCreateOrderLock(42L, 7L, () -> "created"))
+        assertThatThrownBy(() -> lockManager.withCreateOrderLock(42L, 7L, () -> "created"))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.SERVICE_UNAVAILABLE));

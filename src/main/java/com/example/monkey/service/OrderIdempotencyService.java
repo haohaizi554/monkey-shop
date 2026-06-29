@@ -1,51 +1,44 @@
 package com.example.monkey.service;
 
+import com.example.monkey.domain.order.OrderIdempotencyKeyStore;
 import com.example.monkey.domain.order.OrderIdempotencyStore;
 import com.example.monkey.domain.order.OrderIdempotencyStore.IdempotencyReservationRecord;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 @Service
 public class OrderIdempotencyService {
 
-    private static final Logger log = LoggerFactory.getLogger(OrderIdempotencyService.class);
-    private static final String REDIS_KEY_PREFIX = "order:idempotency:";
     private static final Duration DEFAULT_TTL = Duration.ofHours(24);
 
+    private final OrderIdempotencyKeyStore orderIdempotencyKeyStore;
     private final OrderIdempotencyStore orderIdempotencyStore;
-    private final StringRedisTemplate redisTemplate;
     private final Duration ttl;
     private final Clock clock;
 
     public OrderIdempotencyService(
+            OrderIdempotencyKeyStore orderIdempotencyKeyStore,
             OrderIdempotencyStore orderIdempotencyStore,
-            ObjectProvider<StringRedisTemplate> redisTemplateProvider,
             @Value("${app.order.idempotency.ttl:PT24H}") Duration ttl) {
-        this(orderIdempotencyStore, redisTemplateProvider.getIfAvailable(), ttl, Clock.systemUTC());
+        this(orderIdempotencyKeyStore, orderIdempotencyStore, ttl, Clock.systemUTC());
     }
 
     OrderIdempotencyService(
-            OrderIdempotencyStore orderIdempotencyStore, StringRedisTemplate redisTemplate, Duration ttl) {
-        this(orderIdempotencyStore, redisTemplate, ttl, Clock.systemUTC());
-    }
-
-    OrderIdempotencyService(
-            OrderIdempotencyStore orderIdempotencyStore, StringRedisTemplate redisTemplate, Duration ttl, Clock clock) {
+            OrderIdempotencyKeyStore orderIdempotencyKeyStore,
+            OrderIdempotencyStore orderIdempotencyStore,
+            Duration ttl,
+            Clock clock) {
+        this.orderIdempotencyKeyStore = orderIdempotencyKeyStore;
         this.orderIdempotencyStore = orderIdempotencyStore;
-        this.redisTemplate = redisTemplate;
         this.ttl = ttl == null || ttl.isNegative() || ttl.isZero() ? DEFAULT_TTL : ttl;
         this.clock = clock;
     }
 
     public Reservation reserve(Long userId, String idempotencyKey, String requestHash) {
-        reserveRedisKey(userId, idempotencyKey, requestHash);
+        orderIdempotencyKeyStore.reserve(userId, idempotencyKey, requestHash, ttl);
         boolean reserved = orderIdempotencyStore.reserve(
                 userId, idempotencyKey, requestHash, LocalDateTime.now(clock).plus(ttl));
         if (reserved) {
@@ -61,21 +54,6 @@ public class OrderIdempotencyService {
             return;
         }
         orderIdempotencyStore.complete(userId, idempotencyKey, orderId);
-    }
-
-    private void reserveRedisKey(Long userId, String idempotencyKey, String requestHash) {
-        if (redisTemplate == null) {
-            return;
-        }
-        try {
-            redisTemplate.opsForValue().setIfAbsent(redisKey(userId, idempotencyKey), requestHash, ttl);
-        } catch (RuntimeException e) {
-            log.debug("Redis idempotency reservation failed; falling back to database", e);
-        }
-    }
-
-    private static String redisKey(Long userId, String idempotencyKey) {
-        return REDIS_KEY_PREFIX + userId + ":" + idempotencyKey;
     }
 
     public record Reservation(boolean reserved, IdempotencyReservationRecord record) {

@@ -8,7 +8,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.example.monkey.domain.admin.AdminStatsReader;
 import com.example.monkey.domain.observability.AuditLogStore;
 import com.example.monkey.domain.observability.VisitLogRecorder;
+import com.example.monkey.domain.order.OrderIdempotencyKeyStore;
 import com.example.monkey.domain.order.OrderIdempotencyStore;
+import com.example.monkey.domain.order.OrderLockManager;
 import com.example.monkey.domain.order.OrderNumberGenerator;
 import com.example.monkey.domain.order.OrderOwnershipChecker;
 import com.example.monkey.domain.order.OrderStore;
@@ -25,6 +27,7 @@ import com.example.monkey.domain.storage.VirusScanner;
 import com.example.monkey.domain.user.AddressBook;
 import com.example.monkey.domain.user.AuthPrincipal;
 import com.example.monkey.domain.user.AuthenticatedPrincipals;
+import com.example.monkey.domain.user.CaptchaChallengeStore;
 import com.example.monkey.domain.user.HumanVerificationService;
 import com.example.monkey.domain.user.LoginAttemptPolicy;
 import com.example.monkey.domain.user.PasswordCompromiseChecker;
@@ -34,6 +37,7 @@ import com.example.monkey.domain.user.PiiRetentionStore;
 import com.example.monkey.domain.user.SessionTokenService;
 import com.example.monkey.domain.user.SessionUser;
 import com.example.monkey.domain.user.UserAccountStore;
+import com.example.monkey.domain.user.UserPasswordHasher;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
@@ -148,6 +152,30 @@ class ArchitectureBoundaryTest {
             .should()
             .dependOnClassesThat()
             .resideInAPackage("jakarta.servlet..");
+
+    @ArchTest
+    static final ArchRule services_do_not_depend_on_spring_data_redis = noClasses()
+            .that()
+            .resideInAPackage("..service..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("org.springframework.data.redis..");
+
+    @ArchTest
+    static final ArchRule services_do_not_depend_on_spring_security_crypto = noClasses()
+            .that()
+            .resideInAPackage("..service..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("org.springframework.security.crypto..");
+
+    @ArchTest
+    static final ArchRule services_do_not_depend_on_redisson = noClasses()
+            .that()
+            .resideInAPackage("..service..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("org.redisson..");
 
     @ArchTest
     static final ArchRule entities_do_not_depend_on_security_package = noClasses()
@@ -288,6 +316,15 @@ class ArchitectureBoundaryTest {
             .resideOutsideOfPackage("..service..");
 
     @ArchTest
+    static final ArchRule order_lock_manager_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(OrderLockManager.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
     static final ArchRule order_transition_resolver_adapters_stay_out_of_service_package = classes()
             .that()
             .areAssignableTo(OrderTransitionResolver.class)
@@ -309,6 +346,15 @@ class ArchitectureBoundaryTest {
     static final ArchRule order_idempotency_store_adapters_stay_out_of_service_package = classes()
             .that()
             .areAssignableTo(OrderIdempotencyStore.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule order_idempotency_key_store_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(OrderIdempotencyKeyStore.class)
             .and()
             .areNotInterfaces()
             .should()
@@ -345,6 +391,15 @@ class ArchitectureBoundaryTest {
     static final ArchRule user_account_store_adapters_stay_out_of_service_package = classes()
             .that()
             .areAssignableTo(UserAccountStore.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule user_password_hasher_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(UserPasswordHasher.class)
             .and()
             .areNotInterfaces()
             .should()
@@ -435,6 +490,15 @@ class ArchitectureBoundaryTest {
     static final ArchRule human_verification_adapters_stay_out_of_service_package = classes()
             .that()
             .areAssignableTo(HumanVerificationService.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule captcha_challenge_store_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(CaptchaChallengeStore.class)
             .and()
             .areNotInterfaces()
             .should()

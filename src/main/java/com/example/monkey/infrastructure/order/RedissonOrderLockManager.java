@@ -1,5 +1,6 @@
-package com.example.monkey.service;
+package com.example.monkey.infrastructure.order;
 
+import com.example.monkey.domain.order.OrderLockManager;
 import com.example.monkey.shared.api.ErrorCode;
 import com.example.monkey.shared.exception.BusinessException;
 import java.time.Duration;
@@ -8,10 +9,10 @@ import java.util.function.Supplier;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
+import org.springframework.stereotype.Component;
 
-@Service
-public class OrderDistributedLockService {
+@Component
+public class RedissonOrderLockManager implements OrderLockManager {
 
     private static final String ORDER_CREATE_LOCK_PREFIX = "order:user:";
 
@@ -19,7 +20,7 @@ public class OrderDistributedLockService {
     private final Duration waitTime;
     private final Duration leaseTime;
 
-    public OrderDistributedLockService(
+    public RedissonOrderLockManager(
             RedissonClient redissonClient,
             @Value("${app.order.lock.wait-time:PT2S}") Duration waitTime,
             @Value("${app.order.lock.lease-time:PT10S}") Duration leaseTime) {
@@ -28,8 +29,9 @@ public class OrderDistributedLockService {
         this.leaseTime = positiveOrDefault(leaseTime, Duration.ofSeconds(10));
     }
 
-    public <T> T withCreateOrderLock(Long userId, Long monkeyId, Supplier<T> operation) {
-        RLock lock = redissonClient.getLock(lockName(userId, monkeyId));
+    @Override
+    public <T> T withCreateOrderLock(Long userId, Long productId, Supplier<T> operation) {
+        RLock lock = redissonClient.getLock(lockName(userId, productId));
         boolean acquired = tryAcquire(lock);
         if (!acquired) {
             throw new BusinessException(ErrorCode.CONFLICT, "Order creation is already in progress");
@@ -58,8 +60,8 @@ public class OrderDistributedLockService {
         }
     }
 
-    static String lockName(Long userId, Long monkeyId) {
-        return ORDER_CREATE_LOCK_PREFIX + userId + ":monkey:" + monkeyId;
+    static String lockName(Long userId, Long productId) {
+        return ORDER_CREATE_LOCK_PREFIX + userId + ":monkey:" + productId;
     }
 
     private static Duration positiveOrDefault(Duration value, Duration defaultValue) {
