@@ -164,7 +164,7 @@ function Assert-TextDoesNotContain {
 function Invoke-SecurityHeaderPostureScan {
     Write-Host "==> security header posture scan"
 
-    $securityConfigPath = "src/main/java/com/example/monkey/config/SecurityConfig.java"
+    $securityConfigPath = "src/main/java/com/example/monkey/shared/infrastructure/config/SecurityConfig.java"
     $nginxConfigPath = "deploy/nginx/monkeyshop.conf"
     if (-not (Test-Path -LiteralPath $securityConfigPath)) {
         throw "SecurityConfig not found: $securityConfigPath"

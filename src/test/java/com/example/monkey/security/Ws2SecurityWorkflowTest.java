@@ -21,12 +21,15 @@ class Ws2SecurityWorkflowTest {
 
     @Test
     void ws2UsesCentralJwtRbacAndMethodSecurity() throws IOException {
-        String securityConfig = read("src/main/java/com/example/monkey/config/SecurityConfig.java");
-        String jwtService = read("src/main/java/com/example/monkey/security/JwtTokenService.java");
-        String user = read("src/main/java/com/example/monkey/entity/User.java");
-        String role = read("src/main/java/com/example/monkey/entity/Role.java");
-        String permission = read("src/main/java/com/example/monkey/entity/Permission.java");
+        String securityConfig =
+                read("src/main/java/com/example/monkey/shared/infrastructure/config/SecurityConfig.java");
+        String jwtService = read("src/main/java/com/example/monkey/user/infrastructure/JwtTokenService.java");
+        String user = read("src/main/java/com/example/monkey/user/infrastructure/User.java");
+        String role = read("src/main/java/com/example/monkey/user/infrastructure/Role.java");
+        String permission = read("src/main/java/com/example/monkey/user/infrastructure/Permission.java");
         String rbacMigration = read("src/main/resources/db/migration/V6__rbac_roles_permissions.sql");
+        String rbacMatrixTest = read("src/test/java/com/example/monkey/security/RbacPermissionMatrixTest.java");
+        String rbacDocs = read("docs/security/ws2-rbac-matrix.md");
 
         assertThat(securityConfig)
                 .contains("@EnableMethodSecurity")
@@ -55,26 +58,36 @@ class Ws2SecurityWorkflowTest {
                 .contains("CREATE TABLE IF NOT EXISTS `user_roles`")
                 .contains("ORDER_MANAGE")
                 .contains("PRODUCT_MANAGE");
+        assertThat(rbacMatrixTest)
+                .contains("flywaySeedDefinesExpectedPermissionCatalogAndRoleGrants")
+                .contains("securityRequestMatrixUsesDocumentedPermissionNames");
+        assertThat(rbacDocs)
+                .contains("WS2 RBAC Permission Matrix")
+                .contains("V6__rbac_roles_permissions.sql")
+                .contains("`ADMIN` is intentionally granted all current permissions")
+                .contains("`isAuthenticated()`");
     }
 
     @Test
     void ws2ControllersUsePermissionGuardsAndOwnedOrderSpel() throws IOException {
         String authorizationGuard =
                 read("src/test/java/com/example/monkey/controller/ControllerAuthorizationDeclarationTest.java");
-        String orderController = read("src/main/java/com/example/monkey/controller/OrderController.java");
-        String orderService = read("src/main/java/com/example/monkey/service/OrderService.java");
-        String orderSecurityTest = read("src/test/java/com/example/monkey/controller/OrderControllerSecurityTest.java");
+        String orderController = read("src/main/java/com/example/monkey/order/interfaces/OrderController.java");
+        String orderService = read("src/main/java/com/example/monkey/order/application/OrderService.java");
+        String orderSecurityTest =
+                read("src/test/java/com/example/monkey/order/interfaces/OrderControllerSecurityTest.java");
 
         assertThat(authorizationGuard)
                 .contains("ClassPathScanningCandidateComponentProvider")
                 .contains("RestController.class")
                 .contains("everyControllerMappingDeclaresMethodSecurityIntent")
-                .contains("nonPublicControllerMappingsUsePermissionAuthorities");
+                .contains("nonPublicControllerMappingsUsePermissionAuthorities")
+                .contains("\"isAuthenticated()\".equals(preAuthorize.value())");
         assertThat(orderController)
                 .contains("@orderOwnership.isOwner(#id, authentication)")
-                .contains("receiveOrder(id, requireUserId(currentUser))")
-                .contains("applyReturn(id, requireUserId(currentUser))")
-                .contains("shipReturn(id, requireUserId(currentUser))")
+                .contains("orderApplicationService.receiveOrder(currentUser, id)")
+                .contains("orderApplicationService.applyReturn(currentUser, id)")
+                .contains("orderApplicationService.shipReturn(currentUser, id)")
                 .contains("hasAuthority('ORDER_MANAGE')");
         assertThat(orderService)
                 .contains("requireOwnedOrder(Long orderId, Long userId)")
@@ -106,21 +119,34 @@ class Ws2SecurityWorkflowTest {
 
     @Test
     void ws2LoginResetPasswordAndMfaControlsArePresent() throws IOException {
-        String authController = read("src/main/java/com/example/monkey/controller/AuthController.java");
-        String loginAttempts = read("src/main/java/com/example/monkey/security/LoginAttemptService.java");
-        String passwordPolicy = read("src/main/java/com/example/monkey/security/PasswordPolicy.java");
-        String pwnedChecker = read("src/main/java/com/example/monkey/security/PwnedPasswordChecker.java");
+        String authController = read("src/main/java/com/example/monkey/user/interfaces/AuthController.java");
+        String loginService = read("src/main/java/com/example/monkey/user/application/LoginApplicationService.java");
+        String passwordResetService =
+                read("src/main/java/com/example/monkey/user/application/PasswordResetApplicationService.java");
+        String loginAttempts = read("src/main/java/com/example/monkey/user/infrastructure/LoginAttemptService.java");
+        String passwordPolicy = read("src/main/java/com/example/monkey/user/infrastructure/PasswordPolicy.java");
+        String pwnedChecker = read("src/main/java/com/example/monkey/user/infrastructure/PwnedPasswordChecker.java");
         String passwordHistoryMigration = read("src/main/resources/db/migration/V4__password_history.sql");
-        String totpService = read("src/main/java/com/example/monkey/security/TotpService.java");
-        String dataInitializer = read("src/main/java/com/example/monkey/config/DataInitializer.java");
+        String totpService = read("src/main/java/com/example/monkey/user/infrastructure/TotpService.java");
+        String dataInitializer = read("src/main/java/com/example/monkey/user/infrastructure/DataInitializer.java");
+        String securityConfig =
+                read("src/main/java/com/example/monkey/shared/infrastructure/config/SecurityConfig.java");
+        String userService = read("src/main/java/com/example/monkey/user/application/UserService.java");
+        String jwtAuthenticationFilter =
+                read("src/main/java/com/example/monkey/user/infrastructure/JwtAuthenticationFilter.java");
+        String userServiceTest = read("src/test/java/com/example/monkey/user/application/UserServiceTest.java");
+        String jwtAuthenticationFilterTest =
+                read("src/test/java/com/example/monkey/user/infrastructure/JwtAuthenticationFilterTest.java");
+        String docs = read("README.md");
 
-        assertThat(authController)
+        assertThat(loginService)
                 .contains("LOGIN_BAD_CREDENTIALS = \"username or password is incorrect\"")
                 .contains("LOGIN_CAPTCHA_REQUIRED")
                 .contains("ADMIN_MFA_REQUIRED")
-                .contains("ADMIN_MFA_INVALID")
-                .contains("PASSWORD_RESET_OTP_REQUIRED")
-                .contains("consumeResetChallenge")
+                .contains("ADMIN_MFA_INVALID");
+        assertThat(passwordResetService).contains("PASSWORD_RESET_OTP_REQUIRED").contains("consumeResetChallenge");
+        assertThat(authController)
+                .contains("passwordResetService.resetPassword")
                 .contains("revokeUserTokens");
         assertThat(loginAttempts)
                 .contains("Bucket")
@@ -141,6 +167,25 @@ class Ws2SecurityWorkflowTest {
         assertThat(dataInitializer)
                 .contains("ADMIN_TOTP_SECRET must be set")
                 .contains("Existing administrator accounts must enable TOTP MFA");
+        assertThat(securityConfig)
+                .contains("PasswordChangeRequiredFilter")
+                .contains("PASSWORD_CHANGE_REQUIRED")
+                .contains("isPasswordChangeAllowedPath")
+                .contains("/api/user/update-password");
+        assertThat(userService)
+                .contains("PASSWORD_EXPIRATION_DAYS = 90")
+                .contains("passwordChangeRequired(user)")
+                .contains("passwordExpired");
+        assertThat(jwtAuthenticationFilter)
+                .contains("passwordChangeRequired(currentUser)")
+                .contains("passwordExpired");
+        assertThat(userServiceTest)
+                .contains("expiredPasswordAuthenticatesWithPasswordChangeRequired")
+                .contains("currentPrincipalMarksExpiredCredentialsAsPasswordChangeRequired");
+        assertThat(jwtAuthenticationFilterTest).contains("restoresExpiredCredentialsAsPasswordChangeRequiredPrincipal");
+        assertThat(docs)
+                .contains("Passwords older than 90 days authenticate only into the forced password-change corridor")
+                .contains("Passwords expire after 90 days");
     }
 
     @Test

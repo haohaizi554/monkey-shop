@@ -232,14 +232,14 @@ $grafanaDashboard = Read-RequiredFile -Path "$ChartDir/templates/grafana-dashboa
 $kyvernoImage = Read-RequiredFile -Path "deploy/kyverno/monkeyshop-image-policy.yaml"
 $kyvernoPod = Read-RequiredFile -Path "deploy/kyverno/monkeyshop-pod-security.yaml"
 
-Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "(?m)^FROM\s+maven:3\.9-eclipse-temurin-21\s+AS\s+build$" -Message "must use a Maven/Java 21 build stage"
-Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "(?m)^FROM\s+eclipse-temurin:21-jre-jammy\s+AS\s+extract$" -Message "must extract Spring Boot layers in a separate stage"
-Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "(?m)^FROM\s+eclipse-temurin:21-jre-jammy\s*$" -Message "must use a Java 21 JRE runtime stage"
+Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "(?m)^FROM\s+maven:3\.9-eclipse-temurin-21\s+AS\s+build\r?$" -Message "must use a Maven/Java 21 build stage"
+Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "(?m)^FROM\s+eclipse-temurin:21-jre-jammy\s+AS\s+extract\r?$" -Message "must extract Spring Boot layers in a separate stage"
+Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "(?m)^FROM\s+eclipse-temurin:21-jre-jammy\s*\r?$" -Message "must use a Java 21 JRE runtime stage"
 Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "java\s+-Djarmode=tools\s+-jar\s+app\.jar\s+extract\s+--layers" -Message "must extract layered jar content"
 Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "fontconfig" -Message "must install fontconfig for image/font rendering"
 Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "libfreetype6" -Message "must install freetype runtime support"
 Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "fonts-dejavu" -Message "must install a minimal DejaVu font set"
-Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "(?m)^USER\s+app$" -Message "must run the app process as the non-root app user"
+Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "(?m)^USER\s+app\r?$" -Message "must run the app process as the non-root app user"
 Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "HEALTHCHECK[\s\S]+/actuator/health" -Message "must define an actuator healthcheck"
 
 Assert-Match -Name "values.yaml" -Text $values -Pattern "pod-security\.kubernetes\.io/enforce:\s+restricted" -Message "must enforce restricted Pod Security labels"

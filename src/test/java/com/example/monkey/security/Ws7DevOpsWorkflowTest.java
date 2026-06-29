@@ -76,6 +76,16 @@ class Ws7DevOpsWorkflowTest {
                 .contains("must render business metric dashboard panels");
     }
 
+    @Test
+    void ws7VerifierDockerfileLineChecksAreCrlfTolerant() throws IOException {
+        String script = read("scripts/verify-ws7-devops.ps1");
+
+        assertThat(script)
+                .contains("maven:3\\.9-eclipse-temurin-21\\s+AS\\s+build\\r?$")
+                .contains("eclipse-temurin:21-jre-jammy\\s+AS\\s+extract\\r?$")
+                .contains("^USER\\s+app\\r?$");
+    }
+
     private static String read(String path) throws IOException {
         return Files.readString(Path.of(path), StandardCharsets.UTF_8).replace("\r\n", "\n");
     }

@@ -4,6 +4,7 @@ import { csrfHeader } from '@/utils/csrf'
 
 const unsafeMethods = new Set(['post', 'put', 'patch', 'delete'])
 const traceIdHeader = 'X-Trace-Id'
+let fallbackTraceCounter = 0
 
 interface RetriableConfig extends InternalAxiosRequestConfig {
   _retry?: boolean
@@ -33,7 +34,12 @@ function createTraceId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID()
   }
-  return `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const bytes = crypto.getRandomValues(new Uint8Array(16))
+    return `web-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`
+  }
+  fallbackTraceCounter += 1
+  return `web-${Date.now().toString(36)}-${fallbackTraceCounter.toString(36)}`
 }
 
 http.interceptors.request.use((config) => {
@@ -51,7 +57,12 @@ http.interceptors.response.use(
   (response) => response,
   async (error: AxiosError<ProblemDetail>) => {
     const config = error.config as RetriableConfig | undefined
-    if (error.response?.status === 401 && config && !config._retry && config.url !== '/auth/refresh') {
+    if (
+      error.response?.status === 401 &&
+      config &&
+      !config._retry &&
+      config.url !== '/auth/refresh'
+    ) {
       config._retry = true
       await http.post('/auth/refresh')
       return http(config)

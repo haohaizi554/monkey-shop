@@ -6,6 +6,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
@@ -39,7 +40,7 @@ class ControllerAuthorizationDeclarationTest {
 
     @Test
     void nonPublicControllerMappingsUsePermissionAuthorities() {
-        List<String> roleOnlyDeclarations = new ArrayList<>();
+        List<String> weakDeclarations = new ArrayList<>();
         for (Class<?> controller : CONTROLLERS) {
             for (Method method : controller.getDeclaredMethods()) {
                 PreAuthorize preAuthorize = method.getAnnotation(PreAuthorize.class);
@@ -47,13 +48,14 @@ class ControllerAuthorizationDeclarationTest {
                         && preAuthorize != null
                         && !"permitAll()".equals(preAuthorize.value())
                         && (preAuthorize.value().contains("hasRole(")
-                                || preAuthorize.value().contains("hasAnyRole("))) {
-                    roleOnlyDeclarations.add(controller.getSimpleName() + "#" + method.getName());
+                                || preAuthorize.value().contains("hasAnyRole(")
+                                || "isAuthenticated()".equals(preAuthorize.value()))) {
+                    weakDeclarations.add(controller.getSimpleName() + "#" + method.getName());
                 }
             }
         }
 
-        assertThat(roleOnlyDeclarations).isEmpty();
+        assertThat(weakDeclarations).isEmpty();
     }
 
     private static boolean isMappedEndpoint(Method method) {
@@ -68,7 +70,14 @@ class ControllerAuthorizationDeclarationTest {
     private static List<Class<?>> restControllers() {
         ClassPathScanningCandidateComponentProvider scanner = new ClassPathScanningCandidateComponentProvider(false);
         scanner.addIncludeFilter(new AnnotationTypeFilter(RestController.class));
-        return scanner.findCandidateComponents("com.example.monkey.controller").stream()
+        return Stream.of(
+                        "com.example.monkey.controller",
+                        "com.example.monkey.admin.interfaces",
+                        "com.example.monkey.product.interfaces",
+                        "com.example.monkey.user.interfaces",
+                        "com.example.monkey.order.interfaces",
+                        "com.example.monkey.shared.interfaces")
+                .flatMap(basePackage -> scanner.findCandidateComponents(basePackage).stream())
                 .map(BeanDefinition::getBeanClassName)
                 .filter(Objects::nonNull)
                 .map(ControllerAuthorizationDeclarationTest::loadClass)

@@ -42,6 +42,7 @@ function forbidIn(label, source, pattern, description) {
 requireIncludes('src/api/http.ts', "baseURL: '/api/v1'", 'versioned API base URL')
 requireIncludes('src/api/http.ts', "'X-Trace-Id'", 'trace id request header')
 requireIncludes('src/api/http.ts', 'crypto.randomUUID', 'browser trace id generation')
+requireIncludes('src/api/http.ts', 'crypto.getRandomValues', 'crypto-backed trace id fallback')
 requireIncludes('src/api/auth.ts', "'/api/v1/auth/captcha'", 'auth captcha endpoint')
 requireIncludes('src/api/auth.ts', "'/api/v1/users/captcha'", 'user captcha endpoint')
 requireIncludes('src/api/orders.ts', "'Idempotency-Key'", 'order idempotency header')
@@ -55,9 +56,12 @@ forbidIn('src/api', apiSource, /\/api\/(?!v1(?:\/|['"`]|$))/, 'raw /api URL outs
 forbidIn('src/api', apiSource, /url:\s*['"`]\/user(?:\/|['"`])/, 'singular user URL')
 forbidIn('src/api', apiSource, /url:\s*['"`]\/address(?:\/|['"`])/, 'singular address URL')
 forbidIn('src/api', apiSource, /url:\s*['"`]\/upload(?:\/|['"`])/, 'singular upload URL')
+forbidIn('src/api', apiSource, /Math\.random/, 'Math.random trace/id generation')
 
 if (failures.length > 0) {
-  console.error(`API contract check failed:\n${failures.map((failure) => `- ${failure}`).join('\n')}`)
+  console.error(
+    `API contract check failed:\n${failures.map((failure) => `- ${failure}`).join('\n')}`,
+  )
   process.exit(1)
 }
 

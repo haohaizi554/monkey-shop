@@ -134,9 +134,9 @@ cat .env
 应该包含：
 
 ```
-MYSQL_ROOT_PASSWORD=anystrongpassword
+MYSQL_ROOT_PASSWORD=<root-db-password>
 MYSQL_USER=monkeyuser
-MYSQL_PASSWORD=monkeypass
+MYSQL_PASSWORD=<app-db-password>
 ```
 
 ### 3.2 修改密码（建议）
@@ -249,7 +249,7 @@ ip addr show | grep "inet " | grep -v 127.0.0.1
 | 登录 | 用注册的账号登录 | 跳转到商城页 |
 | 商品图 | 查看商城商品卡片 | 图片正常显示 |
 | 轮播图 | 商城页顶部轮播 | 3张轮播图正常切换 |
-| 管理后台 | 用 admin/123456 登录 | 进入后台，数据看板正常 |
+| 管理后台 | 用外部化管理员密码登录 | 进入后台，数据看板正常 |
 | 上传图片 | 后台添加商品上传图片 | 图片上传成功并显示 |
 
 ---
@@ -317,7 +317,7 @@ docker compose down -v
 docker exec -it monkey-app bash
 
 # 进入 MySQL
-docker exec -it monkey-mysql mysql -umonkeyuser -pmonkeypass monkeyshop
+docker exec -it monkey-mysql mysql -umonkeyuser -p"$MYSQL_PASSWORD" monkeyshop
 ```
 
 ### 查看上传的图片

@@ -37,7 +37,9 @@ function loadTurnstile(): Promise<void> {
     const existing = document.querySelector<HTMLScriptElement>('script[data-turnstile-api="true"]')
     if (existing) {
       existing.addEventListener('load', () => resolve(), { once: true })
-      existing.addEventListener('error', () => reject(new Error('turnstile unavailable')), { once: true })
+      existing.addEventListener('error', () => reject(new Error('turnstile unavailable')), {
+        once: true,
+      })
       return
     }
     const script = document.createElement('script')
@@ -46,7 +48,9 @@ function loadTurnstile(): Promise<void> {
     script.defer = true
     script.dataset.turnstileApi = 'true'
     script.addEventListener('load', () => resolve(), { once: true })
-    script.addEventListener('error', () => reject(new Error('turnstile unavailable')), { once: true })
+    script.addEventListener('error', () => reject(new Error('turnstile unavailable')), {
+      once: true,
+    })
     document.head.appendChild(script)
   })
   return loader
@@ -84,10 +88,13 @@ onBeforeUnmount(() => {
   }
 })
 
-watch(() => [props.siteKey, props.action], () => {
-  emit('update:modelValue', '')
-  void renderWidget()
-})
+watch(
+  () => [props.siteKey, props.action],
+  () => {
+    emit('update:modelValue', '')
+    void renderWidget()
+  },
+)
 </script>
 
 <template>

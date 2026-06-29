@@ -81,7 +81,7 @@ onMounted(() => {
   <AppShell>
     <section v-loading="loading" class="profile-layout">
       <div class="profile-summary">
-        <img :src="profile.avatar || defaultAvatar" alt="Avatar">
+        <img :src="profile.avatar || defaultAvatar" alt="Avatar" />
         <div>
           <h1>{{ profile.username }}</h1>
           <p>{{ profile.identity }} · {{ profile.maskedPhone }}</p>
@@ -92,7 +92,12 @@ onMounted(() => {
         <label class="file-picker" for="profile-avatar-input">
           <el-icon><Upload /></el-icon>
           <span>{{ $t('common.upload') }}</span>
-          <input id="profile-avatar-input" type="file" accept="image/png,image/jpeg" @change="changeAvatar">
+          <input
+            id="profile-avatar-input"
+            type="file"
+            accept="image/png,image/jpeg"
+            @change="changeAvatar"
+          />
         </label>
       </div>
 
@@ -132,7 +137,12 @@ onMounted(() => {
         <h2>Security</h2>
         <div class="inline-form">
           <el-input v-model="passwordForm.phone" :placeholder="$t('auth.phone')" />
-          <el-input v-model="passwordForm.newPassword" :placeholder="$t('auth.newPassword')" type="password" show-password />
+          <el-input
+            v-model="passwordForm.newPassword"
+            :placeholder="$t('auth.newPassword')"
+            type="password"
+            show-password
+          />
           <HumanVerification
             v-if="turnstileEnabled"
             v-model="passwordForm.captcha"
@@ -148,7 +158,7 @@ onMounted(() => {
                 aria-label="Refresh captcha"
                 @click="userCaptchaUrl = captchaUrl('user')"
               >
-                <img :src="userCaptchaUrl" alt="Captcha">
+                <img :src="userCaptchaUrl" alt="Captcha" />
               </button>
               <el-button :icon="Refresh" circle @click="userCaptchaUrl = captchaUrl('user')" />
             </template>

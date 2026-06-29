@@ -114,6 +114,7 @@ app:
         timeout: ${APP_PII_VAULT_TIMEOUT:PT3S}
     retention:
       order-pii-retention: ${APP_PII_ORDER_RETENTION:PT4380H}
+      batch-size: ${APP_PII_RETENTION_BATCH_SIZE:500}
       anonymize-cron: ${APP_PII_RETENTION_CRON:0 30 3 * * *}
       lock-at-most-for: ${APP_PII_RETENTION_LOCK_AT_MOST_FOR:PT30M}
       lock-at-least-for: ${APP_PII_RETENTION_LOCK_AT_LEAST_FOR:PT1M}
@@ -127,6 +128,7 @@ app:
       timeout-millis: ${CLAMAV_TIMEOUT_MILLIS:5000}
     cleanup:
       grace-period: ${APP_UPLOAD_CLEANUP_GRACE_PERIOD:PT24H}
+      reference-scan-batch-size: ${APP_UPLOAD_CLEANUP_REFERENCE_SCAN_BATCH_SIZE:500}
       lock-at-most-for: ${APP_UPLOAD_CLEANUP_LOCK_AT_MOST_FOR:PT30M}
       lock-at-least-for: ${APP_UPLOAD_CLEANUP_LOCK_AT_LEAST_FOR:PT1M}
     variants:

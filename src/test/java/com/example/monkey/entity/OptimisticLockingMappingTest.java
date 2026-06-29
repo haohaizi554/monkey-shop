@@ -2,6 +2,8 @@ package com.example.monkey.entity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.monkey.order.infrastructure.Order;
+import com.example.monkey.product.infrastructure.Monkey;
 import jakarta.persistence.Column;
 import jakarta.persistence.Version;
 import java.lang.reflect.Field;

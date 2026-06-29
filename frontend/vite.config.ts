@@ -63,7 +63,10 @@ export default defineConfig({
           if (id.includes('node_modules/vue') || id.includes('node_modules/pinia')) {
             return 'vue'
           }
-          if (id.includes('node_modules/element-plus') || id.includes('node_modules/@element-plus')) {
+          if (
+            id.includes('node_modules/element-plus') ||
+            id.includes('node_modules/@element-plus')
+          ) {
             return 'element'
           }
           if (id.includes('node_modules/axios') || id.includes('node_modules/@vueuse')) {

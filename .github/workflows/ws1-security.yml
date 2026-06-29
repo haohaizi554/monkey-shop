@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - codex/ws1-security-baseline
+      - 'codex/**'
   pull_request:
   workflow_dispatch:
 
@@ -37,8 +37,9 @@ jobs:
       - name: Install gate tools
         shell: pwsh
         run: |
-          choco install ripgrep gitleaks trivy -y --no-progress
+          choco install ripgrep -y --no-progress
           python -m pip install --upgrade pip uv
+          .\scripts\bootstrap-ws1-tools.ps1
           rg --version
           gitleaks version
           trivy --version

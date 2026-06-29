@@ -3,7 +3,11 @@ package com.example.monkey.entity;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 
-import com.example.monkey.domain.order.OrderStatus;
+import com.example.monkey.order.domain.OrderStatus;
+import com.example.monkey.order.infrastructure.Order;
+import com.example.monkey.product.infrastructure.Monkey;
+import com.example.monkey.user.infrastructure.Address;
+import com.example.monkey.user.infrastructure.User;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;

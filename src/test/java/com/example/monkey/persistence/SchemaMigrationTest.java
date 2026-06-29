@@ -43,6 +43,7 @@ class SchemaMigrationTest {
         String v14 = read("src/main/resources/db/migration/V14__soft_delete_and_order_visibility.sql");
         String v15 = read("src/main/resources/db/migration/V15__audit_trace_retention.sql");
         String v16 = read("src/main/resources/db/migration/V16__pii_encryption_columns.sql");
+        String v17 = read("src/main/resources/db/migration/V17__order_pii_anonymized_flag.sql");
 
         assertThat(v1).contains("CREATE TABLE IF NOT EXISTS `orders`");
         assertThat(v1).contains("`price` DOUBLE");
@@ -99,6 +100,8 @@ class SchemaMigrationTest {
         assertThat(v16).contains("ADD COLUMN `receiver_phone_hmac` CHAR(64)");
         assertThat(v16).contains("idx_user_phone_hmac");
         assertThat(v16).contains("idx_orders_receiver_phone_hmac");
+        assertThat(v17).contains("ADD COLUMN `pii_anonymized` BOOLEAN NOT NULL DEFAULT FALSE");
+        assertThat(v17).contains("idx_orders_retention_pii_batch");
     }
 
     private static String read(String path) throws IOException {

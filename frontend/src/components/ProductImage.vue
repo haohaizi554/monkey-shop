@@ -31,5 +31,5 @@ watch(
     loading="lazy"
     decoding="async"
     @error="currentSrc = fallback"
-  >
+  />
 </template>

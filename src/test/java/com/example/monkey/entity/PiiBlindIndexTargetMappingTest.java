@@ -2,7 +2,10 @@ package com.example.monkey.entity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.example.monkey.domain.privacy.PhoneBlindIndexTarget;
+import com.example.monkey.order.infrastructure.Order;
+import com.example.monkey.shared.domain.privacy.PhoneBlindIndexTarget;
+import com.example.monkey.user.infrastructure.Address;
+import com.example.monkey.user.infrastructure.User;
 import org.junit.jupiter.api.Test;
 
 class PiiBlindIndexTargetMappingTest {

@@ -9,6 +9,7 @@
     "build": "vue-tsc -b && vite build",
     "lint": "eslint .",
     "format": "prettier --check .",
+    "audit": "npm audit --audit-level=high --registry=https://registry.npmjs.org",
     "preview": "vite preview",
     "test:api-contract": "node scripts/api-contract.mjs",
     "test:a11y": "node scripts/a11y.mjs",

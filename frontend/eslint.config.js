@@ -5,7 +5,13 @@ import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'test-results/**', 'playwright-report/**'],
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      'coverage/**',
+      'test-results/**',
+      'playwright-report/**',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -33,6 +39,19 @@ export default tseslint.config(
     rules: {
       'vue/multi-word-component-names': 'off',
       'vue/max-attributes-per-line': 'off',
+      'vue/html-self-closing': [
+        'warn',
+        {
+          html: {
+            void: 'always',
+            normal: 'always',
+            component: 'always',
+          },
+          svg: 'always',
+          math: 'always',
+        },
+      ],
+      'vue/singleline-html-element-content-newline': 'off',
       '@typescript-eslint/no-explicit-any': 'warn',
     },
   },

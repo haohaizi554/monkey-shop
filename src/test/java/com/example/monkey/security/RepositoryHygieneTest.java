@@ -47,8 +47,18 @@ class RepositoryHygieneTest {
             "secrets/*.dec.*",
             ".trae");
 
-    private static final List<String> FORBIDDEN_TRACKED_PATH_FRAGMENTS =
-            List.of("code.txt", "app.jar", ".env", ".pem", ".key", "uploads/", ".trae/");
+    private static final List<String> FORBIDDEN_TRACKED_PATH_FRAGMENTS = List.of(
+            "code.txt",
+            "app.jar",
+            ".env",
+            ".pem",
+            ".key",
+            "uploads/",
+            ".trae/",
+            "application.properties",
+            "application-dev.properties",
+            "application-staging.properties",
+            "application-prod.properties");
 
     @Test
     void gitignoreCoversSensitiveLocalArtifacts() throws IOException {
@@ -89,6 +99,37 @@ class RepositoryHygieneTest {
         for (String forbiddenPath : FORBIDDEN_TRACKED_PATH_FRAGMENTS) {
             assertThat(trackedFiles).doesNotContain(forbiddenPath);
         }
+    }
+
+    @Test
+    void secretHistoryCleanupIsDocumentedAsReleaseBlocker() throws IOException {
+        String runbook = Files.readString(Path.of("docs/security/ws1-history-cleanup.md"), StandardCharsets.UTF_8);
+        String readme = Files.readString(Path.of("README.md"), StandardCharsets.UTF_8);
+        String requiredChecks = Files.readString(Path.of(".github/required-checks.yml"), StandardCharsets.UTF_8);
+
+        assertThat(runbook)
+                .contains("fresh disposable clone")
+                .contains("git filter-repo")
+                .contains("--path code.txt")
+                .contains("--path app.jar")
+                .contains("--invert-paths")
+                .contains(".\\scripts\\verify-ws1-security.ps1")
+                .contains("target/ws1-security/gitleaks-history.json")
+                .contains("release blocker")
+                .contains("git push --force-with-lease --all")
+                .contains("credential rotation");
+
+        assertThat(readme)
+                .contains("docs/security/ws1-history-cleanup.md")
+                .contains("target/ws1-security/gitleaks-history.json")
+                .contains("release-blocking");
+
+        assertThat(requiredChecks)
+                .contains("release_blockers:")
+                .contains("Secret History Rewrite Attestation")
+                .contains("docs/security/ws1-history-cleanup.md")
+                .contains("target/ws1-security/gitleaks-history.json")
+                .contains("credential rotation ticket references");
     }
 
     private static String readProcessOutput(Process process) {

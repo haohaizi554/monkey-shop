@@ -15,7 +15,13 @@
   --el-color-success-light-9: #e7f5eb;
   --el-color-success-light-8: #d1ead8;
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   letter-spacing: 0;
   background: var(--page);
   color: var(--text);

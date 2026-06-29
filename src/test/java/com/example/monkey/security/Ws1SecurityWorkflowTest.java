@@ -32,7 +32,15 @@ class Ws1SecurityWorkflowTest {
         String workflow = Files.readString(Path.of(".github/workflows/ws1-security.yml"), StandardCharsets.UTF_8);
 
         assertThat(workflow).contains("fetch-depth: 0");
+        assertThat(workflow).contains("- 'codex/**'");
+        assertThat(workflow).contains("python -m pip install --upgrade pip uv");
+        assertThat(workflow).contains("choco install ripgrep -y --no-progress");
+        assertThat(workflow).contains(".\\scripts\\bootstrap-ws1-tools.ps1");
+        assertThat(workflow).contains("gitleaks version");
+        assertThat(workflow).contains("trivy --version");
+        assertThat(workflow).contains("uvx --version");
         assertThat(workflow).contains(".\\scripts\\verify-ws1-security.ps1 -SkipDependencyCheck");
+        assertThat(workflow).contains("target/ws1-security/");
         assertThat(workflow).contains("NVD_API_KEY: ${{ secrets.NVD_API_KEY }}");
         assertThat(workflow).contains("Set repository secret NVD_API_KEY");
         assertThat(workflow).contains("mvn --batch-mode clean verify");
@@ -51,6 +59,28 @@ class Ws1SecurityWorkflowTest {
         assertThat(script).contains("\"--skip-db-update\"");
         assertThat(script).contains("\"frontend/node_modules\"");
         assertThat(script).contains("\"frontend/lighthouse-report.json\"");
+    }
+
+    @Test
+    void ws1ScriptRunsSecretHistorySemgrepAndFilesystemScans() throws IOException {
+        String script = Files.readString(Path.of("scripts/verify-ws1-security.ps1"), StandardCharsets.UTF_8);
+
+        assertThat(script)
+                .contains("\"gitleaks current tree\"")
+                .contains("\"gitleaks-current.json\"")
+                .contains("\"gitleaks git history\"")
+                .contains("\"gitleaks-history.json\"")
+                .contains("\"Semgrep OWASP and secrets\"")
+                .contains("\"p/owasp-top-ten\"")
+                .contains("\"p/secrets\"")
+                .contains("\"--error\"")
+                .contains("\"--no-git-ignore\"")
+                .contains("\"semgrep.json\"")
+                .contains("\"Trivy HIGH/CRITICAL filesystem scan\"")
+                .contains("\"--scanners\", \"vuln,secret,misconfig\"")
+                .contains("\"--severity\", \"HIGH,CRITICAL\"")
+                .contains("\"--exit-code\", \"1\"")
+                .contains("\"trivy.json\"");
     }
 
     @Test
@@ -74,6 +104,38 @@ class Ws1SecurityWorkflowTest {
         assertThat(script).contains("[switch]$SkipDependencyCheckUpdate");
         assertThat(script).contains("\"-DautoUpdate=false\", \"clean\", \"verify\"");
         assertThat(script).contains("(-not $SkipDependencyCheckUpdate) -and (-not $env:NVD_API_KEY)");
+    }
+
+    @Test
+    void ws1BootstrapInstallsCachedScannerTools() throws IOException {
+        String bootstrap = Files.readString(Path.of("scripts/bootstrap-ws1-tools.ps1"), StandardCharsets.UTF_8);
+        String readme = Files.readString(Path.of("README.md"), StandardCharsets.UTF_8);
+
+        assertThat(bootstrap)
+                .contains("gitleaks/gitleaks")
+                .contains("aquasecurity/trivy")
+                .contains("api.github.com/repos/$Repository/releases/latest")
+                .contains("api.github.com/repos/$Repository/releases/tags/$tag")
+                .contains(".cache\\codex-tools\\ws1-security")
+                .contains("gitleaks_*_windows_x64.zip")
+                .contains("trivy_*_windows-64bit.zip")
+                .contains("-ExecutableName \"gitleaks\"")
+                .contains("-ExecutableName \"trivy\"")
+                .contains("\"$ExecutableName.exe\"")
+                .contains("Invoke-WebRequest")
+                .contains("Expand-Archive")
+                .contains("Add-ToolDirectoryToPath")
+                .contains("$env:PATH = $resolved")
+                .contains("$env:GITHUB_PATH")
+                .contains("Add-Content -LiteralPath $env:GITHUB_PATH")
+                .contains("gitleaks version")
+                .contains("trivy --version")
+                .contains("[switch]$Force");
+
+        assertThat(readme)
+                .contains(".\\scripts\\bootstrap-ws1-tools.ps1")
+                .contains("%USERPROFILE%\\.cache\\codex-tools\\ws1-security")
+                .contains("both scanner directories on `PATH`");
     }
 
     @Test

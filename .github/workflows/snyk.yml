@@ -1,0 +1,60 @@
+name: Snyk Security Gate
+
+on:
+  push:
+    branches:
+      - main
+      - 'codex/**'
+  pull_request:
+  schedule:
+    - cron: '37 19 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-scan:
+    name: Snyk Dependency Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Set up Node
+        uses: actions/setup-node@v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Require Snyk token
+        run: |
+          if [ -z "${SNYK_TOKEN}" ]; then
+            echo "::error::SNYK_TOKEN secret is required so Snyk can run as a blocking CI gate."
+            exit 1
+          fi
+
+      - name: Install Snyk CLI
+        run: npm install --global snyk
+
+      - name: Snyk Maven scan
+        run: snyk test --file=pom.xml --package-manager=maven --severity-threshold=high
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Snyk frontend scan
+        working-directory: frontend
+        run: snyk test --file=package-lock.json --package-manager=npm --severity-threshold=high

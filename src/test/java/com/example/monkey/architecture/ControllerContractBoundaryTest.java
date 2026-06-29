@@ -2,23 +2,23 @@ package com.example.monkey.architecture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.example.monkey.controller.AuthController;
-import com.example.monkey.controller.StatsController;
-import com.example.monkey.controller.UploadController;
-import com.example.monkey.controller.UserController;
-import com.example.monkey.domain.user.LoginAttemptPolicy;
-import com.example.monkey.domain.user.PasswordResetChallengeService;
-import com.example.monkey.domain.user.SessionUser;
-import com.example.monkey.domain.user.UserPasswordPolicy;
-import com.example.monkey.dto.AuditTraceRequestDto;
-import com.example.monkey.dto.PresignedGetUrlRequestDto;
-import com.example.monkey.dto.RegisterRequestDto;
-import com.example.monkey.dto.StatsQueryRequestDto;
-import com.example.monkey.dto.UploadFileRequestDto;
-import com.example.monkey.dto.UploadRequestDto;
-import com.example.monkey.dto.UserAvatarRequestDto;
-import com.example.monkey.service.UserService;
-import com.example.monkey.shared.api.Result;
+import com.example.monkey.admin.interfaces.StatsController;
+import com.example.monkey.admin.interfaces.dto.AuditTraceRequestDto;
+import com.example.monkey.admin.interfaces.dto.StatsQueryRequestDto;
+import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.interfaces.dto.Result;
+import com.example.monkey.shared.interfaces.storage.UploadController;
+import com.example.monkey.shared.interfaces.storage.dto.PresignedGetUrlRequestDto;
+import com.example.monkey.shared.interfaces.storage.dto.UploadFileRequestDto;
+import com.example.monkey.shared.interfaces.storage.dto.UploadRequestDto;
+import com.example.monkey.user.application.UserService;
+import com.example.monkey.user.domain.LoginAttemptPolicy;
+import com.example.monkey.user.domain.PasswordResetChallengeService;
+import com.example.monkey.user.domain.UserPasswordPolicy;
+import com.example.monkey.user.interfaces.AuthController;
+import com.example.monkey.user.interfaces.UserController;
+import com.example.monkey.user.interfaces.dto.RegisterRequestDto;
+import com.example.monkey.user.interfaces.dto.UserAvatarRequestDto;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -327,7 +327,7 @@ class ControllerContractBoundaryTest {
         try (Stream<Path> files = Files.walk(mainSourceRoot)) {
             files.filter(Files::isRegularFile)
                     .filter(path -> path.toString().endsWith(".java"))
-                    .filter(path -> !path.toString().contains("assembler"))
+                    .filter(path -> !path.getFileName().toString().endsWith("Assembler.java"))
                     .forEach(path -> collectResponseDtoConstructors(path, directResponseDtoConstructors));
         }
 
@@ -390,7 +390,14 @@ class ControllerContractBoundaryTest {
     private static List<Class<?>> restControllers() {
         ClassPathScanningCandidateComponentProvider scanner = new ClassPathScanningCandidateComponentProvider(false);
         scanner.addIncludeFilter(new AnnotationTypeFilter(RestController.class));
-        return scanner.findCandidateComponents("com.example.monkey.controller").stream()
+        return Stream.of(
+                        "com.example.monkey.controller",
+                        "com.example.monkey.admin.interfaces",
+                        "com.example.monkey.product.interfaces",
+                        "com.example.monkey.user.interfaces",
+                        "com.example.monkey.order.interfaces",
+                        "com.example.monkey.shared.interfaces")
+                .flatMap(basePackage -> scanner.findCandidateComponents(basePackage).stream())
                 .map(BeanDefinition::getBeanClassName)
                 .filter(Objects::nonNull)
                 .map(ControllerContractBoundaryTest::loadClass)

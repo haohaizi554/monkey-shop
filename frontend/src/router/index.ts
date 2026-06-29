@@ -13,11 +13,27 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', redirect: '/shop' },
-    { path: '/login', component: () => import('@/views/LoginView.vue'), meta: { publicOnly: true } },
+    {
+      path: '/login',
+      component: () => import('@/views/LoginView.vue'),
+      meta: { publicOnly: true },
+    },
     { path: '/shop', component: () => import('@/views/ShopView.vue') },
-    { path: '/orders', component: () => import('@/views/OrdersView.vue'), meta: { requiresAuth: true } },
-    { path: '/profile', component: () => import('@/views/ProfileView.vue'), meta: { requiresAuth: true } },
-    { path: '/admin', component: () => import('@/views/AdminView.vue'), meta: { requiresAuth: true, requiresAdmin: true } },
+    {
+      path: '/orders',
+      component: () => import('@/views/OrdersView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/profile',
+      component: () => import('@/views/ProfileView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/admin',
+      component: () => import('@/views/AdminView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
   ],
   scrollBehavior: () => ({ top: 0 }),
 })

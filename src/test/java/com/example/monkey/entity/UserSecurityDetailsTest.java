@@ -2,7 +2,10 @@ package com.example.monkey.entity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.example.monkey.domain.user.UserRoles;
+import com.example.monkey.user.domain.UserRoles;
+import com.example.monkey.user.infrastructure.Permission;
+import com.example.monkey.user.infrastructure.Role;
+import com.example.monkey.user.infrastructure.User;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
 

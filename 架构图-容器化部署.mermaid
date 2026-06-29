@@ -47,7 +47,7 @@ flowchart TB
         subgraph EnvConfig["配置管理"]
             direction LR
             EnvFile[".env 文件<br/>(密码等敏感信息)<br/>❌ 已加入 .gitignore"]
-            ComposeEnv["docker-compose.yml<br/>环境变量注入<br/>SPRING_DATASOURCE_*<br/>APP_UPLOAD_PATH<br/>SPRING_JPA_SHOW_SQL=false"]
+            ComposeEnv["docker-compose.yml<br/>环境变量注入<br/>DB_*<br/>APP_UPLOAD_PATH<br/>SPRING_JPA_SHOW_SQL=false"]
         end
 
         subgraph Ports["端口映射"]

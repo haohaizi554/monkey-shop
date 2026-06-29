@@ -81,7 +81,11 @@ onMounted(() => {
           >
             Ship return
           </el-button>
-          <el-button type="danger" plain @click="runAction('Hide order', () => ordersApi.hideOrder(order.id))">
+          <el-button
+            type="danger"
+            plain
+            @click="runAction('Hide order', () => ordersApi.hideOrder(order.id))"
+          >
             {{ $t('common.delete') }}
           </el-button>
         </div>

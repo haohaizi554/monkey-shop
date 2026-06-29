@@ -1,6 +1,6 @@
 param(
     [switch]$RunMaven,
-    [string]$MavenTestPattern = "ApiRateLimitServiceTest,ApiRateLimitFilterTest,TurnstileVerifierTest,CaptchaServiceTest,PiiCryptoServiceTest,PiiKeyMaterialProviderTest,PiiBlindIndexEntityListenerTest,PiiRetentionServiceTest,EdgeProxyConfigTest"
+    [string]$MavenTestPattern = "ApiRateLimitServiceTest,ApiRateLimitFilterTest,TurnstileVerifierTest,CaptchaServiceTest,CaptchaHttpTest,PiiCryptoServiceTest,PiiKeyMaterialProviderTest,PiiBlindIndexEntityListenerTest,PiiRetentionServiceTest,EdgeProxyConfigTest"
 )
 
 $ErrorActionPreference = "Stop"
@@ -80,24 +80,25 @@ $requiredFiles = @(
     "src/main/resources/application.yml",
     "src/main/resources/application-staging.yml",
     "src/main/resources/application-prod.yml",
-    "src/main/java/com/example/monkey/config/SecurityConfig.java",
-    "src/main/java/com/example/monkey/controller/AuthController.java",
-    "src/main/java/com/example/monkey/controller/UserController.java",
-    "src/main/java/com/example/monkey/domain/security/RateLimitPolicy.java",
-    "src/main/java/com/example/monkey/domain/security/ApiRateLimiter.java",
-    "src/main/java/com/example/monkey/security/ApiRateLimitService.java",
-    "src/main/java/com/example/monkey/security/ApiRateLimitFilter.java",
-    "src/main/java/com/example/monkey/security/TurnstileVerifier.java",
-    "src/main/java/com/example/monkey/infrastructure/privacy/PiiCryptoService.java",
-    "src/main/java/com/example/monkey/infrastructure/privacy/PiiKeyMaterialProvider.java",
-    "src/main/java/com/example/monkey/infrastructure/privacy/EncryptedStringAttributeConverter.java",
-    "src/main/java/com/example/monkey/infrastructure/privacy/PiiBlindIndexEntityListener.java",
-    "src/main/java/com/example/monkey/service/CaptchaService.java",
-    "src/main/java/com/example/monkey/service/PiiRetentionService.java",
-    "src/main/java/com/example/monkey/infrastructure/user/JpaPiiRetentionStore.java",
-    "src/main/java/com/example/monkey/entity/User.java",
-    "src/main/java/com/example/monkey/entity/Address.java",
-    "src/main/java/com/example/monkey/entity/Order.java",
+    "src/main/java/com/example/monkey/shared/infrastructure/config/SecurityConfig.java",
+    "src/main/java/com/example/monkey/user/interfaces/AuthController.java",
+    "src/main/java/com/example/monkey/user/interfaces/UserController.java",
+    "src/main/java/com/example/monkey/shared/domain/security/RateLimitPolicy.java",
+    "src/main/java/com/example/monkey/shared/domain/security/ApiRateLimiter.java",
+    "src/main/java/com/example/monkey/shared/infrastructure/security/ApiRateLimitService.java",
+    "src/main/java/com/example/monkey/shared/interfaces/security/ApiRateLimitFilter.java",
+    "src/main/java/com/example/monkey/user/infrastructure/TurnstileVerifier.java",
+    "src/main/java/com/example/monkey/shared/infrastructure/privacy/PiiCryptoService.java",
+    "src/main/java/com/example/monkey/shared/infrastructure/privacy/PiiKeyMaterialProvider.java",
+    "src/main/java/com/example/monkey/shared/infrastructure/privacy/EncryptedStringAttributeConverter.java",
+    "src/main/java/com/example/monkey/shared/infrastructure/privacy/PiiBlindIndexEntityListener.java",
+    "src/main/java/com/example/monkey/user/application/CaptchaService.java",
+    "src/main/java/com/example/monkey/shared/interfaces/web/CaptchaHttp.java",
+    "src/main/java/com/example/monkey/user/application/PiiRetentionService.java",
+    "src/main/java/com/example/monkey/user/infrastructure/JpaPiiRetentionStore.java",
+    "src/main/java/com/example/monkey/user/infrastructure/User.java",
+    "src/main/java/com/example/monkey/user/infrastructure/Address.java",
+    "src/main/java/com/example/monkey/order/infrastructure/Order.java",
     "src/main/resources/db/migration/V16__pii_encryption_columns.sql",
     "deploy/nginx/monkeyshop.conf",
     "docs/security/ws8.md",
@@ -115,24 +116,25 @@ $workflow = Read-RequiredFile -Path ".github/workflows/ci.yaml"
 $application = Read-RequiredFile -Path "src/main/resources/application.yml"
 $staging = Read-RequiredFile -Path "src/main/resources/application-staging.yml"
 $prod = Read-RequiredFile -Path "src/main/resources/application-prod.yml"
-$securityConfig = Read-RequiredFile -Path "src/main/java/com/example/monkey/config/SecurityConfig.java"
-$authController = Read-RequiredFile -Path "src/main/java/com/example/monkey/controller/AuthController.java"
-$userController = Read-RequiredFile -Path "src/main/java/com/example/monkey/controller/UserController.java"
-$rateLimitPolicy = Read-RequiredFile -Path "src/main/java/com/example/monkey/domain/security/RateLimitPolicy.java"
-$rateLimitPort = Read-RequiredFile -Path "src/main/java/com/example/monkey/domain/security/ApiRateLimiter.java"
-$rateLimitService = Read-RequiredFile -Path "src/main/java/com/example/monkey/security/ApiRateLimitService.java"
-$rateLimitFilter = Read-RequiredFile -Path "src/main/java/com/example/monkey/security/ApiRateLimitFilter.java"
-$turnstile = Read-RequiredFile -Path "src/main/java/com/example/monkey/security/TurnstileVerifier.java"
-$captchaService = Read-RequiredFile -Path "src/main/java/com/example/monkey/service/CaptchaService.java"
-$piiCrypto = Read-RequiredFile -Path "src/main/java/com/example/monkey/infrastructure/privacy/PiiCryptoService.java"
-$piiProvider = Read-RequiredFile -Path "src/main/java/com/example/monkey/infrastructure/privacy/PiiKeyMaterialProvider.java"
-$piiConverter = Read-RequiredFile -Path "src/main/java/com/example/monkey/infrastructure/privacy/EncryptedStringAttributeConverter.java"
-$piiListener = Read-RequiredFile -Path "src/main/java/com/example/monkey/infrastructure/privacy/PiiBlindIndexEntityListener.java"
-$piiRetention = Read-RequiredFile -Path "src/main/java/com/example/monkey/service/PiiRetentionService.java"
-$piiRetentionStore = Read-RequiredFile -Path "src/main/java/com/example/monkey/infrastructure/user/JpaPiiRetentionStore.java"
-$userEntity = Read-RequiredFile -Path "src/main/java/com/example/monkey/entity/User.java"
-$addressEntity = Read-RequiredFile -Path "src/main/java/com/example/monkey/entity/Address.java"
-$orderEntity = Read-RequiredFile -Path "src/main/java/com/example/monkey/entity/Order.java"
+$securityConfig = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared/infrastructure/config/SecurityConfig.java"
+$authController = Read-RequiredFile -Path "src/main/java/com/example/monkey/user/interfaces/AuthController.java"
+$userController = Read-RequiredFile -Path "src/main/java/com/example/monkey/user/interfaces/UserController.java"
+$rateLimitPolicy = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared/domain/security/RateLimitPolicy.java"
+$rateLimitPort = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared/domain/security/ApiRateLimiter.java"
+$rateLimitService = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared/infrastructure/security/ApiRateLimitService.java"
+$rateLimitFilter = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared/interfaces/security/ApiRateLimitFilter.java"
+$turnstile = Read-RequiredFile -Path "src/main/java/com/example/monkey/user/infrastructure/TurnstileVerifier.java"
+$captchaService = Read-RequiredFile -Path "src/main/java/com/example/monkey/user/application/CaptchaService.java"
+$captchaHttp = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared/interfaces/web/CaptchaHttp.java"
+$piiCrypto = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared/infrastructure/privacy/PiiCryptoService.java"
+$piiProvider = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared/infrastructure/privacy/PiiKeyMaterialProvider.java"
+$piiConverter = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared/infrastructure/privacy/EncryptedStringAttributeConverter.java"
+$piiListener = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared/infrastructure/privacy/PiiBlindIndexEntityListener.java"
+$piiRetention = Read-RequiredFile -Path "src/main/java/com/example/monkey/user/application/PiiRetentionService.java"
+$piiRetentionStore = Read-RequiredFile -Path "src/main/java/com/example/monkey/user/infrastructure/JpaPiiRetentionStore.java"
+$userEntity = Read-RequiredFile -Path "src/main/java/com/example/monkey/user/infrastructure/User.java"
+$addressEntity = Read-RequiredFile -Path "src/main/java/com/example/monkey/user/infrastructure/Address.java"
+$orderEntity = Read-RequiredFile -Path "src/main/java/com/example/monkey/order/infrastructure/Order.java"
 $piiMigration = Read-RequiredFile -Path "src/main/resources/db/migration/V16__pii_encryption_columns.sql"
 $nginx = Read-RequiredFile -Path "deploy/nginx/monkeyshop.conf"
 $docs = Read-RequiredFile -Path "docs/security/ws8.md"
@@ -188,7 +190,10 @@ Assert-Match -Name "TurnstileVerifier.java" -Text $turnstile -Pattern "TOKEN_REP
 Assert-Match -Name "TurnstileVerifier.java" -Text $turnstile -Pattern "setIfAbsent" -Message "must burn tokens before verification with Redis when available"
 Assert-Match -Name "TurnstileVerifier.java" -Text $turnstile -Pattern "actionMatches" -Message "must bind tokens to expected actions"
 Assert-Match -Name "TurnstileVerifier.java" -Text $turnstile -Pattern "hostnameMatches" -Message "must bind tokens to the expected hostname"
-Assert-Match -Name "CaptchaService.java" -Text $captchaService -Pattern 'X-Captcha-Provider",\s*"turnstile"' -Message "must advertise Turnstile metadata"
+Assert-Match -Name "CaptchaService.java" -Text $captchaService -Pattern 'CaptchaChallenge\.external\("turnstile",\s*turnstileSiteKey\)' -Message "must switch captcha creation to Turnstile challenges"
+Assert-Match -Name "CaptchaService.java" -Text $captchaService -Pattern "humanVerificationService\.verify\(inputCode,\s*action,\s*remoteIp\)" -Message "must validate external captcha tokens through the human-verification port"
+Assert-Match -Name "CaptchaHttp.java" -Text $captchaHttp -Pattern 'CAPTCHA_PROVIDER_HEADER\s*,\s*challenge\.provider\(\)' -Message "must advertise Turnstile metadata"
+Assert-Match -Name "CaptchaHttp.java" -Text $captchaHttp -Pattern 'TURNSTILE_SITE_KEY_HEADER\s*,\s*challenge\.siteKey\(\)' -Message "must advertise Turnstile site keys"
 Assert-Match -Name "AuthController.java" -Text $authController -Pattern 'ACTION_LOGIN\s+=\s+"login"' -Message "must bind login to a Turnstile action"
 Assert-Match -Name "AuthController.java" -Text $authController -Pattern 'ACTION_REGISTER\s+=\s+"register"' -Message "must bind registration to a Turnstile action"
 Assert-Match -Name "AuthController.java" -Text $authController -Pattern 'ACTION_PASSWORD_RESET_REQUEST\s+=\s+"password-reset-request"' -Message "must bind password reset request to a Turnstile action"

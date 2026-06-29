@@ -56,7 +56,8 @@ async function openCheckout(monkey: Monkey) {
   }
   selectedMonkey.value = monkey
   addresses.value = await fetchAddresses()
-  selectedAddressId.value = addresses.value.find((item) => item.isDefault === 1)?.id ?? addresses.value[0]?.id ?? null
+  selectedAddressId.value =
+    addresses.value.find((item) => item.isDefault === 1)?.id ?? addresses.value[0]?.id ?? null
   checkoutOpen.value = true
 }
 
@@ -92,7 +93,12 @@ onMounted(() => {
         <p>{{ $t('shop.subtitle') }}</p>
       </div>
       <div class="catalog-tools">
-        <el-input v-model="filters.keyword" :prefix-icon="Search" :placeholder="$t('common.search')" clearable />
+        <el-input
+          v-model="filters.keyword"
+          :prefix-icon="Search"
+          :placeholder="$t('common.search')"
+          clearable
+        />
         <el-input v-model="filters.minPrice" type="number" placeholder="Min" />
         <el-input v-model="filters.maxPrice" type="number" placeholder="Max" />
         <el-checkbox v-model="filters.inStockOnly">
@@ -121,7 +127,11 @@ onMounted(() => {
                 <el-tag :type="monkey.stock > 0 ? 'success' : 'info'" disable-transitions>
                   {{ $t('common.stock') }} {{ monkey.stock }}
                 </el-tag>
-                <el-button type="primary" :disabled="monkey.stock <= 0" @click="openCheckout(monkey)">
+                <el-button
+                  type="primary"
+                  :disabled="monkey.stock <= 0"
+                  @click="openCheckout(monkey)"
+                >
                   {{ monkey.stock > 0 ? $t('shop.buy') : $t('shop.soldOut') }}
                 </el-button>
               </div>

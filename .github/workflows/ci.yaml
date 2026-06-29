@@ -79,8 +79,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Dependency audit
+        run: npm run audit
+
       - name: API contract
         run: npm run test:api-contract
+
+      - name: Format
+        run: npm run format
 
       - name: Build
         run: npm run build

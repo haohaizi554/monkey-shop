@@ -1,79 +1,181 @@
 # MonkeyShop
 
-MonkeyShop is a Spring Boot 3.5.16 / Java 21 demo shop that is being hardened toward a modular, production-grade e-commerce system.
+[中文](./README.md)
 
-## Current Runtime
+<p align="center">
+  <img alt="Java 21" src="https://img.shields.io/badge/Java-21-007396?logo=openjdk&logoColor=white">
+  <img alt="Spring Boot" src="https://img.shields.io/badge/Spring%20Boot-3.5-6DB33F?logo=springboot&logoColor=white">
+  <img alt="Vue 3" src="https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white">
+  <img alt="Vite" src="https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white">
+  <img alt="MySQL" src="https://img.shields.io/badge/MySQL-8-4479A1?logo=mysql&logoColor=white">
+  <img alt="Redis" src="https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white">
+  <img alt="Docker" src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white">
+  <img alt="Kubernetes" src="https://img.shields.io/badge/Kubernetes-Helm-326CE5?logo=kubernetes&logoColor=white">
+  <img alt="GitHub Actions" src="https://img.shields.io/badge/GitHub%20Actions-CI-2088FF?logo=githubactions&logoColor=white">
+</p>
 
-- Backend: Spring Boot 3.5.16, Java 21, Spring Security, Spring Data JPA, MySQL 8
-- Frontend: Vite Vue 3 SPA with TypeScript, Pinia, Vue Router, Element Plus, vue-i18n, dark mode, and accessibility checks
-- Container: layered multi-stage Docker build with a non-root runtime user, actuator healthcheck, and read-only-rootfs-ready writable mounts
+<p align="center">
+  <img alt="Tech stack icons" src="https://skillicons.dev/icons?i=java,spring,vue,ts,vite,mysql,redis,docker,kubernetes,githubactions,prometheus,grafana&theme=light">
+</p>
 
-## Required Local Environment
 
-Do not commit secrets. Provide runtime values with environment variables or a secret manager.
+MonkeyShop is a full-stack e-commerce project built with Spring Boot 3, Java 21, Vue 3, and TypeScript. It is not just a CRUD demo. The backend is organized by bounded context and layered architecture, the frontend is a real SPA, and the repository includes security hardening, observability, containerization, Kubernetes/GitOps assets, and CI quality gates.
 
-```powershell
-$env:SPRING_PROFILES_ACTIVE = "dev"
-$env:DB_URL = "jdbc:mysql://localhost:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=true&requireSSL=true&verifyServerCertificate=true"
-$env:DB_USERNAME = "root"
-$env:DB_PASSWORD = "<local-db-password>"
-$env:ADMIN_INIT_PASSWORD = "<strong-initial-admin-password>"
-$env:ADMIN_TOTP_SECRET = "<base32-totp-secret>"
-$env:APP_JWT_SECRET = "<at-least-32-byte-jwt-signing-secret>"
-$env:APP_JWT_REQUIRE_REDIS_TOKEN_STORE = "false"
-$env:APP_AUTH_REQUIRE_REDIS_STATE = "false"
-$env:APP_PASSWORD_RESET_DELIVERY_MODE = "logging"
-$env:SESSION_COOKIE_SECURE = "false"
-$env:APP_UPLOAD_PATH = "uploads/images"
-$env:APP_UPLOAD_VIRUS_SCAN_ENABLED = "false"
-$env:NVD_API_KEY = "<optional-but-recommended-for-dependency-check>"
+## Highlights
+
+- Modular backend split into `admin`, `order`, `product`, `user`, and `shared` bounded contexts.
+- Clear layered model: `domain`, `application`, `infrastructure`, and `interfaces`.
+- Complete Vue 3 frontend with TypeScript, Pinia, Vue Router, Element Plus, and i18n.
+- Secure authentication with HttpOnly Cookie JWT, refresh-token rotation, CSRF, RBAC, admin TOTP MFA, and forced password change.
+- Abuse protection with login rate limits, lockouts, captcha/Turnstile, and honeypot probes.
+- Reliable order flow with idempotency keys, distributed locks, stock logs, state transitions, and business metrics.
+- Upload and storage pipeline with MIME validation, image checks, optional ClamAV, image variants, cleanup jobs, and local/MinIO storage.
+- Privacy protection with PII encryption, blind indexes, key rotation, retention jobs, and user erasure.
+- Production-facing delivery assets: Docker, Compose, Helm, Argo CD, Kyverno, External Secrets, Prometheus, Grafana, Trivy, cosign, CodeQL, Snyk, and Dependabot.
+
+## Tech Stack
+
+| Area | Stack |
+| --- | --- |
+| Backend | Java 21, Spring Boot 3.5, Spring Security, Spring Data JPA, Spring Validation |
+| Data | MySQL 8, Flyway, Redis/Jedis, Redisson, ShedLock |
+| Security | Nimbus JOSE JWT, Passay, Bucket4j, Tink, HIBP checks, Turnstile, ClamAV |
+| Observability | Actuator, Micrometer Prometheus, OpenTelemetry, Sentry, structured Logback JSON |
+| Frontend | Vue 3, TypeScript, Vite, Pinia, Vue Router, Element Plus, vue-i18n, Axios |
+| Testing | JUnit 5, Spring Security Test, ArchUnit, JaCoCo, SpotBugs/FindSecBugs, PIT, Playwright, axe, Lighthouse |
+| Delivery | Docker, Docker Compose, Helm, Argo CD, Kyverno, Trivy, cosign, CodeQL, Snyk, Dependabot |
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Browser["Vue SPA"] --> Edge["Nginx / Ingress / TLS"]
+    Edge --> API["Spring Boot API"]
+
+    subgraph Backend["MonkeyShop Backend"]
+        Shared["shared"]
+        User["user"]
+        Product["product"]
+        Order["order"]
+        Admin["admin"]
+    end
+
+    API --> User
+    API --> Product
+    API --> Order
+    API --> Admin
+    User --> Shared
+    Product --> Shared
+    Order --> Shared
+    Admin --> Shared
+
+    Backend --> MySQL["MySQL + Flyway"]
+    Backend --> Redis["Redis"]
+    Backend --> Storage["Local / MinIO"]
+    Backend --> ClamAV["ClamAV"]
+    Backend --> Obs["Prometheus / OTel / Sentry"]
 ```
 
-`ADMIN_INIT_PASSWORD` and `ADMIN_TOTP_SECRET` are only used when no administrator exists. The application refuses to bootstrap a default administrator without both variables, and it refuses to start with existing administrator rows unless each admin has TOTP MFA enabled with a valid Base32 secret.
-`APP_JWT_SECRET` must be at least 32 bytes in staging and production. The dev profile can generate an ephemeral local secret only when explicitly enabled. Staging and production require Redis-backed JWT refresh-token storage and revocation by default with `APP_JWT_REQUIRE_REDIS_TOKEN_STORE=true`; if Redis is unavailable, token validation and issuance fail closed instead of falling back to a single-node map. Staging and production also require Redis-backed auth challenge state with `APP_AUTH_REQUIRE_REDIS_STATE=true` so login rate limits, lockouts, and captcha challenges stay shared across replicas.
-Use `APP_PASSWORD_RESET_DELIVERY_MODE=webhook` outside local development and set `APP_PASSWORD_RESET_SMS_WEBHOOK_URL`, `APP_PASSWORD_RESET_EMAIL_WEBHOOK_URL`, and `APP_PASSWORD_RESET_WEBHOOK_SECRET`; reset challenges fail closed when delivery is disabled or misconfigured.
-Set `APP_UPLOAD_VIRUS_SCAN_ENABLED=true` only when `CLAMAV_HOST:CLAMAV_PORT` is reachable; enabled scanning rejects uploads if ClamAV is unavailable.
-New passwords must be at least 10 characters and include lowercase, uppercase, digit, and special characters with no whitespace.
+The backend is organized by business context. Each context uses the following layers where applicable:
 
-Schema changes are managed with Flyway from `src/main/resources/db/migration` before Hibernate validates the schema. New databases run from `V1__init_schema.sql`; existing manually-created demo schemas should be backed up and migrated deliberately. Only set `FLYWAY_BASELINE_ON_MIGRATE=true` after confirming the current schema already matches the baseline.
-
-Encrypted secret material belongs under `secrets/*.enc.yaml` using the SOPS/age convention in `secrets/README.md`; plaintext secret files under `secrets/` are ignored.
-
-## Build And Test
-
-```powershell
-mvn clean verify
+```text
+src/main/java/com/example/monkey
+  admin/      # dashboard, stats, audit trace
+  order/      # order lifecycle, idempotency, stock, state transitions
+  product/    # catalog and product management
+  user/       # auth, profile, address, password, captcha, privacy
+  shared/     # web, security, storage, observability, privacy, common contracts
 ```
 
-The Maven `verify` phase includes OWASP dependency-check and fails the build on CVSS >= 7. If the local vulnerability database has not been hydrated, the first run can take a long time.
-Set `NVD_API_KEY` before running `mvn clean verify`; unauthenticated NVD updates are rate-limited and can fail with HTTP 429.
-
-For a quick compile/test/package cycle without the external dependency-check update:
-
-```powershell
-mvn "-Ddependency-check.skip=true" clean verify
+```text
+domain/           business contracts and ports
+application/      use cases, orchestration, assemblers
+infrastructure/   JPA, Redis, MinIO, external service adapters
+interfaces/       REST controllers, filters, request DTOs
 ```
 
-Run the WS1 security gate with:
+ArchUnit tests enforce important boundaries: controllers do not access repositories directly, application services do not depend on infrastructure, shared interfaces do not depend back on feature contexts, and adapters stay out of legacy flat `service` or `security` packages.
 
-```powershell
-.\scripts\verify-ws1-security.ps1
+## Main Features
+
+### Storefront
+
+- Product catalog, search, price filters, stock display, and checkout dialog.
+- Login, registration, password reset, profile, address book, order list, and admin dashboard.
+- Axios client with `X-Trace-Id`, CSRF, cookie credentials, and refresh-token retry.
+- Accessibility and performance gates powered by Playwright, axe, and Lighthouse.
+
+### Authentication And Authorization
+
+- Access and refresh tokens are transported in HttpOnly cookies.
+- Redis-backed JWT refresh-token storage and revocation.
+- Refresh-token rotation and replay detection.
+- CSRF cookie/header protection.
+- RBAC authorities, method-level security, and admin TOTP MFA.
+- BCrypt hashing, password policy, password history, HIBP compromise checks, and forced password changes after expiry.
+- Passwords older than 90 days authenticate only into the forced password-change corridor. Passwords expire after 90 days.
+- login rate limits, lockouts, and captcha challenges stay shared across replicas through Redis-backed auth state.
+
+### Orders
+
+- Order creation requires an idempotency key.
+- Redisson distributed lock protects concurrent order creation.
+- Stock deduction and restoration keep stock-log evidence.
+- Order states are driven by domain events and a StateMachine adapter.
+- Business metrics cover pending orders, creation latency, and stock deduction failures.
+
+### Uploads And Storage
+
+- Validates file type, size, magic number, MIME, image dimensions, and normalized paths.
+- Optional ClamAV scanning fails closed when enabled.
+- Supports image variants and orphan cleanup jobs.
+- Supports local object storage and MinIO-compatible storage.
+- Product, user, and order image references are handled through shared storage ports.
+
+### Privacy And Audit
+
+- PII is encrypted with Tink AES-GCM.
+- Phone blind indexes enable lookup without plaintext scans.
+- Supports environment keys and Vault Transit-wrapped key material.
+- Retention jobs anonymize PII in completed/refunded orders.
+- Supports user erasure and audit trace lookup.
+
+## Repository Layout
+
+```text
+.
+  frontend/                 Vue 3 SPA frontend
+  src/main/java/            Spring Boot backend source
+  src/main/resources/       config, static assets, Flyway migrations
+  src/test/java/            unit, security, architecture, workflow tests
+  config/                   Checkstyle and SpotBugs config
+  deploy/                   Nginx, Argo CD, Kyverno assets
+  helm/monkeyshop/          Kubernetes Chart
+  scripts/                  local verification and security scripts
+  docs/                     deployment, observability, security docs
+  secrets/                  encrypted secret convention docs
+  Dockerfile
+  docker-compose.yml
+  pom.xml
 ```
 
-For local iteration when NVD is rate-limited, use:
+## Prerequisites
 
-```powershell
-.\scripts\verify-ws1-security.ps1 -SkipDependencyCheck
-```
+- Java 21
+- Maven 3.9+
+- Node.js 24+
+- npm 10+
+- MySQL 8
+- Redis 7
+- Docker Desktop or another Docker-compatible runtime
+- ClamAV, optional unless upload scanning is enabled
 
-Without `NVD_API_KEY`, the full gate passes `-DnvdApiDelay=8000` by default. Override with `-UnauthenticatedNvdDelayMs` if your network needs a different cadence. If the dependency-check data cache is already hydrated but NVD is unreachable, use `-SkipDependencyCheckUpdate` to run the OWASP dependency-check gate against the cached database. The Maven phase has a 30 minute timeout so dependency-check/NVD hangs fail clearly instead of leaving background Java processes; override with `-MavenTimeoutSeconds` for a planned fresh database hydration.
-If Trivy's remote vulnerability database is temporarily unreachable but a local Trivy DB cache is already hydrated, use `-SkipTrivyDbUpdate` for a cached local scan. CI should keep the default fresh-DB behavior.
+## Quick Start
 
-GitHub Actions runs `.github/workflows/ws1-security.yml` on pushes and pull requests. The fast job runs Maven with dependency-check skipped plus literal-risk scanning, gitleaks current/history, Semgrep, and Trivy. The full dependency-check job requires a repository secret named `NVD_API_KEY`; it fails clearly when that secret is not configured.
+### Run With Docker Compose
 
-## Docker
-
-Create a local `.env` file outside version control or export the variables in your shell:
+Compose starts MySQL, Redis, ClamAV, and the application. The project intentionally requires explicit secrets instead of shipping default passwords.
 
 ```powershell
 $env:MYSQL_ROOT_PASSWORD = "<strong-root-password>"
@@ -85,16 +187,126 @@ $env:APP_JWT_REQUIRE_REDIS_TOKEN_STORE = "false"
 $env:APP_AUTH_REQUIRE_REDIS_STATE = "false"
 $env:APP_PASSWORD_RESET_DELIVERY_MODE = "logging"
 $env:SESSION_COOKIE_SECURE = "false"
+
 docker compose up -d --build
 ```
 
-The compose file requires database and admin bootstrap secrets and does not provide default passwords. It also starts ClamAV and enables upload virus scanning for the app container by default.
+Default URL:
 
-## Kubernetes And GitOps
+```text
+http://localhost:8888
+```
 
-WS7 deployment assets live under `helm/monkeyshop`, `deploy/argocd`, and `deploy/kyverno`; the full operator notes are in `docs/deployment/ws7.md`.
+### Run Backend Locally
 
-WS8 anti-abuse and PII encryption controls are documented in `docs/security/ws8.md`, including Turnstile actions, rate-limit quotas, PII key requirements, and retention behavior.
+```powershell
+$env:SPRING_PROFILES_ACTIVE = "dev"
+$env:DB_URL = "jdbc:mysql://localhost:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=true&requireSSL=true&verifyServerCertificate=true"
+$env:DB_USERNAME = "root"
+$env:DB_PASSWORD = "<local-db-password>"
+$env:ADMIN_INIT_PASSWORD = "<strong-initial-admin-password>"
+$env:ADMIN_TOTP_SECRET = "<base32-totp-secret>"
+$env:APP_JWT_SECRET = "<at-least-32-byte-jwt-signing-secret>"
+$env:SESSION_COOKIE_SECURE = "false"
+$env:APP_UPLOAD_PATH = "uploads/images"
+$env:APP_UPLOAD_VIRUS_SCAN_ENABLED = "false"
+
+mvn spring-boot:run
+```
+
+### Run Frontend Locally
+
+```powershell
+cd frontend
+npm ci
+npm run dev
+```
+
+## Build And Test
+
+Backend:
+
+```powershell
+mvn test
+mvn "-Ddependency-check.skip=true" verify
+```
+
+Frontend:
+
+```powershell
+cd frontend
+npm ci
+npm run build
+npm run lint
+npm run test:api-contract
+npm run test:a11y
+npm run test:lighthouse
+```
+
+Security and DevOps gates:
+
+```powershell
+.\scripts\bootstrap-ws1-tools.ps1
+.\scripts\verify-ws1-security.ps1
+.\scripts\verify-ws7-devops.ps1
+.\scripts\verify-ws8-security.ps1
+```
+
+`.\scripts\bootstrap-ws1-tools.ps1` installs cached scanner tools under `%USERPROFILE%\.cache\codex-tools\ws1-security`; keep both scanner directories on `PATH` before running the WS1 security scripts.
+
+Full Maven `verify` includes JaCoCo, SpotBugs/FindSecBugs, PIT mutation testing, and OWASP dependency-check. Set `NVD_API_KEY` before running full dependency-check to avoid NVD rate limits.
+
+## API Documentation
+
+Available when the backend is running:
+
+| Endpoint | URL |
+| --- | --- |
+| OpenAPI JSON | `http://localhost:8888/api/v1/openapi` |
+| Swagger UI | `http://localhost:8888/api/v1/docs` |
+| Health | `http://localhost:8888/actuator/health` |
+| Prometheus | `http://localhost:8888/actuator/prometheus` |
+
+## Configuration
+
+Runtime configuration is mainly driven by `src/main/resources/application.yml` and profile-specific YAML files.
+
+| Variable | Purpose |
+| --- | --- |
+| `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | MySQL connection |
+| `ADMIN_INIT_PASSWORD`, `ADMIN_TOTP_SECRET` | first admin bootstrap |
+| `APP_JWT_SECRET` | HS256 signing secret, at least 32 bytes |
+| `APP_JWT_REQUIRE_REDIS_TOKEN_STORE` | require Redis-backed token state |
+| `APP_AUTH_REQUIRE_REDIS_STATE` | require Redis-backed auth/captcha/rate-limit state |
+| `APP_AUTH_CAPTCHA_PROVIDER` | `local` or `turnstile` |
+| `APP_PASSWORD_RESET_DELIVERY_MODE` | `disabled`, `logging`, or `webhook` |
+| `APP_UPLOAD_PATH` | upload root path |
+| `APP_UPLOAD_VIRUS_SCAN_ENABLED` | enable ClamAV scanning |
+| `APP_PII_ENCRYPTION_ENABLED` | enable PII encryption |
+| `APP_PII_KEY_PROVIDER` | `env` or `vault-transit` |
+| `NVD_API_KEY` | OWASP dependency-check data access |
+
+Never commit plaintext secrets. Encrypted secret material belongs under `secrets/*.enc.yaml` following `secrets/README.md`.
+
+## Database
+
+Flyway migrations live in `src/main/resources/db/migration`. The application uses `ddl-auto=validate`, so schema drift fails at startup instead of being silently modified by Hibernate.
+
+## Deployment
+
+### Docker
+
+The Dockerfile includes a Node frontend build stage, a Maven Java 21 backend build stage, Spring Boot layered jar extraction, and a non-root Java runtime image with an Actuator healthcheck.
+
+### Kubernetes And GitOps
+
+Kubernetes assets:
+
+- `helm/monkeyshop`
+- `deploy/argocd`
+- `deploy/kyverno`
+
+The Helm chart supports dev Deployment mode, staging/prod Argo Rollouts canaries, External Secrets, HPA, PDB, NetworkPolicy, ServiceMonitor, PrometheusRule, Grafana dashboard, read-only root filesystem, restricted pod security, and digest-pinned production images.
 
 ```powershell
 helm template monkeyshop .\helm\monkeyshop -f .\helm\monkeyshop\values-dev.yaml
@@ -102,21 +314,33 @@ helm template monkeyshop .\helm\monkeyshop -f .\helm\monkeyshop\values-staging.y
 helm template monkeyshop .\helm\monkeyshop -f .\helm\monkeyshop\values-prod.yaml
 ```
 
-The chart supports standard Deployment mode for dev and Argo Rollouts canary mode for staging/prod, with External Secrets, HPA, PDB, NetworkPolicy, cert-manager Ingress annotations, ServiceMonitor, restricted pod security context, and explicit writable volumes for `/tmp`, `/app/logs`, and `/data/images`. The CI/CD workflow builds, scans, pushes, and cosign-signs images on non-PR refs.
+## CI And Supply Chain
 
-## TLS Edge
+GitHub Actions cover backend verification, frontend verification, DevOps manifest checks, Docker build/scan/sign, CodeQL, Snyk, and Dependabot. Branch protection expectations are documented in `.github/required-checks.yml`.
 
-Spring Boot listens on the internal application port. Terminate public TLS 1.3 at a managed load balancer, ingress controller, or the Nginx baseline in `deploy/nginx/monkeyshop.conf`. Production and staging profiles trust forwarded headers so secure cookies and generated URLs reflect the original HTTPS request.
+### Supply-chain gates
 
-## Security Baseline Notes
+- `.github/dependabot.yml` maintains Maven, frontend npm, GitHub Actions, and Docker dependencies.
+- `.github/workflows/codeql.yml` runs CodeQL for Java/Kotlin and JavaScript/TypeScript sources.
+- `.github/workflows/snyk.yml` scans `pom.xml` and `frontend/package-lock.json`; the `SNYK_TOKEN` repository secret is required for the Snyk dependency gate.
 
-- `app.jar`, `code.txt`, local uploads, private keys, and `.env*` files are ignored and must not be committed.
-- Runtime configuration lives in YAML profiles plus environment variables or SOPS-managed encrypted secret files.
-- Uploaded images are stored outside the source tree through `APP_UPLOAD_PATH` and served from `/images/**` with packaged default images as fallback.
-- CSRF is enabled with a cookie token, and legacy pages attach `X-XSRF-TOKEN` for unsafe same-origin requests.
-- API authorization is centralized in Spring Security with JWT HttpOnly cookies, rotating refresh tokens, replayed refresh-token invalidation, RBAC permission authorities, and method-level `@PreAuthorize` declarations.
-- Staging and production require Redis for refresh-token rotation, logout revocation, and password-reset token invalidation; Redis read/write failures fail closed.
-- Login rate-limit, lockout, captcha, and password-reset OTP/email-token state is Redis-backed in staging and production; auth flows fail closed if the shared state store is unavailable.
-- Image upload now validates upload type, size, magic number, Tika-detected MIME type, ClamAV scan results when enabled, image dimensions, and normalized destination paths.
-- Admin bootstrap, registration, and password changes enforce the shared password complexity policy before hashing.
-- Password reset uses short-lived SMS OTP plus optional email-token challenges through `PasswordResetDeliveryService`; staging and production use HTTP webhook delivery and fail closed if the provider URLs or shared secret are absent.
+## Documentation
+
+- `docs/security/ws1-history-cleanup.md`: historical secret cleanup and release-blocking attestation; evidence is written to `target/ws1-security/gitleaks-history.json`.
+- `docs/security/ws2-rbac-matrix.md`: role-permission matrix.
+- `docs/security/ws8.md`: anti-abuse, PII encryption, retention, and compliance posture.
+- `docs/deployment/ws7.md`: Kubernetes and GitOps operations.
+- `docs/observability/ws6.md`: observability notes.
+
+## Development Rules
+
+- Keep feature code inside its bounded context.
+- Put domain contracts in `domain`, orchestration in `application`, adapters in `infrastructure`, and HTTP entrypoints in `interfaces`.
+- Controllers should not access repositories or entities directly.
+- Application services should not depend on persistence, Redis, Servlet, Multipart, or security crypto framework details.
+- Schema changes must include Flyway migrations.
+- Add focused tests for authorization, security-sensitive behavior, idempotency, stock transitions, and cross-module contracts.
+
+## License
+
+No license file is currently provided. Add one before publishing or accepting external contributions.

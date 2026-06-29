@@ -72,7 +72,8 @@ async function submitLogin() {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Sign in failed'
     showAdminMfa.value = message === 'admin mfa required' || message === 'admin mfa invalid'
-    showLoginCaptcha.value = turnstileEnabled.value || message === 'captcha required' || message === 'captcha incorrect'
+    showLoginCaptcha.value =
+      turnstileEnabled.value || message === 'captcha required' || message === 'captcha incorrect'
     if (showLoginCaptcha.value && !turnstileEnabled.value) {
       refreshCaptcha('login')
     }
@@ -142,7 +143,7 @@ onMounted(() => {
   <AppShell>
     <section class="auth-layout">
       <div class="auth-visual">
-        <img :src="heroImage" alt="MonkeyShop storefront">
+        <img :src="heroImage" alt="MonkeyShop storefront" />
       </div>
 
       <el-tabs v-model="activeTab" class="auth-panel" stretch>
@@ -152,7 +153,12 @@ onMounted(() => {
               <el-input v-model="loginForm.username" autocomplete="username" />
             </el-form-item>
             <el-form-item :label="$t('auth.password')">
-              <el-input v-model="loginForm.password" type="password" autocomplete="current-password" show-password />
+              <el-input
+                v-model="loginForm.password"
+                type="password"
+                autocomplete="current-password"
+                show-password
+              />
             </el-form-item>
             <el-form-item v-if="showAdminMfa" :label="$t('auth.totp')">
               <el-input v-model="loginForm.totp" inputmode="numeric" />
@@ -167,8 +173,13 @@ onMounted(() => {
               <div class="captcha-row">
                 <template v-if="!turnstileEnabled">
                   <el-input v-model="loginForm.captcha" />
-                  <button class="captcha-image-button" type="button" aria-label="Refresh captcha" @click="refreshCaptcha('login')">
-                    <img :src="loginCaptchaUrl" alt="Captcha">
+                  <button
+                    class="captcha-image-button"
+                    type="button"
+                    aria-label="Refresh captcha"
+                    @click="refreshCaptcha('login')"
+                  >
+                    <img :src="loginCaptchaUrl" alt="Captcha" />
                   </button>
                   <el-button :icon="Refresh" circle @click="refreshCaptcha('login')" />
                 </template>
@@ -186,7 +197,12 @@ onMounted(() => {
               <el-input v-model="registerForm.username" autocomplete="username" />
             </el-form-item>
             <el-form-item :label="$t('auth.password')">
-              <el-input v-model="registerForm.password" type="password" autocomplete="new-password" show-password />
+              <el-input
+                v-model="registerForm.password"
+                type="password"
+                autocomplete="new-password"
+                show-password
+              />
             </el-form-item>
             <el-form-item :label="$t('auth.phone')">
               <el-input v-model="registerForm.phone" />
@@ -198,9 +214,19 @@ onMounted(() => {
               <label class="file-picker" for="register-avatar-input">
                 <el-icon><Upload /></el-icon>
                 <span>{{ avatarFile?.name || $t('common.upload') }}</span>
-                <input id="register-avatar-input" type="file" accept="image/png,image/jpeg" @change="selectAvatar">
+                <input
+                  id="register-avatar-input"
+                  type="file"
+                  accept="image/png,image/jpeg"
+                  @change="selectAvatar"
+                />
               </label>
-              <img v-if="avatarPreview" class="avatar-preview" :src="avatarPreview" alt="Avatar preview">
+              <img
+                v-if="avatarPreview"
+                class="avatar-preview"
+                :src="avatarPreview"
+                alt="Avatar preview"
+              />
             </el-form-item>
             <el-form-item :label="$t('auth.captcha')">
               <HumanVerification
@@ -218,7 +244,7 @@ onMounted(() => {
                     aria-label="Refresh captcha"
                     @click="refreshCaptcha('register')"
                   >
-                    <img :src="registerCaptchaUrl" alt="Captcha">
+                    <img :src="registerCaptchaUrl" alt="Captcha" />
                   </button>
                   <el-button :icon="Refresh" circle @click="refreshCaptcha('register')" />
                 </template>
@@ -274,9 +300,7 @@ onMounted(() => {
         </el-tab-pane>
       </el-tabs>
 
-      <el-button text @click="router.push('/shop')">
-        Continue browsing
-      </el-button>
+      <el-button text @click="router.push('/shop')"> Continue browsing </el-button>
     </section>
   </AppShell>
 </template>

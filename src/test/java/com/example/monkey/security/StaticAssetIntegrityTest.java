@@ -148,9 +148,12 @@ class StaticAssetIntegrityTest {
     void ciRunsFrontendAccessibilityAndLighthouseGates() throws IOException {
         String workflow = Files.readString(Path.of(".github/workflows/ci.yaml"), StandardCharsets.UTF_8);
         String lighthouse = Files.readString(Path.of("frontend/scripts/lighthouse.mjs"), StandardCharsets.UTF_8);
+        String packageJson = Files.readString(Path.of("frontend/package.json"), StandardCharsets.UTF_8);
 
         assertThat(workflow)
                 .contains("working-directory: frontend")
+                .contains("npm run audit")
+                .contains("npm run format")
                 .contains("npx playwright install --with-deps chromium")
                 .contains("npm run test:a11y")
                 .contains("CHROME_PATH=$(node -e")
@@ -161,6 +164,8 @@ class StaticAssetIntegrityTest {
                 .contains("chromePath: process.env.CHROME_PATH || undefined")
                 .contains("score < 0.95")
                 .contains("lcp > 2500");
+        assertThat(packageJson)
+                .contains("\"audit\": \"npm audit --audit-level=high --registry=https://registry.npmjs.org\"");
     }
 
     private static boolean isFrontendSourceFile(Path path) {
