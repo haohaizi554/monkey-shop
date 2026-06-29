@@ -1,0 +1,122 @@
+global:
+  environment: staging
+
+namespace:
+  create: true
+  name: monkeyshop-staging
+
+image:
+  repository: harbor.example.com/monkeyshop/monkeyshop
+  tag: staging
+  digest: ""
+
+config:
+  SPRING_PROFILES_ACTIVE: staging
+  DB_URL: jdbc:mysql://staging-mysql.internal:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=true&requireSSL=true&verifyServerCertificate=true
+  DB_USERNAME: monkeyuser
+  SPRING_DATA_REDIS_HOST: staging-redis.internal
+  APP_TURNSTILE_EXPECTED_HOSTNAME: staging.monkeyshop.example.com
+  APP_PII_VAULT_ADDR: https://vault.staging.example.com
+  APP_PII_VAULT_TRANSIT_KEY: monkeyshop-pii-staging
+  CLAMAV_HOST: clamav.monkeyshop-security.svc.cluster.local
+  APP_STORAGE_PROVIDER: minio
+  APP_STORAGE_MINIO_BUCKET: monkeyshop-staging
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability.svc.cluster.local:4318
+  SENTRY_ENVIRONMENT: staging
+  SENTRY_TRACES_SAMPLE_RATE: "0.05"
+
+externalSecret:
+  enabled: true
+  data:
+    - secretKey: DB_PASSWORD
+      remoteRef:
+        key: monkeyshop/staging
+        property: DB_PASSWORD
+    - secretKey: ADMIN_INIT_PASSWORD
+      remoteRef:
+        key: monkeyshop/staging
+        property: ADMIN_INIT_PASSWORD
+    - secretKey: ADMIN_TOTP_SECRET
+      remoteRef:
+        key: monkeyshop/staging
+        property: ADMIN_TOTP_SECRET
+    - secretKey: APP_JWT_SECRET
+      remoteRef:
+        key: monkeyshop/staging
+        property: APP_JWT_SECRET
+    - secretKey: APP_TURNSTILE_SITE_KEY
+      remoteRef:
+        key: monkeyshop/staging
+        property: APP_TURNSTILE_SITE_KEY
+    - secretKey: APP_TURNSTILE_SECRET_KEY
+      remoteRef:
+        key: monkeyshop/staging
+        property: APP_TURNSTILE_SECRET_KEY
+    - secretKey: APP_PII_KEY_CREATED_AT
+      remoteRef:
+        key: monkeyshop/staging
+        property: APP_PII_KEY_CREATED_AT
+    - secretKey: APP_PII_VAULT_TOKEN
+      remoteRef:
+        key: monkeyshop/staging
+        property: APP_PII_VAULT_TOKEN
+    - secretKey: APP_PII_VAULT_AES_CIPHERTEXT
+      remoteRef:
+        key: monkeyshop/staging
+        property: APP_PII_VAULT_AES_CIPHERTEXT
+    - secretKey: APP_PII_VAULT_HMAC_CIPHERTEXT
+      remoteRef:
+        key: monkeyshop/staging
+        property: APP_PII_VAULT_HMAC_CIPHERTEXT
+    - secretKey: APP_PASSWORD_RESET_SMS_WEBHOOK_URL
+      remoteRef:
+        key: monkeyshop/staging
+        property: APP_PASSWORD_RESET_SMS_WEBHOOK_URL
+    - secretKey: APP_PASSWORD_RESET_EMAIL_WEBHOOK_URL
+      remoteRef:
+        key: monkeyshop/staging
+        property: APP_PASSWORD_RESET_EMAIL_WEBHOOK_URL
+    - secretKey: APP_PASSWORD_RESET_WEBHOOK_SECRET
+      remoteRef:
+        key: monkeyshop/staging
+        property: APP_PASSWORD_RESET_WEBHOOK_SECRET
+    - secretKey: APP_STORAGE_MINIO_ENDPOINT
+      remoteRef:
+        key: monkeyshop/staging
+        property: APP_STORAGE_MINIO_ENDPOINT
+    - secretKey: APP_STORAGE_MINIO_ACCESS_KEY
+      remoteRef:
+        key: monkeyshop/staging
+        property: APP_STORAGE_MINIO_ACCESS_KEY
+    - secretKey: APP_STORAGE_MINIO_SECRET_KEY
+      remoteRef:
+        key: monkeyshop/staging
+        property: APP_STORAGE_MINIO_SECRET_KEY
+    - secretKey: SENTRY_DSN
+      remoteRef:
+        key: monkeyshop/staging
+        property: SENTRY_DSN
+
+ingress:
+  enabled: true
+  hosts:
+    - host: staging.monkeyshop.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: monkeyshop-staging-tls
+      hosts:
+        - staging.monkeyshop.example.com
+
+rollout:
+  enabled: true
+
+serviceMonitor:
+  enabled: true
+
+prometheusRule:
+  enabled: true
+
+grafanaDashboard:
+  enabled: true

@@ -1,65 +1,73 @@
 package com.example.monkey.controller;
 
-import com.example.monkey.entity.Monkey;
-import com.example.monkey.repository.MonkeyRepository;
-import com.example.monkey.security.SessionUser;
-import com.example.monkey.service.ImageCleanupService; // 引入服务
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.*;
-
+import com.example.monkey.domain.product.ProductCatalog.ProductPageRequest;
+import com.example.monkey.domain.product.ProductCatalog.SortOrder;
+import com.example.monkey.domain.product.ProductCatalog.SortOrder.Direction;
+import com.example.monkey.dto.MonkeyRequestDto;
+import com.example.monkey.dto.MonkeyResponseDto;
+import com.example.monkey.dto.PageResponseDto;
+import com.example.monkey.service.MonkeyService;
+import com.example.monkey.shared.api.Result;
+import jakarta.validation.Valid;
 import java.util.List;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/monkeys")
+@RequestMapping({"/api/monkeys", "/api/v1/monkeys"})
 public class MonkeyController {
-    @Autowired
-    private MonkeyRepository repository;
-    @Autowired
-    private ImageCleanupService imageCleanupService; // 注入清理服务
+
+    private final MonkeyService monkeyService;
+
+    public MonkeyController(MonkeyService monkeyService) {
+        this.monkeyService = monkeyService;
+    }
+
     @GetMapping
-    public List<Monkey> getAllMonkeys() {
-        return repository.findAll();
+    @PreAuthorize("permitAll()")
+    public Result<List<MonkeyResponseDto>> getAllMonkeys() {
+        return Result.success(monkeyService.findAllMonkeys());
     }
+
+    @GetMapping(params = {"page", "size"})
+    @PreAuthorize("permitAll()")
+    public Result<PageResponseDto<MonkeyResponseDto>> getMonkeys(
+            @PageableDefault(size = 20, sort = "id", direction = Sort.Direction.ASC) Pageable pageable) {
+        return Result.success(monkeyService.findMonkeys(toProductPageRequest(pageable)));
+    }
+
     @PostMapping("/add")
-    public String addMonkey(@RequestBody Monkey monkey, @AuthenticationPrincipal SessionUser currentUser) {
-        if (!isAdmin(currentUser)) return "error:无权操作";
-        if (monkey.getImageUrl() == null || monkey.getImageUrl().isEmpty()) {
-            monkey.setImageUrl("/images/default_product.png");
-        }
-        repository.save(monkey);
-        return "ok";
+    @PreAuthorize("hasAuthority('PRODUCT_MANAGE')")
+    public Result<MonkeyResponseDto> addMonkey(@Valid @RequestBody MonkeyRequestDto request) {
+        return Result.success(monkeyService.addMonkey(request));
     }
+
     @PostMapping("/update")
-    public String updateMonkey(@RequestBody Monkey monkey, @AuthenticationPrincipal SessionUser currentUser) {
-        if (!isAdmin(currentUser)) return "error:无权操作";
-        // 1. 查出旧数据
-        Monkey oldMonkey = repository.findById(monkey.getId()).orElse(null);
-        if (oldMonkey == null) return "error:商品不存在";
-        String oldImage = oldMonkey.getImageUrl();
-        // 2. 保存新数据
-        repository.save(monkey);
-        // 3. 尝试清理旧图片 (如果图片变了)
-        if (oldImage != null && !oldImage.equals(monkey.getImageUrl())) {
-            imageCleanupService.tryDelete(oldImage);
-        }
-        return "ok";
+    @PreAuthorize("hasAuthority('PRODUCT_MANAGE')")
+    public Result<MonkeyResponseDto> updateMonkey(@Valid @RequestBody MonkeyRequestDto request) {
+        return Result.success(monkeyService.updateMonkey(request));
     }
+
     @DeleteMapping("/{id}")
-    public String deleteMonkey(@PathVariable Long id, @AuthenticationPrincipal SessionUser currentUser) {
-        if (!isAdmin(currentUser)) return "error:无权操作";
-        Monkey monkey = repository.findById(id).orElse(null);
-        if (monkey != null) {
-            String imageToDelete = monkey.getImageUrl();
-            // 1. 先删数据库记录
-            repository.deleteById(id);
-            // 2. 再尝试删文件 (此时数据库里已经没有这条记录了，计数器会减1)
-            imageCleanupService.tryDelete(imageToDelete);
-            return "ok";
-        }
-        return "error:商品不存在";
+    @PreAuthorize("hasAuthority('PRODUCT_MANAGE')")
+    public Result<Void> deleteMonkey(@PathVariable Long id) {
+        monkeyService.deleteMonkey(id);
+        return Result.success();
     }
-    private boolean isAdmin(SessionUser currentUser) {
-        return currentUser != null && currentUser.isAdmin();
+
+    private static ProductPageRequest toProductPageRequest(Pageable pageable) {
+        List<SortOrder> sortOrders = pageable.getSort().stream()
+                .map(order -> new SortOrder(order.getProperty(), order.isAscending() ? Direction.ASC : Direction.DESC))
+                .toList();
+        return new ProductPageRequest(pageable.getPageNumber(), pageable.getPageSize(), sortOrders);
     }
 }

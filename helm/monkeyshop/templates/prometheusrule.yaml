@@ -1,0 +1,89 @@
+{{- if .Values.prometheusRule.enabled }}
+{{- $fullname := include "monkeyshop.fullname" . -}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ $fullname }}
+  {{- if .Values.prometheusRule.namespace }}
+  namespace: {{ .Values.prometheusRule.namespace }}
+  {{- end }}
+  labels:
+    {{- include "monkeyshop.labels" . | nindent 4 }}
+    {{- with .Values.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: monkeyshop.slo
+      rules:
+        - alert: MonkeyShopHighErrorRate
+          expr: |
+            (
+              sum(rate(http_server_requests_seconds_count{service="{{ $fullname }}",status=~"5.."}[5m]))
+              /
+              clamp_min(sum(rate(http_server_requests_seconds_count{service="{{ $fullname }}"}[5m])), 1)
+            ) > {{ .Values.prometheusRule.thresholds.errorRate }}
+          for: {{ .Values.prometheusRule.for.errorRate }}
+          labels:
+            severity: {{ .Values.prometheusRule.severity | quote }}
+          annotations:
+            summary: MonkeyShop HTTP 5xx rate is above the SLO budget
+            description: More than {{ .Values.prometheusRule.thresholds.errorRate }} of requests are returning 5xx responses for {{ $fullname }}.
+            runbook_url: {{ .Values.prometheusRule.runbookUrl | quote }}
+        - alert: MonkeyShopP99LatencyHigh
+          expr: |
+            histogram_quantile(
+              0.99,
+              sum by (le) (rate(http_server_requests_seconds_bucket{service="{{ $fullname }}"}[5m]))
+            ) > {{ .Values.prometheusRule.thresholds.p99LatencySeconds }}
+          for: {{ .Values.prometheusRule.for.p99Latency }}
+          labels:
+            severity: {{ .Values.prometheusRule.severity | quote }}
+          annotations:
+            summary: MonkeyShop p99 HTTP latency is high
+            description: The p99 HTTP latency for {{ $fullname }} is above {{ .Values.prometheusRule.thresholds.p99LatencySeconds }} seconds.
+            runbook_url: {{ .Values.prometheusRule.runbookUrl | quote }}
+        - alert: MonkeyShopHikariPoolSaturation
+          expr: |
+            (
+              max(hikaricp_connections_active{service="{{ $fullname }}"})
+              /
+              clamp_min(max(hikaricp_connections_max{service="{{ $fullname }}"}), 1)
+            ) > {{ .Values.prometheusRule.thresholds.hikariSaturation }}
+          for: {{ .Values.prometheusRule.for.hikariSaturation }}
+          labels:
+            severity: {{ .Values.prometheusRule.severity | quote }}
+          annotations:
+            summary: MonkeyShop HikariCP pool is close to saturation
+            description: Active database connections are above {{ .Values.prometheusRule.thresholds.hikariSaturation }} of the configured pool maximum.
+            runbook_url: {{ .Values.prometheusRule.runbookUrl | quote }}
+        - alert: MonkeyShopDown
+          expr: absent(up{service="{{ $fullname }}"} == 1)
+          for: {{ .Values.prometheusRule.for.appDown }}
+          labels:
+            severity: critical
+          annotations:
+            summary: MonkeyShop scrape target is down
+            description: Prometheus has no healthy scrape target for {{ $fullname }}.
+            runbook_url: {{ .Values.prometheusRule.runbookUrl | quote }}
+        - alert: MonkeyShopStockDeductFailures
+          expr: |
+            sum(increase(stock_deduct_fail_total{service="{{ $fullname }}"}[5m])) > {{ .Values.prometheusRule.thresholds.stockDeductFailures }}
+          for: {{ .Values.prometheusRule.for.stockDeductFailures }}
+          labels:
+            severity: {{ .Values.prometheusRule.severity | quote }}
+          annotations:
+            summary: MonkeyShop stock deduction failures are elevated
+            description: Stock deduction failures exceeded {{ .Values.prometheusRule.thresholds.stockDeductFailures }} attempts in five minutes.
+            runbook_url: {{ .Values.prometheusRule.runbookUrl | quote }}
+        - alert: MonkeyShopPendingOrdersBacklog
+          expr: |
+            max(order_pending{service="{{ $fullname }}"}) > {{ .Values.prometheusRule.thresholds.pendingOrders }}
+          for: {{ .Values.prometheusRule.for.pendingOrders }}
+          labels:
+            severity: {{ .Values.prometheusRule.severity | quote }}
+          annotations:
+            summary: MonkeyShop pending order backlog is high
+            description: Paid but unshipped orders are above {{ .Values.prometheusRule.thresholds.pendingOrders }}.
+            runbook_url: {{ .Values.prometheusRule.runbookUrl | quote }}
+{{- end }}

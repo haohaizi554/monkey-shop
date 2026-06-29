@@ -1,4 +1,15 @@
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: monkey-redis
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   mysql:
     image: mysql:8.0
     container_name: monkey-mysql
@@ -32,6 +43,8 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       clamav:
         condition: service_started
     environment:
@@ -41,7 +54,17 @@ services:
       DB_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
       ADMIN_INIT_USERNAME: ${ADMIN_INIT_USERNAME:-admin}
       ADMIN_INIT_PASSWORD: ${ADMIN_INIT_PASSWORD:?set ADMIN_INIT_PASSWORD}
+      ADMIN_TOTP_SECRET: ${ADMIN_TOTP_SECRET:?set ADMIN_TOTP_SECRET}
       SERVER_PORT: 8888
+      APP_JWT_SECRET: ${APP_JWT_SECRET:?set APP_JWT_SECRET}
+      APP_JWT_REQUIRE_REDIS_TOKEN_STORE: ${APP_JWT_REQUIRE_REDIS_TOKEN_STORE:-false}
+      APP_AUTH_REQUIRE_REDIS_STATE: ${APP_AUTH_REQUIRE_REDIS_STATE:-false}
+      APP_PASSWORD_RESET_DELIVERY_MODE: ${APP_PASSWORD_RESET_DELIVERY_MODE:-logging}
+      APP_PASSWORD_RESET_SMS_WEBHOOK_URL: ${APP_PASSWORD_RESET_SMS_WEBHOOK_URL:-}
+      APP_PASSWORD_RESET_EMAIL_WEBHOOK_URL: ${APP_PASSWORD_RESET_EMAIL_WEBHOOK_URL:-}
+      APP_PASSWORD_RESET_WEBHOOK_SECRET: ${APP_PASSWORD_RESET_WEBHOOK_SECRET:-}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
       APP_UPLOAD_PATH: /data/images
       APP_UPLOAD_VIRUS_SCAN_ENABLED: ${APP_UPLOAD_VIRUS_SCAN_ENABLED:-true}

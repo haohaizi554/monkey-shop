@@ -21,10 +21,8 @@ public final class CaptchaUtil {
             graphics.fillRect(0, 0, width, height);
 
             for (int i = 0; i < 20; i++) {
-                graphics.setColor(new Color(
-                        SECURE_RANDOM.nextInt(255),
-                        SECURE_RANDOM.nextInt(255),
-                        SECURE_RANDOM.nextInt(255)));
+                graphics.setColor(
+                        new Color(SECURE_RANDOM.nextInt(255), SECURE_RANDOM.nextInt(255), SECURE_RANDOM.nextInt(255)));
                 graphics.drawLine(
                         SECURE_RANDOM.nextInt(width),
                         SECURE_RANDOM.nextInt(height),
@@ -34,10 +32,8 @@ public final class CaptchaUtil {
 
             graphics.setFont(new Font("Arial", Font.BOLD, 24));
             for (int i = 0; i < code.length(); i++) {
-                graphics.setColor(new Color(
-                        SECURE_RANDOM.nextInt(150),
-                        SECURE_RANDOM.nextInt(150),
-                        SECURE_RANDOM.nextInt(150)));
+                graphics.setColor(
+                        new Color(SECURE_RANDOM.nextInt(150), SECURE_RANDOM.nextInt(150), SECURE_RANDOM.nextInt(150)));
                 graphics.drawString(String.valueOf(code.charAt(i)), 20 * i + 10, 28);
             }
         } finally {

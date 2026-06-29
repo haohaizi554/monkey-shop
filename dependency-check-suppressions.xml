@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <suppress>
+        <notes><![CDATA[
+            These findings apply to opentelemetry-go. NVD's affected CPE is scoped to
+            cpe:2.3:a:opentelemetry:opentelemetry:*:*:*:*:*:go:*:* and does not describe
+            Java semantic-convention constants from io.opentelemetry.semconv.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.opentelemetry\.semconv/opentelemetry-semconv(?:-incubating)?@.*$</packageUrl>
+        <cve>CVE-2026-39882</cve>
+        <cve>CVE-2026-39883</cve>
+        <cve>CVE-2026-41178</cve>
+    </suppress>
+</suppressions>

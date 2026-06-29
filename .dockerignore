@@ -2,6 +2,13 @@
 .idea
 .trae
 target
+frontend/node_modules
+frontend/dist
+frontend/dist-ssr
+frontend/test-results
+frontend/playwright-report
+frontend/coverage
+frontend/lighthouse-report.json
 uploads
 logs
 *.log
@@ -12,3 +19,12 @@ code.txt
 .env.*
 *.pem
 *.key
+application.properties
+application-*.properties
+secrets/*.yaml
+secrets/*.yml
+secrets/*.json
+!secrets/*.enc.yaml
+!secrets/*.enc.yml
+!secrets/*.enc.json
+secrets/*.dec.*

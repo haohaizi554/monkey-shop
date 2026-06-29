@@ -1,7 +1,7 @@
 package com.example.monkey.service;
-import com.example.monkey.repository.MonkeyRepository;
-import com.example.monkey.repository.OrderRepository;
-import com.example.monkey.repository.UserRepository;
+
+import com.example.monkey.domain.storage.ImageReferenceService;
+import com.example.monkey.domain.storage.ImageUsageChecker;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -9,46 +9,37 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 
 @Service
 public class ImageCleanupService {
 
     private static final Logger log = LoggerFactory.getLogger(ImageCleanupService.class);
 
-    private final MonkeyRepository monkeyRepository;
-    private final UserRepository userRepository;
-    private final OrderRepository orderRepository;
+    private final ImageReferenceService imageReferenceService;
+    private final ImageUsageChecker imageUsageChecker;
     private final Path uploadRoot;
 
     public ImageCleanupService(
-            MonkeyRepository monkeyRepository,
-            UserRepository userRepository,
-            OrderRepository orderRepository,
+            ImageReferenceService imageReferenceService,
+            ImageUsageChecker imageUsageChecker,
             @Value("${app.upload.path:uploads/images}") String uploadPath) {
-        this.monkeyRepository = monkeyRepository;
-        this.userRepository = userRepository;
-        this.orderRepository = orderRepository;
+        this.imageReferenceService = imageReferenceService;
+        this.imageUsageChecker = imageUsageChecker;
         this.uploadRoot = Path.of(uploadPath).toAbsolutePath().normalize();
     }
 
     public void tryDelete(String imagePath) {
-        if (!StringUtils.hasText(imagePath)) {
+        if (!ImageReferenceService.isTrackable(imagePath)) {
             return;
         }
-        if (imagePath.contains("default_product") || imagePath.contains("default_avatar")) {
+        String canonicalImagePath = ImageVariantService.canonicalPathForVariant(imagePath);
+        if (imageReferenceService.hasReferences(canonicalImagePath)) {
             return;
         }
-        if (monkeyRepository.countByImageUrl(imagePath) > 0) {
+        if (imageUsageChecker.isUsed(canonicalImagePath)) {
             return;
         }
-        if (userRepository.countByAvatar(imagePath) > 0) {
-            return;
-        }
-        if (orderRepository.countByProductImage(imagePath) > 0) {
-            return;
-        }
-        if (orderRepository.countByBuyerAvatar(imagePath) > 0) {
+        if (!ImageReferenceService.isLocalImagePath(imagePath)) {
             return;
         }
 
@@ -63,9 +54,28 @@ public class ImageCleanupService {
             if (Files.isRegularFile(file)) {
                 Files.delete(file);
                 log.info("Deleted unreferenced image {}", imagePath);
+                if (!ImageVariantService.isVariantPath(imagePath)) {
+                    deleteVariantSiblings(file, imagePath);
+                }
             }
         } catch (IOException e) {
             log.warn("Failed to delete unreferenced image {}", imagePath, e);
+        }
+    }
+
+    private void deleteVariantSiblings(Path file, String imagePath) throws IOException {
+        Path parent = file.getParent();
+        if (parent == null || !Files.isDirectory(parent)) {
+            return;
+        }
+        String glob = ImageVariantService.variantGlob(file.getFileName().toString());
+        try (var variants = Files.newDirectoryStream(parent, glob)) {
+            for (Path variant : variants) {
+                if (Files.isRegularFile(variant)) {
+                    Files.delete(variant);
+                    log.info("Deleted unreferenced image variant {} for {}", variant.getFileName(), imagePath);
+                }
+            }
         }
     }
 }

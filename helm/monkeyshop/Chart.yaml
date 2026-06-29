@@ -1,0 +1,13 @@
+apiVersion: v2
+name: monkeyshop
+description: Production Kubernetes chart for the MonkeyShop Spring Boot service.
+type: application
+version: 0.1.0
+appVersion: "0.0.1-SNAPSHOT"
+keywords:
+  - monkeyshop
+  - spring-boot
+  - ecommerce
+maintainers:
+  - name: MonkeyShop Platform
+

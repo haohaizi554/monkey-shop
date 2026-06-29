@@ -1,7 +1,7 @@
 spring:
   datasource:
     url: ${DB_URL:jdbc:mysql://localhost:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=true&requireSSL=true&verifyServerCertificate=true}
-    username: ${DB_USERNAME:root}
+    username: ${DB_USERNAME:monkeyuser}
     password: ${DB_PASSWORD}
   jpa:
     hibernate:
@@ -13,6 +13,23 @@ server:
     session:
       cookie:
         secure: ${SESSION_COOKIE_SECURE:false}
+
+app:
+  auth:
+    require-redis-state: ${APP_AUTH_REQUIRE_REDIS_STATE:false}
+    captcha:
+      provider: ${APP_AUTH_CAPTCHA_PROVIDER:local}
+      cookie-secure: ${APP_AUTH_CAPTCHA_COOKIE_SECURE:${SESSION_COOKIE_SECURE:false}}
+    password-reset:
+      delivery-mode: ${APP_PASSWORD_RESET_DELIVERY_MODE:logging}
+  jwt:
+    cookie-secure: ${APP_JWT_COOKIE_SECURE:${SESSION_COOKIE_SECURE:false}}
+    allow-generated-secret: ${APP_JWT_ALLOW_GENERATED_SECRET:true}
+    require-redis-token-store: ${APP_JWT_REQUIRE_REDIS_TOKEN_STORE:false}
+  pii:
+    encryption:
+      enabled: ${APP_PII_ENCRYPTION_ENABLED:false}
+      allow-plaintext-read: true
 
 logging:
   level:

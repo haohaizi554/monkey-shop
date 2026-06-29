@@ -20,8 +20,7 @@ class CaptchaUtilTest {
     @Test
     void captchaGenerationUsesSecureRandom() throws IOException {
         String source = Files.readString(
-                Path.of("src/main/java/com/example/monkey/util/CaptchaUtil.java"),
-                StandardCharsets.UTF_8);
+                Path.of("src/main/java/com/example/monkey/util/CaptchaUtil.java"), StandardCharsets.UTF_8);
 
         assertThat(source).contains("java.security.SecureRandom");
         assertThat(source).doesNotContain("java.util." + "Random");

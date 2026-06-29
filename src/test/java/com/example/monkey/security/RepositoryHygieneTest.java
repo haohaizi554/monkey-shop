@@ -1,0 +1,101 @@
+package com.example.monkey.security;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.Test;
+
+class RepositoryHygieneTest {
+
+    private static final List<String> REQUIRED_GITIGNORE_PATTERNS = List.of(
+            "uploads/",
+            "app.jar",
+            "code.txt",
+            "*.jar",
+            ".env",
+            ".env.*",
+            "*.pem",
+            "*.key",
+            "application.properties",
+            "application-*.properties",
+            ".trae/",
+            "secrets/*.yaml",
+            "secrets/*.dec.*");
+
+    private static final List<String> REQUIRED_DOCKERIGNORE_PATTERNS = List.of(
+            ".git",
+            "target",
+            "uploads",
+            "app.jar",
+            "code.txt",
+            "*.jar",
+            ".env",
+            ".env.*",
+            "*.pem",
+            "*.key",
+            "application.properties",
+            "application-*.properties",
+            "secrets/*.yaml",
+            "secrets/*.dec.*",
+            ".trae");
+
+    private static final List<String> FORBIDDEN_TRACKED_PATH_FRAGMENTS =
+            List.of("code.txt", "app.jar", ".env", ".pem", ".key", "uploads/", ".trae/");
+
+    @Test
+    void gitignoreCoversSensitiveLocalArtifacts() throws IOException {
+        String gitignore = Files.readString(Path.of(".gitignore"), StandardCharsets.UTF_8);
+
+        for (String pattern : REQUIRED_GITIGNORE_PATTERNS) {
+            assertThat(gitignore).contains(pattern);
+        }
+    }
+
+    @Test
+    void dockerignoreKeepsSensitiveFilesOutOfBuildContext() throws IOException {
+        String dockerignore = Files.readString(Path.of(".dockerignore"), StandardCharsets.UTF_8);
+
+        for (String pattern : REQUIRED_DOCKERIGNORE_PATTERNS) {
+            assertThat(dockerignore).contains(pattern);
+        }
+    }
+
+    @Test
+    void sensitiveArtifactsAreNotTrackedByGit() throws Exception {
+        assumeTrue(Files.isDirectory(Path.of(".git")), "git metadata is required for tracked artifact audit");
+
+        Process process = new ProcessBuilder("git", "ls-files", "-z")
+                .redirectErrorStream(true)
+                .start();
+        CompletableFuture<String> output = CompletableFuture.supplyAsync(() -> readProcessOutput(process));
+        boolean finished = process.waitFor(30, TimeUnit.SECONDS);
+        if (!finished) {
+            process.destroyForcibly();
+            process.waitFor(5, TimeUnit.SECONDS);
+        }
+        String trackedFiles =
+                output.get(5, TimeUnit.SECONDS).replace('\0', '\n').replace('\\', '/');
+
+        assertThat(finished).as("git ls-files timed out").isTrue();
+        assertThat(process.exitValue()).as(trackedFiles).isZero();
+        for (String forbiddenPath : FORBIDDEN_TRACKED_PATH_FRAGMENTS) {
+            assertThat(trackedFiles).doesNotContain(forbiddenPath);
+        }
+    }
+
+    private static String readProcessOutput(Process process) {
+        try {
+            return new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+}

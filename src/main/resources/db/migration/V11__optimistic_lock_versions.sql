@@ -1,0 +1,5 @@
+ALTER TABLE `monkey`
+    ADD COLUMN `version` BIGINT NOT NULL DEFAULT 0;
+
+ALTER TABLE `orders`
+    ADD COLUMN `version` BIGINT NOT NULL DEFAULT 0;

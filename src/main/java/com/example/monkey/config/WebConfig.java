@@ -22,14 +22,11 @@ public class WebConfig implements WebMvcConfigurer {
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         registry.addResourceHandler("/images/**")
-                .addResourceLocations(
-                        uploadRoot.toUri().toString(),
-                        "classpath:/static/images/");
+                .addResourceLocations(uploadRoot.toUri().toString(), "classpath:/static/images/");
     }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(visitInterceptor)
-                .addPathPatterns("/", "/shop.html", "/index.html");
+        registry.addInterceptor(visitInterceptor).addPathPatterns("/", "/shop", "/shop.html", "/index.html");
     }
 }

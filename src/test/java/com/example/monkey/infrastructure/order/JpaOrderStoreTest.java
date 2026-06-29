@@ -1,0 +1,330 @@
+package com.example.monkey.infrastructure.order;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.example.monkey.domain.order.OrderStatus;
+import com.example.monkey.domain.order.OrderStore.AddressRecord;
+import com.example.monkey.domain.order.OrderStore.BuyerRecord;
+import com.example.monkey.domain.order.OrderStore.OrderPage;
+import com.example.monkey.domain.order.OrderStore.OrderPageRequest;
+import com.example.monkey.domain.order.OrderStore.OrderRecord;
+import com.example.monkey.domain.order.OrderStore.ProductRecord;
+import com.example.monkey.domain.order.OrderStore.SortOrder;
+import com.example.monkey.domain.order.OrderStore.SortOrder.Direction;
+import com.example.monkey.entity.Address;
+import com.example.monkey.entity.Monkey;
+import com.example.monkey.entity.Order;
+import com.example.monkey.entity.User;
+import com.example.monkey.repository.AddressRepository;
+import com.example.monkey.repository.MonkeyRepository;
+import com.example.monkey.repository.OrderRepository;
+import com.example.monkey.repository.StockLogRepository;
+import com.example.monkey.repository.UserRepository;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+
+@ExtendWith(MockitoExtension.class)
+class JpaOrderStoreTest {
+
+    @Mock
+    private OrderRepository orderRepository;
+
+    @Mock
+    private MonkeyRepository monkeyRepository;
+
+    @Mock
+    private AddressRepository addressRepository;
+
+    @Mock
+    private UserRepository userRepository;
+
+    @Mock
+    private StockLogRepository stockLogRepository;
+
+    private JpaOrderStore store;
+
+    @BeforeEach
+    void setUp() {
+        store = new JpaOrderStore(
+                orderRepository, monkeyRepository, addressRepository, userRepository, stockLogRepository);
+    }
+
+    @Test
+    void findVisibleByUserMapsRepositoryList() {
+        when(orderRepository.findByUserIdAndUserHiddenFalseOrderByCreateTimeDesc(42L))
+                .thenReturn(List.of(order()));
+
+        List<OrderRecord> result = store.findVisibleByUserOrderByCreateTimeDesc(42L);
+
+        assertThat(result).containsExactly(record());
+        verify(orderRepository).findByUserIdAndUserHiddenFalseOrderByCreateTimeDesc(42L);
+    }
+
+    @Test
+    void findVisibleByUserMapsPageAndPreservesSortOrders() {
+        PageRequest repositoryPageable =
+                PageRequest.of(1, 5, Sort.by(Sort.Order.desc("createTime"), Sort.Order.asc("id")));
+        when(orderRepository.findByUserIdAndUserHiddenFalse(eq(42L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(order()), repositoryPageable, 12));
+
+        OrderPage result = store.findVisibleByUser(
+                42L,
+                new OrderPageRequest(
+                        1,
+                        5,
+                        List.of(new SortOrder("createTime", Direction.DESC), new SortOrder("id", Direction.ASC))));
+
+        assertThat(result.content()).containsExactly(record());
+        assertThat(result.page()).isEqualTo(1);
+        assertThat(result.size()).isEqualTo(5);
+        assertThat(result.totalElements()).isEqualTo(12);
+        assertThat(result.totalPages()).isEqualTo(3);
+        assertThat(result.first()).isFalse();
+        assertThat(result.last()).isFalse();
+
+        Pageable pageable = captureVisiblePageable();
+        assertThat(pageable.getSort().getOrderFor("createTime").getDirection()).isEqualTo(Sort.Direction.DESC);
+        assertThat(pageable.getSort().getOrderFor("id").getDirection()).isEqualTo(Sort.Direction.ASC);
+    }
+
+    @Test
+    void findAllOrderByCreateTimeDescUsesRepositorySort() {
+        when(orderRepository.findAll(any(Sort.class))).thenReturn(List.of(order()));
+
+        List<OrderRecord> result = store.findAllOrderByCreateTimeDesc();
+
+        assertThat(result).containsExactly(record());
+        Sort sort = captureSort();
+        assertThat(sort.getOrderFor("createTime").getDirection()).isEqualTo(Sort.Direction.DESC);
+    }
+
+    @Test
+    void findAllMapsPageAndUsesUnsortedPageableWhenNoSortOrdersAreProvided() {
+        when(orderRepository.findAll(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(order()), PageRequest.of(0, 10), 1));
+
+        OrderPage result = store.findAll(new OrderPageRequest(0, 10, null));
+
+        assertThat(result.content()).containsExactly(record());
+        Pageable pageable = captureAllPageable();
+        assertThat(pageable.getSort().isUnsorted()).isTrue();
+    }
+
+    @Test
+    void findByIdAndVisibleOwnedOrderMapRepositoryOptionals() {
+        when(orderRepository.findById(10L)).thenReturn(Optional.of(order()));
+        when(orderRepository.findByIdAndUserIdAndUserHiddenFalse(10L, 42L)).thenReturn(Optional.of(order()));
+
+        assertThat(store.findById(10L)).contains(record());
+        assertThat(store.findVisibleByIdAndUserId(10L, 42L)).contains(record());
+    }
+
+    @Test
+    void mapsProductAddressAndBuyerLookupsToDomainRecords() {
+        when(monkeyRepository.findById(7L)).thenReturn(Optional.of(monkey()));
+        when(addressRepository.findById(3L)).thenReturn(Optional.of(address()));
+        when(userRepository.findById(42L)).thenReturn(Optional.of(user()));
+
+        assertThat(store.findProductById(7L)).contains(productRecord());
+        assertThat(store.findAddressById(3L)).contains(addressRecord());
+        assertThat(store.findBuyerById(42L)).contains(buyerRecord());
+    }
+
+    @Test
+    void stockOperationsDelegateToAtomicRepositories() {
+        when(monkeyRepository.deductStock(7L)).thenReturn(1);
+        when(monkeyRepository.restoreStock(7L)).thenReturn(0);
+        when(stockLogRepository.recordRestore(10L, 7L)).thenReturn(1);
+
+        assertThat(store.deductProductStock(7L)).isTrue();
+        assertThat(store.restoreProductStock(7L)).isFalse();
+        assertThat(store.recordStockRestore(10L, 7L)).isTrue();
+    }
+
+    @Test
+    void savePlacedOrderMapsDomainRecordThroughRepositoryEntity() {
+        when(orderRepository.save(any(Order.class))).thenReturn(order());
+
+        OrderRecord result = store.savePlacedOrder(unsavedRecord());
+
+        assertThat(result).isEqualTo(record());
+        Order savedOrder = captureSavedOrder();
+        assertThat(savedOrder.getId()).isNull();
+        assertThat(savedOrder.getOrderNo()).isEqualTo("ORD202606280001");
+        assertThat(savedOrder.getUserId()).isEqualTo(42L);
+        assertThat(savedOrder.getProductId()).isEqualTo(7L);
+        assertThat(savedOrder.getPrice()).isEqualByComparingTo("199.99");
+        assertThat(savedOrder.getStatus()).isEqualTo(OrderStatus.PAID.label());
+    }
+
+    @Test
+    void hideFromUserMarksLoadedOrderAndSavesIt() {
+        Order order = order();
+        when(orderRepository.findById(10L)).thenReturn(Optional.of(order));
+
+        store.hideFromUser(10L);
+
+        assertThat(order.isUserHidden()).isTrue();
+        verify(orderRepository).save(order);
+    }
+
+    @Test
+    void transitionStatusDelegatesToRepositoryVariantForShippingTimePresence() {
+        LocalDateTime shippedAt = LocalDateTime.parse("2026-06-28T15:00:00");
+        when(orderRepository.transitionStatus(10L, OrderStatus.PAID.label(), OrderStatus.COMPLETED.label()))
+                .thenReturn(1);
+        when(orderRepository.transitionStatusWithShippingTime(
+                        10L, OrderStatus.PAID.label(), OrderStatus.SHIPPED.label(), shippedAt))
+                .thenReturn(1);
+
+        assertThat(store.transitionStatus(10L, OrderStatus.PAID.label(), OrderStatus.COMPLETED.label(), null))
+                .isEqualTo(1);
+        assertThat(store.transitionStatus(10L, OrderStatus.PAID.label(), OrderStatus.SHIPPED.label(), shippedAt))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void orderPageNormalizesNullContentToEmptyList() {
+        OrderPage page = new OrderPage(null, 0, 5, 0, 0, true, true);
+
+        assertThat(page.content()).isEmpty();
+    }
+
+    private Pageable captureVisiblePageable() {
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(orderRepository).findByUserIdAndUserHiddenFalse(eq(42L), captor.capture());
+        return captor.getValue();
+    }
+
+    private Pageable captureAllPageable() {
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(orderRepository).findAll(captor.capture());
+        return captor.getValue();
+    }
+
+    private Sort captureSort() {
+        ArgumentCaptor<Sort> captor = ArgumentCaptor.forClass(Sort.class);
+        verify(orderRepository).findAll(captor.capture());
+        return captor.getValue();
+    }
+
+    private Order captureSavedOrder() {
+        ArgumentCaptor<Order> captor = ArgumentCaptor.forClass(Order.class);
+        verify(orderRepository).save(captor.capture());
+        return captor.getValue();
+    }
+
+    private static Order order() {
+        Order order = new Order();
+        order.setId(10L);
+        order.setOrderNo("ORD202606280001");
+        order.setUserId(42L);
+        order.setBuyerName("buyer");
+        order.setBuyerAvatar("/images/avatar/buyer.png");
+        order.setProductId(7L);
+        order.setProductName("Momo");
+        order.setProductImage("/images/product/momo.png");
+        order.setPrice(new BigDecimal("199.99"));
+        order.setDescription("calm");
+        order.setReceiverName("Ada");
+        order.setReceiverPhone("13800138000");
+        order.setAddressSnapshot("Hangzhou");
+        order.setShippingTime(LocalDateTime.parse("2026-06-28T15:00:00"));
+        order.setStatus(OrderStatus.PAID.label());
+        order.setCreateTime(LocalDateTime.parse("2026-06-28T14:00:00"));
+        order.setUserHidden(false);
+        return order;
+    }
+
+    private static OrderRecord record() {
+        return new OrderRecord(
+                10L,
+                "ORD202606280001",
+                42L,
+                "buyer",
+                "/images/avatar/buyer.png",
+                7L,
+                "Momo",
+                "/images/product/momo.png",
+                new BigDecimal("199.99"),
+                "calm",
+                "Ada",
+                "13800138000",
+                "Hangzhou",
+                LocalDateTime.parse("2026-06-28T15:00:00"),
+                OrderStatus.PAID.label(),
+                LocalDateTime.parse("2026-06-28T14:00:00"),
+                false);
+    }
+
+    private static OrderRecord unsavedRecord() {
+        return new OrderRecord(
+                null,
+                "ORD202606280001",
+                42L,
+                "buyer",
+                "/images/avatar/buyer.png",
+                7L,
+                "Momo",
+                "/images/product/momo.png",
+                new BigDecimal("199.99"),
+                "calm",
+                "Ada",
+                "13800138000",
+                "Hangzhou",
+                null,
+                OrderStatus.PAID.label(),
+                null,
+                false);
+    }
+
+    private static Monkey monkey() {
+        return new Monkey(7L, "Momo", "Golden", new BigDecimal("199.99"), "calm", "/images/product/momo.png", 5);
+    }
+
+    private static ProductRecord productRecord() {
+        return new ProductRecord(7L, "Momo", "/images/product/momo.png", new BigDecimal("199.99"), "calm", 5);
+    }
+
+    private static Address address() {
+        Address address = new Address();
+        address.setId(3L);
+        address.setUserId(42L);
+        address.setReceiverName("Ada");
+        address.setPhone("13800138000");
+        address.setDetailAddress("Hangzhou");
+        return address;
+    }
+
+    private static AddressRecord addressRecord() {
+        return new AddressRecord(3L, 42L, "Ada", "13800138000", "Hangzhou");
+    }
+
+    private static User user() {
+        User user = new User();
+        user.setId(42L);
+        user.setUsername("buyer");
+        user.setAvatar("/images/avatar/buyer.png");
+        return user;
+    }
+
+    private static BuyerRecord buyerRecord() {
+        return new BuyerRecord(42L, "buyer", "/images/avatar/buyer.png");
+    }
+}

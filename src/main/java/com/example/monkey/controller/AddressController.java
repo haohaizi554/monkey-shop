@@ -1,77 +1,81 @@
 package com.example.monkey.controller;
 
-import com.example.monkey.entity.Address;
-import com.example.monkey.repository.AddressRepository;
-import com.example.monkey.security.SessionUser;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.*;
+import static com.example.monkey.domain.user.AuthenticatedPrincipals.requireUserId;
 
+import com.example.monkey.domain.user.AddressBook.AddressPageRequest;
+import com.example.monkey.domain.user.AddressBook.SortOrder;
+import com.example.monkey.domain.user.AddressBook.SortOrder.Direction;
+import com.example.monkey.domain.user.SessionUser;
+import com.example.monkey.dto.AddressRequestDto;
+import com.example.monkey.dto.AddressResponseDto;
+import com.example.monkey.dto.PageResponseDto;
+import com.example.monkey.service.AddressService;
+import com.example.monkey.shared.api.Result;
+import jakarta.validation.Valid;
 import java.util.List;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/address")
+@RequestMapping({"/api/address", "/api/v1/addresses"})
 public class AddressController {
 
-    @Autowired
-    private AddressRepository addressRepository;
+    private final AddressService addressService;
 
-    // 1. 获取我的地址列表
+    public AddressController(AddressService addressService) {
+        this.addressService = addressService;
+    }
+
     @GetMapping
-    public List<Address> myAddresses(@AuthenticationPrincipal SessionUser currentUser) {
-        Long userId = userId(currentUser);
-        if (userId == null) return null;
-        return addressRepository.findByUserId(userId);
+    @PreAuthorize("hasAuthority('ADDRESS_MANAGE')")
+    public Result<List<AddressResponseDto>> myAddresses(@AuthenticationPrincipal SessionUser currentUser) {
+        return Result.success(addressService.findAddressesForUser(requireUserId(currentUser)));
     }
 
-    // 2. 新增地址
+    @GetMapping(params = {"page", "size"})
+    @PreAuthorize("hasAuthority('ADDRESS_MANAGE')")
+    public Result<PageResponseDto<AddressResponseDto>> myAddresses(
+            @PageableDefault(size = 20, sort = "id", direction = Sort.Direction.ASC) Pageable pageable,
+            @AuthenticationPrincipal SessionUser currentUser) {
+        return Result.success(
+                addressService.findAddressesForUser(requireUserId(currentUser), toAddressPageRequest(pageable)));
+    }
+
     @PostMapping
-    public String addAddress(@RequestBody Address address, @AuthenticationPrincipal SessionUser currentUser) {
-        Long userId = userId(currentUser);
-        if (userId == null) return "请先登录";
-
-        address.setUserId(userId);
-
-        // 如果是第一条地址，自动设为默认
-        List<Address> list = addressRepository.findByUserId(userId);
-        if (list.isEmpty()) {
-            address.setIsDefault(1);
-        } else {
-            address.setIsDefault(0);
-        }
-
-        addressRepository.save(address);
-        return "ok";
+    @PreAuthorize("hasAuthority('ADDRESS_MANAGE')")
+    public Result<AddressResponseDto> addAddress(
+            @Valid @RequestBody AddressRequestDto request, @AuthenticationPrincipal SessionUser currentUser) {
+        return Result.success(addressService.addAddress(requireUserId(currentUser), request));
     }
 
-    // 3. 设为默认
     @PostMapping("/set-default/{id}")
-    public String setDefault(@PathVariable Long id, @AuthenticationPrincipal SessionUser currentUser) {
-        Long userId = userId(currentUser);
-        if (userId == null) return "error";
-
-        addressRepository.clearDefault(userId);
-        Address address = addressRepository.findById(id).orElse(null);
-        if (address != null && address.getUserId().equals(userId)) {
-            address.setIsDefault(1);
-            addressRepository.save(address);
-        }
-        return "ok";
+    @PreAuthorize("hasAuthority('ADDRESS_MANAGE')")
+    public Result<AddressResponseDto> setDefault(
+            @PathVariable Long id, @AuthenticationPrincipal SessionUser currentUser) {
+        return Result.success(addressService.setDefault(requireUserId(currentUser), id));
     }
 
-    // 4. 删除地址
     @DeleteMapping("/{id}")
-    public String delete(@PathVariable Long id, @AuthenticationPrincipal SessionUser currentUser) {
-        Long userId = userId(currentUser);
-        Address address = addressRepository.findById(id).orElse(null);
-        if (address != null && address.getUserId().equals(userId)) {
-            addressRepository.delete(address);
-            return "ok";
-        }
-        return "error";
+    @PreAuthorize("hasAuthority('ADDRESS_MANAGE')")
+    public Result<Void> delete(@PathVariable Long id, @AuthenticationPrincipal SessionUser currentUser) {
+        addressService.deleteAddress(requireUserId(currentUser), id);
+        return Result.success();
     }
 
-    private static Long userId(SessionUser currentUser) {
-        return currentUser == null ? null : currentUser.id();
+    private static AddressPageRequest toAddressPageRequest(Pageable pageable) {
+        List<SortOrder> sortOrders = pageable.getSort().stream()
+                .map(order -> new SortOrder(order.getProperty(), order.isAscending() ? Direction.ASC : Direction.DESC))
+                .toList();
+        return new AddressPageRequest(pageable.getPageNumber(), pageable.getPageSize(), sortOrders);
     }
 }

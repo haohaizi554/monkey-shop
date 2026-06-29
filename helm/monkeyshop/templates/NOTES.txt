@@ -1,0 +1,13 @@
+MonkeyShop has been installed as {{ include "monkeyshop.fullname" . }} in namespace {{ .Release.Namespace }}.
+
+Health endpoints:
+  - /actuator/health
+  - /actuator/health/liveness
+  - /actuator/health/readiness
+  - /actuator/prometheus
+
+Runtime secrets are read from:
+  {{ include "monkeyshop.secretName" . }}
+
+If External Secrets is disabled, create that Secret before starting the pods.
+

@@ -1,6 +1,13 @@
 # Build output
 target/
 *.class
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/test-results/
+frontend/playwright-report/
+frontend/coverage/
+frontend/lighthouse-report.json
 
 # IDE/editor state
 .vscode/
@@ -34,6 +41,7 @@ code.txt
 .env.*
 *.pem
 *.key
+application.properties
 application-*.properties
 secrets/*.yaml
 secrets/*.yml
@@ -46,3 +54,4 @@ secrets/*.dec.*
 # Security/tool reports generated during local checks
 dependency-check-report.*
 dependency-check/
+target/ws1-security/
