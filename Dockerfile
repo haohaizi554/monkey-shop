@@ -15,12 +15,12 @@ RUN rm -rf src/main/resources/static/*.html src/main/resources/static/css src/ma
 COPY --from=frontend-build /workspace/frontend/dist/ ./src/main/resources/static/
 RUN --mount=type=cache,target=/root/.m2 mvn --batch-mode -DskipTests package
 
-FROM eclipse-temurin:21-jre-jammy AS extract
+FROM eclipse-temurin:25-jre-jammy AS extract
 WORKDIR /workspace
 COPY --from=build /workspace/target/*.jar app.jar
 RUN java -Djarmode=tools -jar app.jar extract --layers --destination extracted
 
-FROM eclipse-temurin:21-jre-jammy
+FROM eclipse-temurin:25-jre-jammy
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
