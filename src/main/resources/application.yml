@@ -1,0 +1,213 @@
+spring:
+  application:
+    name: MonkeyShop
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=true&requireSSL=true&verifyServerCertificate=true}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: ${DB_USERNAME:monkeyshop}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: ${DB_HIKARI_MAXIMUM_POOL_SIZE:20}
+      leak-detection-threshold: ${DB_HIKARI_LEAK_DETECTION_THRESHOLD:60000}
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+  flyway:
+    enabled: ${FLYWAY_ENABLED:true}
+    locations: classpath:db/migration
+    baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:false}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    database-platform: org.hibernate.dialect.MySQLDialect
+  servlet:
+    multipart:
+      max-file-size: ${APP_UPLOAD_MAX_FILE_SIZE:5MB}
+      max-request-size: ${APP_UPLOAD_MAX_REQUEST_SIZE:6MB}
+
+server:
+  port: ${SERVER_PORT:8888}
+  forward-headers-strategy: ${SERVER_FORWARD_HEADERS_STRATEGY:framework}
+  tomcat:
+    connection-timeout: ${SERVER_TOMCAT_CONNECTION_TIMEOUT:5s}
+    keep-alive-timeout: ${SERVER_TOMCAT_KEEP_ALIVE_TIMEOUT:15s}
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        secure: ${SESSION_COOKIE_SECURE:true}
+        same-site: strict
+      timeout: ${SESSION_TIMEOUT:30m}
+
+app:
+  rate-limit:
+    enabled: ${APP_RATE_LIMIT_ENABLED:true}
+    require-redis-state: ${APP_RATE_LIMIT_REQUIRE_REDIS_STATE:${APP_AUTH_REQUIRE_REDIS_STATE:false}}
+    honeypot:
+      block-seconds: ${APP_WAF_HONEYPOT_BLOCK_SECONDS:86400}
+  admin:
+    username: ${ADMIN_INIT_USERNAME:admin}
+    password: ${ADMIN_INIT_PASSWORD:}
+    totp-secret: ${ADMIN_TOTP_SECRET:}
+  jwt:
+    secret: ${APP_JWT_SECRET:}
+    access-token-ttl-seconds: ${APP_JWT_ACCESS_TTL_SECONDS:900}
+    refresh-token-ttl-seconds: ${APP_JWT_REFRESH_TTL_SECONDS:604800}
+    access-cookie-max-age-seconds: ${APP_JWT_ACCESS_COOKIE_MAX_AGE:900}
+    refresh-cookie-max-age-seconds: ${APP_JWT_REFRESH_COOKIE_MAX_AGE:604800}
+    cookie-secure: ${APP_JWT_COOKIE_SECURE:${SESSION_COOKIE_SECURE:true}}
+    allow-generated-secret: ${APP_JWT_ALLOW_GENERATED_SECRET:false}
+    require-redis-token-store: ${APP_JWT_REQUIRE_REDIS_TOKEN_STORE:false}
+  auth:
+    require-redis-state: ${APP_AUTH_REQUIRE_REDIS_STATE:false}
+    captcha:
+      provider: ${APP_AUTH_CAPTCHA_PROVIDER:local}
+      ttl-seconds: ${APP_AUTH_CAPTCHA_TTL_SECONDS:300}
+      cookie-secure: ${APP_AUTH_CAPTCHA_COOKIE_SECURE:${SESSION_COOKIE_SECURE:true}}
+      turnstile:
+        site-key: ${APP_TURNSTILE_SITE_KEY:}
+        secret-key: ${APP_TURNSTILE_SECRET_KEY:}
+        verify-url: ${APP_TURNSTILE_VERIFY_URL:https://challenges.cloudflare.com/turnstile/v0/siteverify}
+        expected-hostname: ${APP_TURNSTILE_EXPECTED_HOSTNAME:}
+        replay-ttl-seconds: ${APP_TURNSTILE_REPLAY_TTL_SECONDS:60}
+    login:
+      max-attempts-per-window: ${APP_AUTH_LOGIN_MAX_ATTEMPTS_PER_WINDOW:5}
+      window-seconds: ${APP_AUTH_LOGIN_WINDOW_SECONDS:60}
+      failure-lock-threshold: ${APP_AUTH_LOGIN_FAILURE_LOCK_THRESHOLD:5}
+      captcha-threshold: ${APP_AUTH_LOGIN_CAPTCHA_THRESHOLD:5}
+      lock-seconds: ${APP_AUTH_LOGIN_LOCK_SECONDS:900}
+    password-reset:
+      delivery-mode: ${APP_PASSWORD_RESET_DELIVERY_MODE:disabled}
+      sms-webhook-url: ${APP_PASSWORD_RESET_SMS_WEBHOOK_URL:}
+      email-webhook-url: ${APP_PASSWORD_RESET_EMAIL_WEBHOOK_URL:}
+      webhook-secret: ${APP_PASSWORD_RESET_WEBHOOK_SECRET:}
+      webhook-timeout-millis: ${APP_PASSWORD_RESET_WEBHOOK_TIMEOUT_MILLIS:3000}
+  security:
+    password:
+      hibp:
+        enabled: ${APP_PASSWORD_HIBP_ENABLED:true}
+        endpoint: ${APP_PASSWORD_HIBP_ENDPOINT:https://api.pwnedpasswords.com/range}
+        timeout-millis: ${APP_PASSWORD_HIBP_TIMEOUT_MILLIS:3000}
+  pii:
+    encryption:
+      enabled: ${APP_PII_ENCRYPTION_ENABLED:false}
+      key-provider: ${APP_PII_KEY_PROVIDER:env}
+      aes-key-base64: ${APP_PII_AES_KEY_BASE64:}
+      hmac-key-base64: ${APP_PII_HMAC_KEY_BASE64:}
+      key-version: ${APP_PII_KEY_VERSION:v1}
+      key-created-at: ${APP_PII_KEY_CREATED_AT:}
+      allow-plaintext-read: ${APP_PII_ALLOW_PLAINTEXT_READ:true}
+      rotation:
+        enforce: ${APP_PII_ROTATION_ENFORCE:false}
+        max-age: ${APP_PII_ROTATION_MAX_AGE:PT2160H}
+      vault-transit:
+        address: ${APP_PII_VAULT_ADDR:}
+        token: ${APP_PII_VAULT_TOKEN:}
+        namespace: ${APP_PII_VAULT_NAMESPACE:}
+        key-name: ${APP_PII_VAULT_TRANSIT_KEY:monkeyshop-pii}
+        aes-ciphertext: ${APP_PII_VAULT_AES_CIPHERTEXT:}
+        hmac-ciphertext: ${APP_PII_VAULT_HMAC_CIPHERTEXT:}
+        timeout: ${APP_PII_VAULT_TIMEOUT:PT3S}
+    retention:
+      order-pii-retention: ${APP_PII_ORDER_RETENTION:PT4380H}
+      batch-size: ${APP_PII_RETENTION_BATCH_SIZE:500}
+      anonymize-cron: ${APP_PII_RETENTION_CRON:0 30 3 * * *}
+      lock-at-most-for: ${APP_PII_RETENTION_LOCK_AT_MOST_FOR:PT30M}
+      lock-at-least-for: ${APP_PII_RETENTION_LOCK_AT_LEAST_FOR:PT1M}
+  upload:
+    path: ${APP_UPLOAD_PATH:uploads/images}
+    max-image-pixels: ${APP_UPLOAD_MAX_IMAGE_PIXELS:12000000}
+    virus-scan:
+      enabled: ${APP_UPLOAD_VIRUS_SCAN_ENABLED:false}
+      host: ${CLAMAV_HOST:127.0.0.1}
+      port: ${CLAMAV_PORT:3310}
+      timeout-millis: ${CLAMAV_TIMEOUT_MILLIS:5000}
+    cleanup:
+      grace-period: ${APP_UPLOAD_CLEANUP_GRACE_PERIOD:PT24H}
+      reference-scan-batch-size: ${APP_UPLOAD_CLEANUP_REFERENCE_SCAN_BATCH_SIZE:500}
+      lock-at-most-for: ${APP_UPLOAD_CLEANUP_LOCK_AT_MOST_FOR:PT30M}
+      lock-at-least-for: ${APP_UPLOAD_CLEANUP_LOCK_AT_LEAST_FOR:PT1M}
+    variants:
+      enabled: ${APP_UPLOAD_VARIANTS_ENABLED:true}
+      formats: ${APP_UPLOAD_VARIANTS_FORMATS:webp,avif}
+      widths: ${APP_UPLOAD_VARIANTS_WIDTHS:320,640}
+      fail-on-missing-encoder: ${APP_UPLOAD_VARIANTS_FAIL_ON_MISSING_ENCODER:false}
+  storage:
+    provider: ${APP_STORAGE_PROVIDER:local}
+    public-base-url: ${APP_STORAGE_PUBLIC_BASE_URL:}
+    presigned-get-ttl: ${APP_STORAGE_PRESIGNED_GET_TTL:PT15M}
+    presigned-post-ttl: ${APP_STORAGE_PRESIGNED_POST_TTL:PT15M}
+    minio:
+      endpoint: ${APP_STORAGE_MINIO_ENDPOINT:}
+      access-key: ${APP_STORAGE_MINIO_ACCESS_KEY:}
+      secret-key: ${APP_STORAGE_MINIO_SECRET_KEY:}
+      bucket: ${APP_STORAGE_MINIO_BUCKET:monkeyshop}
+  order:
+    idempotency:
+      ttl: ${APP_ORDER_IDEMPOTENCY_TTL:PT24H}
+    lock:
+      wait-time: ${APP_ORDER_LOCK_WAIT_TIME:PT2S}
+      lease-time: ${APP_ORDER_LOCK_LEASE_TIME:PT10S}
+    snowflake:
+      worker-id: ${APP_ORDER_SNOWFLAKE_WORKER_ID:0}
+      datacenter-id: ${APP_ORDER_SNOWFLAKE_DATACENTER_ID:0}
+  shedlock:
+    environment: ${APP_SHEDLOCK_ENVIRONMENT:${spring.application.name:monkeyshop}}
+    default-lock-at-most-for: ${APP_SHEDLOCK_DEFAULT_LOCK_AT_MOST_FOR:PT30M}
+  audit:
+    retention-days: ${APP_AUDIT_RETENTION_DAYS:180}
+    retention-cron: ${APP_AUDIT_RETENTION_CRON:0 20 3 * * *}
+    retention-lock-at-most-for: ${APP_AUDIT_RETENTION_LOCK_AT_MOST_FOR:PT30M}
+  observability:
+    async:
+      core-pool-size: ${APP_OBSERVABILITY_ASYNC_CORE_POOL_SIZE:2}
+      max-pool-size: ${APP_OBSERVABILITY_ASYNC_MAX_POOL_SIZE:8}
+      queue-capacity: ${APP_OBSERVABILITY_ASYNC_QUEUE_CAPACITY:1000}
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+    env:
+      show-values: NEVER
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,loggers
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+springdoc:
+  api-docs:
+    path: /api/v1/openapi
+  swagger-ui:
+    path: /api/v1/docs
+    operations-sorter: method
+    tags-sorter: alpha
+  paths-to-match:
+    - /api/v1/**
+
+otel:
+  service:
+    name: ${OTEL_SERVICE_NAME:${spring.application.name}}
+  traces:
+    exporter: ${OTEL_TRACES_EXPORTER:none}
+  metrics:
+    exporter: ${OTEL_METRICS_EXPORTER:none}
+  logs:
+    exporter: ${OTEL_LOGS_EXPORTER:none}
+  exporter:
+    otlp:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}
+
+sentry:
+  dsn: ${SENTRY_DSN:}
+  environment: ${SENTRY_ENVIRONMENT:${spring.profiles.active:dev}}
+  send-default-pii: false
+  traces-sample-rate: ${SENTRY_TRACES_SAMPLE_RATE:0.0}

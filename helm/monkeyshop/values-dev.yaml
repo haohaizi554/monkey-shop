@@ -1,0 +1,51 @@
+global:
+  environment: dev
+
+namespace:
+  create: true
+  name: monkeyshop-dev
+
+image:
+  repository: ghcr.io/example/monkeyshop
+  tag: dev
+  digest: ""
+
+replicaCount: 1
+
+config:
+  SPRING_PROFILES_ACTIVE: dev
+  SESSION_COOKIE_SECURE: "false"
+  DB_URL: jdbc:mysql://mysql.monkeyshop-dev.svc.cluster.local:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=true&requireSSL=true&verifyServerCertificate=true
+  DB_USERNAME: monkeyuser
+  SPRING_DATA_REDIS_HOST: redis.monkeyshop-dev.svc.cluster.local
+  APP_UPLOAD_VIRUS_SCAN_ENABLED: "false"
+  APP_STORAGE_PROVIDER: local
+  OTEL_TRACES_EXPORTER: none
+  SENTRY_TRACES_SAMPLE_RATE: "0.0"
+
+externalSecret:
+  enabled: false
+
+ingress:
+  enabled: true
+  hosts:
+    - host: monkeyshop-dev.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: monkeyshop-dev-tls
+      hosts:
+        - monkeyshop-dev.local
+
+autoscaling:
+  enabled: false
+
+pdb:
+  enabled: false
+
+rollout:
+  enabled: false
+
+persistence:
+  enabled: false

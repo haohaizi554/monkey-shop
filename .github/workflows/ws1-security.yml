@@ -1,0 +1,96 @@
+name: WS1 Security Gate
+
+on:
+  push:
+    branches:
+      - main
+      - 'codex/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fast-security:
+    name: Fast WS1 Security Gate
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install gate tools
+        shell: pwsh
+        run: |
+          choco install ripgrep -y --no-progress
+          python -m pip install --upgrade pip uv
+          .\scripts\bootstrap-ws1-tools.ps1
+          rg --version
+          gitleaks version
+          trivy --version
+          uvx --version
+
+      - name: Run fast WS1 security gate
+        shell: pwsh
+        run: .\scripts\verify-ws1-security.ps1 -SkipDependencyCheck -MavenTimeoutSeconds 1800
+
+      - name: Upload WS1 reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ws1-security-fast-reports
+          path: target/ws1-security/
+          if-no-files-found: ignore
+
+  dependency-check:
+    name: Full OWASP Dependency Check
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Require NVD API key
+        shell: pwsh
+        run: |
+          if (-not $env:NVD_API_KEY) {
+            throw "Set repository secret NVD_API_KEY before requiring the full WS1 dependency-check gate."
+          }
+
+      - name: Run Maven verify with OWASP dependency-check
+        shell: pwsh
+        run: mvn --batch-mode clean verify
+
+      - name: Upload dependency-check reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-reports
+          path: |
+            target/dependency-check-report.*
+            dependency-check-report.*
+          if-no-files-found: ignore

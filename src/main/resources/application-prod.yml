@@ -1,0 +1,66 @@
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+server:
+  forward-headers-strategy: framework
+  servlet:
+    session:
+      cookie:
+        secure: true
+
+logging:
+  level:
+    root: INFO
+    org.hibernate.SQL: WARN
+
+management:
+  endpoint:
+    env:
+      show-values: NEVER
+
+otel:
+  traces:
+    exporter: ${OTEL_TRACES_EXPORTER:otlp}
+  exporter:
+    otlp:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+
+sentry:
+  environment: ${SENTRY_ENVIRONMENT:prod}
+  send-default-pii: false
+  traces-sample-rate: ${SENTRY_TRACES_SAMPLE_RATE:0.0}
+
+app:
+  auth:
+    require-redis-state: ${APP_AUTH_REQUIRE_REDIS_STATE:true}
+    captcha:
+      provider: ${APP_AUTH_CAPTCHA_PROVIDER:turnstile}
+    password-reset:
+      delivery-mode: ${APP_PASSWORD_RESET_DELIVERY_MODE:webhook}
+  jwt:
+    allow-generated-secret: ${APP_JWT_ALLOW_GENERATED_SECRET:false}
+    require-redis-token-store: ${APP_JWT_REQUIRE_REDIS_TOKEN_STORE:true}
+  rate-limit:
+    require-redis-state: ${APP_RATE_LIMIT_REQUIRE_REDIS_STATE:true}
+  pii:
+    encryption:
+      enabled: ${APP_PII_ENCRYPTION_ENABLED:true}
+      key-provider: ${APP_PII_KEY_PROVIDER:vault-transit}
+      allow-plaintext-read: ${APP_PII_ALLOW_PLAINTEXT_READ:false}
+      rotation:
+        enforce: ${APP_PII_ROTATION_ENFORCE:true}
+  upload:
+    virus-scan:
+      enabled: ${APP_UPLOAD_VIRUS_SCAN_ENABLED:true}
+      host: ${CLAMAV_HOST:clamav}
+      port: ${CLAMAV_PORT:3310}
+      timeout-millis: ${CLAMAV_TIMEOUT_MILLIS:5000}
+    variants:
+      fail-on-missing-encoder: ${APP_UPLOAD_VARIANTS_FAIL_ON_MISSING_ENCODER:true}

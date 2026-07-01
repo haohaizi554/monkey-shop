@@ -1,43 +1,75 @@
 services:
-  # --- MySQL 数据库服务 ---
+  redis:
+    image: redis:7-alpine
+    container_name: monkey-redis
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   mysql:
     image: mysql:8.0
     container_name: monkey-mysql
-    restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123}
-      MYSQL_DATABASE: monkeyshop
-      MYSQL_USER: ${MYSQL_USER:-monkey}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-monkey123}
-      TZ: Asia/Shanghai
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-monkeyshop}
+      MYSQL_USER: ${MYSQL_USER:-monkeyuser}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
     ports:
-      - "3307:3306"
+      - "${MYSQL_PORT:-3307}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --default-time-zone=+08:00
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u$${MYSQL_USER} -p$${MYSQL_PASSWORD}"]
+      interval: 10s
       timeout: 20s
       retries: 10
 
-  # --- Java 应用服务 ---
+  clamav:
+    image: clamav/clamav:1.4
+    container_name: monkey-clamav
+    expose:
+      - "3310"
+
   myshop:
     build: .
     container_name: monkey-app
-    restart: unless-stopped
     ports:
-      - "8888:8888"
+      - "${APP_PORT:-8888}:8888"
     depends_on:
       mysql:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      clamav:
+        condition: service_started
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=false&allowPublicKeyRetrieval=true
-      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-monkey}
-      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-monkey123}
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      DB_URL: ${DB_URL:-jdbc:mysql://mysql:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=true&requireSSL=true&verifyServerCertificate=true}
+      DB_USERNAME: ${MYSQL_USER:-monkeyuser}
+      DB_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      ADMIN_INIT_USERNAME: ${ADMIN_INIT_USERNAME:-admin}
+      ADMIN_INIT_PASSWORD: ${ADMIN_INIT_PASSWORD:?set ADMIN_INIT_PASSWORD}
+      ADMIN_TOTP_SECRET: ${ADMIN_TOTP_SECRET:?set ADMIN_TOTP_SECRET}
       SERVER_PORT: 8888
-      SPRING_JPA_SHOW_SQL: "false"
-      APP_UPLOAD_PATH: /data/images/
-      TZ: Asia/Shanghai
+      APP_JWT_SECRET: ${APP_JWT_SECRET:?set APP_JWT_SECRET}
+      APP_JWT_REQUIRE_REDIS_TOKEN_STORE: ${APP_JWT_REQUIRE_REDIS_TOKEN_STORE:-false}
+      APP_AUTH_REQUIRE_REDIS_STATE: ${APP_AUTH_REQUIRE_REDIS_STATE:-false}
+      APP_PASSWORD_RESET_DELIVERY_MODE: ${APP_PASSWORD_RESET_DELIVERY_MODE:-logging}
+      APP_PASSWORD_RESET_SMS_WEBHOOK_URL: ${APP_PASSWORD_RESET_SMS_WEBHOOK_URL:-}
+      APP_PASSWORD_RESET_EMAIL_WEBHOOK_URL: ${APP_PASSWORD_RESET_EMAIL_WEBHOOK_URL:-}
+      APP_PASSWORD_RESET_WEBHOOK_SECRET: ${APP_PASSWORD_RESET_WEBHOOK_SECRET:-}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      APP_UPLOAD_PATH: /data/images
+      APP_UPLOAD_VIRUS_SCAN_ENABLED: ${APP_UPLOAD_VIRUS_SCAN_ENABLED:-true}
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: 3310
     volumes:
       - ./uploads:/data/images
 

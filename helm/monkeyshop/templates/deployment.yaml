@@ -1,0 +1,20 @@
+{{- if not .Values.rollout.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "monkeyshop.fullname" . }}
+  labels:
+    {{- include "monkeyshop.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "monkeyshop.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: app
+  template:
+    {{- include "monkeyshop.podTemplate" . | nindent 4 }}
+{{- end }}
+

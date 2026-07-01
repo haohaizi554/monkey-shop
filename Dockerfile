@@ -1,48 +1,51 @@
-# ===== 阶段1: Maven 编译 =====
-FROM docker.1ms.run/maven:3.9-eclipse-temurin-21 AS builder
+# syntax=docker/dockerfile:1.7
 
-WORKDIR /build
+FROM node:24-bookworm-slim AS frontend-build
+WORKDIR /workspace/frontend
+COPY frontend/package*.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
 
-# 先拷贝 pom.xml，利用 Docker 缓存层加速依赖下载（依赖不变时无需重新下载）
+FROM maven:3.9-eclipse-temurin-21 AS build
+WORKDIR /workspace
 COPY pom.xml .
-RUN mvn dependency:go-offline -B
-
-# 再拷贝源码并编译
 COPY src ./src
-RUN mvn clean package -DskipTests -B
+RUN rm -rf src/main/resources/static/*.html src/main/resources/static/css src/main/resources/static/js
+COPY --from=frontend-build /workspace/frontend/dist/ ./src/main/resources/static/
+RUN --mount=type=cache,target=/root/.m2 mvn --batch-mode -DskipTests package
 
-# ===== 阶段2: 运行时镜像 =====
-FROM docker.1ms.run/eclipse-temurin:21-jdk
+FROM eclipse-temurin:21-jre-jammy AS extract
+WORKDIR /workspace
+COPY --from=build /workspace/target/*.jar app.jar
+RUN java -Djarmode=tools -jar app.jar extract --layers --destination extracted
 
-# 替换 Debian 官方源为阿里云源
-RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || true && \
-    sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list 2>/dev/null || true
+FROM eclipse-temurin:21-jre-jammy
 
-# 安装字体库 (验证码 Graphics2D 依赖) + Liberation字体(Arial开源替代) + 时区数据
-RUN apt-get update && apt-get install -y \
-    fontconfig \
-    libfreetype6 \
-    fonts-dejavu \
-    fonts-liberation \
-    tzdata \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        curl \
+        fontconfig \
+        libfreetype6 \
+        fonts-dejavu \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system app \
+    && useradd --system --gid app --home-dir /app --shell /usr/sbin/nologin app
 
-# 设置容器时区为上海
-ENV TZ=Asia/Shanghai
-RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
-
-# 配置项目工作目录
 WORKDIR /app
+COPY --from=extract --chown=app:app /workspace/extracted/dependencies/ ./
+COPY --from=extract --chown=app:app /workspace/extracted/spring-boot-loader/ ./
+COPY --from=extract --chown=app:app /workspace/extracted/snapshot-dependencies/ ./
+COPY --from=extract --chown=app:app /workspace/extracted/application/ ./
 
-# 从编译阶段拷贝 jar 包（不再依赖宿主机的 target/）
-COPY --from=builder /build/target/*.jar app.jar
+RUN mkdir -p /tmp /app/logs /data/images \
+    && chown -R app:app /app /tmp /data/images
 
-# 拷贝启动脚本
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
-# 暴露端口
+USER app
 EXPOSE 8888
+VOLUME ["/tmp", "/app/logs", "/data/images"]
 
-# 使用启动脚本 (初始化默认图片 + 启动应用)
-ENTRYPOINT ["/entrypoint.sh"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8888/actuator/health || exit 1
+
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -Djava.io.tmpdir=/tmp org.springframework.boot.loader.launch.JarLauncher"]

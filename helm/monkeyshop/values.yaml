@@ -1,0 +1,356 @@
+global:
+  environment: dev
+
+namespace:
+  create: false
+  name: ""
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/example/monkeyshop
+  tag: "dev"
+  digest: ""
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  capabilities:
+    drop:
+      - ALL
+
+containerPort: 8888
+
+javaOpts: >-
+  -XX:MaxRAMPercentage=75
+  -XX:+ExitOnOutOfMemoryError
+
+config:
+  SPRING_PROFILES_ACTIVE: prod
+  SERVER_PORT: "8888"
+  SERVER_FORWARD_HEADERS_STRATEGY: framework
+  SERVER_TOMCAT_CONNECTION_TIMEOUT: 5s
+  SERVER_TOMCAT_KEEP_ALIVE_TIMEOUT: 15s
+  SESSION_COOKIE_SECURE: "true"
+  DB_URL: jdbc:mysql://mysql.monkeyshop-data.svc.cluster.local:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=true&requireSSL=true&verifyServerCertificate=true
+  DB_USERNAME: monkeyuser
+  SPRING_DATA_REDIS_HOST: redis.monkeyshop-data.svc.cluster.local
+  SPRING_DATA_REDIS_PORT: "6379"
+  APP_RATE_LIMIT_ENABLED: "true"
+  APP_RATE_LIMIT_REQUIRE_REDIS_STATE: "true"
+  APP_AUTH_CAPTCHA_PROVIDER: turnstile
+  APP_TURNSTILE_EXPECTED_HOSTNAME: monkeyshop.example.com
+  APP_PII_ENCRYPTION_ENABLED: "true"
+  APP_PII_KEY_PROVIDER: vault-transit
+  APP_PII_VAULT_ADDR: https://vault.example.com
+  APP_PII_VAULT_TRANSIT_KEY: monkeyshop-pii
+  APP_PII_ROTATION_ENFORCE: "true"
+  APP_PII_ROTATION_MAX_AGE: PT2160H
+  APP_PII_ALLOW_PLAINTEXT_READ: "false"
+  APP_UPLOAD_PATH: /data/images
+  APP_UPLOAD_VIRUS_SCAN_ENABLED: "true"
+  CLAMAV_HOST: clamav.monkeyshop-security.svc.cluster.local
+  CLAMAV_PORT: "3310"
+  APP_STORAGE_PROVIDER: minio
+  APP_STORAGE_MINIO_BUCKET: monkeyshop
+  APP_AUDIT_RETENTION_DAYS: "180"
+  OTEL_SERVICE_NAME: monkeyshop
+  OTEL_TRACES_EXPORTER: otlp
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability.svc.cluster.local:4318
+  SENTRY_ENVIRONMENT: prod
+  SENTRY_TRACES_SAMPLE_RATE: "0.05"
+
+secret:
+  existingSecret: ""
+
+externalSecret:
+  enabled: false
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-cluster-store
+    kind: ClusterSecretStore
+  data:
+    - secretKey: DB_PASSWORD
+      remoteRef:
+        key: monkeyshop/prod
+        property: DB_PASSWORD
+    - secretKey: ADMIN_INIT_PASSWORD
+      remoteRef:
+        key: monkeyshop/prod
+        property: ADMIN_INIT_PASSWORD
+    - secretKey: ADMIN_TOTP_SECRET
+      remoteRef:
+        key: monkeyshop/prod
+        property: ADMIN_TOTP_SECRET
+    - secretKey: APP_JWT_SECRET
+      remoteRef:
+        key: monkeyshop/prod
+        property: APP_JWT_SECRET
+    - secretKey: APP_TURNSTILE_SITE_KEY
+      remoteRef:
+        key: monkeyshop/prod
+        property: APP_TURNSTILE_SITE_KEY
+    - secretKey: APP_TURNSTILE_SECRET_KEY
+      remoteRef:
+        key: monkeyshop/prod
+        property: APP_TURNSTILE_SECRET_KEY
+    - secretKey: APP_PII_KEY_CREATED_AT
+      remoteRef:
+        key: monkeyshop/prod
+        property: APP_PII_KEY_CREATED_AT
+    - secretKey: APP_PII_VAULT_TOKEN
+      remoteRef:
+        key: monkeyshop/prod
+        property: APP_PII_VAULT_TOKEN
+    - secretKey: APP_PII_VAULT_AES_CIPHERTEXT
+      remoteRef:
+        key: monkeyshop/prod
+        property: APP_PII_VAULT_AES_CIPHERTEXT
+    - secretKey: APP_PII_VAULT_HMAC_CIPHERTEXT
+      remoteRef:
+        key: monkeyshop/prod
+        property: APP_PII_VAULT_HMAC_CIPHERTEXT
+    - secretKey: APP_PASSWORD_RESET_SMS_WEBHOOK_URL
+      remoteRef:
+        key: monkeyshop/prod
+        property: APP_PASSWORD_RESET_SMS_WEBHOOK_URL
+    - secretKey: APP_PASSWORD_RESET_EMAIL_WEBHOOK_URL
+      remoteRef:
+        key: monkeyshop/prod
+        property: APP_PASSWORD_RESET_EMAIL_WEBHOOK_URL
+    - secretKey: APP_PASSWORD_RESET_WEBHOOK_SECRET
+      remoteRef:
+        key: monkeyshop/prod
+        property: APP_PASSWORD_RESET_WEBHOOK_SECRET
+    - secretKey: APP_STORAGE_MINIO_ENDPOINT
+      remoteRef:
+        key: monkeyshop/prod
+        property: APP_STORAGE_MINIO_ENDPOINT
+    - secretKey: APP_STORAGE_MINIO_ACCESS_KEY
+      remoteRef:
+        key: monkeyshop/prod
+        property: APP_STORAGE_MINIO_ACCESS_KEY
+    - secretKey: APP_STORAGE_MINIO_SECRET_KEY
+      remoteRef:
+        key: monkeyshop/prod
+        property: APP_STORAGE_MINIO_SECRET_KEY
+    - secretKey: SENTRY_DSN
+      remoteRef:
+        key: monkeyshop/prod
+        property: SENTRY_DSN
+
+mysql:
+  host: mysql.monkeyshop-data.svc.cluster.local
+  port: 3306
+
+redis:
+  host: redis.monkeyshop-data.svc.cluster.local
+  port: 6379
+
+clamav:
+  host: clamav.monkeyshop-security.svc.cluster.local
+  port: 3310
+
+initContainers:
+  waitForMysql:
+    enabled: true
+    image: busybox:1.37
+    timeoutSeconds: 120
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
+
+service:
+  type: ClusterIP
+  port: 80
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-dns01
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/hsts: "true"
+    nginx.ingress.kubernetes.io/hsts-include-subdomains: "true"
+    nginx.ingress.kubernetes.io/hsts-max-age: "63072000"
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+  hosts:
+    - host: monkeyshop.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: monkeyshop-tls
+      hosts:
+        - monkeyshop.local
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+probes:
+  startup:
+    path: /actuator/health
+    initialDelaySeconds: 20
+    periodSeconds: 10
+    failureThreshold: 18
+    timeoutSeconds: 3
+  liveness:
+    path: /actuator/health/liveness
+    initialDelaySeconds: 10
+    periodSeconds: 15
+    failureThreshold: 3
+    timeoutSeconds: 3
+  readiness:
+    path: /actuator/health/readiness
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    failureThreshold: 3
+    timeoutSeconds: 3
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+pdb:
+  enabled: true
+  minAvailable: 1
+
+persistence:
+  enabled: false
+  existingClaim: ""
+  size: 10Gi
+  storageClassName: ""
+
+serviceMonitor:
+  enabled: false
+  namespace: ""
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+
+prometheusRule:
+  enabled: false
+  namespace: ""
+  labels: {}
+  severity: warning
+  runbookUrl: https://runbooks.example.com/monkeyshop
+  thresholds:
+    errorRate: 0.02
+    p99LatencySeconds: 1.5
+    hikariSaturation: 0.9
+    stockDeductFailures: 5
+    pendingOrders: 100
+  for:
+    errorRate: 5m
+    p99Latency: 10m
+    hikariSaturation: 10m
+    appDown: 2m
+    stockDeductFailures: 5m
+    pendingOrders: 15m
+
+grafanaDashboard:
+  enabled: false
+  namespace: ""
+  labels: {}
+  sidecarLabel: grafana_dashboard
+  sidecarLabelValue: "1"
+  datasource:
+    prometheusUid: prometheus
+    lokiUid: loki
+    tempoUid: tempo
+
+rollout:
+  enabled: false
+  steps:
+    - setWeight: 20
+    - pause:
+        duration: 2m
+    - analysis:
+        templates:
+          - templateName: monkeyshop-http-5xx-rate
+        args:
+          - name: service-name
+            value: monkeyshop
+    - setWeight: 50
+    - pause:
+        duration: 5m
+    - setWeight: 100
+  analysis:
+    prometheusAddress: http://prometheus-operated.observability.svc.cluster.local:9090
+    maxFiveXxRate: "0.02"
+
+networkPolicy:
+  enabled: true
+  ingressNamespaceSelector:
+    kubernetes.io/metadata.name: ingress-nginx
+  prometheusNamespaceSelector:
+    kubernetes.io/metadata.name: observability
+  mysqlNamespaceSelector:
+    kubernetes.io/metadata.name: monkeyshop-data
+  mysqlPodSelector:
+    app.kubernetes.io/name: mysql
+  redisNamespaceSelector:
+    kubernetes.io/metadata.name: monkeyshop-data
+  redisPodSelector:
+    app.kubernetes.io/name: redis
+  clamavNamespaceSelector:
+    kubernetes.io/metadata.name: monkeyshop-security
+  clamavPodSelector:
+    app.kubernetes.io/name: clamav
+  otelNamespaceSelector:
+    kubernetes.io/metadata.name: observability
+  otelPodSelector:
+    app.kubernetes.io/name: opentelemetry-collector
+  externalHttpsCidrs:
+    - 0.0.0.0/0
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+
+extraEnv: []
+extraEnvFrom: []
+extraVolumes: []
+extraVolumeMounts: []

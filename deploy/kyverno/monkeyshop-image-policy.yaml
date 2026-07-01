@@ -1,0 +1,74 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: monkeyshop-image-policy
+  annotations:
+    policies.kyverno.io/title: MonkeyShop signed immutable images
+    policies.kyverno.io/category: Software Supply Chain Security
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: disallow-latest-tag
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - monkeyshop-*
+      validate:
+        message: MonkeyShop images must not use the latest tag.
+        foreach:
+          - list: request.object.spec.containers
+            deny:
+              conditions:
+                any:
+                  - key: "{{ element.image }}"
+                    operator: Equals
+                    value: "*:latest"
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "*:*"
+    - name: require-prod-digest
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - monkeyshop-prod
+      validate:
+        message: Production images must be referenced by immutable digest.
+        foreach:
+          - list: request.object.spec.containers
+            deny:
+              conditions:
+                all:
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "*@sha256:*"
+    - name: verify-monkeyshop-image-signature
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - monkeyshop-*
+      verifyImages:
+        - imageReferences:
+            - "ghcr.io/*/monkeyshop*"
+            - "harbor.example.com/monkeyshop/monkeyshop*"
+          mutateDigest: true
+          verifyDigest: true
+          required: true
+          attestors:
+            - count: 1
+              entries:
+                - keyless:
+                    issuer: https://token.actions.githubusercontent.com
+                    subjectRegExp: https://github.com/.+/JavaScript_MonkeyShop/.github/workflows/ci.yaml@refs/.+
+                  rekor:
+                    url: https://rekor.sigstore.dev
+

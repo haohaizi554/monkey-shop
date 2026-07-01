@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monkeyshop-dev
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: monkeyshop
+    app.kubernetes.io/environment: dev
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/example/JavaScript_MonkeyShop.git
+    targetRevision: HEAD
+    path: helm/monkeyshop
+    helm:
+      releaseName: monkeyshop
+      valueFiles:
+        - values-dev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monkeyshop-dev
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+

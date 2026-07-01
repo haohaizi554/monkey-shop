@@ -1,341 +1,346 @@
-# 🐵 MonkeyShop | 网购猴子平台
+# MonkeyShop
 
-> 基于 **Spring Boot 3** + **Vue 3** 的前后端一体化轻量级电商平台。
->
-> A lightweight full-stack e-commerce platform built with Spring Boot 3 and Vue 3.
+[中文](./README.md)
 
-![Java](https://img.shields.io/badge/Java-17%2B-orange) ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.0-green) ![Vue](https://img.shields.io/badge/Vue.js-3.0-4FC08D) ![MySQL](https://img.shields.io/badge/MySQL-8.0-blue) ![Bootstrap](https://img.shields.io/badge/Bootstrap-5.3-purple)
+<p align="center">
+  <img alt="Java 21" src="https://img.shields.io/badge/Java-21-007396?logo=openjdk&logoColor=white">
+  <img alt="Spring Boot" src="https://img.shields.io/badge/Spring%20Boot-3.5-6DB33F?logo=springboot&logoColor=white">
+  <img alt="Vue 3" src="https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white">
+  <img alt="Vite" src="https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white">
+  <img alt="MySQL" src="https://img.shields.io/badge/MySQL-8-4479A1?logo=mysql&logoColor=white">
+  <img alt="Redis" src="https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white">
+  <img alt="Docker" src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white">
+  <img alt="Kubernetes" src="https://img.shields.io/badge/Kubernetes-Helm-326CE5?logo=kubernetes&logoColor=white">
+  <img alt="GitHub Actions" src="https://img.shields.io/badge/GitHub%20Actions-CI-2088FF?logo=githubactions&logoColor=white">
+</p>
 
-## 📖 项目简介 (Introduction)
+<p align="center">
+  <img alt="Tech stack icons" src="https://skillicons.dev/icons?i=java,spring,vue,ts,vite,mysql,redis,docker,kubernetes,githubactions,prometheus,grafana&theme=light">
+</p>
 
-**MonkeyShop** 是一个模拟灵长类动物交易的电商平台（仅供学习演示）。项目采用前后端一体化架构，后端使用 Spring Boot 3 提供 RESTful API，前端使用原生 HTML 结合 Vue 3 (CDN) 进行渲染。
 
-本项目摒弃了复杂的前端工程化构建（如 Webpack/Vite），回归最纯粹的开发体验，同时在后端实现了企业级的业务逻辑，如**订单快照**、**库存并发控制**、**图片垃圾回收**、**Spring Security 安全认证**、**数据可视化看板**等。
+MonkeyShop is a full-stack e-commerce project built with Spring Boot 3, Java 21, Vue 3, and TypeScript. It is not just a CRUD demo. The backend is organized by bounded context and layered architecture, the frontend is a real SPA, and the repository includes security hardening, observability, containerization, Kubernetes/GitOps assets, and CI quality gates.
 
-## 🛠 技术栈 (Tech Stack)
+## Highlights
 
-### 后端 (Backend)
-*   **核心框架**: Spring Boot 3.2.0
-*   **安全框架**: Spring Security (BCrypt 加密)
-*   **数据库**: MySQL 8.0
-*   **ORM**: Spring Data JPA
-*   **工具**: Maven, Lombok (已移除，采用原生 Getter/Setter)
-*   **定时任务**: Spring Scheduled (用于清理冗余图片)
+- Modular backend split into `admin`, `order`, `product`, `user`, and `shared` bounded contexts.
+- Clear layered model: `domain`, `application`, `infrastructure`, and `interfaces`.
+- Complete Vue 3 frontend with TypeScript, Pinia, Vue Router, Element Plus, and i18n.
+- Secure authentication with HttpOnly Cookie JWT, refresh-token rotation, CSRF, RBAC, admin TOTP MFA, and forced password change.
+- Abuse protection with login rate limits, lockouts, captcha/Turnstile, and honeypot probes.
+- Reliable order flow with idempotency keys, distributed locks, stock logs, state transitions, and business metrics.
+- Upload and storage pipeline with MIME validation, image checks, optional ClamAV, image variants, cleanup jobs, and local/MinIO storage.
+- Privacy protection with PII encryption, blind indexes, key rotation, retention jobs, and user erasure.
+- Production-facing delivery assets: Docker, Compose, Helm, Argo CD, Kyverno, External Secrets, Prometheus, Grafana, Trivy, cosign, CodeQL, Snyk, and Dependabot.
 
-### 前端 (Frontend)
-*   **框架**: Vue.js 3 (Composition API, CDN引入)
-*   **UI 库**: Bootstrap 5.3
-*   **图表**: ECharts 5.4
-*   **图标**: Bootstrap Icons
+## Tech Stack
 
-## ✨ 核心功能 (Features)
+| Area | Stack |
+| --- | --- |
+| Backend | Java 21, Spring Boot 3.5, Spring Security, Spring Data JPA, Spring Validation |
+| Data | MySQL 8, Flyway, Redis/Jedis, Redisson, ShedLock |
+| Security | Nimbus JOSE JWT, Passay, Bucket4j, Tink, HIBP checks, Turnstile, ClamAV |
+| Observability | Actuator, Micrometer Prometheus, OpenTelemetry, Sentry, structured Logback JSON |
+| Frontend | Vue 3, TypeScript, Vite, Pinia, Vue Router, Element Plus, vue-i18n, Axios |
+| Testing | JUnit 5, Spring Security Test, ArchUnit, JaCoCo, SpotBugs/FindSecBugs, PIT, Playwright, axe, Lighthouse |
+| Delivery | Docker, Docker Compose, Helm, Argo CD, Kyverno, Trivy, cosign, CodeQL, Snyk, Dependabot |
 
-### 👤 用户端 (User)
-*   **账户体系**: 注册/登录 (含图形验证码)、找回密码、个人资料修改、头像上传。
-*   **商品浏览**: 首页轮播图、商品列表、**多维筛选** (关键词/价格区间/库存)、**实时搜索**。
-*   **购物流程**: 商品详情弹窗、**库存检查**、选择收货地址 (支持临时新增)、提交订单。
-*   **订单中心**: 查看历史订单、**发货状态追踪** (含发货时间)、**确认收货**、**申请退货**。
-*   **地址管理**: 多地址增删改查、设置默认地址。
+## Architecture
 
-### 🛡️ 管理端 (Admin)
-*   **数据看板**: ECharts 可视化展示 (GMV/订单量/访问量/退货率)、**双轴趋势图**、多时间维度筛选 (7天/30天/1年/自定义)。
-*   **商品管理**: 商品上架/编辑/下架、**图片自动裁剪** (后端居中裁剪适配)、库存管理。
-*   **订单管理**: 订单全览 (含**买家/商品快照**)、**一键发货**、**退货审批** (同意/确认收货)、删除订单 (自动回滚库存)。
-*   **权限控制**: 独立的管理员表、登录拦截、敏感操作鉴权、**原地登录** (Session过期不跳转)。
+```mermaid
+flowchart LR
+    Browser["Vue SPA"] --> Edge["Nginx / Ingress / TLS"]
+    Edge --> API["Spring Boot API"]
 
-## 🌟 项目亮点 (Highlights)
+    subgraph Backend["MonkeyShop Backend"]
+        Shared["shared"]
+        User["user"]
+        Product["product"]
+        Order["order"]
+        Admin["admin"]
+    end
 
-1.  **订单快照机制 (Order Snapshot)**
-    *   下单时将商品信息（名称、价格、图片）和收货地址**物理复制**到订单表。即使后续商品涨价、修改或用户删除了地址，历史订单信息依然准确无误。
+    API --> User
+    API --> Product
+    API --> Order
+    API --> Admin
+    User --> Shared
+    Product --> Shared
+    Order --> Shared
+    Admin --> Shared
 
-2.  **智能图片管理 (Smart Image Cleanup)**
-    *   **引用计数**: 删除图片时，自动检查该图片是否被其他商品、用户头像或历史订单快照引用。
-    *   **定时任务**: 每日凌晨自动扫描硬盘，清理数据库中不存在的“孤儿文件”，防止磁盘空间浪费。
-    *   **自动裁剪**: 管理员上传非正方形图片时，后端自动进行**居中裁剪**，保证前端展示整齐。
-
-3.  **高并发库存控制**
-    *   使用数据库原子更新 (`UPDATE ... SET stock = stock - 1 WHERE stock > 0`) 防止超卖。
-
-4.  **无感交互体验**
-    *   全站拒绝原生 `alert/confirm`，封装了全局 **Toast 轻提示** 和 **Bootstrap Modal**。
-    *   管理后台采用**原地登录**机制，Session 过期后无需跳转页面即可重新登录。
-
-## ⚡ 快速开始 (Getting Started)
-
-### 方式一：本地运行 (Local IDE)
-
-### 1. 环境准备
-*   JDK 21 或 17（不要用24因为不稳定）
-*   MySQL 8.0
-*   IntelliJ IDEA (推荐)
-
-### 2. 数据库配置
-在 MySQL 中创建数据库 `monkeyshop`，并执行以下 SQL 初始化表结构和数据：
-
-```sql
-SET NAMES utf8mb4;
-SET FOREIGN_KEY_CHECKS = 0;
-DROP TABLE IF EXISTS `address`;
-CREATE TABLE `address`  (
-  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '地址ID',
-  `user_id` bigint NOT NULL COMMENT '关联的用户ID',
-  `receiver_name` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '收货人姓名',
-  `phone` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '收货人电话',
-  `detail_address` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '详细地址',
-  `is_default` int NULL DEFAULT NULL,
-  `create_time` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 4 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '收货地址表' ROW_FORMAT = Dynamic;
-
-DROP TABLE IF EXISTS `admin`;
-CREATE TABLE `admin`  (
-  `id` bigint NOT NULL AUTO_INCREMENT,
-  `username` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-  `password` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-  `nickname` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT '管理员',
-  `create_time` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE INDEX `username`(`username` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 3 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = Dynamic;
-
-DROP TABLE IF EXISTS `monkey`;
-CREATE TABLE `monkey`  (
-  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '商品名称',
-  `breed` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '品种',
-  `price` double NULL DEFAULT NULL COMMENT '价格',
-  `description` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '描述',
-  `image_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '图片地址',
-  `stock` int NULL DEFAULT 10 COMMENT '库存',
-  PRIMARY KEY (`id`) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 8 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '猴子商品表' ROW_FORMAT = Dynamic;
-INSERT INTO `monkey` VALUES (1, '悟空', '金丝猴', 9998, '性格活泼，会耍金箍棒，西游记联名款', '/images/product/c9f11d47-adaa-4774-a05a-f2ef6e12f453.jpg', 10);
-INSERT INTO `monkey` VALUES (2, '杰克', '卷尾猴', 5000, '加勒比海盗同款，非常聪明，适合看家', '/images/product/33ba344f-c179-4d9e-b4e3-f94811f374d6.jpg', 10);
-INSERT INTO `monkey` VALUES (3, '金刚', '大猩猩', 12000, '体型巨大，虽然不是猴子但很强壮，安全感爆棚', '/images/product/fb59ce47-9806-442c-861e-8d63a46615cd.jpg', 10);
-INSERT INTO `monkey` VALUES (4, '莫莫', '狐猴', 3000, '马达加斯加特产，喜欢跳舞，眼神清澈愚蠢', '/images/product/5de3868f-4de4-452b-8bbc-bc9a0eb85f94.jpg', 10);
-INSERT INTO `monkey` VALUES (5, '大草猪', '肥猪', 1, '这是一头大笨猪', '/images/product/57736ad2-eb28-4924-88b5-4e496e6bd68e.jpg', 10);
-INSERT INTO `monkey` VALUES (6, '大笨蛋', '超级大笨蛋', 888, '这是一个超级大笨蛋', '/images/default_product.png', 100);
-INSERT INTO `monkey` VALUES (7, '哈哈哈', '', 688, '', '/images/product/1203392d-1efc-4d5b-8802-d1a1cf8aed20.png', 10);
-
-DROP TABLE IF EXISTS `orders`;
-CREATE TABLE `orders`  (
-  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键',
-  `order_no` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '订单编号(对外展示)',
-  `user_id` bigint NOT NULL COMMENT '买家ID',
-  `product_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-  `product_image` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
-  `price` double NOT NULL,
-  `receiver_name` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
-  `receiver_phone` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
-  `address_snapshot` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '完整的收货地址',
-  `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT '已支付' COMMENT '状态: 待支付/已支付/已发货',
-  `create_time` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  `description` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '商品描述快照',
-  `buyer_name` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '买家昵称快照',
-  `buyer_avatar` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '买家头像快照',
-  `shipping_time` datetime NULL DEFAULT NULL COMMENT '发货时间',
-  PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE INDEX `order_no`(`order_no` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 11 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '订单表' ROW_FORMAT = Dynamic;
-INSERT INTO `orders` VALUES (10, '20251224012838152', 2, '杰克', '/images/product/33ba344f-c179-4d9e-b4e3-f94811f374d6.jpg', 5000, '你猜我是谁', '18888888888', '南天门', '已退款', '2025-12-24 01:28:38', '加勒比海盗同款，非常聪明，适合看家', '佳怡', '/images/avatar/4e837b67-0a29-4cc4-9c0f-ea29d6d27edf.png', '2025-12-24 01:30:36');
-
-DROP TABLE IF EXISTS `user`;
-CREATE TABLE `user`  (
-  `id` bigint NOT NULL AUTO_INCREMENT,
-  `username` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-  `password` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-  `phone` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
-  `avatar` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
-  `create_time` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE INDEX `username`(`username` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 3 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = Dynamic;
-
-DROP TABLE IF EXISTS `visit_log`;
-CREATE TABLE `visit_log`  (
-  `id` bigint NOT NULL AUTO_INCREMENT,
-  `visit_time` datetime NOT NULL COMMENT '访问时间',
-  `ip_address` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '访客IP (可选)',
-  PRIMARY KEY (`id`) USING BTREE,
-  INDEX `idx_visit_time`(`visit_time` ASC) USING BTREE
-) ENGINE = InnoDB AUTO_INCREMENT = 101 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = Dynamic;
-INSERT INTO `visit_log` VALUES (1, '2025-12-22 19:22:07', '127.0.0.1');
-INSERT INTO `visit_log` VALUES (2, '2025-12-22 19:22:08', '0:0:0:0:0:0:0:1');
-INSERT INTO `visit_log` VALUES (3, '2025-12-22 19:22:08', '127.0.0.1');
-INSERT INTO `visit_log` VALUES (4, '2025-12-22 19:22:09', '127.0.0.1');
-INSERT INTO `visit_log` VALUES (5, '2025-12-22 19:22:09', '0:0:0:0:0:0:0:1');
-INSERT INTO `visit_log` VALUES (6, '2025-12-22 19:22:10', '127.0.0.1');
-
-SET FOREIGN_KEY_CHECKS = 1;
+    Backend --> MySQL["MySQL + Flyway"]
+    Backend --> Redis["Redis"]
+    Backend --> Storage["Local / MinIO"]
+    Backend --> ClamAV["ClamAV"]
+    Backend --> Obs["Prometheus / OTel / Sentry"]
 ```
 
-### 3. 修改配置
-打开 `src/main/resources/application.properties`，配置你的数据库账号密码：
-
-```properties
-# 端口配置
-server.port=8888
-
-# 数据库连接配置
-spring.datasource.url=jdbc:mysql://localhost:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8
-spring.datasource.username=root
-spring.datasource.password=你的数据库密码
-
-# JPA 配置
-spring.jpa.hibernate.ddl-auto=update
-spring.jpa.show-sql=true
-spring.jpa.database-platform=org.hibernate.dialect.MySQLDialect
-
-# 文件上传限制 (支持大图自动裁剪)
-spring.servlet.multipart.max-file-size=10MB
-spring.servlet.multipart.max-request-size=10MB
-```
-
-### 4. 运行项目
-1.  找到启动类 `src/main/java/com/example/monkey/MonkeyShopApplication.java`。
-2.  运行 `main` 方法启动 Spring Boot。
-3.  后端会自动在项目根目录下创建 `src/main/resources/static/images/` 文件夹用于存储上传的图片（头像/商品图）。
-4.  打开浏览器访问：
-    *   **用户登录首页**: [http://localhost:8888](http://localhost:8081) (端口取决于你的配置)
-    *   **管理员后台**: [http://localhost:8888/admin.html](http://localhost:8081/admin.html) (需先登录管理员账号)
-
-### 方式二：🐳 Docker 部署 (Docker Deployment)
-
-### 1. 创建 Docker 配置文件（项目中有）
-1.  在项目根目录下创建文件 Dockerfile：
-```Dockerfile
-FROM openjdk:21-jdk-slim
-RUN apt-get update && apt-get install -y \
-    fontconfig \
-    libfreetype6 \
-    fonts-dejavu \
-    && rm -rf /var/lib/apt/lists/*
-WORKDIR /app
-COPY target/*.jar app.jar
-EXPOSE 8888
-ENTRYPOINT ["java", "-jar", "app.jar"]
-```
-2.  在项目根目录下创建文件 docker-compose.yml：
-```YAML
-services:
-  # --- MySQL 容器 ---
-  mysql:
-    image: mysql:8.0
-    container_name: monkey-mysql
-    environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: monkeyshop
-      MYSQL_USER: monkeyuser       # 应用专用账户
-      MYSQL_PASSWORD: monkeypass   # 应用专用密码
-    ports:
-      - "3307:3306"                # 映射宿主机 3307 端口 -> 容器 3306
-    volumes:
-      - mysql_data:/var/lib/mysql
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      timeout: 20s
-      retries: 10
-
-  # --- Java 应用容器 ---
-  myshop:
-    build: .
-    container_name: monkey-app
-    ports:
-      - "8888:8888"
-    depends_on:
-      mysql:
-        condition: service_healthy
-    environment:
-      # 覆盖 application.properties 中的配置
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=false&allowPublicKeyRetrieval=true
-      SPRING_DATASOURCE_USERNAME: monkeyuser
-      SPRING_DATASOURCE_PASSWORD: monkeypass
-      SERVER_PORT: 8888
-    volumes:
-      # 挂载图片上传目录：宿主机 ./uploads -> 容器 /data/images
-      - ./uploads:/data/images
-
-volumes:
-  mysql_data:
-```
-### 2. 打包与启动
-在项目根目录执行以下命令：
-```Bash
-# Docker 一键编排启动
-docker-compose up -d --build
-```
-### 3. ⚠️ 数据库连接注意事项
-   Docker 启动的是一个全新的 MySQL 环境。
-- **自动建表**：项目配置了 spring.jpa.hibernate.ddl-auto=update，容器启动后应用会自动在 Docker 数据库中创建所需的表结构。
-- **手动管理数据库**：如果你需要使用 Navicat/DBeaver 连接 Docker 中的数据库（例如手动插入初始数据），请使用以下信息连接：
-    - **主机**：localhost
-    - **端口**：3307（注意：不是 3306，3306 已经被映射到宿主机的 3307）
-    - **用户名**：monkeyuser
-    - **密码**：monkeypass
-    - **数据库名**：monkeyshop
-- 如果你想要初始化数据，可以删除表，执行方法一中的SQL代码
-- 启动成功后，访问 http://localhost:8888 即可。上传的图片将保存在项目根目录下的 uploads 文件夹中。
-
-### 4. 停止与关闭 Docker 服务
-   在项目根目录（docker-compose.yml 所在目录）执行以下命令：
-```Bash
-# 1. 停止并删除容器、网络（保留数据库数据和上传的图片）
-docker-compose down
-
-# 2. 如果想彻底清理（包括删除 MySQL 数据卷和 uploads 文件夹里的图片，谨慎使用！）
-docker-compose down -v
-# 注意：-v 参数会删除 volumes 中定义的 mysql_data 卷，数据库会重置为初始状态
-```
-
-- **docker-compose down**：仅停止并删除容器和网络，**数据库数据和 uploads 文件夹内容会保留**，下次 up 还能继续使用。
-- **docker-compose down -v**：彻底删除，包括数据库卷，适合想完全重置环境时使用。
-- 关闭后，您可以随时再次执行 **docker-compose up -d --build** 重新启动服务。
-
-## 📂 目录结构 (Directory Structure)
+The backend is organized by business context. Each context uses the following layers where applicable:
 
 ```text
 src/main/java/com/example/monkey
-├── config          # 配置类
-│   ├── DataInitializer.java   # 启动加载器 (自动创建默认管理员)
-│   ├── SecurityConfig.java    # 安全配置 (BCrypt加密、CSRF禁用)
-│   └── WebConfig.java         # 拦截器注册、本地图片资源映射
-├── controller      # 控制器 (Web层，只负责路由分发，业务移交Service)
-│   ├── AddressController.java # 收货地址管理
-│   ├── AuthController.java    # 登录、注册、找回密码
-│   ├── MonkeyController.java  # 商品管理接口
-│   ├── OrderController.java   # 订单流程接口
-│   ├── StatsController.java   # 数据可视化看板接口
-│   ├── UploadController.java  # 图片上传入口
-│   └── UserController.java    # 个人中心、头像管理、权限检查
-├── entity          # 实体类 (数据库表映射)
-│   ├── Address.java           # 收货地址
-│   ├── Admin.java             # 管理员表
-│   ├── Monkey.java            # 商品表 (含库存)
-│   ├── Order.java             # 订单表 (含商品/买家快照、发货时间)
-│   ├── User.java              # 普通用户表
-│   └── VisitLog.java          # 访问日志表
-├── interceptor     # 拦截器
-│   └── VisitInterceptor.java  # 拦截页面请求，统计真实访问量
-├── repository      # 数据仓库 (Spring Data JPA 接口)
-│   ├── AddressRepository.java
-│   ├── AdminRepository.java
-│   ├── MonkeyRepository.java  # 含库存原子扣减 SQL
-│   ├── OrderRepository.java
-│   ├── UserRepository.java
-│   └── VisitLogRepository.java
-├── service         # 业务逻辑层 (核心业务、事务控制 @Transactional)
-│   ├── CaptchaService.java    # 验证码生成与校验逻辑
-│   ├── FileService.java       # 文件上传、智能裁剪、路径处理
-│   ├── ImageCleanupService.java # 图片垃圾回收 (引用计数检查)
-│   ├── OrderService.java      # 订单流转、库存回滚、快照组装
-│   └── UserService.java       # 用户认证、加密、资料更新
-├── task            # 定时任务
-│   └── ImageTask.java         # 定时扫描硬盘，清理未引用的孤儿图片
-└── util            # 工具类
-    └── CaptchaUtil.java       # 验证码绘图工具
+  admin/      # dashboard, stats, audit trace
+  order/      # order lifecycle, idempotency, stock, state transitions
+  product/    # catalog and product management
+  user/       # auth, profile, address, password, captcha, privacy
+  shared/     # web, security, storage, observability, privacy, common contracts
 ```
 
-## 🤝 贡献与反馈 (Contribution)
-本项目为全栈开发学习演示作品，涵盖了电商系统的核心闭环逻辑。
-欢迎提交 Issue 或 Pull Request!
+```text
+domain/           business contracts and ports
+application/      use cases, orchestration, assemblers
+infrastructure/   JPA, Redis, MinIO, external service adapters
+interfaces/       REST controllers, filters, request DTOs
+```
+
+ArchUnit tests enforce important boundaries: controllers do not access repositories directly, application services do not depend on infrastructure, shared interfaces do not depend back on feature contexts, and adapters stay out of legacy flat `service` or `security` packages.
+
+## Main Features
+
+### Storefront
+
+- Product catalog, search, price filters, stock display, and checkout dialog.
+- Login, registration, password reset, profile, address book, order list, and admin dashboard.
+- Axios client with `X-Trace-Id`, CSRF, cookie credentials, and refresh-token retry.
+- Accessibility and performance gates powered by Playwright, axe, and Lighthouse.
+
+### Authentication And Authorization
+
+- Access and refresh tokens are transported in HttpOnly cookies.
+- Redis-backed JWT refresh-token storage and revocation.
+- Refresh-token rotation and replay detection.
+- CSRF cookie/header protection.
+- RBAC authorities, method-level security, and admin TOTP MFA.
+- BCrypt hashing, password policy, password history, HIBP compromise checks, and forced password changes after expiry.
+- Passwords older than 90 days authenticate only into the forced password-change corridor. Passwords expire after 90 days.
+- login rate limits, lockouts, and captcha challenges stay shared across replicas through Redis-backed auth state.
+
+### Orders
+
+- Order creation requires an idempotency key.
+- Redisson distributed lock protects concurrent order creation.
+- Stock deduction and restoration keep stock-log evidence.
+- Order states are driven by domain events and a StateMachine adapter.
+- Business metrics cover pending orders, creation latency, and stock deduction failures.
+
+### Uploads And Storage
+
+- Validates file type, size, magic number, MIME, image dimensions, and normalized paths.
+- Optional ClamAV scanning fails closed when enabled.
+- Supports image variants and orphan cleanup jobs.
+- Supports local object storage and MinIO-compatible storage.
+- Product, user, and order image references are handled through shared storage ports.
+
+### Privacy And Audit
+
+- PII is encrypted with Tink AES-GCM.
+- Phone blind indexes enable lookup without plaintext scans.
+- Supports environment keys and Vault Transit-wrapped key material.
+- Retention jobs anonymize PII in completed/refunded orders.
+- Supports user erasure and audit trace lookup.
+
+## Repository Layout
+
+```text
+.
+  frontend/                 Vue 3 SPA frontend
+  src/main/java/            Spring Boot backend source
+  src/main/resources/       config, static assets, Flyway migrations
+  src/test/java/            unit, security, architecture, workflow tests
+  config/                   Checkstyle and SpotBugs config
+  deploy/                   Nginx, Argo CD, Kyverno assets
+  helm/monkeyshop/          Kubernetes Chart
+  scripts/                  local verification and security scripts
+  docs/                     deployment, observability, security docs
+  secrets/                  encrypted secret convention docs
+  Dockerfile
+  docker-compose.yml
+  pom.xml
+```
+
+## Prerequisites
+
+- Java 21
+- Maven 3.9+
+- Node.js 24+
+- npm 10+
+- MySQL 8
+- Redis 7
+- Docker Desktop or another Docker-compatible runtime
+- ClamAV, optional unless upload scanning is enabled
+
+## Quick Start
+
+### Run With Docker Compose
+
+Compose starts MySQL, Redis, ClamAV, and the application. The project intentionally requires explicit secrets instead of shipping default passwords.
+
+```powershell
+$env:MYSQL_ROOT_PASSWORD = "<strong-root-password>"
+$env:MYSQL_PASSWORD = "<strong-app-db-password>"
+$env:ADMIN_INIT_PASSWORD = "<strong-initial-admin-password>"
+$env:ADMIN_TOTP_SECRET = "<base32-totp-secret>"
+$env:APP_JWT_SECRET = "<at-least-32-byte-jwt-signing-secret>"
+$env:APP_JWT_REQUIRE_REDIS_TOKEN_STORE = "false"
+$env:APP_AUTH_REQUIRE_REDIS_STATE = "false"
+$env:APP_PASSWORD_RESET_DELIVERY_MODE = "logging"
+$env:SESSION_COOKIE_SECURE = "false"
+
+docker compose up -d --build
+```
+
+Default URL:
+
+```text
+http://localhost:8888
+```
+
+### Run Backend Locally
+
+```powershell
+$env:SPRING_PROFILES_ACTIVE = "dev"
+$env:DB_URL = "jdbc:mysql://localhost:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=true&requireSSL=true&verifyServerCertificate=true"
+$env:DB_USERNAME = "root"
+$env:DB_PASSWORD = "<local-db-password>"
+$env:ADMIN_INIT_PASSWORD = "<strong-initial-admin-password>"
+$env:ADMIN_TOTP_SECRET = "<base32-totp-secret>"
+$env:APP_JWT_SECRET = "<at-least-32-byte-jwt-signing-secret>"
+$env:SESSION_COOKIE_SECURE = "false"
+$env:APP_UPLOAD_PATH = "uploads/images"
+$env:APP_UPLOAD_VIRUS_SCAN_ENABLED = "false"
+
+mvn spring-boot:run
+```
+
+### Run Frontend Locally
+
+```powershell
+cd frontend
+npm ci
+npm run dev
+```
+
+## Build And Test
+
+Backend:
+
+```powershell
+mvn test
+mvn "-Ddependency-check.skip=true" verify
+```
+
+Frontend:
+
+```powershell
+cd frontend
+npm ci
+npm run build
+npm run lint
+npm run test:api-contract
+npm run test:a11y
+npm run test:lighthouse
+```
+
+Security and DevOps gates:
+
+```powershell
+.\scripts\bootstrap-ws1-tools.ps1
+.\scripts\verify-ws1-security.ps1
+.\scripts\verify-ws7-devops.ps1
+.\scripts\verify-ws8-security.ps1
+```
+
+`.\scripts\bootstrap-ws1-tools.ps1` installs cached scanner tools under `%USERPROFILE%\.cache\codex-tools\ws1-security`; keep both scanner directories on `PATH` before running the WS1 security scripts.
+
+Full Maven `verify` includes JaCoCo, SpotBugs/FindSecBugs, PIT mutation testing, and OWASP dependency-check. Set `NVD_API_KEY` before running full dependency-check to avoid NVD rate limits.
+
+## API Documentation
+
+Available when the backend is running:
+
+| Endpoint | URL |
+| --- | --- |
+| OpenAPI JSON | `http://localhost:8888/api/v1/openapi` |
+| Swagger UI | `http://localhost:8888/api/v1/docs` |
+| Health | `http://localhost:8888/actuator/health` |
+| Prometheus | `http://localhost:8888/actuator/prometheus` |
+
+## Configuration
+
+Runtime configuration is mainly driven by `src/main/resources/application.yml` and profile-specific YAML files.
+
+| Variable | Purpose |
+| --- | --- |
+| `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | MySQL connection |
+| `ADMIN_INIT_PASSWORD`, `ADMIN_TOTP_SECRET` | first admin bootstrap |
+| `APP_JWT_SECRET` | HS256 signing secret, at least 32 bytes |
+| `APP_JWT_REQUIRE_REDIS_TOKEN_STORE` | require Redis-backed token state |
+| `APP_AUTH_REQUIRE_REDIS_STATE` | require Redis-backed auth/captcha/rate-limit state |
+| `APP_AUTH_CAPTCHA_PROVIDER` | `local` or `turnstile` |
+| `APP_PASSWORD_RESET_DELIVERY_MODE` | `disabled`, `logging`, or `webhook` |
+| `APP_UPLOAD_PATH` | upload root path |
+| `APP_UPLOAD_VIRUS_SCAN_ENABLED` | enable ClamAV scanning |
+| `APP_PII_ENCRYPTION_ENABLED` | enable PII encryption |
+| `APP_PII_KEY_PROVIDER` | `env` or `vault-transit` |
+| `NVD_API_KEY` | OWASP dependency-check data access |
+
+Never commit plaintext secrets. Encrypted secret material belongs under `secrets/*.enc.yaml` following `secrets/README.md`.
+
+## Database
+
+Flyway migrations live in `src/main/resources/db/migration`. The application uses `ddl-auto=validate`, so schema drift fails at startup instead of being silently modified by Hibernate.
+
+## Deployment
+
+### Docker
+
+The Dockerfile includes a Node frontend build stage, a Maven Java 21 backend build stage, Spring Boot layered jar extraction, and a non-root Java runtime image with an Actuator healthcheck.
+
+### Kubernetes And GitOps
+
+Kubernetes assets:
+
+- `helm/monkeyshop`
+- `deploy/argocd`
+- `deploy/kyverno`
+
+The Helm chart supports dev Deployment mode, staging/prod Argo Rollouts canaries, External Secrets, HPA, PDB, NetworkPolicy, ServiceMonitor, PrometheusRule, Grafana dashboard, read-only root filesystem, restricted pod security, and digest-pinned production images.
+
+```powershell
+helm template monkeyshop .\helm\monkeyshop -f .\helm\monkeyshop\values-dev.yaml
+helm template monkeyshop .\helm\monkeyshop -f .\helm\monkeyshop\values-staging.yaml
+helm template monkeyshop .\helm\monkeyshop -f .\helm\monkeyshop\values-prod.yaml
+```
+
+## CI And Supply Chain
+
+GitHub Actions cover backend verification, frontend verification, DevOps manifest checks, Docker build/scan/sign, CodeQL, Snyk, and Dependabot. Branch protection expectations are documented in `.github/required-checks.yml`.
+
+### Supply-chain gates
+
+- `.github/dependabot.yml` maintains Maven, frontend npm, GitHub Actions, and Docker dependencies.
+- `.github/workflows/codeql.yml` runs CodeQL for Java/Kotlin and JavaScript/TypeScript sources.
+- `.github/workflows/snyk.yml` scans `pom.xml` and `frontend/package-lock.json`; the `SNYK_TOKEN` repository secret is required for the Snyk dependency gate.
+
+## Documentation
+
+- `docs/security/ws1-history-cleanup.md`: historical secret cleanup and release-blocking attestation; evidence is written to `target/ws1-security/gitleaks-history.json`.
+- `docs/security/ws2-rbac-matrix.md`: role-permission matrix.
+- `docs/security/ws8.md`: anti-abuse, PII encryption, retention, and compliance posture.
+- `docs/deployment/ws7.md`: Kubernetes and GitOps operations.
+- `docs/observability/ws6.md`: observability notes.
+
+## Development Rules
+
+- Keep feature code inside its bounded context.
+- Put domain contracts in `domain`, orchestration in `application`, adapters in `infrastructure`, and HTTP entrypoints in `interfaces`.
+- Controllers should not access repositories or entities directly.
+- Application services should not depend on persistence, Redis, Servlet, Multipart, or security crypto framework details.
+- Schema changes must include Flyway migrations.
+- Add focused tests for authorization, security-sensitive behavior, idempotency, stock transitions, and cross-module contracts.
+
+## License
+
+No license file is currently provided. Add one before publishing or accepting external contributions.

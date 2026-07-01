@@ -1,0 +1,71 @@
+global:
+  environment: prod
+
+namespace:
+  create: true
+  name: monkeyshop-prod
+
+image:
+  repository: harbor.example.com/monkeyshop/monkeyshop
+  tag: prod
+  # CI/CD must update this value to the signed release digest before production sync.
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  pullPolicy: IfNotPresent
+
+replicaCount: 3
+
+config:
+  SPRING_PROFILES_ACTIVE: prod
+  DB_URL: jdbc:mysql://prod-mysql.internal:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=true&requireSSL=true&verifyServerCertificate=true
+  DB_USERNAME: monkeyuser
+  SPRING_DATA_REDIS_HOST: prod-redis.internal
+  APP_TURNSTILE_EXPECTED_HOSTNAME: monkeyshop.example.com
+  APP_PII_VAULT_ADDR: https://vault.prod.example.com
+  APP_PII_VAULT_TRANSIT_KEY: monkeyshop-pii-prod
+  CLAMAV_HOST: clamav.monkeyshop-security.svc.cluster.local
+  APP_STORAGE_PROVIDER: minio
+  APP_STORAGE_MINIO_BUCKET: monkeyshop-prod
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability.svc.cluster.local:4318
+  SENTRY_ENVIRONMENT: prod
+  SENTRY_TRACES_SAMPLE_RATE: "0.05"
+
+externalSecret:
+  enabled: true
+
+ingress:
+  enabled: true
+  hosts:
+    - host: monkeyshop.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: monkeyshop-prod-tls
+      hosts:
+        - monkeyshop.example.com
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+rollout:
+  enabled: true
+
+serviceMonitor:
+  enabled: true
+
+prometheusRule:
+  enabled: true
+
+grafanaDashboard:
+  enabled: true

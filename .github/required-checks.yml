@@ -1,0 +1,23 @@
+# Required branch-protection contract for MonkeyShop.
+# Configure these as required status checks on the protected main branch.
+branch: main
+require_pull_request_before_merging: true
+required_secrets:
+  - NVD_API_KEY
+  - SNYK_TOKEN
+required_status_checks:
+  - Maven Verify
+  - Frontend Verify
+  - DevOps Manifest Verify
+  - Image Build Scan Sign
+  - Fast WS1 Security Gate
+  - Full OWASP Dependency Check
+  - CodeQL Analyze (java-kotlin)
+  - CodeQL Analyze (javascript-typescript)
+  - Snyk Dependency Scan
+release_blockers:
+  - name: Secret History Rewrite Attestation
+    runbook: docs/security/ws1-history-cleanup.md
+    evidence:
+      - target/ws1-security/gitleaks-history.json
+      - credential rotation ticket references
