@@ -214,6 +214,11 @@ $env:APP_UPLOAD_VIRUS_SCAN_ENABLED = "false"
 mvn spring-boot:run
 ```
 
+The `dev` profile defaults to the local MySQL listener on `localhost:3306` and
+uses `root` unless `DB_USERNAME` is set. If you run the backend on the host
+against the Compose MySQL container, set `DB_URL` to `localhost:3307` and keep
+`DB_USERNAME`/`DB_PASSWORD` aligned with `MYSQL_USER`/`MYSQL_PASSWORD`.
+
 ### Run Frontend Locally
 
 ```powershell
