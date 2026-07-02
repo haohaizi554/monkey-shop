@@ -93,11 +93,14 @@ app:
         endpoint: ${APP_PASSWORD_HIBP_ENDPOINT:https://api.pwnedpasswords.com/range}
         timeout-millis: ${APP_PASSWORD_HIBP_TIMEOUT_MILLIS:3000}
   pii:
+    backfill:
+      enabled: ${APP_PII_BACKFILL_ENABLED:false}
     encryption:
       enabled: ${APP_PII_ENCRYPTION_ENABLED:false}
       key-provider: ${APP_PII_KEY_PROVIDER:env}
       aes-key-base64: ${APP_PII_AES_KEY_BASE64:}
       hmac-key-base64: ${APP_PII_HMAC_KEY_BASE64:}
+      previous-aes-keys-base64: ${APP_PII_PREVIOUS_AES_KEYS_BASE64:}
       key-version: ${APP_PII_KEY_VERSION:v1}
       key-created-at: ${APP_PII_KEY_CREATED_AT:}
       allow-plaintext-read: ${APP_PII_ALLOW_PLAINTEXT_READ:true}
@@ -111,6 +114,7 @@ app:
         key-name: ${APP_PII_VAULT_TRANSIT_KEY:monkeyshop-pii}
         aes-ciphertext: ${APP_PII_VAULT_AES_CIPHERTEXT:}
         hmac-ciphertext: ${APP_PII_VAULT_HMAC_CIPHERTEXT:}
+        previous-aes-ciphertexts: ${APP_PII_VAULT_PREVIOUS_AES_CIPHERTEXTS:}
         timeout: ${APP_PII_VAULT_TIMEOUT:PT3S}
     retention:
       order-pii-retention: ${APP_PII_ORDER_RETENTION:PT4380H}
@@ -136,6 +140,8 @@ app:
       formats: ${APP_UPLOAD_VARIANTS_FORMATS:webp,avif}
       widths: ${APP_UPLOAD_VARIANTS_WIDTHS:320,640}
       fail-on-missing-encoder: ${APP_UPLOAD_VARIANTS_FAIL_ON_MISSING_ENCODER:false}
+  image-reference:
+    provider: ${APP_IMAGE_REFERENCE_PROVIDER:memory}
   storage:
     provider: ${APP_STORAGE_PROVIDER:local}
     public-base-url: ${APP_STORAGE_PUBLIC_BASE_URL:}

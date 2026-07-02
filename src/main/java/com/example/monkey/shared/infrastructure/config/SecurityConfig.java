@@ -149,6 +149,9 @@ public class SecurityConfig {
                                 "/api/v1/openapi/**",
                                 "/api/v1/docs",
                                 "/api/v1/docs/**",
+                                "/actuator/health",
+                                "/actuator/health/**",
+                                "/actuator/prometheus",
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**")
                         .permitAll()

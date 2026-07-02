@@ -17,6 +17,7 @@ import java.util.regex.Pattern;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -46,6 +47,15 @@ public class AuditService {
     public static final String REFRESH_TOKEN_SUCCESS = "REFRESH_TOKEN_SUCCESS";
     public static final String REFRESH_TOKEN_FAILURE = "REFRESH_TOKEN_FAILURE";
     public static final String REFRESH_TOKEN_REPLAY = "REFRESH_TOKEN_REPLAY";
+    public static final String ORDER_CREATED = "ORDER_CREATED";
+    public static final String ORDER_CREATE_FAILURE = "ORDER_CREATE_FAILURE";
+    public static final String ORDER_SHIPPED = "ORDER_SHIPPED";
+    public static final String ORDER_RECEIVED = "ORDER_RECEIVED";
+    public static final String ORDER_RETURN_REQUESTED = "ORDER_RETURN_REQUESTED";
+    public static final String ORDER_RETURN_APPROVED = "ORDER_RETURN_APPROVED";
+    public static final String ORDER_RETURN_SHIPPED = "ORDER_RETURN_SHIPPED";
+    public static final String ORDER_REFUNDED = "ORDER_REFUNDED";
+    public static final String ORDER_HIDDEN = "ORDER_HIDDEN";
 
     private static final Logger log = LoggerFactory.getLogger(AuditService.class);
     private static final int DEFAULT_RETENTION_DAYS = 180;
@@ -56,6 +66,7 @@ public class AuditService {
     private final Clock clock;
     private final int retentionDays;
 
+    @Autowired
     public AuditService(AuditLogStore auditLogStore, @Value("${app.audit.retention-days:180}") int retentionDays) {
         this(auditLogStore, Clock.systemUTC(), retentionDays);
     }

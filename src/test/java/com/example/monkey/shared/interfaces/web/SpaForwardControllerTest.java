@@ -30,7 +30,6 @@ class SpaForwardControllerTest {
     @Test
     void redirectsLegacyHtmlEntrypointsToSpaRoutes() throws Exception {
         Map<String, String> redirects = Map.of(
-                "/index.html", "/shop",
                 "/shop.html", "/shop",
                 "/orders.html", "/orders",
                 "/profile.html", "/profile",
@@ -41,5 +40,10 @@ class SpaForwardControllerTest {
                     .andExpect(status().is3xxRedirection())
                     .andExpect(redirectedUrl(redirect.getValue()));
         }
+    }
+
+    @Test
+    void leavesPackagedIndexHtmlToStaticResourceHandling() throws Exception {
+        mockMvc.perform(get("/index.html")).andExpect(status().isNotFound());
     }
 }

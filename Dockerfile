@@ -10,6 +10,8 @@ RUN npm run build
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /workspace
 COPY pom.xml .
+COPY config ./config
+COPY dependency-check-suppressions.xml .
 COPY src ./src
 RUN rm -rf src/main/resources/static/*.html src/main/resources/static/css src/main/resources/static/js
 COPY --from=frontend-build /workspace/frontend/dist/ ./src/main/resources/static/
@@ -28,11 +30,15 @@ RUN apt-get update \
         fontconfig \
         libfreetype6 \
         fonts-dejavu \
+    && apt-get install -y --only-upgrade \
+        libssl3 \
+        openssl \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system app \
     && useradd --system --gid app --home-dir /app --shell /usr/sbin/nologin app
 
 WORKDIR /app
+COPY --from=extract --chown=app:app /workspace/app.jar ./app.jar
 COPY --from=extract --chown=app:app /workspace/extracted/dependencies/ ./
 COPY --from=extract --chown=app:app /workspace/extracted/spring-boot-loader/ ./
 COPY --from=extract --chown=app:app /workspace/extracted/snapshot-dependencies/ ./
@@ -48,4 +54,4 @@ VOLUME ["/tmp", "/app/logs", "/data/images"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8888/actuator/health || exit 1
 
-ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -Djava.io.tmpdir=/tmp org.springframework.boot.loader.launch.JarLauncher"]
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -Djava.io.tmpdir=/tmp -jar app.jar"]

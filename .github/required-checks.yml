@@ -5,6 +5,11 @@ require_pull_request_before_merging: true
 required_secrets:
   - NVD_API_KEY
   - SNYK_TOKEN
+  - SONAR_TOKEN
+required_variables:
+  - SONAR_HOST_URL
+  - SONAR_PROJECT_KEY
+  - SONAR_ORGANIZATION
 required_status_checks:
   - Maven Verify
   - Frontend Verify
@@ -15,6 +20,7 @@ required_status_checks:
   - CodeQL Analyze (java-kotlin)
   - CodeQL Analyze (javascript-typescript)
   - Snyk Dependency Scan
+  - SonarQube Quality Gate
 release_blockers:
   - name: Secret History Rewrite Attestation
     runbook: docs/security/ws1-history-cleanup.md

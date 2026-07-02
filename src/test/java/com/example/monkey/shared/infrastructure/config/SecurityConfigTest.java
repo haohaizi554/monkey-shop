@@ -424,6 +424,7 @@ class SecurityConfigTest {
                 publicRoute(HttpMethod.GET, "/api/monkeys"),
                 publicRoute(HttpMethod.GET, "/api/user/me"),
                 publicRoute(HttpMethod.GET, "/api/auth/captcha/config"),
+                publicRoute(HttpMethod.GET, "/actuator/prometheus"),
                 publicRoute(HttpMethod.POST, "/api/auth/login"),
                 publicRoute(HttpMethod.POST, "/api/auth/register"),
                 publicRoute(HttpMethod.POST, "/api/auth/refresh"),
@@ -569,6 +570,11 @@ class SecurityConfigTest {
         @GetMapping({"/api/auth/captcha/config", "/api/v1/auth/captcha/config"})
         String captchaConfig() {
             return "ok";
+        }
+
+        @GetMapping("/actuator/prometheus")
+        String prometheus() {
+            return "metrics";
         }
 
         @GetMapping({"/api/address/list", "/api/v1/addresses/list"})

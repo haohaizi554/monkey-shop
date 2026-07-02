@@ -25,7 +25,7 @@ public interface ImageReferenceService {
     }
 
     static boolean isTrackable(String imagePath) {
-        return hasText(imagePath) && !imagePath.contains("default_product") && !imagePath.contains("default_avatar");
+        return hasText(imagePath) && !imagePath.contains("default_");
     }
 
     static boolean isLocalImagePath(String imagePath) {

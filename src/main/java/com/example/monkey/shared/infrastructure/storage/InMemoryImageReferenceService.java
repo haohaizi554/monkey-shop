@@ -4,11 +4,11 @@ import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConditionalOnMissingBean(ImageReferenceService.class)
+@ConditionalOnProperty(name = "app.image-reference.provider", havingValue = "memory", matchIfMissing = true)
 public class InMemoryImageReferenceService implements ImageReferenceService {
 
     private final Map<String, AtomicLong> counts = new ConcurrentHashMap<>();

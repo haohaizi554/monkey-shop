@@ -44,6 +44,7 @@ class SchemaMigrationTest {
         String v15 = read("src/main/resources/db/migration/V15__audit_trace_retention.sql");
         String v16 = read("src/main/resources/db/migration/V16__pii_encryption_columns.sql");
         String v17 = read("src/main/resources/db/migration/V17__order_pii_anonymized_flag.sql");
+        String v18 = read("src/main/resources/db/migration/V18__user_email_pii_encryption.sql");
 
         assertThat(v1).contains("CREATE TABLE IF NOT EXISTS `orders`");
         assertThat(v1).contains("`price` DOUBLE");
@@ -102,6 +103,8 @@ class SchemaMigrationTest {
         assertThat(v16).contains("idx_orders_receiver_phone_hmac");
         assertThat(v17).contains("ADD COLUMN `pii_anonymized` BOOLEAN NOT NULL DEFAULT FALSE");
         assertThat(v17).contains("idx_orders_retention_pii_batch");
+        assertThat(v18).contains("DROP INDEX `idx_user_email`");
+        assertThat(v18).contains("MODIFY COLUMN `email` VARCHAR(1024)");
     }
 
     private static String read(String path) throws IOException {

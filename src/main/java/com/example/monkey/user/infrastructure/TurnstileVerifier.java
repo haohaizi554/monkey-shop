@@ -15,6 +15,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
@@ -41,6 +42,7 @@ public class TurnstileVerifier implements HumanVerificationService {
     private final Duration replayTtl;
     private final Map<String, Long> consumedTokens = new ConcurrentHashMap<>();
 
+    @Autowired
     public TurnstileVerifier(
             ObjectProvider<StringRedisTemplate> redisTemplateProvider,
             @Value("${app.auth.captcha.provider:local}") String provider,

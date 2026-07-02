@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -39,6 +40,7 @@ public class ApiRateLimitService implements ApiRateLimiter {
     private final Map<String, Bucket> localBuckets = new ConcurrentHashMap<>();
     private final Map<String, Long> localBlocks = new ConcurrentHashMap<>();
 
+    @Autowired
     public ApiRateLimitService(
             ObjectProvider<StringRedisTemplate> redisTemplateProvider,
             @Value("${app.rate-limit.enabled:true}") boolean enabled,
@@ -71,15 +73,17 @@ public class ApiRateLimitService implements ApiRateLimiter {
         if (!enabled || policy == null) {
             return RateLimitDecision.allowedDecision();
         }
-        RateLimitDecision ipDecision = consumeDimension(policy, "ip", clientIp);
+        String normalizedClientIp = normalize(clientIp);
+        String effectiveUserKey = effectiveUserKey(userKey, normalizedClientIp);
+        RateLimitDecision ipDecision = consumeDimension(policy, "ip", normalizedClientIp);
         if (!ipDecision.allowed()) {
             return ipDecision;
         }
-        RateLimitDecision userDecision = consumeDimension(policy, "user", userKey);
+        RateLimitDecision userDecision = consumeDimension(policy, "user", effectiveUserKey);
         if (!userDecision.allowed()) {
             return userDecision;
         }
-        return consumeDimension(policy, "endpoint", policy.key());
+        return consumeDimension(policy, "endpoint", endpointScope(policy, normalizedClientIp));
     }
 
     @Override
@@ -113,6 +117,18 @@ public class ApiRateLimitService implements ApiRateLimiter {
         } catch (Exception exception) {
             failIfRedisRequired();
         }
+    }
+
+    private static String effectiveUserKey(String userKey, String normalizedClientIp) {
+        String normalizedUserKey = normalize(userKey);
+        if ("anonymous".equals(normalizedUserKey)) {
+            return "anonymous-ip:" + normalizedClientIp;
+        }
+        return normalizedUserKey;
+    }
+
+    private static String endpointScope(RateLimitPolicy policy, String normalizedClientIp) {
+        return policy.key() + ":ip:" + normalizedClientIp;
     }
 
     private RateLimitDecision consumeDimension(RateLimitPolicy policy, String dimension, String rawValue) {

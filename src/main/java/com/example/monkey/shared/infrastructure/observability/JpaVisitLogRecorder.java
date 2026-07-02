@@ -5,6 +5,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
@@ -16,6 +17,7 @@ public final class JpaVisitLogRecorder implements VisitLogRecorder {
     private final VisitLogRepository visitLogRepository;
     private final Clock clock;
 
+    @Autowired
     public JpaVisitLogRecorder(VisitLogRepository visitLogRepository) {
         this(visitLogRepository, Clock.systemUTC());
     }

@@ -14,7 +14,12 @@ public class ApiRateLimitApplicationService {
     }
 
     public ApiRateLimitResult consume(ApiRateLimitOperation operation, String clientIp, String userKey) {
-        ApiRateLimiter.RateLimitDecision decision = rateLimiter.consume(toPolicy(operation), clientIp, userKey);
+        return consumePolicy(toPolicy(operation), clientIp, userKey);
+    }
+
+    public ApiRateLimitResult consumePolicy(RateLimitPolicy policy, String clientIp, String userKey) {
+        ApiRateLimiter.RateLimitDecision decision =
+                rateLimiter.consume(policy == null ? RateLimitPolicy.DEFAULT : policy, clientIp, userKey);
         return new ApiRateLimitResult(decision.allowed(), decision.retryAfterSeconds());
     }
 

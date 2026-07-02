@@ -1,6 +1,7 @@
 param(
     [switch]$SkipDependencyCheck,
     [switch]$SkipDependencyCheckUpdate,
+    [switch]$SkipMaven,
     [string]$OutputDir = "target/ws1-security",
     [string]$GitleaksPath = "",
     [string]$TrivyPath = "",
@@ -233,7 +234,7 @@ function Invoke-SecurityHeaderPostureScan {
     }
 }
 
-$mvn = Resolve-GateTool -CommandName "mvn"
+$mvn = if ($SkipMaven) { "" } else { Resolve-GateTool -CommandName "mvn" }
 $rg = Resolve-GateTool -CommandName "rg"
 $uvx = Resolve-GateTool -CommandName "uvx"
 $gitleaks = Resolve-GateTool `
@@ -245,20 +246,23 @@ $trivy = Resolve-GateTool `
     -CommandName "trivy" `
     -FallbackPaths @("$env:USERPROFILE\.cache\codex-tools\ws1-security\trivy\trivy.exe")
 
-if ((-not $SkipDependencyCheck) -and (-not $SkipDependencyCheckUpdate) -and (-not $env:NVD_API_KEY)) {
+if ((-not $SkipMaven) -and (-not $SkipDependencyCheck) -and (-not $SkipDependencyCheckUpdate) -and (-not $env:NVD_API_KEY)) {
     Write-Warning "NVD_API_KEY is not set. dependency-check will use nvdApiDelay=$UnauthenticatedNvdDelayMs to reduce NVD API rate-limit failures."
 }
 
-$mavenArgs = @("clean", "verify")
-if ($SkipDependencyCheck) {
-    $mavenArgs = @("-Ddependency-check.skip=true", "clean", "verify")
-} elseif ($SkipDependencyCheckUpdate) {
-    $mavenArgs = @("-DautoUpdate=false", "clean", "verify")
-} elseif (-not $env:NVD_API_KEY) {
-    $mavenArgs = @("-DnvdApiDelay=$UnauthenticatedNvdDelayMs", "clean", "verify")
+if ($SkipMaven) {
+    Write-Host "==> Maven verify (skipped; using a previously verified build)"
+} else {
+    $mavenArgs = @("clean", "verify")
+    if ($SkipDependencyCheck) {
+        $mavenArgs = @("-Ddependency-check.skip=true", "clean", "verify")
+    } elseif ($SkipDependencyCheckUpdate) {
+        $mavenArgs = @("-DautoUpdate=false", "clean", "verify")
+    } elseif (-not $env:NVD_API_KEY) {
+        $mavenArgs = @("-DnvdApiDelay=$UnauthenticatedNvdDelayMs", "clean", "verify")
+    }
+    Invoke-GateCommand -Name "Maven verify" -FilePath $mvn -Arguments $mavenArgs -TimeoutSeconds $MavenTimeoutSeconds
 }
-Invoke-GateCommand -Name "Maven verify" -FilePath $mvn -Arguments $mavenArgs -TimeoutSeconds $MavenTimeoutSeconds
-
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 Invoke-LiteralRiskScan -RipgrepPath $rg
 Invoke-SecurityHeaderPostureScan
@@ -314,7 +318,7 @@ foreach ($repository in $TrivyJavaDbRepository) {
     $trivyArgs += @("--java-db-repository", $repository)
 }
 if ($SkipTrivyDbUpdate) {
-    $trivyArgs += "--skip-db-update"
+    $trivyArgs += @("--skip-db-update", "--skip-check-update", "--offline-scan", "--skip-version-check")
 }
 $trivyArgs += @(
     "--scanners", "vuln,secret,misconfig",

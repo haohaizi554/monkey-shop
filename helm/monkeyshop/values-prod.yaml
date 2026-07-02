@@ -16,9 +16,9 @@ replicaCount: 3
 
 config:
   SPRING_PROFILES_ACTIVE: prod
-  DB_URL: jdbc:mysql://prod-mysql.internal:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=true&requireSSL=true&verifyServerCertificate=true
+  DB_URL: jdbc:mysql://monkeyshop-mysql.monkeyshop-prod.svc.cluster.local:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=true&requireSSL=true&verifyServerCertificate=true
   DB_USERNAME: monkeyuser
-  SPRING_DATA_REDIS_HOST: prod-redis.internal
+  SPRING_DATA_REDIS_HOST: monkeyshop-redis.monkeyshop-prod.svc.cluster.local
   APP_TURNSTILE_EXPECTED_HOSTNAME: monkeyshop.example.com
   APP_PII_VAULT_ADDR: https://vault.prod.example.com
   APP_PII_VAULT_TRANSIT_KEY: monkeyshop-pii-prod
@@ -31,6 +31,25 @@ config:
 
 externalSecret:
   enabled: true
+
+externalServices:
+  enabled: true
+  services:
+    mysql:
+      enabled: true
+      name: monkeyshop-mysql
+      externalName: prod-mysql.internal
+      port: 3306
+    redis:
+      enabled: true
+      name: monkeyshop-redis
+      externalName: prod-redis.internal
+      port: 6379
+
+initContainers:
+  waitForMysql:
+    # CI/CD must update this value to a signed release digest before production sync.
+    image: busybox@sha256:0000000000000000000000000000000000000000000000000000000000000000
 
 ingress:
   enabled: true

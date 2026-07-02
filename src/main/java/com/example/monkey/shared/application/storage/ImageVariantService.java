@@ -17,6 +17,7 @@ import javax.imageio.ImageIO;
 import net.coobird.thumbnailator.Thumbnails;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -33,6 +34,7 @@ public class ImageVariantService {
     private final List<Integer> widths;
     private final boolean failOnMissingEncoder;
 
+    @Autowired
     public ImageVariantService(
             ObjectStorageService objectStorageService,
             @Value("${app.upload.variants.enabled:true}") boolean enabled,

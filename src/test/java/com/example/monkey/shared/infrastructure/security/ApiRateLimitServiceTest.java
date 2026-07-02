@@ -51,6 +51,24 @@ class ApiRateLimitServiceTest {
     }
 
     @Test
+    void anonymousRequestsFromDifferentIpsDoNotShareUserOrEndpointBuckets() {
+        ApiRateLimitService service = new ApiRateLimitService(null, true, false, Duration.ofHours(24));
+
+        for (int i = 0; i < RateLimitPolicy.SEARCH.capacity(); i++) {
+            assertThat(service.consume(RateLimitPolicy.SEARCH, "203.0.113.10", "anonymous")
+                            .allowed())
+                    .isTrue();
+        }
+
+        assertThat(service.consume(RateLimitPolicy.SEARCH, "203.0.113.11", "anonymous")
+                        .allowed())
+                .isTrue();
+        assertThat(service.consume(RateLimitPolicy.SEARCH, "203.0.113.10", "anonymous")
+                        .allowed())
+                .isFalse();
+    }
+
+    @Test
     void honeypotBlockIsRememberedLocally() {
         ApiRateLimitService service = new ApiRateLimitService(null, true, false, Duration.ofHours(24));
 

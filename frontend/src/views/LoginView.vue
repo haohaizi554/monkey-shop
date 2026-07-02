@@ -3,6 +3,7 @@ import { Refresh, Upload } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import * as authApi from '@/api/auth'
 import AppShell from '@/components/AppShell.vue'
 import HumanVerification from '@/components/HumanVerification.vue'
@@ -11,6 +12,7 @@ import type { CaptchaConfig } from '@/types'
 
 const router = useRouter()
 const auth = useAuthStore()
+const { t } = useI18n()
 const heroImage = '/images/monkey.png'
 const activeTab = ref<'login' | 'register' | 'reset'>('login')
 const loginCaptchaUrl = ref(authApi.captchaUrl('auth'))
@@ -62,15 +64,15 @@ function selectAvatar(event: Event) {
 
 async function submitLogin() {
   if (turnstileEnabled.value && !loginForm.captcha) {
-    ElMessage.error('captcha required')
+    ElMessage.error(t('auth.captchaRequired'))
     return
   }
   submitting.value = true
   try {
     await auth.login(loginForm)
-    ElMessage.success('Signed in')
+    ElMessage.success(t('auth.signedIn'))
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Sign in failed'
+    const message = error instanceof Error ? error.message : t('auth.signInFailed')
     showAdminMfa.value = message === 'admin mfa required' || message === 'admin mfa invalid'
     showLoginCaptcha.value =
       turnstileEnabled.value || message === 'captcha required' || message === 'captcha incorrect'
@@ -85,20 +87,20 @@ async function submitLogin() {
 
 async function submitRegister() {
   if (turnstileEnabled.value && !registerForm.captcha) {
-    ElMessage.error('captcha required')
+    ElMessage.error(t('auth.captchaRequired'))
     return
   }
   submitting.value = true
   try {
     await auth.register({ ...registerForm, avatarFile: avatarFile.value })
-    ElMessage.success('Registration complete')
+    ElMessage.success(t('auth.registrationComplete'))
     activeTab.value = 'login'
     loginForm.username = registerForm.username
   } catch (error) {
     if (!turnstileEnabled.value) {
       refreshCaptcha('register')
     }
-    ElMessage.error(error instanceof Error ? error.message : 'Registration failed')
+    ElMessage.error(error instanceof Error ? error.message : t('auth.registrationFailed'))
   } finally {
     submitting.value = false
   }
@@ -106,29 +108,29 @@ async function submitRegister() {
 
 async function requestResetCode() {
   if (turnstileEnabled.value && !resetRequestCaptcha.value) {
-    ElMessage.error('captcha required')
+    ElMessage.error(t('auth.captchaRequired'))
     return
   }
   try {
     await authApi.requestPasswordReset({ ...resetForm, captcha: resetRequestCaptcha.value })
-    ElMessage.success('If the account matches, a reset challenge was sent')
+    ElMessage.success(t('auth.resetChallengeSent'))
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Request failed')
+    ElMessage.error(error instanceof Error ? error.message : t('auth.requestFailed'))
   }
 }
 
 async function submitReset() {
   if (turnstileEnabled.value && !resetForm.captcha) {
-    ElMessage.error('captcha required')
+    ElMessage.error(t('auth.captchaRequired'))
     return
   }
   submitting.value = true
   try {
     await authApi.resetPassword(resetForm)
-    ElMessage.success('Password reset complete')
+    ElMessage.success(t('auth.passwordResetComplete'))
     activeTab.value = 'login'
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Password reset failed')
+    ElMessage.error(error instanceof Error ? error.message : t('auth.passwordResetFailed'))
   } finally {
     submitting.value = false
   }
@@ -143,7 +145,7 @@ onMounted(() => {
   <AppShell>
     <section class="auth-layout">
       <div class="auth-visual">
-        <img :src="heroImage" alt="MonkeyShop storefront" />
+        <img :src="heroImage" :alt="$t('auth.storefrontAlt')" />
       </div>
 
       <el-tabs v-model="activeTab" class="auth-panel" stretch>
@@ -176,7 +178,7 @@ onMounted(() => {
                   <button
                     class="captcha-image-button"
                     type="button"
-                    aria-label="Refresh captcha"
+                    :aria-label="$t('common.refreshCaptcha')"
                     @click="refreshCaptcha('login')"
                   >
                     <img :src="loginCaptchaUrl" alt="Captcha" />
@@ -225,7 +227,7 @@ onMounted(() => {
                 v-if="avatarPreview"
                 class="avatar-preview"
                 :src="avatarPreview"
-                alt="Avatar preview"
+                :alt="$t('auth.avatarPreview')"
               />
             </el-form-item>
             <el-form-item :label="$t('auth.captcha')">
@@ -241,7 +243,7 @@ onMounted(() => {
                   <button
                     class="captcha-image-button"
                     type="button"
-                    aria-label="Refresh captcha"
+                    :aria-label="$t('common.refreshCaptcha')"
                     @click="refreshCaptcha('register')"
                   >
                     <img :src="registerCaptchaUrl" alt="Captcha" />
@@ -275,12 +277,12 @@ onMounted(() => {
               />
             </el-form-item>
             <el-button plain class="full-width" @click="requestResetCode">
-              Request reset code
+              {{ $t('auth.requestResetCode') }}
             </el-button>
             <el-form-item :label="$t('auth.otp')">
               <el-input v-model="resetForm.otp" />
             </el-form-item>
-            <el-form-item label="Email token">
+            <el-form-item :label="$t('auth.emailToken')">
               <el-input v-model="resetForm.emailToken" />
             </el-form-item>
             <el-form-item :label="$t('auth.newPassword')">
@@ -300,7 +302,7 @@ onMounted(() => {
         </el-tab-pane>
       </el-tabs>
 
-      <el-button text @click="router.push('/shop')"> Continue browsing </el-button>
+      <el-button text @click="router.push('/shop')"> {{ $t('auth.continueBrowsing') }} </el-button>
     </section>
   </AppShell>
 </template>

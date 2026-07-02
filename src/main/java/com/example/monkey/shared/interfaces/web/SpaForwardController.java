@@ -11,11 +11,6 @@ public class SpaForwardController {
         return "forward:/index.html";
     }
 
-    @GetMapping("/index.html")
-    public String legacyIndex() {
-        return "redirect:/shop";
-    }
-
     @GetMapping("/shop.html")
     public String legacyShop() {
         return "redirect:/shop";

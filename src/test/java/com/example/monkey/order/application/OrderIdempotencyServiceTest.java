@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import com.example.monkey.order.domain.OrderIdempotencyKeyStore;
 import com.example.monkey.order.domain.OrderIdempotencyStore;
 import com.example.monkey.order.domain.OrderIdempotencyStore.IdempotencyReservationRecord;
+import java.lang.reflect.Method;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -19,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.annotation.Transactional;
 
 @ExtendWith(MockitoExtension.class)
 class OrderIdempotencyServiceTest {
@@ -85,6 +87,22 @@ class OrderIdempotencyServiceTest {
         verify(orderIdempotencyStore).complete(42L, "order-key-1", 11L);
     }
 
+    @Test
+    void reserveUsesWriteTransactionBoundary() throws NoSuchMethodException {
+        Transactional transactional = transactional("reserve", Long.class, String.class, String.class);
+
+        assertThat(transactional).isNotNull();
+        assertThat(transactional.readOnly()).isFalse();
+    }
+
+    @Test
+    void completeUsesWriteTransactionBoundary() throws NoSuchMethodException {
+        Transactional transactional = transactional("complete", Long.class, String.class, Long.class);
+
+        assertThat(transactional).isNotNull();
+        assertThat(transactional.readOnly()).isFalse();
+    }
+
     private static IdempotencyReservationRecord idempotencyRecord(String requestHash, String status, Long orderId) {
         return new IdempotencyReservationRecord(
                 1L,
@@ -95,5 +113,11 @@ class OrderIdempotencyServiceTest {
                 status,
                 LocalDateTime.parse("2026-06-28T00:00:00"),
                 LocalDateTime.parse("2026-06-29T00:00:00"));
+    }
+
+    private static Transactional transactional(String methodName, Class<?>... parameterTypes)
+            throws NoSuchMethodException {
+        Method method = OrderIdempotencyService.class.getMethod(methodName, parameterTypes);
+        return method.getAnnotation(Transactional.class);
     }
 }

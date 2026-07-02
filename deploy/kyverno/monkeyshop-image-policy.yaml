@@ -20,7 +20,7 @@ spec:
       validate:
         message: MonkeyShop images must not use the latest tag.
         foreach:
-          - list: request.object.spec.containers
+          - list: request.object.spec.[containers, initContainers][]
             deny:
               conditions:
                 any:
@@ -41,7 +41,7 @@ spec:
       validate:
         message: Production images must be referenced by immutable digest.
         foreach:
-          - list: request.object.spec.containers
+          - list: request.object.spec.[containers, initContainers][]
             deny:
               conditions:
                 all:

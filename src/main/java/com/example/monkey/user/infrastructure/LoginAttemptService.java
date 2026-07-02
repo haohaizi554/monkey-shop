@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -46,6 +47,7 @@ public class LoginAttemptService implements LoginAttemptPolicy {
     private final Map<String, Instant> captchaExpirations = new ConcurrentHashMap<>();
     private final Map<String, Instant> lockExpirations = new ConcurrentHashMap<>();
 
+    @Autowired
     public LoginAttemptService(
             ObjectProvider<StringRedisTemplate> redisTemplateProvider,
             @Value("${app.auth.login.max-attempts-per-window:5}") int maxAttemptsPerWindow,

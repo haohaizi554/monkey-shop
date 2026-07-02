@@ -32,7 +32,7 @@ MonkeyShop is a full-stack e-commerce project built with Spring Boot 3, Java 21,
 - Reliable order flow with idempotency keys, distributed locks, stock logs, state transitions, and business metrics.
 - Upload and storage pipeline with MIME validation, image checks, optional ClamAV, image variants, cleanup jobs, and local/MinIO storage.
 - Privacy protection with PII encryption, blind indexes, key rotation, retention jobs, and user erasure.
-- Production-facing delivery assets: Docker, Compose, Helm, Argo CD, Kyverno, External Secrets, Prometheus, Grafana, Trivy, cosign, CodeQL, Snyk, and Dependabot.
+- Production-facing delivery assets: Docker, Compose, Helm, Argo CD, Kyverno, External Secrets, Prometheus, Grafana, Trivy, cosign, CodeQL, Snyk, SonarQube, and Dependabot.
 
 ## Tech Stack
 
@@ -44,7 +44,7 @@ MonkeyShop is a full-stack e-commerce project built with Spring Boot 3, Java 21,
 | Observability | Actuator, Micrometer Prometheus, OpenTelemetry, Sentry, structured Logback JSON |
 | Frontend | Vue 3, TypeScript, Vite, Pinia, Vue Router, Element Plus, vue-i18n, Axios |
 | Testing | JUnit 5, Spring Security Test, ArchUnit, JaCoCo, SpotBugs/FindSecBugs, PIT, Playwright, axe, Lighthouse |
-| Delivery | Docker, Docker Compose, Helm, Argo CD, Kyverno, Trivy, cosign, CodeQL, Snyk, Dependabot |
+| Delivery | Docker, Docker Compose, Helm, Argo CD, Kyverno, Trivy, cosign, CodeQL, Snyk, SonarQube, Dependabot |
 
 ## Architecture
 
@@ -234,27 +234,55 @@ mvn "-Ddependency-check.skip=true" verify
 Frontend:
 
 ```powershell
-cd frontend
-npm ci
-npm run build
-npm run lint
-npm run test:api-contract
-npm run test:a11y
-npm run test:lighthouse
+.\scripts\verify-ws5-frontend.ps1 -InstallDependencies
 ```
+
+The WS5 frontend verifier runs npm audit, Prettier format checks, Vite/TypeScript build, ESLint, API contract checks, Playwright axe accessibility tests, and the Lighthouse gate. Lighthouse must keep performance, accessibility, best-practices, and SEO at or above 95 with LCP below 2.5s.
 
 Security and DevOps gates:
 
 ```powershell
 .\scripts\bootstrap-ws1-tools.ps1
 .\scripts\verify-ws1-security.ps1
-.\scripts\verify-ws7-devops.ps1
+.\scripts\verify-quality-reports.ps1
+.\scripts\verify-ws5-frontend.ps1
+.\scripts\verify-ws6-observability.ps1
+.\scripts\verify-ws7-devops.ps1 -RequireHelm -DownloadHelmIfMissing
 .\scripts\verify-ws8-security.ps1
+.\scripts\verify-runtime-smoke.ps1 -BaseUrl http://localhost:8888
+.\scripts\verify-runtime-api-security.ps1 -BaseUrl http://localhost:8888
+.\scripts\verify-runtime-image-supply-chain.ps1 -ImageRef monkey-shop-myshop:latest
+.\scripts\run-pii-backfill-compose.ps1 -ComposeProject monkey-shop
+.\scripts\verify-runtime-data-protection.ps1 -ComposeProject monkey-shop -RequirePopulatedPii
+bash scripts/verify-runtime-data-protection.sh --compose-project monkey-shop --require-populated-pii
 ```
 
 `.\scripts\bootstrap-ws1-tools.ps1` installs cached scanner tools under `%USERPROFILE%\.cache\codex-tools\ws1-security`; keep both scanner directories on `PATH` before running the WS1 security scripts.
 
+
+After a full Maven `verify` has already passed, rerun only the WS1 scanner layer with cached Trivy data:
+
+```powershell
+.\scripts\verify-ws1-security.ps1 -SkipMaven -SkipTrivyDbUpdate -OutputDir target\ws1-security-offline
+```
+
+`-SkipMaven` is only for repeat scanner runs after a successful full build. `-SkipTrivyDbUpdate` keeps Trivy in cached/offline mode and adds `--skip-check-update`, `--offline-scan`, and `--skip-version-check` for deterministic local verification.
+
+Run `.\scripts\verify-runtime-smoke.ps1 -BaseUrl http://localhost:8888` after local or VM deployment. Use `-RequireHttps` for public TLS endpoints so HSTS preload posture is enforced.
+
+Run `.\scripts\verify-runtime-api-security.ps1 -BaseUrl http://localhost:8888` after deployment to verify anonymous API reads, authentication barriers, captcha config, and WAF honeypot blocking. Add `-RunRateLimitProbe` only when it is acceptable to consume the shared search endpoint bucket briefly and prove 429/Retry-After behavior.
+
+Run `.\scripts\verify-runtime-image-supply-chain.ps1 -ImageRef monkey-shop-myshop:latest` after a Docker or VM deployment to scan the actual runtime image tar with Trivy for HIGH/CRITICAL vulnerabilities, secrets, and image misconfiguration. For a VM image, pass `-SshTarget user@host`; the script only uses SSH for `docker save` plus `scp`, scans locally with `--input`, and never mounts `/var/run/docker.sock` and does not store passwords. If Java DB download is unavailable but the Trivy vulnerability DB is cached, use `-SkipDbUpdate -PkgTypes os` for an OS-package runtime gate; Java dependencies remain covered by Maven dependency-check.
+
+Run `.\scripts\run-pii-backfill-compose.ps1 -ComposeProject monkey-shop` first as a dry-run before any legacy plaintext PII migration. Actual rewrite requires explicit approval plus `-Execute -AcknowledgeDataRewrite 'I understand this rewrites PII data'`; the script creates a `mysqldump` backup, hides key material, enables one-time backfill, restores strict mode, and then calls the data-protection verifier.
+
+Run `.\scripts\verify-runtime-data-protection.ps1 -ComposeProject monkey-shop -RequirePopulatedPii` after PII backfill to verify Flyway version, strict runtime PII flags, `enc:v1:` ciphertext storage, and 64-character phone blind indexes without printing secrets or raw PII.
+
+On Linux compose hosts or VMs without PowerShell, run `bash scripts/verify-runtime-data-protection.sh --compose-project monkey-shop --require-populated-pii` for the same runtime data-protection gate.
+
 Full Maven `verify` includes JaCoCo, SpotBugs/FindSecBugs, PIT mutation testing, and OWASP dependency-check. Set `NVD_API_KEY` before running full dependency-check to avoid NVD rate limits.
+
+Run `.\scripts\verify-quality-reports.ps1` after Maven `verify` to re-check the generated JaCoCo line coverage, PIT mutation and line coverage, and SpotBugs XML reports without rerunning the full build.
 
 ## API Documentation
 
@@ -284,7 +312,14 @@ Runtime configuration is mainly driven by `src/main/resources/application.yml` a
 | `APP_UPLOAD_VIRUS_SCAN_ENABLED` | enable ClamAV scanning |
 | `APP_PII_ENCRYPTION_ENABLED` | enable PII encryption |
 | `APP_PII_KEY_PROVIDER` | `env` or `vault-transit` |
+| `APP_PII_AES_KEY_BASE64`, `APP_PII_HMAC_KEY_BASE64` | externalized DEK/HMAC key material for compose or local migration tooling |
+| `APP_PII_PREVIOUS_AES_KEYS_BASE64` | optional `version=base64` list for decrypting old AES keys during rotation |
+| `APP_PII_ALLOW_PLAINTEXT_READ` | temporary legacy migration escape hatch; keep `false` after backfill |
+| `APP_PII_BACKFILL_ENABLED` | one-time plaintext-to-ciphertext backfill runner; keep `false` outside migration |
+| `APP_PII_KEY_VERSION`, `APP_PII_KEY_CREATED_AT` | DEK version label and rotation timestamp |
+| `APP_PII_VAULT_PREVIOUS_AES_CIPHERTEXTS` | optional `version=vault-ciphertext` list for Vault Transit key rotation windows |
 | `NVD_API_KEY` | OWASP dependency-check data access |
+| `SONAR_TOKEN` | SonarQube/SonarCloud scanner token for the blocking quality gate |
 
 Never commit plaintext secrets. Encrypted secret material belongs under `secrets/*.enc.yaml` following `secrets/README.md`.
 
@@ -316,13 +351,15 @@ helm template monkeyshop .\helm\monkeyshop -f .\helm\monkeyshop\values-prod.yaml
 
 ## CI And Supply Chain
 
-GitHub Actions cover backend verification, frontend verification, DevOps manifest checks, Docker build/scan/sign, CodeQL, Snyk, and Dependabot. Branch protection expectations are documented in `.github/required-checks.yml`.
+GitHub Actions cover backend verification, frontend verification, DevOps manifest checks, Docker build/scan/sign, CodeQL, Snyk, SonarQube, and Dependabot. Branch protection expectations are documented in `.github/required-checks.yml`.
 
 ### Supply-chain gates
 
 - `.github/dependabot.yml` maintains Maven, frontend npm, GitHub Actions, and Docker dependencies.
 - `.github/workflows/codeql.yml` runs CodeQL for Java/Kotlin and JavaScript/TypeScript sources.
 - `.github/workflows/snyk.yml` scans `pom.xml` and `frontend/package-lock.json`; the `SNYK_TOKEN` repository secret is required for the Snyk dependency gate.
+- `.github/workflows/sonarqube.yml` runs the blocking SonarQube Quality Gate with JaCoCo and SpotBugs reports; `SONAR_TOKEN`, `SONAR_PROJECT_KEY`, and Sonar host variables must be configured in the repository.
+- `.github/workflows/ci.yaml` builds `monkeyshop:ci`, blocks HIGH/CRITICAL Trivy image findings, uploads SARIF to code scanning, and keeps `target/runtime-supply-chain/trivy-runtime-image.json` as the runtime-image audit report.
 
 ## Documentation
 

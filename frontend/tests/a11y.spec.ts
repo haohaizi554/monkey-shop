@@ -52,3 +52,32 @@ test('shop route renders without serious accessibility violations', async ({ pag
   const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()
   expect(results.violations).toEqual([])
 })
+
+test('app shell toggles language and dark theme', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.goto('/shop')
+  await expect(page.getByRole('link', { name: '商城', exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Switch language' }).click()
+  await expect(page.getByRole('link', { name: 'Shop', exact: true })).toBeVisible()
+  await expect
+    .poll(async () => page.evaluate(() => localStorage.getItem('monkeyshop-locale')))
+    .toBe('en')
+
+  await page.getByRole('button', { name: 'Dark theme' }).click()
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  await expect(page.getByRole('button', { name: 'Light theme' })).toBeVisible()
+})
+
+test('product detail route renders product JSON-LD without serious accessibility violations', async ({
+  page,
+}) => {
+  await page.goto('/shop/1')
+  await expect(page.getByRole('heading', { name: 'Golden Snub-nosed' })).toBeVisible()
+  const jsonLd = await page
+    .locator('#monkeyshop-product-jsonld')
+    .evaluate((node) => node.textContent ?? '')
+  expect(jsonLd).toContain('"@type":"Product"')
+  const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()
+  expect(results.violations).toEqual([])
+})

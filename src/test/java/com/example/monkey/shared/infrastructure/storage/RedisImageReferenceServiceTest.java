@@ -1,6 +1,7 @@
 package com.example.monkey.shared.infrastructure.storage;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -38,6 +39,8 @@ class RedisImageReferenceServiceTest {
         service.retain("/images/avatar/alice.png");
 
         verify(hashOperations).increment(REFCOUNT_HASH, "/images/avatar/alice.png", 1L);
+        verify(hashOperations, never()).increment(REFCOUNT_HASH, "/images/default_avatar.png", 1L);
+        verify(hashOperations, never()).increment(REFCOUNT_HASH, "/images/avatar/default_team.png", 1L);
     }
 
     @Test
@@ -63,7 +66,8 @@ class RedisImageReferenceServiceTest {
     void rebuildReplacesHashAndRetainsTrackableValues() {
         when(redisTemplate.opsForHash()).thenReturn(hashOperations);
 
-        service.rebuild(List.of("/images/avatar/alice.png", "/images/default_avatar.png"));
+        service.rebuild(
+                List.of("/images/avatar/alice.png", "/images/default_avatar.png", "/images/avatar/default_team.png"));
 
         verify(redisTemplate).delete(REFCOUNT_HASH);
         verify(hashOperations).increment(REFCOUNT_HASH, "/images/avatar/alice.png", 1L);

@@ -25,7 +25,12 @@ class Ws8SecurityWorkflowTest {
                 .contains("must advertise Turnstile site keys")
                 .contains("must use Tink-backed encryption")
                 .contains("must release PII keys through Vault Transit")
+                .contains("must allow historical AES keys for PII key rotation")
+                .contains("must prove rotated deployments read old ciphertext and write with the active key")
+                .contains("must prove Vault Transit historical AES key unwrapping")
+                .contains("must source wrapped historical AES keys through ExternalSecret")
                 .contains("must encrypt user phone")
+                .contains("must encrypt user email")
                 .contains("must anonymize completed orders")
                 .contains("must document production database TDE")
                 .contains("must run the WS8 security gate in CI");
@@ -48,6 +53,137 @@ class Ws8SecurityWorkflowTest {
                 .contains("sanitized audit events")
                 .contains("Loki logs")
                 .contains("Tempo spans");
+    }
+
+    @Test
+    void runtimeApiSecuritySmokeCoversAnonymousReadAuthzCaptchaHoneypotAndOptionalRateLimit() throws IOException {
+        String script = read("scripts/verify-runtime-api-security.ps1");
+        String readme = read("README.md");
+
+        assertThat(script)
+                .contains("/api/monkeys?page=0&size=1")
+                .contains("/api/auth/captcha/config")
+                .contains("/api/orders/my")
+                .contains("/api/.env")
+                .contains("application/problem+json")
+                .contains("UNAUTHORIZED")
+                .contains("FORBIDDEN")
+                .contains("RATE_LIMIT")
+                .contains("Retry-After")
+                .contains("X-Forwarded-For")
+                .contains("$script:IssuedProbeIps")
+                .contains("203.0.113")
+                .contains("New-ReservedTestIp -Exclude @($honeypotIp)")
+                .contains("-RunRateLimitProbe")
+                .contains("Runtime API security smoke gate completed successfully");
+        assertThat(readme)
+                .contains("verify-runtime-api-security.ps1")
+                .contains("-BaseUrl http://localhost:8888")
+                .contains("-RunRateLimitProbe");
+    }
+
+    @Test
+    void runtimeDataProtectionVerifierCoversComposeFlagsCiphertextBlindIndexesAndStrictMode() throws IOException {
+        String script = read("scripts/verify-runtime-data-protection.ps1");
+        String bashScript = read("scripts/verify-runtime-data-protection.sh");
+        String compose = read("docker-compose.yml");
+        String readme = read("README.md");
+
+        assertThat(script)
+                .contains("APP_PII_ENCRYPTION_ENABLED")
+                .contains("APP_PII_ALLOW_PLAINTEXT_READ")
+                .contains("APP_PII_BACKFILL_ENABLED")
+                .contains("flyway.version")
+                .contains("enc:v1:%")
+                .contains("^[0-9a-f]{64}$")
+                .contains("user.phone_hmac")
+                .contains("address.phone_hmac")
+                .contains("orders.receiver_phone_hmac")
+                .contains("RequirePopulatedPii")
+                .contains("Runtime data protection gate completed successfully");
+        assertThat(bashScript)
+                .contains("APP_PII_ENCRYPTION_ENABLED")
+                .contains("APP_PII_ALLOW_PLAINTEXT_READ")
+                .contains("APP_PII_BACKFILL_ENABLED")
+                .contains("flyway.version")
+                .contains("enc:v1:%")
+                .contains("^[0-9a-f]{64}$")
+                .contains("--require-populated-pii")
+                .contains("Runtime data protection gate completed successfully");
+        assertThat(compose)
+                .contains("APP_PII_ENCRYPTION_ENABLED: ${APP_PII_ENCRYPTION_ENABLED:-true}")
+                .contains("APP_PII_AES_KEY_BASE64: ${APP_PII_AES_KEY_BASE64:?set APP_PII_AES_KEY_BASE64}")
+                .contains("APP_PII_HMAC_KEY_BASE64: ${APP_PII_HMAC_KEY_BASE64:?set APP_PII_HMAC_KEY_BASE64}")
+                .contains("APP_PII_PREVIOUS_AES_KEYS_BASE64: ${APP_PII_PREVIOUS_AES_KEYS_BASE64:-}")
+                .contains("APP_PII_ALLOW_PLAINTEXT_READ: ${APP_PII_ALLOW_PLAINTEXT_READ:-false}")
+                .contains("APP_PII_BACKFILL_ENABLED: ${APP_PII_BACKFILL_ENABLED:-false}");
+        assertThat(readme)
+                .contains("verify-runtime-data-protection.ps1")
+                .contains("verify-runtime-data-protection.sh")
+                .contains("RequirePopulatedPii")
+                .contains("--require-populated-pii")
+                .contains("enc:v1:")
+                .contains("without printing secrets or raw PII");
+    }
+
+    @Test
+    void runtimePiiBackfillWrapperDefaultsToDryRunAndRequiresExplicitApproval() throws IOException {
+        String script = read("scripts/run-pii-backfill-compose.ps1");
+        String readme = read("README.md");
+        String docs = read("docs/security/ws8.md");
+
+        assertThat(script)
+                .contains("AcknowledgeDataRewrite")
+                .contains("I understand this rewrites PII data")
+                .contains("Dry run complete")
+                .contains("GenerateMissingKeys")
+                .contains("mysqldump")
+                .contains("APP_PII_BACKFILL_ENABLED=true")
+                .contains("APP_PII_ALLOW_PLAINTEXT_READ=false")
+                .contains("PII plaintext backfill completed")
+                .contains("verify-runtime-data-protection.ps1")
+                .contains("secrets/raw PII were not printed");
+        assertThat(readme)
+                .contains("run-pii-backfill-compose.ps1")
+                .contains("dry-run")
+                .contains("AcknowledgeDataRewrite")
+                .contains("I understand this rewrites PII data")
+                .contains("mysqldump")
+                .contains("data-protection verifier");
+        assertThat(docs)
+                .contains("scripts/run-pii-backfill-compose.ps1")
+                .contains("default mode is a dry-run")
+                .contains("AcknowledgeDataRewrite")
+                .contains("verify-runtime-data-protection.ps1");
+    }
+
+    @Test
+    void ws8DocsDescribeRuntimePiiMigrationRunbook() throws IOException {
+        String docs = read("docs/security/ws8.md");
+        String readme = read("README.md");
+
+        assertThat(docs)
+                .contains("Runtime Compose PII Migration Runbook")
+                .contains("requires explicit operator approval")
+                .contains("mysqldump")
+                .contains("APP_PII_AES_KEY_BASE64")
+                .contains("APP_PII_HMAC_KEY_BASE64")
+                .contains("APP_PII_PREVIOUS_AES_KEYS_BASE64")
+                .contains("APP_PII_ALLOW_PLAINTEXT_READ=true")
+                .contains("APP_PII_BACKFILL_ENABLED=true")
+                .contains("PII plaintext backfill completed")
+                .contains("APP_PII_ALLOW_PLAINTEXT_READ=false")
+                .contains("verify-runtime-data-protection.ps1")
+                .contains("without printing secrets or raw PII");
+        assertThat(readme)
+                .contains("APP_PII_AES_KEY_BASE64")
+                .contains("APP_PII_HMAC_KEY_BASE64")
+                .contains("APP_PII_PREVIOUS_AES_KEYS_BASE64")
+                .contains("APP_PII_ALLOW_PLAINTEXT_READ")
+                .contains("APP_PII_BACKFILL_ENABLED")
+                .contains("APP_PII_KEY_VERSION")
+                .contains("APP_PII_KEY_CREATED_AT")
+                .contains("APP_PII_VAULT_PREVIOUS_AES_CIPHERTEXTS");
     }
 
     private static String read(String path) throws IOException {

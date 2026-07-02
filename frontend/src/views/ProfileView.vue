@@ -2,6 +2,7 @@
 import { Refresh, Upload } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { uploadImage } from '@/api/catalog'
 import { captchaConfig as loadCaptchaConfig, captchaUrl } from '@/api/auth'
 import * as userApi from '@/api/user'
@@ -18,6 +19,7 @@ const captchaConfig = ref<CaptchaConfig>({ provider: 'local', siteKey: '' })
 const turnstileEnabled = computed(() => captchaConfig.value.provider === 'turnstile')
 const addressForm = reactive({ receiverName: '', phone: '', detailAddress: '' })
 const passwordForm = reactive({ phone: '', newPassword: '', captcha: '' })
+const { t } = useI18n()
 
 async function loadProfile() {
   loading.value = true
@@ -25,7 +27,7 @@ async function loadProfile() {
     profile.value = await userApi.profile()
     addresses.value = await userApi.addresses()
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to load profile')
+    ElMessage.error(error instanceof Error ? error.message : t('auth.unableToLoadProfile'))
   } finally {
     loading.value = false
   }
@@ -39,7 +41,7 @@ async function changeAvatar(event: Event) {
   }
   const uploaded = await uploadImage(file, 'avatar')
   await userApi.updateAvatar(uploaded.path)
-  ElMessage.success('Avatar updated')
+  ElMessage.success(t('auth.avatarUpdated'))
   await loadProfile()
 }
 
@@ -50,18 +52,20 @@ async function saveAddress() {
 }
 
 async function removeAddress(id: number) {
-  await ElMessageBox.confirm('Delete this address?', 'Confirm', { type: 'warning' })
+  await ElMessageBox.confirm(t('auth.deleteAddressConfirm'), t('common.confirm'), {
+    type: 'warning',
+  })
   await userApi.deleteAddress(id)
   addresses.value = await userApi.addresses()
 }
 
 async function changePassword() {
   if (turnstileEnabled.value && !passwordForm.captcha) {
-    ElMessage.error('captcha required')
+    ElMessage.error(t('auth.captchaRequired'))
     return
   }
   await userApi.updatePassword(passwordForm)
-  ElMessage.success('Password changed; please sign in again')
+  ElMessage.success(t('auth.passwordChanged'))
   userCaptchaUrl.value = captchaUrl('user')
 }
 
@@ -81,12 +85,12 @@ onMounted(() => {
   <AppShell>
     <section v-loading="loading" class="profile-layout">
       <div class="profile-summary">
-        <img :src="profile.avatar || defaultAvatar" alt="Avatar" />
+        <img :src="profile.avatar || defaultAvatar" :alt="$t('auth.avatar')" />
         <div>
           <h1>{{ profile.username }}</h1>
-          <p>{{ profile.identity }} · {{ profile.maskedPhone }}</p>
+          <p>{{ profile.identity }} 路 {{ profile.maskedPhone }}</p>
           <el-tag v-if="profile.passwordChangeRequired" type="warning" disable-transitions>
-            Password change required
+            {{ $t('common.passwordChangeRequired') }}
           </el-tag>
         </div>
         <label class="file-picker" for="profile-avatar-input">
@@ -104,18 +108,18 @@ onMounted(() => {
       <section class="section-band">
         <h2>{{ $t('common.address') }}</h2>
         <div class="inline-form">
-          <el-input v-model="addressForm.receiverName" placeholder="Receiver" />
-          <el-input v-model="addressForm.phone" placeholder="Phone" />
-          <el-input v-model="addressForm.detailAddress" placeholder="Address" />
+          <el-input v-model="addressForm.receiverName" :placeholder="$t('common.receiver')" />
+          <el-input v-model="addressForm.phone" :placeholder="$t('auth.phone')" />
+          <el-input v-model="addressForm.detailAddress" :placeholder="$t('common.address')" />
           <el-button type="primary" @click="saveAddress">
             {{ $t('common.save') }}
           </el-button>
         </div>
         <el-table :data="addresses" class="data-table">
-          <el-table-column prop="receiverName" label="Receiver" />
-          <el-table-column prop="phone" label="Phone" />
-          <el-table-column prop="detailAddress" label="Address" />
-          <el-table-column label="Default" width="120">
+          <el-table-column prop="receiverName" :label="$t('common.receiver')" />
+          <el-table-column prop="phone" :label="$t('auth.phone')" />
+          <el-table-column prop="detailAddress" :label="$t('common.address')" />
+          <el-table-column :label="$t('common.default')" width="120">
             <template #default="{ row }">
               <el-switch
                 :model-value="row.isDefault === 1"
@@ -134,7 +138,7 @@ onMounted(() => {
       </section>
 
       <section class="section-band">
-        <h2>Security</h2>
+        <h2>{{ $t('common.security') }}</h2>
         <div class="inline-form">
           <el-input v-model="passwordForm.phone" :placeholder="$t('auth.phone')" />
           <el-input
@@ -155,7 +159,7 @@ onMounted(() => {
               <button
                 class="captcha-image-button"
                 type="button"
-                aria-label="Refresh captcha"
+                :aria-label="$t('common.refreshCaptcha')"
                 @click="userCaptchaUrl = captchaUrl('user')"
               >
                 <img :src="userCaptchaUrl" alt="Captcha" />

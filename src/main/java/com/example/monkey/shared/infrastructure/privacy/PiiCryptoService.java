@@ -9,12 +9,15 @@ import java.security.GeneralSecurityException;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
 import javax.crypto.Cipher;
 import javax.crypto.Mac;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -33,9 +36,11 @@ public class PiiCryptoService {
     private final boolean allowPlaintextRead;
     private final String keyVersion;
     private final Aead aead;
-    private final SecretKey legacyAesKey;
+    private final Map<String, Aead> aeadByVersion;
+    private final Map<String, SecretKey> legacyAesKeyByVersion;
     private final SecretKey hmacKey;
 
+    @Autowired
     public PiiCryptoService(
             @Value("${app.pii.encryption.enabled:false}") boolean encryptionEnabled,
             PiiKeyMaterialProvider keyMaterialProvider,
@@ -49,7 +54,13 @@ public class PiiCryptoService {
             PiiKeyMaterialProvider.PiiKeyMaterial keyMaterial,
             String keyVersion,
             boolean allowPlaintextRead) {
-        this(encryptionEnabled, keyMaterial.aesKeyBytes(), keyMaterial.hmacKey(), keyVersion, allowPlaintextRead);
+        this(
+                encryptionEnabled,
+                keyMaterial.aesKeyBytes(),
+                keyMaterial.hmacKey(),
+                keyMaterial.previousAesKeys(),
+                keyVersion,
+                allowPlaintextRead);
     }
 
     PiiCryptoService(
@@ -58,22 +69,28 @@ public class PiiCryptoService {
             SecretKey hmacKey,
             String keyVersion,
             boolean allowPlaintextRead) {
-        this(encryptionEnabled, aesKey == null ? null : aesKey.getEncoded(), hmacKey, keyVersion, allowPlaintextRead);
+        this(
+                encryptionEnabled,
+                aesKey == null ? null : aesKey.getEncoded(),
+                hmacKey,
+                Map.of(),
+                keyVersion,
+                allowPlaintextRead);
     }
 
     private PiiCryptoService(
             boolean encryptionEnabled,
             byte[] aesKeyBytes,
             SecretKey hmacKey,
+            Map<String, byte[]> previousAesKeys,
             String keyVersion,
             boolean allowPlaintextRead) {
         this.encryptionEnabled = encryptionEnabled;
-        this.aead = createAead(aesKeyBytes, encryptionEnabled);
-        this.legacyAesKey = aesKeyBytes == null
-                ? null
-                : new SecretKeySpec(Arrays.copyOf(aesKeyBytes, aesKeyBytes.length), AES_ALGORITHM);
-        this.hmacKey = hmacKey;
         this.keyVersion = StringUtils.hasText(keyVersion) ? keyVersion.trim() : "v1";
+        this.aead = createAead(aesKeyBytes, encryptionEnabled);
+        this.aeadByVersion = createAeadsByVersion(this.keyVersion, this.aead, previousAesKeys, encryptionEnabled);
+        this.legacyAesKeyByVersion = createLegacyKeysByVersion(this.keyVersion, aesKeyBytes, previousAesKeys);
+        this.hmacKey = hmacKey;
         this.allowPlaintextRead = allowPlaintextRead;
     }
 
@@ -110,8 +127,12 @@ public class PiiCryptoService {
             Base64.Decoder decoder = Base64.getUrlDecoder();
             if (TINK_MARKER.equals(parts[3])) {
                 byte[] ciphertext = decoder.decode(parts[4]);
+                Aead decryptAead = aeadByVersion.get(storedKeyVersion);
+                if (decryptAead == null) {
+                    throw new GeneralSecurityException("PII decryption key is not configured for " + storedKeyVersion);
+                }
                 return new String(
-                        aead.decrypt(ciphertext, storedKeyVersion.getBytes(StandardCharsets.UTF_8)),
+                        decryptAead.decrypt(ciphertext, storedKeyVersion.getBytes(StandardCharsets.UTF_8)),
                         StandardCharsets.UTF_8);
             }
             return decryptLegacyAesGcm(storedKeyVersion, decoder.decode(parts[3]), decoder.decode(parts[4]));
@@ -133,6 +154,10 @@ public class PiiCryptoService {
 
     private String decryptLegacyAesGcm(String storedKeyVersion, byte[] iv, byte[] ciphertext)
             throws GeneralSecurityException {
+        SecretKey legacyAesKey = legacyAesKeyByVersion.get(storedKeyVersion);
+        if (legacyAesKey == null) {
+            throw new GeneralSecurityException("PII legacy decryption key is not configured for " + storedKeyVersion);
+        }
         Cipher cipher = Cipher.getInstance(AES_GCM);
         cipher.init(Cipher.DECRYPT_MODE, legacyAesKey, new GCMParameterSpec(GCM_TAG_BITS, iv));
         cipher.updateAAD(storedKeyVersion.getBytes(StandardCharsets.UTF_8));
@@ -152,6 +177,46 @@ public class PiiCryptoService {
     private static String normalizePhone(String phone) {
         String digits = phone.replaceAll("\\D", "");
         return StringUtils.hasText(digits) ? digits : phone.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static Map<String, Aead> createAeadsByVersion(
+            String currentKeyVersion, Aead currentAead, Map<String, byte[]> previousAesKeys, boolean required) {
+        if (!required) {
+            return Map.of();
+        }
+        Map<String, Aead> aeads = new LinkedHashMap<>();
+        for (Map.Entry<String, byte[]> entry : safePreviousKeys(previousAesKeys).entrySet()) {
+            if (currentKeyVersion.equals(entry.getKey())) {
+                throw new IllegalStateException("PII previous AES keys must not include the active key version");
+            }
+            aeads.put(entry.getKey(), createAead(entry.getValue(), true));
+        }
+        aeads.put(currentKeyVersion, currentAead);
+        return Map.copyOf(aeads);
+    }
+
+    private static Map<String, SecretKey> createLegacyKeysByVersion(
+            String currentKeyVersion, byte[] currentKeyBytes, Map<String, byte[]> previousAesKeys) {
+        if (currentKeyBytes == null) {
+            return Map.of();
+        }
+        Map<String, SecretKey> keys = new LinkedHashMap<>();
+        for (Map.Entry<String, byte[]> entry : safePreviousKeys(previousAesKeys).entrySet()) {
+            if (currentKeyVersion.equals(entry.getKey())) {
+                throw new IllegalStateException("PII previous AES keys must not include the active key version");
+            }
+            keys.put(
+                    entry.getKey(),
+                    new SecretKeySpec(Arrays.copyOf(entry.getValue(), entry.getValue().length), AES_ALGORITHM));
+        }
+        keys.put(
+                currentKeyVersion,
+                new SecretKeySpec(Arrays.copyOf(currentKeyBytes, currentKeyBytes.length), AES_ALGORITHM));
+        return Map.copyOf(keys);
+    }
+
+    private static Map<String, byte[]> safePreviousKeys(Map<String, byte[]> previousAesKeys) {
+        return previousAesKeys == null ? Map.of() : previousAesKeys;
     }
 
     private static Aead createAead(byte[] keyBytes, boolean required) {

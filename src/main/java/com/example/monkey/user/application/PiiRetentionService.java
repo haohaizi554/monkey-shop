@@ -9,6 +9,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -25,6 +26,7 @@ public class PiiRetentionService {
     private final int retentionBatchSize;
     private final Clock clock;
 
+    @Autowired
     public PiiRetentionService(
             PiiRetentionStore piiRetentionStore,
             @Value("${app.pii.retention.order-pii-retention:PT4380H}") Duration orderPiiRetention,

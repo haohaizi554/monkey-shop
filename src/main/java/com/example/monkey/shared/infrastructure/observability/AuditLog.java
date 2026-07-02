@@ -28,7 +28,7 @@ public class AuditLog {
     @Column(name = "actor_role", length = 32)
     private String actorRole;
 
-    @Column(name = "subject_hash", length = 64)
+    @Column(name = "subject_hash", columnDefinition = "CHAR(64)")
     private String subjectHash;
 
     @Column(name = "source_ip", length = 64)

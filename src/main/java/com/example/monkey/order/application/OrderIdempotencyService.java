@@ -6,8 +6,10 @@ import com.example.monkey.order.domain.OrderIdempotencyStore.IdempotencyReservat
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class OrderIdempotencyService {
@@ -19,6 +21,7 @@ public class OrderIdempotencyService {
     private final Duration ttl;
     private final Clock clock;
 
+    @Autowired
     public OrderIdempotencyService(
             OrderIdempotencyKeyStore orderIdempotencyKeyStore,
             OrderIdempotencyStore orderIdempotencyStore,
@@ -37,6 +40,7 @@ public class OrderIdempotencyService {
         this.clock = clock;
     }
 
+    @Transactional
     public Reservation reserve(Long userId, String idempotencyKey, String requestHash) {
         orderIdempotencyKeyStore.reserve(userId, idempotencyKey, requestHash, ttl);
         boolean reserved = orderIdempotencyStore.reserve(
@@ -49,6 +53,7 @@ public class OrderIdempotencyService {
         return Reservation.duplicate(record);
     }
 
+    @Transactional
     public void complete(Long userId, String idempotencyKey, Long orderId) {
         if (orderId == null) {
             return;

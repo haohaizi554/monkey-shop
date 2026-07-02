@@ -6,7 +6,9 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.order.domain.OrderOwnershipChecker;
+import java.lang.reflect.Method;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.annotation.Transactional;
 
 class OrderOwnershipServiceTest {
 
@@ -28,5 +30,14 @@ class OrderOwnershipServiceTest {
         assertThat(orderOwnershipService.isVisibleOwner(42L, null)).isFalse();
 
         verifyNoInteractions(orderOwnershipChecker);
+    }
+
+    @Test
+    void visibleOwnershipLookupUsesReadOnlyTransactionBoundary() throws NoSuchMethodException {
+        Method method = OrderOwnershipService.class.getMethod("isVisibleOwner", Long.class, Long.class);
+        Transactional transactional = method.getAnnotation(Transactional.class);
+
+        assertThat(transactional).isNotNull();
+        assertThat(transactional.readOnly()).isTrue();
     }
 }

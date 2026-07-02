@@ -57,6 +57,9 @@ class Ws1SecurityWorkflowTest {
         assertThat(script).contains("ghcr.io/aquasecurity/trivy-java-db:1");
         assertThat(script).contains("\"--no-progress\"");
         assertThat(script).contains("\"--skip-db-update\"");
+        assertThat(script).contains("\"--skip-check-update\"");
+        assertThat(script).contains("\"--offline-scan\"");
+        assertThat(script).contains("\"--skip-version-check\"");
         assertThat(script).contains("\"frontend/node_modules\"");
         assertThat(script).contains("\"frontend/lighthouse-report.json\"");
     }
@@ -101,9 +104,12 @@ class Ws1SecurityWorkflowTest {
     void ws1ScriptCanRunDependencyCheckAgainstHydratedLocalCache() throws IOException {
         String script = Files.readString(Path.of("scripts/verify-ws1-security.ps1"), StandardCharsets.UTF_8);
 
+        assertThat(script).contains("[switch]$SkipMaven");
+        assertThat(script).contains("Maven verify (skipped; using a previously verified build)");
         assertThat(script).contains("[switch]$SkipDependencyCheckUpdate");
         assertThat(script).contains("\"-DautoUpdate=false\", \"clean\", \"verify\"");
-        assertThat(script).contains("(-not $SkipDependencyCheckUpdate) -and (-not $env:NVD_API_KEY)");
+        assertThat(script)
+                .contains("(-not $SkipMaven) -and (-not $SkipDependencyCheck) -and (-not $SkipDependencyCheckUpdate)");
     }
 
     @Test
@@ -135,7 +141,12 @@ class Ws1SecurityWorkflowTest {
         assertThat(readme)
                 .contains(".\\scripts\\bootstrap-ws1-tools.ps1")
                 .contains("%USERPROFILE%\\.cache\\codex-tools\\ws1-security")
-                .contains("both scanner directories on `PATH`");
+                .contains("both scanner directories on `PATH`")
+                .contains("verify-ws1-security.ps1 -SkipMaven -SkipTrivyDbUpdate")
+                .contains("target\\ws1-security-offline")
+                .contains("--skip-check-update")
+                .contains("--offline-scan")
+                .contains("--skip-version-check");
     }
 
     @Test

@@ -1,0 +1,91 @@
+name: SonarQube Quality Gate
+
+on:
+  push:
+    branches:
+      - main
+      - 'codex/**'
+  pull_request:
+  schedule:
+    - cron: '52 19 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gate:
+    name: SonarQube Quality Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL || 'https://sonarcloud.io' }}
+      SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
+      SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
+      SONAR_MAVEN_PLUGIN_VERSION: 5.7.0.6970
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Require SonarQube settings
+        shell: bash
+        run: |
+          if [ -z "${SONAR_TOKEN}" ]; then
+            echo "::error::SONAR_TOKEN secret is required so SonarQube can run as a blocking quality gate."
+            exit 1
+          fi
+          if [ -z "${SONAR_PROJECT_KEY}" ]; then
+            echo "::error::SONAR_PROJECT_KEY repository variable is required."
+            exit 1
+          fi
+          if [[ "${SONAR_HOST_URL}" == *"sonarcloud.io"* && -z "${SONAR_ORGANIZATION}" ]]; then
+            echo "::error::SONAR_ORGANIZATION repository variable is required for SonarCloud."
+            exit 1
+          fi
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Generate backend quality reports
+        run: mvn --batch-mode -Ddependency-check.skip=true test jacoco:report spotbugs:spotbugs
+
+      - name: Run SonarQube quality gate
+        shell: bash
+        run: |
+          sonar_args=(
+            "-Dsonar.host.url=${SONAR_HOST_URL}"
+            "-Dsonar.token=${SONAR_TOKEN}"
+            "-Dsonar.projectKey=${SONAR_PROJECT_KEY}"
+            "-Dsonar.qualitygate.wait=true"
+            "-Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml"
+            "-Dsonar.java.spotbugs.reportPaths=target/spotbugsXml.xml"
+            "-Dsonar.sources=src/main/java,src/main/resources,frontend/src"
+            "-Dsonar.tests=src/test/java,frontend/tests"
+            "-Dsonar.exclusions=frontend/dist/**,frontend/node_modules/**,target/**,uploads/**"
+          )
+          if [ -n "${SONAR_ORGANIZATION}" ]; then
+            sonar_args+=("-Dsonar.organization=${SONAR_ORGANIZATION}")
+          fi
+          mvn --batch-mode -DskipTests -Ddependency-check.skip=true "org.sonarsource.scanner.maven:sonar-maven-plugin:${SONAR_MAVEN_PLUGIN_VERSION}:sonar" "${sonar_args[@]}"

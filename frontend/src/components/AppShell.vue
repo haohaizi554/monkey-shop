@@ -53,7 +53,7 @@ function toggleLocale() {
         >
           <el-icon><component :is="theme.isDark ? Sunny : Moon" /></el-icon>
         </el-button>
-        <el-button text @click="toggleLocale">
+        <el-button text aria-label="Switch language" @click="toggleLocale">
           {{ languageLabel }}
         </el-button>
         <el-button v-if="auth.isLoggedIn" type="primary" plain @click="auth.logout()">

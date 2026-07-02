@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -29,6 +30,7 @@ import com.example.monkey.order.domain.OrderStore.SortOrder.Direction;
 import com.example.monkey.order.domain.OrderTransitionPolicy;
 import com.example.monkey.order.infrastructure.SpringStateMachineOrderTransitionResolver;
 import com.example.monkey.shared.application.dto.PageResponseDto;
+import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.storage.ImageReferenceService;
@@ -68,6 +70,9 @@ class OrderServiceTest {
     @Mock
     private BusinessMetricsService businessMetricsService;
 
+    @Mock
+    private AuditService auditService;
+
     private OrderService orderService;
 
     @BeforeEach
@@ -80,7 +85,8 @@ class OrderServiceTest {
                 new SpringStateMachineOrderTransitionResolver(),
                 immediateTransactions(),
                 imageReferenceService,
-                businessMetricsService);
+                businessMetricsService,
+                auditService);
         lenient().when(businessMetricsService.recordOrderCreate(any())).thenAnswer(invocation -> {
             Supplier<OrderResponseDto> supplier = invocation.getArgument(0);
             return supplier.get();
@@ -186,6 +192,15 @@ class OrderServiceTest {
         verify(imageReferenceService).retain("/images/avatar/buyer.png");
         verify(orderIdempotencyService).complete(42L, "order-key-1", 11L);
         verify(businessMetricsService).recordOrderCreated();
+        verify(auditService)
+                .record(
+                        eq(AuditService.ORDER_CREATED),
+                        eq(AuditService.OUTCOME_SUCCESS),
+                        eq(42L),
+                        eq("USER"),
+                        eq("ORD329861640192000000"),
+                        isNull(),
+                        eq("orderId=11 status=PAID"));
     }
 
     @Test
@@ -195,6 +210,15 @@ class OrderServiceTest {
                         BusinessException.class,
                         exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.VALIDATION_ERROR));
 
+        verify(auditService)
+                .record(
+                        eq(AuditService.ORDER_CREATE_FAILURE),
+                        eq(AuditService.OUTCOME_FAILURE),
+                        eq(42L),
+                        eq("USER"),
+                        eq("order-create:42:7"),
+                        isNull(),
+                        eq("monkeyId=7 reason=VALIDATION_ERROR"));
         verifyNoInteractions(orderLockManager, orderIdempotencyService, orderStore);
     }
 
@@ -257,6 +281,15 @@ class OrderServiceTest {
 
         verify(orderStore, never()).savePlacedOrder(any(OrderRecord.class));
         verify(businessMetricsService).recordStockDeductFailure();
+        verify(auditService)
+                .record(
+                        eq(AuditService.ORDER_CREATE_FAILURE),
+                        eq(AuditService.OUTCOME_FAILURE),
+                        eq(42L),
+                        eq("USER"),
+                        eq("order-create:42:7"),
+                        isNull(),
+                        eq("monkeyId=7 reason=OUT_OF_STOCK"));
     }
 
     @Test
@@ -296,6 +329,15 @@ class OrderServiceTest {
         assertThat(result.status()).isEqualTo(OrderStatus.RETURN_REQUESTED.label());
         verify(orderStore)
                 .transitionStatus(10L, OrderStatus.COMPLETED.label(), OrderStatus.RETURN_REQUESTED.label(), null);
+        verify(auditService)
+                .record(
+                        eq(AuditService.ORDER_RETURN_REQUESTED),
+                        eq(AuditService.OUTCOME_SUCCESS),
+                        eq(42L),
+                        eq("USER"),
+                        eq("ORD202606280010"),
+                        isNull(),
+                        eq("orderId=10 from=COMPLETED to=RETURN_REQUESTED"));
     }
 
     @Test
@@ -308,6 +350,15 @@ class OrderServiceTest {
         verify(orderStore).hideFromUser(10L);
         verify(orderStore, never()).recordStockRestore(any(), any());
         verify(orderStore, never()).restoreProductStock(any());
+        verify(auditService)
+                .record(
+                        eq(AuditService.ORDER_HIDDEN),
+                        eq(AuditService.OUTCOME_SUCCESS),
+                        eq(42L),
+                        eq("USER"),
+                        eq("ORD202606280010"),
+                        isNull(),
+                        eq("orderId=10 status=COMPLETED"));
     }
 
     @Test
@@ -320,6 +371,35 @@ class OrderServiceTest {
         verify(orderStore)
                 .transitionStatus(
                         10L, OrderStatus.RETURN_REQUESTED.label(), OrderStatus.WAITING_RETURN_SHIPMENT.label(), null);
+        verify(auditService)
+                .record(
+                        eq(AuditService.ORDER_RETURN_APPROVED),
+                        eq(AuditService.OUTCOME_SUCCESS),
+                        isNull(),
+                        eq("ADMIN"),
+                        eq("ORD202606280010"),
+                        isNull(),
+                        eq("orderId=10 from=RETURN_REQUESTED to=WAITING_RETURN_SHIPMENT"));
+    }
+
+    @Test
+    void shipOrderAuditsAdminStatusTransition() {
+        when(orderStore.findById(10L)).thenReturn(Optional.of(orderWithStatus(OrderStatus.PAID)));
+
+        OrderResponseDto result = orderService.shipOrder(10L);
+
+        assertThat(result.status()).isEqualTo(OrderStatus.SHIPPED.label());
+        verify(orderStore)
+                .transitionStatus(eq(10L), eq(OrderStatus.PAID.label()), eq(OrderStatus.SHIPPED.label()), any());
+        verify(auditService)
+                .record(
+                        eq(AuditService.ORDER_SHIPPED),
+                        eq(AuditService.OUTCOME_SUCCESS),
+                        isNull(),
+                        eq("ADMIN"),
+                        eq("ORD202606280010"),
+                        isNull(),
+                        eq("orderId=10 from=PAID to=SHIPPED"));
     }
 
     @Test
@@ -346,6 +426,15 @@ class OrderServiceTest {
         verify(orderStore)
                 .transitionStatus(
                         10L, OrderStatus.WAITING_RETURN_SHIPMENT.label(), OrderStatus.RETURN_SHIPPING.label(), null);
+        verify(auditService)
+                .record(
+                        eq(AuditService.ORDER_RETURN_SHIPPED),
+                        eq(AuditService.OUTCOME_SUCCESS),
+                        eq(42L),
+                        eq("USER"),
+                        eq("ORD202606280010"),
+                        isNull(),
+                        eq("orderId=10 from=WAITING_RETURN_SHIPMENT to=RETURN_SHIPPING"));
     }
 
     @Test
@@ -361,6 +450,15 @@ class OrderServiceTest {
         verify(orderStore).restoreProductStock(7L);
         verify(orderStore)
                 .transitionStatus(10L, OrderStatus.RETURN_SHIPPING.label(), OrderStatus.REFUNDED.label(), null);
+        verify(auditService)
+                .record(
+                        eq(AuditService.ORDER_REFUNDED),
+                        eq(AuditService.OUTCOME_SUCCESS),
+                        isNull(),
+                        eq("ADMIN"),
+                        eq("ORD202606280010"),
+                        isNull(),
+                        eq("orderId=10 from=RETURN_SHIPPING to=REFUNDED"));
     }
 
     @Test
@@ -415,6 +513,25 @@ class OrderServiceTest {
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+    }
+
+    @Test
+    void receiveOrderAuditsUserStatusTransition() {
+        when(orderStore.findVisibleByIdAndUserId(10L, 42L))
+                .thenReturn(Optional.of(orderWithStatus(OrderStatus.SHIPPED)));
+
+        OrderResponseDto result = orderService.receiveOrder(10L, 42L);
+
+        assertThat(result.status()).isEqualTo(OrderStatus.COMPLETED.label());
+        verify(auditService)
+                .record(
+                        eq(AuditService.ORDER_RECEIVED),
+                        eq(AuditService.OUTCOME_SUCCESS),
+                        eq(42L),
+                        eq("USER"),
+                        eq("ORD202606280010"),
+                        isNull(),
+                        eq("orderId=10 from=SHIPPED to=COMPLETED"));
     }
 
     private OrderRecord capturePlacedOrder() {

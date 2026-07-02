@@ -34,6 +34,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping({"/api/auth", "/api/v1/auth"})
 public class AuthController {
 
+    private static final String ACTION_LOGIN = "login";
+    private static final String ACTION_REGISTER = "register";
+    private static final String ACTION_PASSWORD_RESET_REQUEST = "password-reset-request";
+    private static final String ACTION_PASSWORD_RESET = "password-reset";
+
     private final CaptchaService captchaService;
     private final RegistrationApplicationService registrationService;
     private final LoginApplicationService loginService;

@@ -67,6 +67,17 @@ class ImageCleanupServiceTest {
     }
 
     @Test
+    void keepsDefaultAssetsOutOfImmediateCleanup() throws IOException {
+        Path image = uploadRoot.resolve("avatar/default_team.png");
+        Files.createDirectories(image.getParent());
+        Files.writeString(image, "image");
+
+        imageCleanupService.tryDelete("/images/avatar/default_team.png");
+
+        assertThat(image).isRegularFile();
+    }
+
+    @Test
     void keepsVariantWhenCanonicalImageStillHasReferences() throws IOException {
         Path variant = uploadRoot.resolve("avatar/kept.png@320w.webp");
         Files.createDirectories(variant.getParent());

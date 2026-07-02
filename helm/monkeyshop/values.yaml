@@ -76,6 +76,7 @@ config:
   APP_PII_ROTATION_ENFORCE: "true"
   APP_PII_ROTATION_MAX_AGE: PT2160H
   APP_PII_ALLOW_PLAINTEXT_READ: "false"
+  APP_PII_BACKFILL_ENABLED: "false"
   APP_UPLOAD_PATH: /data/images
   APP_UPLOAD_VIRUS_SCAN_ENABLED: "true"
   CLAMAV_HOST: clamav.monkeyshop-security.svc.cluster.local
@@ -139,6 +140,10 @@ externalSecret:
       remoteRef:
         key: monkeyshop/prod
         property: APP_PII_VAULT_HMAC_CIPHERTEXT
+    - secretKey: APP_PII_VAULT_PREVIOUS_AES_CIPHERTEXTS
+      remoteRef:
+        key: monkeyshop/prod
+        property: APP_PII_VAULT_PREVIOUS_AES_CIPHERTEXTS
     - secretKey: APP_PASSWORD_RESET_SMS_WEBHOOK_URL
       remoteRef:
         key: monkeyshop/prod
@@ -179,6 +184,22 @@ redis:
 clamav:
   host: clamav.monkeyshop-security.svc.cluster.local
   port: 3310
+
+externalServices:
+  enabled: false
+  services:
+    mysql:
+      enabled: false
+      name: ""
+      externalName: ""
+      portName: mysql
+      port: 3306
+    redis:
+      enabled: false
+      name: ""
+      externalName: ""
+      portName: redis
+      port: 6379
 
 initContainers:
   waitForMysql:

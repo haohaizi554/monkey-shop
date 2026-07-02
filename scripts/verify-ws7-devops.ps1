@@ -166,6 +166,7 @@ function Assert-RequiredSecretKeys {
         "APP_PII_VAULT_TOKEN",
         "APP_PII_VAULT_AES_CIPHERTEXT",
         "APP_PII_VAULT_HMAC_CIPHERTEXT",
+        "APP_PII_VAULT_PREVIOUS_AES_CIPHERTEXTS",
         "APP_PASSWORD_RESET_SMS_WEBHOOK_URL",
         "APP_PASSWORD_RESET_EMAIL_WEBHOOK_URL",
         "APP_PASSWORD_RESET_WEBHOOK_SECRET",
@@ -197,6 +198,7 @@ $requiredFiles = @(
     "$ChartDir/templates/ingress.yaml",
     "$ChartDir/templates/configmap.yaml",
     "$ChartDir/templates/externalsecret.yaml",
+    "$ChartDir/templates/external-services.yaml",
     "$ChartDir/templates/hpa.yaml",
     "$ChartDir/templates/pdb.yaml",
     "$ChartDir/templates/networkpolicy.yaml",
@@ -205,9 +207,11 @@ $requiredFiles = @(
     "$ChartDir/templates/servicemonitor.yaml",
     "$ChartDir/templates/prometheusrule.yaml",
     "$ChartDir/templates/grafana-dashboard.yaml",
+    "deploy/cert-manager/clusterissuer-letsencrypt-dns01.yaml",
     "deploy/argocd/applications/monkeyshop-dev.yaml",
     "deploy/argocd/applications/monkeyshop-staging.yaml",
     "deploy/argocd/applications/monkeyshop-prod.yaml",
+    "scripts/verify-runtime-image-supply-chain.ps1",
     "deploy/kyverno/monkeyshop-image-policy.yaml",
     "deploy/kyverno/monkeyshop-pod-security.yaml"
 )
@@ -225,20 +229,26 @@ $podTemplate = Read-RequiredFile -Path "$ChartDir/templates/_pod.tpl"
 $networkPolicy = Read-RequiredFile -Path "$ChartDir/templates/networkpolicy.yaml"
 $ingress = Read-RequiredFile -Path "$ChartDir/templates/ingress.yaml"
 $externalSecret = Read-RequiredFile -Path "$ChartDir/templates/externalsecret.yaml"
+$externalServices = Read-RequiredFile -Path "$ChartDir/templates/external-services.yaml"
 $rollout = Read-RequiredFile -Path "$ChartDir/templates/rollout.yaml"
 $analysis = Read-RequiredFile -Path "$ChartDir/templates/analysis-template.yaml"
 $prometheusRule = Read-RequiredFile -Path "$ChartDir/templates/prometheusrule.yaml"
 $grafanaDashboard = Read-RequiredFile -Path "$ChartDir/templates/grafana-dashboard.yaml"
+$clusterIssuer = Read-RequiredFile -Path "deploy/cert-manager/clusterissuer-letsencrypt-dns01.yaml"
 $kyvernoImage = Read-RequiredFile -Path "deploy/kyverno/monkeyshop-image-policy.yaml"
 $kyvernoPod = Read-RequiredFile -Path "deploy/kyverno/monkeyshop-pod-security.yaml"
+$runtimeImageGate = Read-RequiredFile -Path "scripts/verify-runtime-image-supply-chain.ps1"
 
 Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "(?m)^FROM\s+maven:3\.9-eclipse-temurin-21\s+AS\s+build\r?$" -Message "must use a Maven/Java 21 build stage"
 Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "(?m)^FROM\s+eclipse-temurin:21-jre-jammy\s+AS\s+extract\r?$" -Message "must extract Spring Boot layers in a separate stage"
 Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "(?m)^FROM\s+eclipse-temurin:21-jre-jammy\s*\r?$" -Message "must use a Java 21 JRE runtime stage"
 Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "java\s+-Djarmode=tools\s+-jar\s+app\.jar\s+extract\s+--layers" -Message "must extract layered jar content"
+Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "COPY\s+--from=extract\s+--chown=app:app\s+/workspace/app\.jar\s+\./app\.jar" -Message "must copy the executable jar into the runtime stage used by ENTRYPOINT"
 Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "fontconfig" -Message "must install fontconfig for image/font rendering"
 Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "libfreetype6" -Message "must install freetype runtime support"
 Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "fonts-dejavu" -Message "must install a minimal DejaVu font set"
+Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "apt-get\s+install\s+-y\s+--only-upgrade[\s\S]+libssl3[\s\S]+openssl" -Message "must explicitly upgrade OpenSSL packages in the runtime image"
+Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "rm\s+-rf\s+/var/lib/apt/lists/\*" -Message "must remove apt package indexes from the runtime image"
 Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "(?m)^USER\s+app\r?$" -Message "must run the app process as the non-root app user"
 Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "HEALTHCHECK[\s\S]+/actuator/health" -Message "must define an actuator healthcheck"
 
@@ -254,24 +264,42 @@ Assert-Match -Name "values.yaml" -Text $values -Pattern "readiness:\s*\r?\n\s+pa
 Assert-Match -Name "values.yaml" -Text $values -Pattern "autoscaling:\s*\r?\n\s+enabled:\s+true[\s\S]+minReplicas:\s+2[\s\S]+maxReplicas:\s+10[\s\S]+targetCPUUtilizationPercentage:\s+70" -Message "must default HPA to 2-10 replicas at 70 percent CPU"
 Assert-Match -Name "values.yaml" -Text $values -Pattern "pdb:\s*\r?\n\s+enabled:\s+true[\s\S]+minAvailable:\s+1" -Message "must default PDB minAvailable to 1"
 Assert-Match -Name "values.yaml" -Text $values -Pattern "networkPolicy:\s*\r?\n\s+enabled:\s+true" -Message "must enable NetworkPolicy by default"
+Assert-Match -Name "values.yaml" -Text $values -Pattern "externalServices:\s*\r?\n\s+enabled:\s+false" -Message "must define ExternalName service support with a safe default"
+Assert-Match -Name "values.yaml" -Text $values -Pattern "mysql:[\s\S]+port:\s+3306" -Message "must define the external MySQL service port"
+Assert-Match -Name "values.yaml" -Text $values -Pattern "redis:[\s\S]+port:\s+6379" -Message "must define the external Redis service port"
 Assert-Match -Name "values.yaml" -Text $values -Pattern "prometheusRule:\s*\r?\n\s+enabled:\s+false" -Message "must define PrometheusRule support with a safe default"
 Assert-Match -Name "values.yaml" -Text $values -Pattern "grafanaDashboard:\s*\r?\n\s+enabled:\s+false" -Message "must define Grafana dashboard support with a safe default"
 Assert-Match -Name "values.yaml" -Text $values -Pattern "errorRate:\s+0\.02" -Message "must define the HTTP 5xx alert threshold"
 Assert-Match -Name "values.yaml" -Text $values -Pattern "p99LatencySeconds:\s+1\.5" -Message "must define the p99 latency alert threshold"
 Assert-RequiredSecretKeys -Name "values.yaml" -Text $values
+Assert-NotMatch -Name "values.yaml" -Text $values -Pattern "(?m)^\s*property:[^\r\n]*-[ \t]*secretKey:" -Message "must keep ExternalSecret data entries as separate YAML list items"
 
 Assert-Match -Name "values-dev.yaml" -Text $valuesDev -Pattern "name:\s+monkeyshop-dev" -Message "must create the dev namespace"
 Assert-Match -Name "values-dev.yaml" -Text $valuesDev -Pattern "ingress:\s*\r?\n\s+enabled:\s+true" -Message "must enable dev ingress for preview validation"
 Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "name:\s+monkeyshop-staging" -Message "must create the staging namespace"
 Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "externalSecret:\s*\r?\n\s+enabled:\s+true" -Message "must use ExternalSecret in staging"
+Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "externalServices:\s*\r?\n\s+enabled:\s+true" -Message "must use ExternalName services in staging"
+Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "DB_URL:\s+jdbc:mysql://monkeyshop-mysql\.monkeyshop-staging\.svc\.cluster\.local:3306/monkeyshop" -Message "must route staging MySQL through an in-cluster ExternalName service"
+Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "SPRING_DATA_REDIS_HOST:\s+monkeyshop-redis\.monkeyshop-staging\.svc\.cluster\.local" -Message "must route staging Redis through an in-cluster ExternalName service"
+Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "externalName:\s+staging-mysql\.internal" -Message "must map staging MySQL ExternalName to the internal managed database hostname"
+Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "externalName:\s+staging-redis\.internal" -Message "must map staging Redis ExternalName to the internal managed cache hostname"
 Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "rollout:\s*\r?\n\s+enabled:\s+true" -Message "must enable Argo Rollouts in staging"
 Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "serviceMonitor:\s*\r?\n\s+enabled:\s+true" -Message "must enable Prometheus ServiceMonitor in staging"
 Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "prometheusRule:\s*\r?\n\s+enabled:\s+true" -Message "must enable PrometheusRule alerts in staging"
 Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "grafanaDashboard:\s*\r?\n\s+enabled:\s+true" -Message "must enable the Grafana dashboard in staging"
 Assert-RequiredSecretKeys -Name "values-staging.yaml" -Text $valuesStaging
+Assert-NotMatch -Name "values-staging.yaml" -Text $valuesStaging -Pattern "(?m)^\s*property:[^\r\n]*-[ \t]*secretKey:" -Message "must keep ExternalSecret data entries as separate YAML list items"
+Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "externalSecret:[\s\S]+data:[\s\S]+key:\s+monkeyshop/staging" -Message "must source staging ExternalSecret data from the staging secret path"
+Assert-NotMatch -Name "values-staging.yaml" -Text $valuesStaging -Pattern "key:\s+monkeyshop/prod" -Message "must not source staging ExternalSecret data from the prod secret path"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "name:\s+monkeyshop-prod" -Message "must create the prod namespace"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "digest:\s+sha256:[a-fA-F0-9]{64}" -Message "must pin production image by digest to satisfy Kyverno"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "externalSecret:\s*\r?\n\s+enabled:\s+true" -Message "must use ExternalSecret in prod"
+Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "externalServices:\s*\r?\n\s+enabled:\s+true" -Message "must use ExternalName services in prod"
+Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "DB_URL:\s+jdbc:mysql://monkeyshop-mysql\.monkeyshop-prod\.svc\.cluster\.local:3306/monkeyshop" -Message "must route prod MySQL through an in-cluster ExternalName service"
+Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "SPRING_DATA_REDIS_HOST:\s+monkeyshop-redis\.monkeyshop-prod\.svc\.cluster\.local" -Message "must route prod Redis through an in-cluster ExternalName service"
+Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "externalName:\s+prod-mysql\.internal" -Message "must map prod MySQL ExternalName to the internal managed database hostname"
+Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "externalName:\s+prod-redis\.internal" -Message "must map prod Redis ExternalName to the internal managed cache hostname"
+Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "waitForMysql:[\s\S]+image:\s+busybox@sha256:[a-fA-F0-9]{64}" -Message "must pin the production MySQL wait init container by digest"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "replicaCount:\s+3" -Message "must run at least three prod replicas"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "rollout:\s*\r?\n\s+enabled:\s+true" -Message "must enable Argo Rollouts in prod"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "serviceMonitor:\s*\r?\n\s+enabled:\s+true" -Message "must enable Prometheus ServiceMonitor in prod"
@@ -293,7 +321,21 @@ Assert-Match -Name "networkpolicy.yaml" -Text $networkPolicy -Pattern "port:\s+{
 Assert-Match -Name "networkpolicy.yaml" -Text $networkPolicy -Pattern "port:\s+{{\s*\.Values\.clamav\.port\s*}}" -Message "must restrict ClamAV egress"
 Assert-Match -Name "networkpolicy.yaml" -Text $networkPolicy -Pattern "port:\s+4318" -Message "must restrict OTLP egress"
 Assert-Match -Name "ingress.yaml" -Text $ingress -Pattern "tls:" -Message "must template TLS configuration"
+Assert-Match -Name "values.yaml" -Text $values -Pattern "cert-manager\.io/cluster-issuer:\s+letsencrypt-dns01" -Message "must route ingress certificates through the managed ClusterIssuer"
+Assert-Match -Name "cert-manager ClusterIssuer" -Text $clusterIssuer -Pattern "kind:\s+ClusterIssuer" -Message "must define a cert-manager ClusterIssuer"
+Assert-Match -Name "cert-manager ClusterIssuer" -Text $clusterIssuer -Pattern "name:\s+letsencrypt-dns01" -Message "must match the Helm ingress ClusterIssuer annotation"
+Assert-Match -Name "cert-manager ClusterIssuer" -Text $clusterIssuer -Pattern "server:\s+https://acme-v02\.api\.letsencrypt\.org/directory" -Message "must use the Let's Encrypt production ACME directory"
+Assert-Match -Name "cert-manager ClusterIssuer" -Text $clusterIssuer -Pattern "privateKeySecretRef:\s*\r?\n\s+name:\s+letsencrypt-dns01-account-key" -Message "must keep the ACME account key in a Kubernetes Secret"
+Assert-Match -Name "cert-manager ClusterIssuer" -Text $clusterIssuer -Pattern "dns01:" -Message "must solve certificates with DNS-01"
+Assert-Match -Name "cert-manager ClusterIssuer" -Text $clusterIssuer -Pattern "apiTokenSecretRef:" -Message "must read DNS provider credentials from a Secret reference"
+Assert-Match -Name "cert-manager ClusterIssuer" -Text $clusterIssuer -Pattern "name:\s+cloudflare-api-token-secret" -Message "must reference the expected Cloudflare API token Secret"
+Assert-Match -Name "cert-manager ClusterIssuer" -Text $clusterIssuer -Pattern "key:\s+api-token" -Message "must reference the Cloudflare API token key"
+Assert-NotMatch -Name "cert-manager ClusterIssuer" -Text $clusterIssuer -Pattern "apiToken:\s+|password:\s+|secret:\s+[A-Za-z0-9+/=]{12,}" -Message "must not inline DNS provider secrets"
 Assert-Match -Name "externalsecret.yaml" -Text $externalSecret -Pattern "kind:\s+ExternalSecret" -Message "must template ExternalSecret resources"
+Assert-Match -Name "external-services.yaml" -Text $externalServices -Pattern "kind:\s+Service" -Message "must template ExternalName Service resources"
+Assert-Match -Name "external-services.yaml" -Text $externalServices -Pattern "type:\s+ExternalName" -Message "must render services as ExternalName"
+Assert-Match -Name "external-services.yaml" -Text $externalServices -Pattern "externalName:\s+{{\s*required" -Message "must require explicit external target hostnames"
+Assert-Match -Name "external-services.yaml" -Text $externalServices -Pattern "monkeyshop\.openai\.com/external-service" -Message "must label external dependency service resources"
 Assert-Match -Name "rollout.yaml" -Text $rollout -Pattern "kind:\s+Rollout" -Message "must template Argo Rollouts canary resources"
 Assert-Match -Name "analysis-template.yaml" -Text $analysis -Pattern "kind:\s+AnalysisTemplate" -Message "must template canary analysis"
 Assert-Match -Name "analysis-template.yaml" -Text $analysis -Pattern "http-5xx-rate" -Message "must analyze HTTP 5xx rate"
@@ -320,11 +362,23 @@ Assert-Match -Name "grafana-dashboard.yaml" -Text $grafanaDashboard -Pattern "Te
 Assert-Match -Name "Kyverno image policy" -Text $kyvernoImage -Pattern "validationFailureAction:\s+Enforce" -Message "must enforce image policy"
 Assert-Match -Name "Kyverno image policy" -Text $kyvernoImage -Pattern "name:\s+disallow-latest-tag" -Message "must disallow latest tags"
 Assert-Match -Name "Kyverno image policy" -Text $kyvernoImage -Pattern "name:\s+require-prod-digest" -Message "must require immutable prod image digests"
+Assert-Match -Name "Kyverno image policy" -Text $kyvernoImage -Pattern "request\.object\.spec\.\[containers,\s+initContainers\]\[\]" -Message "must apply image tag and digest rules to app and init containers"
 Assert-Match -Name "Kyverno image policy" -Text $kyvernoImage -Pattern "verifyImages:" -Message "must verify cosign image signatures"
 Assert-Match -Name "Kyverno pod policy" -Text $kyvernoPod -Pattern "validationFailureAction:\s+Enforce" -Message "must enforce pod policy"
 Assert-Match -Name "Kyverno pod policy" -Text $kyvernoPod -Pattern "runAsNonRoot:\s+true" -Message "must require non-root pods"
 Assert-Match -Name "Kyverno pod policy" -Text $kyvernoPod -Pattern "readOnlyRootFilesystem:\s+true" -Message "must require read-only root filesystems"
 Assert-Match -Name "Kyverno pod policy" -Text $kyvernoPod -Pattern "require-resource-requests-and-limits" -Message "must require CPU and memory requests/limits"
+
+Assert-Match -Name "Runtime image supply-chain gate" -Text $runtimeImageGate -Pattern "docker save" -Message "must export Docker images as tar files for scanning"
+Assert-Match -Name "Runtime image supply-chain gate" -Text $runtimeImageGate -Pattern "scp" -Message "must support copying exported VM images for local scanning"
+Assert-Match -Name "Runtime image supply-chain gate" -Text $runtimeImageGate -Pattern "--input" -Message "must scan exported image tar files instead of mounting Docker socket"
+Assert-Match -Name "Runtime image supply-chain gate" -Text $runtimeImageGate -Pattern "--severity" -Message "must configure severity filtering"
+Assert-Match -Name "Runtime image supply-chain gate" -Text $runtimeImageGate -Pattern "HIGH,CRITICAL" -Message "must fail on HIGH and CRITICAL findings"
+Assert-Match -Name "Runtime image supply-chain gate" -Text $runtimeImageGate -Pattern "--pkg-types" -Message "must allow explicit OS/library scan scope"
+Assert-Match -Name "Runtime image supply-chain gate" -Text $runtimeImageGate -Pattern "--skip-java-db-update" -Message "must support deterministic offline runtime scans"
+Assert-NotMatch -Name "Runtime image supply-chain gate" -Text $runtimeImageGate -Pattern "/var/run/docker\.sock" -Message "must not require Docker socket mounts"
+$vmPasswordCanary = "12" + "3456"
+Assert-NotMatch -Name "Runtime image supply-chain gate" -Text $runtimeImageGate -Pattern $vmPasswordCanary -Message "must not store VM passwords"
 
 foreach ($environment in @("dev", "staging", "prod")) {
     $app = Read-RequiredFile -Path "deploy/argocd/applications/monkeyshop-$environment.yaml"
@@ -371,6 +425,10 @@ if (-not $helm) {
         Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "kind:\s+Rollout" -Message "must render an Argo Rollout"
         Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "kind:\s+AnalysisTemplate" -Message "must render a canary AnalysisTemplate"
         Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "kind:\s+ExternalSecret" -Message "must render an ExternalSecret"
+        Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "key:\s+monkeyshop/$environment" -Message "must render ExternalSecret remoteRefs for the target environment"
+        Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "type:\s+ExternalName" -Message "must render ExternalName services for managed dependencies"
+        Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "externalName:\s+`"?$environment-mysql\.internal`"?" -Message "must render the managed MySQL ExternalName target"
+        Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "externalName:\s+`"?$environment-redis\.internal`"?" -Message "must render the managed Redis ExternalName target"
         Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "kind:\s+ServiceMonitor" -Message "must render a ServiceMonitor"
         Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "kind:\s+PrometheusRule" -Message "must render Prometheus alert rules"
         Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "name:\s+monkeyshop-grafana-dashboard" -Message "must render the Grafana dashboard ConfigMap"
@@ -392,6 +450,8 @@ if (-not $helm) {
     }
     Assert-Match -Name "rendered prod" -Text $rendered.prod -Pattern "image:\s+`"?harbor\.example\.com/monkeyshop/monkeyshop@sha256:[a-f0-9]{64}`"?" -Message "prod must render a digest-pinned image"
     Assert-NotMatch -Name "rendered prod" -Text $rendered.prod -Pattern "image:\s+`"?harbor\.example\.com/monkeyshop/monkeyshop:prod`"?" -Message "prod must not render a mutable tag image"
+    Assert-Match -Name "rendered prod" -Text $rendered.prod -Pattern "image:\s+`"?busybox@sha256:[a-f0-9]{64}`"?" -Message "prod init containers must render digest-pinned images"
+    Assert-NotMatch -Name "rendered prod" -Text $rendered.prod -Pattern "image:\s+`"?busybox:1\.37`"?" -Message "prod init containers must not render mutable tag images"
 }
 
 if ($Failures.Count -gt 0) {

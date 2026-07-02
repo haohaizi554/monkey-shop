@@ -230,6 +230,66 @@ h2 {
   justify-content: space-between;
 }
 
+.product-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.95fr) minmax(0, 1.05fr);
+  gap: clamp(18px, 4vw, 40px);
+  align-items: start;
+}
+
+.product-detail-layout > .product-image {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.product-detail-panel {
+  display: grid;
+  gap: 22px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.back-link,
+.detail-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.back-link {
+  width: fit-content;
+  color: var(--brand);
+  font-weight: 700;
+}
+
+.product-detail-heading {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.product-detail-heading p,
+.detail-description {
+  color: var(--muted);
+}
+
+.product-detail-heading strong {
+  white-space: nowrap;
+  font-size: 1.6rem;
+}
+
+.detail-description {
+  line-height: 1.7;
+}
+
+.detail-actions {
+  justify-content: space-between;
+}
 .checkout-summary {
   display: grid;
   grid-template-columns: 140px 1fr;
@@ -481,14 +541,17 @@ html.dark .el-button--primary {
   .page-heading,
   .section-title,
   .product-heading,
+  .product-detail-heading,
   .order-title,
-  .product-actions {
+  .product-actions,
+  .detail-actions {
     align-items: flex-start;
     flex-direction: column;
   }
 
   .catalog-tools,
   .auth-layout,
+  .product-detail-layout,
   .order-row,
   .profile-summary,
   .metric-grid {

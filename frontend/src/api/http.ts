@@ -4,6 +4,7 @@ import { csrfHeader } from '@/utils/csrf'
 
 const unsafeMethods = new Set(['post', 'put', 'patch', 'delete'])
 const traceIdHeader = 'X-Trace-Id'
+const idempotencyKeyHeader = 'Idempotency-Key'
 let fallbackTraceCounter = 0
 
 interface RetriableConfig extends InternalAxiosRequestConfig {
@@ -49,6 +50,9 @@ http.interceptors.request.use((config) => {
   }
   if (unsafeMethods.has(method)) {
     config.headers.set(csrfHeader())
+    if (!config.headers.has(idempotencyKeyHeader)) {
+      config.headers.set(idempotencyKeyHeader, createTraceId())
+    }
   }
   return config
 })

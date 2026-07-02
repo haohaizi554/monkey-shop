@@ -66,7 +66,7 @@ public class Order implements PhoneBlindIndexTarget {
     @Column(length = 1024)
     private String receiverPhone;
 
-    @Column(name = "receiver_phone_hmac", length = 64)
+    @Column(name = "receiver_phone_hmac", columnDefinition = "CHAR(64)")
     private String receiverPhoneHmac;
 
     @Convert(converter = EncryptedStringAttributeConverter.class)

@@ -20,6 +20,7 @@ import com.example.monkey.order.domain.OrderStore.SortOrder.Direction;
 import com.example.monkey.order.domain.OrderTransitionPolicy;
 import com.example.monkey.order.domain.OrderTransitionResolver;
 import com.example.monkey.shared.application.dto.PageResponseDto;
+import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.storage.ImageReferenceService;
@@ -42,6 +43,8 @@ public class OrderService {
     private static final int MAX_IDEMPOTENCY_KEY_LENGTH = 128;
     private static final int LEGACY_LIST_PAGE_SIZE = 100;
     private static final Pattern IDEMPOTENCY_KEY_PATTERN = Pattern.compile("[A-Za-z0-9._:-]+");
+    private static final String ADMIN_ROLE = "ADMIN";
+    private static final String USER_ROLE = "USER";
     private static final OrderPageRequest LEGACY_ORDER_LIST_REQUEST =
             new OrderPageRequest(0, LEGACY_LIST_PAGE_SIZE, List.of(new SortOrder("createTime", Direction.DESC)));
 
@@ -53,6 +56,7 @@ public class OrderService {
     private final TransactionOperations transactionOperations;
     private final ImageReferenceService imageReferenceService;
     private final BusinessMetricsService businessMetricsService;
+    private final AuditService auditService;
 
     public OrderService(
             OrderStore orderStore,
@@ -62,7 +66,8 @@ public class OrderService {
             OrderTransitionResolver orderTransitionResolver,
             TransactionOperations transactionOperations,
             ImageReferenceService imageReferenceService,
-            BusinessMetricsService businessMetricsService) {
+            BusinessMetricsService businessMetricsService,
+            AuditService auditService) {
         this.orderStore = orderStore;
         this.orderNumberGenerator = orderNumberGenerator;
         this.orderIdempotencyService = orderIdempotencyService;
@@ -71,6 +76,7 @@ public class OrderService {
         this.transactionOperations = transactionOperations;
         this.imageReferenceService = imageReferenceService;
         this.businessMetricsService = businessMetricsService;
+        this.auditService = auditService;
     }
 
     @Transactional(readOnly = true)
@@ -100,14 +106,22 @@ public class OrderService {
 
     @WithSpan("order.create")
     public OrderResponseDto createOrder(Long userId, Long monkeyId, Long addressId, String idempotencyKey) {
-        return businessMetricsService.recordOrderCreate(() -> {
-            String normalizedIdempotencyKey = normalizeIdempotencyKey(idempotencyKey);
-            return orderLockManager.withCreateOrderLock(
-                    userId,
-                    monkeyId,
-                    () -> transactionOperations.execute(
-                            status -> createOrderInTransaction(userId, monkeyId, addressId, normalizedIdempotencyKey)));
-        });
+        try {
+            return businessMetricsService.recordOrderCreate(() -> {
+                String normalizedIdempotencyKey = normalizeIdempotencyKey(idempotencyKey);
+                return orderLockManager.withCreateOrderLock(
+                        userId,
+                        monkeyId,
+                        () -> transactionOperations.execute(status ->
+                                createOrderInTransaction(userId, monkeyId, addressId, normalizedIdempotencyKey)));
+            });
+        } catch (BusinessException e) {
+            auditOrderCreateFailure(userId, monkeyId, e.errorCode().code());
+            throw e;
+        } catch (RuntimeException e) {
+            auditOrderCreateFailure(userId, monkeyId, ErrorCode.INTERNAL_ERROR.code());
+            throw e;
+        }
     }
 
     private OrderResponseDto createOrderInTransaction(
@@ -149,43 +163,45 @@ public class OrderService {
         imageReferenceService.retain(completedOrder.buyerAvatar());
         orderIdempotencyService.complete(userId, normalizedIdempotencyKey, completedOrder.id());
         businessMetricsService.recordOrderCreated();
+        auditOrderCreated(completedOrder, userId);
         return OrderDtoAssembler.toResponse(completedOrder);
     }
 
     @Transactional
     public OrderResponseDto shipOrder(Long orderId) {
         OrderRecord order = requireOrder(orderId);
-        return transitionAndMap(order, OrderEvent.SHIP, LocalDateTime.now());
+        return transitionAndMap(order, OrderEvent.SHIP, LocalDateTime.now(), null, ADMIN_ROLE);
     }
 
     @Transactional
     public OrderResponseDto receiveOrder(Long orderId, Long userId) {
         OrderRecord order = requireOwnedOrder(orderId, userId);
-        return transitionAndMap(order, OrderEvent.RECEIVE, null);
+        return transitionAndMap(order, OrderEvent.RECEIVE, null, userId, USER_ROLE);
     }
 
     @Transactional
     public void hideOrderForUser(Long orderId, Long userId) {
         OrderRecord order = requireOwnedOrder(orderId, userId);
         orderStore.hideFromUser(order.id());
+        auditOrderHidden(order, userId);
     }
 
     @Transactional
     public OrderResponseDto applyReturn(Long orderId, Long userId) {
         OrderRecord order = requireOwnedOrder(orderId, userId);
-        return transitionAndMap(order, OrderEvent.REQUEST_RETURN, null);
+        return transitionAndMap(order, OrderEvent.REQUEST_RETURN, null, userId, USER_ROLE);
     }
 
     @Transactional
     public OrderResponseDto approveReturn(Long orderId) {
         OrderRecord order = requireOrder(orderId);
-        return transitionAndMap(order, OrderEvent.APPROVE_RETURN, null);
+        return transitionAndMap(order, OrderEvent.APPROVE_RETURN, null, null, ADMIN_ROLE);
     }
 
     @Transactional
     public OrderResponseDto shipReturn(Long orderId, Long userId) {
         OrderRecord order = requireOwnedOrder(orderId, userId);
-        return transitionAndMap(order, OrderEvent.SHIP_RETURN, null);
+        return transitionAndMap(order, OrderEvent.SHIP_RETURN, null, userId, USER_ROLE);
     }
 
     @Transactional
@@ -194,7 +210,7 @@ public class OrderService {
         OrderStatus currentStatus = statusOf(order);
         OrderStatus nextStatus = orderTransitionResolver.nextStatus(currentStatus, OrderEvent.REFUND);
         restoreStockForOrder(order);
-        return transitionAndMap(order, currentStatus, nextStatus, null);
+        return transitionAndMap(order, currentStatus, nextStatus, null, OrderEvent.REFUND, null, ADMIN_ROLE);
     }
 
     private OrderRecord requireOrder(Long orderId) {
@@ -241,19 +257,93 @@ public class OrderService {
         throw new BusinessException(ErrorCode.CONFLICT, "Duplicate order request is already in progress");
     }
 
-    private OrderResponseDto transitionAndMap(OrderRecord order, OrderEvent event, LocalDateTime shippingTime) {
+    private OrderResponseDto transitionAndMap(
+            OrderRecord order, OrderEvent event, LocalDateTime shippingTime, Long actorUserId, String actorRole) {
         OrderStatus currentStatus = statusOf(order);
         OrderStatus nextStatus = orderTransitionResolver.nextStatus(currentStatus, event);
-        return transitionAndMap(order, currentStatus, nextStatus, shippingTime);
+        return transitionAndMap(order, currentStatus, nextStatus, shippingTime, event, actorUserId, actorRole);
     }
 
     private OrderResponseDto transitionAndMap(
-            OrderRecord order, OrderStatus currentStatus, OrderStatus nextStatus, LocalDateTime shippingTime) {
+            OrderRecord order,
+            OrderStatus currentStatus,
+            OrderStatus nextStatus,
+            LocalDateTime shippingTime,
+            OrderEvent event,
+            Long actorUserId,
+            String actorRole) {
         int rows = orderStore.transitionStatus(order.id(), currentStatus.label(), nextStatus.label(), shippingTime);
         if (rows == 0) {
             throw new BusinessException(ErrorCode.CONFLICT, OrderTransitionPolicy.STATUS_TRANSITION_NOT_ALLOWED);
         }
-        return OrderDtoAssembler.toResponse(order.withStatus(nextStatus, shippingTime));
+        OrderRecord transitionedOrder = order.withStatus(nextStatus, shippingTime);
+        auditOrderTransition(transitionedOrder, event, currentStatus, nextStatus, actorUserId, actorRole);
+        return OrderDtoAssembler.toResponse(transitionedOrder);
+    }
+
+    private void auditOrderCreated(OrderRecord order, Long actorUserId) {
+        auditService.record(
+                AuditService.ORDER_CREATED,
+                AuditService.OUTCOME_SUCCESS,
+                actorUserId,
+                USER_ROLE,
+                auditSubject(order),
+                null,
+                "orderId=" + order.id() + " status=" + statusOf(order).name());
+    }
+
+    private void auditOrderCreateFailure(Long actorUserId, Long monkeyId, String reason) {
+        auditService.record(
+                AuditService.ORDER_CREATE_FAILURE,
+                AuditService.OUTCOME_FAILURE,
+                actorUserId,
+                USER_ROLE,
+                "order-create:" + actorUserId + ":" + monkeyId,
+                null,
+                "monkeyId=" + monkeyId + " reason=" + reason);
+    }
+
+    private void auditOrderHidden(OrderRecord order, Long actorUserId) {
+        auditService.record(
+                AuditService.ORDER_HIDDEN,
+                AuditService.OUTCOME_SUCCESS,
+                actorUserId,
+                USER_ROLE,
+                auditSubject(order),
+                null,
+                "orderId=" + order.id() + " status=" + statusOf(order).name());
+    }
+
+    private void auditOrderTransition(
+            OrderRecord order,
+            OrderEvent event,
+            OrderStatus currentStatus,
+            OrderStatus nextStatus,
+            Long actorUserId,
+            String actorRole) {
+        auditService.record(
+                auditEventType(event),
+                AuditService.OUTCOME_SUCCESS,
+                actorUserId,
+                actorRole,
+                auditSubject(order),
+                null,
+                "orderId=" + order.id() + " from=" + currentStatus.name() + " to=" + nextStatus.name());
+    }
+
+    private static String auditEventType(OrderEvent event) {
+        return switch (event) {
+            case SHIP -> AuditService.ORDER_SHIPPED;
+            case RECEIVE -> AuditService.ORDER_RECEIVED;
+            case REQUEST_RETURN -> AuditService.ORDER_RETURN_REQUESTED;
+            case APPROVE_RETURN -> AuditService.ORDER_RETURN_APPROVED;
+            case SHIP_RETURN -> AuditService.ORDER_RETURN_SHIPPED;
+            case REFUND -> AuditService.ORDER_REFUNDED;
+        };
+    }
+
+    private static String auditSubject(OrderRecord order) {
+        return StringUtils.hasText(order.orderNo()) ? order.orderNo() : String.valueOf(order.id());
     }
 
     private static OrderStatus statusOf(OrderRecord order) {

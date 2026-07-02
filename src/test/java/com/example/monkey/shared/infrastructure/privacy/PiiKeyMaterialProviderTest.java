@@ -35,6 +35,36 @@ class PiiKeyMaterialProviderTest {
     }
 
     @Test
+    void loadsPreviousEnvironmentAesKeysForKeyRotation() {
+        byte[] previousKey = filled(32, 4);
+        PiiKeyMaterialProvider provider = providerWithPreviousEnvironmentKey(
+                "env",
+                base64(new byte[32]),
+                base64(new byte[32]),
+                "v1=" + base64(previousKey),
+                "2026-06-01T00:00:00Z",
+                true,
+                "",
+                "",
+                "");
+
+        PiiKeyMaterial material = provider.load(true);
+
+        assertThat(material.previousAesKeys()).containsOnlyKeys("v1");
+        assertThat(material.previousAesKeys().get("v1")).containsExactly(previousKey);
+    }
+
+    @Test
+    void previousEnvironmentAesKeysRequireVersionedEntries() {
+        PiiKeyMaterialProvider provider = providerWithPreviousEnvironmentKey(
+                "env", base64(new byte[32]), base64(new byte[32]), "v1", "2026-06-01T00:00:00Z", true, "", "", "");
+
+        assertThatExceptionOfType(IllegalStateException.class)
+                .isThrownBy(() -> provider.load(true))
+                .withMessage("PII previous AES key entries must use version=value");
+    }
+
+    @Test
     void optionalLoadReturnsEmptyMaterialWithoutReadingKeys() {
         PiiKeyMaterialProvider provider = provider("env", "", "", "", false, "", "", "");
 
@@ -88,6 +118,7 @@ class PiiKeyMaterialProviderTest {
     void unwrapsKeyMaterialWithVaultTransit() throws Exception {
         byte[] aesKey = filled(32, 7);
         byte[] hmacKey = filled(32, 9);
+        byte[] previousKey = filled(32, 11);
         AtomicReference<String> token = new AtomicReference<>();
         AtomicReference<String> namespace = new AtomicReference<>();
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
@@ -95,7 +126,9 @@ class PiiKeyMaterialProviderTest {
             token.set(exchange.getRequestHeaders().getFirst("X-Vault-Token"));
             namespace.set(exchange.getRequestHeaders().getFirst("X-Vault-Namespace"));
             String requestBody = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-            String plaintext = requestBody.contains("vault:v1:aes") ? base64(aesKey) : base64(hmacKey);
+            String plaintext = requestBody.contains("vault:v1:aes")
+                    ? base64(aesKey)
+                    : requestBody.contains("vault:v1:old") ? base64(previousKey) : base64(hmacKey);
             byte[] response = ("{\"data\":{\"plaintext\":\"" + plaintext + "\"}}").getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, response.length);
@@ -104,20 +137,23 @@ class PiiKeyMaterialProviderTest {
         });
         server.start();
         try {
-            PiiKeyMaterialProvider provider = provider(
+            PiiKeyMaterialProvider provider = providerWithPreviousKeys(
                     "vault-transit",
+                    "",
                     "",
                     "",
                     "2026-06-01",
                     true,
                     "http://127.0.0.1:" + server.getAddress().getPort(),
                     "vault:v1:aes",
-                    "vault:v1:hmac");
+                    "vault:v1:hmac",
+                    "v1=vault:v1:old");
 
             PiiKeyMaterial material = provider.load(true);
 
             assertThat(material.aesKeyBytes()).containsExactly(aesKey);
             assertThat(material.hmacKey()).isNotNull();
+            assertThat(material.previousAesKeys().get("v1")).containsExactly(previousKey);
             assertThat(token).hasValue("test-token");
             assertThat(namespace).hasValue("monkeyshop");
         } finally {
@@ -159,15 +195,17 @@ class PiiKeyMaterialProviderTest {
         });
         server.start();
         try {
-            PiiKeyMaterialProvider provider = provider(
+            PiiKeyMaterialProvider provider = providerWithPreviousKeys(
                     "vault-transit",
+                    "",
                     "",
                     "",
                     "2026-06-01",
                     true,
                     "http://127.0.0.1:" + server.getAddress().getPort(),
                     "vault:v1:aes",
-                    "vault:v1:hmac");
+                    "vault:v1:hmac",
+                    "v1=vault:v1:old");
 
             assertThatExceptionOfType(BusinessException.class)
                     .isThrownBy(() -> provider.load(true))
@@ -186,10 +224,58 @@ class PiiKeyMaterialProviderTest {
             String vaultAddress,
             String vaultAesCiphertext,
             String vaultHmacCiphertext) {
+        return providerWithPreviousKeys(
+                keyProvider,
+                aesKey,
+                hmacKey,
+                "",
+                keyCreatedAt,
+                rotationEnforced,
+                vaultAddress,
+                vaultAesCiphertext,
+                vaultHmacCiphertext,
+                "");
+    }
+
+    private static PiiKeyMaterialProvider providerWithPreviousEnvironmentKey(
+            String keyProvider,
+            String aesKey,
+            String hmacKey,
+            String previousAesKeysBase64,
+            String keyCreatedAt,
+            boolean rotationEnforced,
+            String vaultAddress,
+            String vaultAesCiphertext,
+            String vaultHmacCiphertext) {
+        return providerWithPreviousKeys(
+                keyProvider,
+                aesKey,
+                hmacKey,
+                previousAesKeysBase64,
+                keyCreatedAt,
+                rotationEnforced,
+                vaultAddress,
+                vaultAesCiphertext,
+                vaultHmacCiphertext,
+                "");
+    }
+
+    private static PiiKeyMaterialProvider providerWithPreviousKeys(
+            String keyProvider,
+            String aesKey,
+            String hmacKey,
+            String previousAesKeysBase64,
+            String keyCreatedAt,
+            boolean rotationEnforced,
+            String vaultAddress,
+            String vaultAesCiphertext,
+            String vaultHmacCiphertext,
+            String vaultPreviousAesCiphertexts) {
         return new PiiKeyMaterialProvider(
                 keyProvider,
                 aesKey,
                 hmacKey,
+                previousAesKeysBase64,
                 keyCreatedAt,
                 rotationEnforced,
                 Duration.ofDays(90),
@@ -199,6 +285,7 @@ class PiiKeyMaterialProviderTest {
                 "monkeyshop-pii",
                 vaultAesCiphertext,
                 vaultHmacCiphertext,
+                vaultPreviousAesCiphertexts,
                 Duration.ofSeconds(2),
                 OBJECT_MAPPER,
                 HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build(),

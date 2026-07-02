@@ -19,6 +19,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -39,6 +40,7 @@ public class UserService {
     private final UserMfaVerifier totpService;
     private final String missingAccountPasswordHash;
 
+    @Autowired
     public UserService(
             UserAccountStore userAccountStore,
             UserPasswordHasher passwordHasher,
@@ -112,6 +114,7 @@ public class UserService {
         }
     }
 
+    @Transactional(readOnly = true)
     public AuthPrincipal authenticate(String username, String rawPassword) {
         Optional<UserAccount> account = userAccountStore.findByUsername(username);
         String passwordToCheck = rawPassword == null ? "" : rawPassword;
@@ -127,6 +130,7 @@ public class UserService {
         return null;
     }
 
+    @Transactional(readOnly = true)
     public Optional<AuthPrincipal> currentPrincipal(Long userId) {
         if (userId == null) {
             return Optional.empty();
@@ -134,6 +138,7 @@ public class UserService {
         return userAccountStore.findById(userId).map(UserService::principalFor);
     }
 
+    @Transactional(readOnly = true)
     public UserProfileResponseDto getUserInfo(SessionUser currentUser, boolean details) {
         if (currentUser == null) {
             return UserDtoAssembler.anonymousProfile();
@@ -154,6 +159,7 @@ public class UserService {
         return UserDtoAssembler.userProfile(user, currentUser.role(), DEFAULT_AVATAR, details);
     }
 
+    @Transactional
     public void updateAvatar(Long userId, String newAvatarPath) {
         UserAccount user = userAccountStore.findById(userId).orElse(null);
         if (user == null) {
@@ -188,10 +194,12 @@ public class UserService {
         updatePasswordForUser(user, userId, phone, newPassword);
     }
 
+    @Transactional(readOnly = true)
     public boolean passwordResetTargetMatches(String username, String phone) {
         return passwordResetTargetMatches(username, phone, null);
     }
 
+    @Transactional(readOnly = true)
     public boolean passwordResetTargetMatches(String username, String phone, String email) {
         UserAccount user = userAccountStore.findByUsername(username).orElse(null);
         if (user == null || user.phone() == null || !user.phone().equals(phone)) {
@@ -206,6 +214,7 @@ public class UserService {
         updatePassword(null, phone, newPassword, username);
     }
 
+    @Transactional(readOnly = true)
     public Optional<Long> findUserIdByUsername(String username) {
         if (!StringUtils.hasText(username)) {
             return Optional.empty();
@@ -213,6 +222,7 @@ public class UserService {
         return userAccountStore.findByUsername(username).map(UserAccount::id);
     }
 
+    @Transactional(readOnly = true)
     public boolean verifyAdminTotp(Long userId, String totpCode) {
         UserAccount user = userAccountStore.findById(userId).orElse(null);
         return user != null

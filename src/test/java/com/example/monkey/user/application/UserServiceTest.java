@@ -19,6 +19,7 @@ import com.example.monkey.user.domain.UserMfaVerifier;
 import com.example.monkey.user.domain.UserPasswordHasher;
 import com.example.monkey.user.domain.UserPasswordPolicy;
 import com.example.monkey.user.domain.UserRoles;
+import java.lang.reflect.Method;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -28,6 +29,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.annotation.Transactional;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
@@ -60,6 +62,26 @@ class UserServiceTest {
                 testPasswordPolicy(),
                 totpService,
                 MISSING_ACCOUNT_PASSWORD_HASH);
+    }
+
+    @Test
+    void readOperationsDeclareReadOnlyTransactions() throws NoSuchMethodException {
+        assertReadOnlyTransaction("authenticate", String.class, String.class);
+        assertReadOnlyTransaction("currentPrincipal", Long.class);
+        assertReadOnlyTransaction(
+                "getUserInfo", com.example.monkey.shared.application.security.SessionUser.class, boolean.class);
+        assertReadOnlyTransaction("passwordResetTargetMatches", String.class, String.class);
+        assertReadOnlyTransaction("passwordResetTargetMatches", String.class, String.class, String.class);
+        assertReadOnlyTransaction("findUserIdByUsername", String.class);
+        assertReadOnlyTransaction("verifyAdminTotp", Long.class, String.class);
+    }
+
+    @Test
+    void avatarUpdateDeclaresWriteTransaction() throws NoSuchMethodException {
+        Transactional transaction = transactionOn("updateAvatar", Long.class, String.class);
+
+        assertThat(transaction).isNotNull();
+        assertThat(transaction.readOnly()).isFalse();
     }
 
     @Test
@@ -425,6 +447,20 @@ class UserServiceTest {
 
         verify(userAccountStore, never()).save(any(UserAccount.class));
         verify(userAccountStore, never()).recordPasswordHistory(any(), any(), any());
+    }
+
+    private static void assertReadOnlyTransaction(String methodName, Class<?>... parameterTypes)
+            throws NoSuchMethodException {
+        Transactional transaction = transactionOn(methodName, parameterTypes);
+
+        assertThat(transaction).isNotNull();
+        assertThat(transaction.readOnly()).isTrue();
+    }
+
+    private static Transactional transactionOn(String methodName, Class<?>... parameterTypes)
+            throws NoSuchMethodException {
+        Method method = UserService.class.getMethod(methodName, parameterTypes);
+        return method.getAnnotation(Transactional.class);
     }
 
     private static UserPasswordPolicy testPasswordPolicy() {

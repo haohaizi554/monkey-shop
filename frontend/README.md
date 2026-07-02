@@ -13,15 +13,15 @@
 
 ## 技术栈
 
-| 领域 | 技术 |
-| --- | --- |
-| 框架 | Vue 3, `<script setup>`, TypeScript |
-| 构建 | Vite 8, vue-tsc, terser, vite-plugin-compression2 |
-| 状态与路由 | Pinia, Vue Router |
-| UI | Element Plus, `@element-plus/icons-vue` |
-| 网络 | Axios, Cookie 凭据, CSRF Header, Trace ID |
-| 国际化 | vue-i18n |
-| 质量 | ESLint, Prettier, Playwright, axe, Lighthouse |
+| 领域       | 技术                                              |
+| ---------- | ------------------------------------------------- |
+| 框架       | Vue 3, `<script setup>`, TypeScript               |
+| 构建       | Vite 8, vue-tsc, terser, vite-plugin-compression2 |
+| 状态与路由 | Pinia, Vue Router                                 |
+| UI         | Element Plus, `@element-plus/icons-vue`           |
+| 网络       | Axios, Cookie 凭据, CSRF Header, Trace ID         |
+| 国际化     | vue-i18n                                          |
+| 质量       | ESLint, Prettier, Playwright, axe, Lighthouse     |
 
 ## 目录结构
 

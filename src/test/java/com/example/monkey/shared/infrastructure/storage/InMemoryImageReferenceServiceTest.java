@@ -27,12 +27,18 @@ class InMemoryImageReferenceServiceTest {
         InMemoryImageReferenceService service = new InMemoryImageReferenceService();
         service.retain("/images/product/stale.png");
 
-        service.rebuild(
-                List.of("/images/product/item.png", "/images/product/item.png", "/images/default_product.png", " "));
+        service.rebuild(List.of(
+                "/images/product/item.png",
+                "/images/product/item.png",
+                "/images/default_product.png",
+                "/images/product/default_catalog.png",
+                " "));
 
         assertThat(service.referenceCount("/images/product/stale.png")).isZero();
         assertThat(service.referenceCount("/images/product/item.png")).isEqualTo(2L);
         assertThat(service.referenceCount("/images/default_product.png")).isZero();
+        assertThat(service.referenceCount("/images/product/default_catalog.png"))
+                .isZero();
     }
 
     @Test

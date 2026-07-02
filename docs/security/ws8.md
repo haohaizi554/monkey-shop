@@ -39,6 +39,7 @@ Dev keeps `APP_AUTH_CAPTCHA_PROVIDER=local` so legacy image captcha tests and lo
 The JPA `EncryptedStringAttributeConverter` stores configured PII fields as Tink-backed AES-GCM ciphertext with per-write IVs:
 
 - `User.phone`
+- `User.email`
 - `Address.receiverName`
 - `Address.phone`
 - `Address.detailAddress`
@@ -56,13 +57,67 @@ Phone-like fields also maintain HMAC-SHA256 blind indexes:
 Required runtime key contract:
 
 - `APP_PII_KEY_PROVIDER=env` reads `APP_PII_AES_KEY_BASE64` and `APP_PII_HMAC_KEY_BASE64`; this mode is for dev and one-off migration tools.
+- `APP_PII_PREVIOUS_AES_KEYS_BASE64` accepts optional `version=base64` entries separated by commas or semicolons so rotated deployments can decrypt old ciphertext while writing only the active `APP_PII_KEY_VERSION`.
 - `APP_PII_KEY_PROVIDER=vault-transit` asks Vault Transit to decrypt `APP_PII_VAULT_AES_CIPHERTEXT` and `APP_PII_VAULT_HMAC_CIPHERTEXT` into memory at startup. The KEK remains in Vault/KMS.
 - `APP_PII_VAULT_ADDR`, `APP_PII_VAULT_TOKEN`, and `APP_PII_VAULT_TRANSIT_KEY` identify the Transit key-release endpoint.
+- `APP_PII_VAULT_PREVIOUS_AES_CIPHERTEXTS` accepts optional `version=vault-ciphertext` entries; each value is unwrapped through Vault Transit and retained only in memory for legacy decryption.
 - `APP_PII_KEY_VERSION`: key label used in ciphertext metadata
 - `APP_PII_KEY_CREATED_AT`: creation timestamp for the active DEK
 - `APP_PII_ROTATION_ENFORCE=true` and `APP_PII_ROTATION_MAX_AGE=PT2160H` enforce the 90-day rotation window in staging and production
 
-Staging and production set `APP_PII_ENCRYPTION_ENABLED=true`, `APP_PII_KEY_PROVIDER=vault-transit`, `APP_PII_ALLOW_PLAINTEXT_READ=false`, and rotation enforcement on. Key rotation is versioned by `APP_PII_KEY_VERSION`; mint a new wrapped DEK in Vault/KMS, update the ExternalSecret values and creation timestamp, run a backfill rewrite, then retire the old version after verification. Existing legacy `enc:v1:<version>:<iv>:<ciphertext>` rows remain readable during migration; new writes use `enc:v1:<version>:tink:<ciphertext>`.
+Staging and production set `APP_PII_ENCRYPTION_ENABLED=true`, `APP_PII_KEY_PROVIDER=vault-transit`, `APP_PII_ALLOW_PLAINTEXT_READ=false`, and rotation enforcement on. Key rotation is versioned by `APP_PII_KEY_VERSION`; mint a new wrapped DEK in Vault/KMS, update the ExternalSecret values and creation timestamp, run a backfill rewrite with the previous AES key configured, then retire the old version after verification. Existing legacy `enc:v1:<version>:<iv>:<ciphertext>` rows remain readable during migration; new writes use `enc:v1:<version>:tink:<ciphertext>`.
+
+## Legacy Plaintext Backfill
+
+Before setting `APP_PII_ALLOW_PLAINTEXT_READ=false` in an environment that already has customer data, run one controlled deployment with `APP_PII_ENCRYPTION_ENABLED=true`, `APP_PII_ALLOW_PLAINTEXT_READ=true`, and `APP_PII_BACKFILL_ENABLED=true`. The startup runner rewrites legacy plaintext values in `user`, `address`, and `orders` through `PiiPlaintextBackfillService`, keeps already encrypted rows unchanged, and recalculates phone blind indexes only from plaintext phone values.
+
+After the runner logs zero remaining plaintext updates in a follow-up run, switch `APP_PII_BACKFILL_ENABLED=false` and then enforce `APP_PII_ALLOW_PLAINTEXT_READ=false`. Keep the database snapshot and the backfill log counts with the release evidence so PIPL/GDPR reviewers can verify that exported PII is ciphertext-only.
+
+## Runtime Compose PII Migration Runbook
+
+PII backfill changes existing database values and restarts the application, so it requires explicit operator approval before execution. Do not run it as part of routine smoke checks.
+
+For compose-hosted environments, use `scripts/run-pii-backfill-compose.ps1` as the controlled wrapper. Its default mode is a dry-run that performs preflight checks and prints the plan; data rewrite is blocked unless `-Execute -AcknowledgeDataRewrite 'I understand this rewrites PII data'` is supplied after approval. The wrapper performs the backup, hidden key-material checks, one-time migration flags, app restart, strict-mode reset, and final `verify-runtime-data-protection.ps1` gate.
+
+1. Capture a database backup before changing flags:
+
+   ```bash
+   backup_dir="/home/lly/monkey-shop-backups/pre-pii-encryption-$(date +%Y%m%d%H%M%S)"
+   mkdir -p "$backup_dir"
+   docker compose -p monkey-shop exec -T mysql sh -c 'mysqldump -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' \
+     > "$backup_dir/monkeyshop.sql"
+   test -s "$backup_dir/monkeyshop.sql"
+   ```
+
+2. Generate `APP_PII_AES_KEY_BASE64` and `APP_PII_HMAC_KEY_BASE64` outside the repository. Store them only in `.env`, Vault, or the environment-specific secret manager; never print them in logs or commit them.
+
+3. Run one migration deployment with:
+
+   - `APP_PII_ENCRYPTION_ENABLED=true`
+   - `APP_PII_KEY_PROVIDER=env` for compose migration, or `vault-transit` in managed environments
+   - `APP_PII_ALLOW_PLAINTEXT_READ=true`
+   - `APP_PII_BACKFILL_ENABLED=true`
+
+4. Wait for the startup log line `PII plaintext backfill completed` and keep the users/address/orders update counts with release evidence.
+
+5. Disable migration mode and restart:
+
+   - `APP_PII_BACKFILL_ENABLED=false`
+   - `APP_PII_ALLOW_PLAINTEXT_READ=false`
+
+6. Run:
+
+   ```powershell
+   .\scripts\verify-runtime-data-protection.ps1 -ComposeProject monkey-shop -RequirePopulatedPii
+   ```
+
+   On Linux compose hosts or VMs without PowerShell, run:
+
+   ```bash
+   bash scripts/verify-runtime-data-protection.sh --compose-project monkey-shop --require-populated-pii
+   ```
+
+   These verifiers check Flyway version, runtime flags, `enc:v1:` ciphertext prefixes, and 64-character phone blind indexes without printing secrets or raw PII.
 
 ## MySQL TDE and Backup Encryption
 

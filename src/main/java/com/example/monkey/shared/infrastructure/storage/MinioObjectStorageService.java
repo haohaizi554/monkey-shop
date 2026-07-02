@@ -13,6 +13,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZonedDateTime;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -27,6 +28,7 @@ public class MinioObjectStorageService implements ObjectStorageService {
     private final String publicBaseUrl;
     private final String endpointBaseUrl;
 
+    @Autowired
     public MinioObjectStorageService(
             @Value("${app.storage.minio.endpoint}") String endpoint,
             @Value("${app.storage.minio.access-key}") String accessKey,

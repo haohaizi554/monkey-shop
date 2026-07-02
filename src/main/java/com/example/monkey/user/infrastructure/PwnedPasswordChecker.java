@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.util.HexFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -30,6 +31,7 @@ public class PwnedPasswordChecker implements PasswordCompromiseChecker {
     private final String endpoint;
     private final RangeClient rangeClient;
 
+    @Autowired
     public PwnedPasswordChecker(
             @Value("${app.security.password.hibp.enabled:true}") boolean enabled,
             @Value("${app.security.password.hibp.endpoint:https://api.pwnedpasswords.com/range}") String endpoint,

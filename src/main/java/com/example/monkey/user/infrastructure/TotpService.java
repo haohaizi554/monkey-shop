@@ -7,6 +7,7 @@ import java.time.Clock;
 import java.util.Locale;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -21,6 +22,7 @@ public class TotpService implements UserMfaVerifier {
 
     private final Clock clock;
 
+    @Autowired
     public TotpService() {
         this(Clock.systemUTC());
     }

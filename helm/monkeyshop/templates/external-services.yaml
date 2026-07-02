@@ -1,0 +1,23 @@
+{{- if .Values.externalServices.enabled }}
+{{- range $key, $service := .Values.externalServices.services }}
+{{- if $service.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ default (printf "%s-%s" (include "monkeyshop.fullname" $) $key) $service.name }}
+  labels:
+    {{- include "monkeyshop.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: external-service
+    monkeyshop.openai.com/external-service: {{ $key | quote }}
+spec:
+  type: ExternalName
+  externalName: {{ required (printf "externalServices.services.%s.externalName is required" $key) $service.externalName | quote }}
+  ports:
+    - name: {{ default $key $service.portName }}
+      protocol: TCP
+      port: {{ required (printf "externalServices.services.%s.port is required" $key) $service.port }}
+      targetPort: {{ default $service.port $service.targetPort }}
+{{- end }}
+{{- end }}
+{{- end }}

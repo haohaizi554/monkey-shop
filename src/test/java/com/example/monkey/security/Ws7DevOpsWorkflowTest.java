@@ -73,7 +73,12 @@ class Ws7DevOpsWorkflowTest {
                 .contains("must render Prometheus alert rules")
                 .contains("must render the Grafana dashboard ConfigMap")
                 .contains("must render high error rate alerts")
-                .contains("must render business metric dashboard panels");
+                .contains("must render business metric dashboard panels")
+                .contains("APP_PII_VAULT_PREVIOUS_AES_CIPHERTEXTS")
+                .contains("must source staging ExternalSecret data from the staging secret path")
+                .contains("must render ExternalSecret remoteRefs for the target environment")
+                .contains("must keep ExternalSecret data entries as separate YAML list items")
+                .contains("must copy the executable jar into the runtime stage used by ENTRYPOINT");
     }
 
     @Test
@@ -84,6 +89,50 @@ class Ws7DevOpsWorkflowTest {
                 .contains("maven:3\\.9-eclipse-temurin-21\\s+AS\\s+build\\r?$")
                 .contains("eclipse-temurin:21-jre-jammy\\s+AS\\s+extract\\r?$")
                 .contains("^USER\\s+app\\r?$");
+    }
+
+    @Test
+    void ciRequiresHelmRenderedManifestEvidenceForWs7() throws IOException {
+        String workflow = read(".github/workflows/ci.yaml");
+        String script = read("scripts/verify-ws7-devops.ps1");
+
+        assertThat(workflow)
+                .contains(".\\scripts\\verify-ws7-devops.ps1 -RequireHelm -DownloadHelmIfMissing")
+                .contains("Verify Kyverno supply-chain policies")
+                .contains("ws7-rendered-manifests")
+                .contains("target/ws7-devops/");
+        assertThat(script)
+                .contains("Helm is required but was not found.")
+                .contains("helm lint")
+                .contains("foreach ($environment in @(\"dev\", \"staging\", \"prod\"))")
+                .contains("helm template $environment")
+                .contains("monkeyshop-$environment.yaml")
+                .contains("prod must render a digest-pinned image");
+    }
+
+    @Test
+    void runtimeSmokeVerifierCoversDeployedHealthHeadersTraceAndMetrics() throws IOException {
+        String script = read("scripts/verify-runtime-smoke.ps1");
+        String readme = read("README.md");
+
+        assertThat(script)
+                .contains("/actuator/health")
+                .contains("/actuator/health/liveness")
+                .contains("/actuator/health/readiness")
+                .contains("/actuator/prometheus")
+                .contains("X-Trace-Id")
+                .contains("Content-Security-Policy")
+                .contains("X-Frame-Options")
+                .contains("Permissions-Policy")
+                .contains("Strict-Transport-Security")
+                .contains("jvm_memory_used_bytes")
+                .contains("http_server_requests_seconds_count")
+                .contains("-RequireHttps")
+                .contains("Runtime smoke gate completed successfully");
+        assertThat(readme)
+                .contains("verify-runtime-smoke.ps1")
+                .contains("-BaseUrl http://localhost:8888")
+                .contains("-RequireHttps");
     }
 
     private static String read(String path) throws IOException {

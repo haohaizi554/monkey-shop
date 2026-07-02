@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -24,6 +25,7 @@ public class LocalObjectStorageService implements ObjectStorageService {
     private final Path uploadRoot;
     private final String publicBaseUrl;
 
+    @Autowired
     public LocalObjectStorageService(
             @Value("${app.upload.path:uploads/images}") String uploadPath,
             @Value("${app.storage.public-base-url:}") String publicBaseUrl) {

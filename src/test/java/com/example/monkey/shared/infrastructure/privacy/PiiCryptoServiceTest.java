@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.Map;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -78,6 +79,44 @@ class PiiCryptoServiceTest {
     }
 
     @Test
+    void rotatedKeyReadsPreviousVersionAndWritesWithActiveVersion() {
+        byte[] previousAesKey = filled(32, 1);
+        byte[] activeAesKey = filled(32, 2);
+        SecretKeySpec hmacKey = new SecretKeySpec(filled(32, 3), "HmacSHA256");
+        PiiCryptoService previousService = new PiiCryptoService(
+                true, new PiiKeyMaterialProvider.PiiKeyMaterial(previousAesKey, hmacKey), "v1", false);
+        String previousCiphertext = previousService.encrypt("13800000000");
+        PiiCryptoService rotatedService = new PiiCryptoService(
+                true,
+                new PiiKeyMaterialProvider.PiiKeyMaterial(activeAesKey, hmacKey, Map.of("v1", previousAesKey)),
+                "v2",
+                false);
+
+        String activeCiphertext = rotatedService.encrypt("13900000000");
+
+        assertThat(previousCiphertext).startsWith(PiiCryptoService.ENCRYPTION_PREFIX + "v1:");
+        assertThat(rotatedService.decrypt(previousCiphertext)).isEqualTo("13800000000");
+        assertThat(activeCiphertext).startsWith(PiiCryptoService.ENCRYPTION_PREFIX + "v2:");
+        assertThat(rotatedService.decrypt(activeCiphertext)).isEqualTo("13900000000");
+    }
+
+    @Test
+    void rotatedKeyRejectsPreviousVersionWhenHistoryKeyIsMissing() {
+        byte[] previousAesKey = filled(32, 1);
+        byte[] activeAesKey = filled(32, 2);
+        SecretKeySpec hmacKey = new SecretKeySpec(filled(32, 3), "HmacSHA256");
+        PiiCryptoService previousService = new PiiCryptoService(
+                true, new PiiKeyMaterialProvider.PiiKeyMaterial(previousAesKey, hmacKey), "v1", false);
+        String previousCiphertext = previousService.encrypt("13800000000");
+        PiiCryptoService rotatedService = new PiiCryptoService(
+                true, new PiiKeyMaterialProvider.PiiKeyMaterial(activeAesKey, hmacKey), "v2", false);
+
+        assertThatExceptionOfType(BusinessException.class)
+                .isThrownBy(() -> rotatedService.decrypt(previousCiphertext))
+                .withMessage("PII decryption failed");
+    }
+
+    @Test
     void blindIndexNormalizesPhoneNumbers() {
         PiiCryptoService service = enabledService();
 
@@ -137,6 +176,14 @@ class PiiCryptoServiceTest {
 
         assertThat(databaseValue).startsWith(PiiCryptoService.ENCRYPTION_PREFIX);
         assertThat(converter.convertToEntityAttribute(databaseValue)).isEqualTo("receiver");
+    }
+
+    private static byte[] filled(int size, int value) {
+        byte[] bytes = new byte[size];
+        for (int i = 0; i < bytes.length; i++) {
+            bytes[i] = (byte) value;
+        }
+        return bytes;
     }
 
     private static PiiCryptoService enabledService() {

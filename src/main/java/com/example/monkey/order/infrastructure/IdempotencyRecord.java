@@ -31,7 +31,7 @@ public class IdempotencyRecord {
     @Column(name = "idempotency_key", nullable = false, length = 128)
     private String idempotencyKey;
 
-    @Column(name = "request_hash", nullable = false, length = 64)
+    @Column(name = "request_hash", nullable = false, columnDefinition = "CHAR(64)")
     private String requestHash;
 
     @Column(name = "order_id")

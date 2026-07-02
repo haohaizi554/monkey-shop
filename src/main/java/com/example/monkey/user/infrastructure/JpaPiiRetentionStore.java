@@ -92,6 +92,7 @@ public class JpaPiiRetentionStore implements PiiRetentionStore {
 
     private static void scrubUser(User user) {
         user.setPhone(null);
+        user.setPhoneHmac(null);
         user.setEmail(null);
         user.setNickname(null);
     }

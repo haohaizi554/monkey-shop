@@ -47,6 +47,7 @@ class JpaPiiRetentionStoreTest {
         User user = new User();
         user.setId(42L);
         user.setPhone("13800000000");
+        user.setPhoneHmac("hash");
         user.setEmail("buyer@example.com");
         user.setNickname("buyer");
         when(userRepository.findById(42L)).thenReturn(Optional.of(user));
@@ -55,6 +56,7 @@ class JpaPiiRetentionStoreTest {
 
         assertThat(anonymized).isTrue();
         assertThat(user.getPhone()).isNull();
+        assertThat(user.getPhoneHmac()).isNull();
         assertThat(user.getEmail()).isNull();
         assertThat(user.getNickname()).isNull();
         verify(userRepository).save(user);

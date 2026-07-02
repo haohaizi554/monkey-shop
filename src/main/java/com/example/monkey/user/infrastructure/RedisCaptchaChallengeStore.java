@@ -4,6 +4,7 @@ import com.example.monkey.user.domain.CaptchaChallengeStore;
 import java.time.Duration;
 import java.util.Optional;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -14,6 +15,7 @@ public class RedisCaptchaChallengeStore implements CaptchaChallengeStore {
 
     private final StringRedisTemplate redisTemplate;
 
+    @Autowired
     public RedisCaptchaChallengeStore(ObjectProvider<StringRedisTemplate> redisTemplateProvider) {
         this(redisTemplateProvider.getIfAvailable());
     }

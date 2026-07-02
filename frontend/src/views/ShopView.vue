@@ -2,26 +2,32 @@
 import { Search } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { listMonkeys } from '@/api/catalog'
-import { addAddress, addresses as fetchAddresses } from '@/api/user'
-import { createOrder } from '@/api/orders'
 import AppShell from '@/components/AppShell.vue'
 import ProductImage from '@/components/ProductImage.vue'
-import { useAuthStore } from '@/stores/auth'
-import type { Address, Monkey } from '@/types'
+import { useCheckout } from '@/composables/useCheckout'
+import { productListJsonLd } from '@/seo/product-json-ld'
+import { useJsonLd } from '@/seo/useJsonLd'
+import type { Monkey } from '@/types'
 import { money } from '@/utils/format'
 
-const router = useRouter()
-const auth = useAuthStore()
 const loading = ref(false)
-const checkoutOpen = ref(false)
 const monkeys = ref<Monkey[]>([])
-const addresses = ref<Address[]>([])
-const selectedMonkey = ref<Monkey | null>(null)
-const selectedAddressId = ref<number | null>(null)
 const filters = reactive({ keyword: '', minPrice: '', maxPrice: '', inStockOnly: false })
-const newAddress = reactive({ receiverName: '', phone: '', detailAddress: '' })
+const { t } = useI18n()
+const {
+  openingCheckoutId,
+  submittingOrder,
+  checkoutOpen,
+  addresses,
+  selectedMonkey,
+  selectedAddressId,
+  newAddress,
+  openCheckout,
+  saveAddress,
+  submitOrder,
+} = useCheckout({ afterOrderCreated: loadMonkeys })
 
 const filteredMonkeys = computed(() =>
   monkeys.value.filter((monkey) => {
@@ -37,47 +43,18 @@ const filteredMonkeys = computed(() =>
     )
   }),
 )
+const productListStructuredData = computed(() => productListJsonLd(filteredMonkeys.value))
+useJsonLd('monkeyshop-product-list-jsonld', productListStructuredData)
 
 async function loadMonkeys() {
   loading.value = true
   try {
     monkeys.value = await listMonkeys()
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to load catalog')
+    ElMessage.error(error instanceof Error ? error.message : t('common.unableToLoadCatalog'))
   } finally {
     loading.value = false
   }
-}
-
-async function openCheckout(monkey: Monkey) {
-  if (!auth.isLoggedIn) {
-    await router.push('/login')
-    return
-  }
-  selectedMonkey.value = monkey
-  addresses.value = await fetchAddresses()
-  selectedAddressId.value =
-    addresses.value.find((item) => item.isDefault === 1)?.id ?? addresses.value[0]?.id ?? null
-  checkoutOpen.value = true
-}
-
-async function saveAddress() {
-  const saved = await addAddress(newAddress)
-  addresses.value = await fetchAddresses()
-  selectedAddressId.value = saved.id
-  Object.assign(newAddress, { receiverName: '', phone: '', detailAddress: '' })
-}
-
-async function submitOrder() {
-  if (!selectedMonkey.value || !selectedAddressId.value) {
-    ElMessage.warning('Choose an address first')
-    return
-  }
-  await createOrder(selectedMonkey.value.id, selectedAddressId.value)
-  ElMessage.success('Order created')
-  checkoutOpen.value = false
-  await loadMonkeys()
-  await router.push('/orders')
 }
 
 onMounted(() => {
@@ -99,8 +76,8 @@ onMounted(() => {
           :placeholder="$t('common.search')"
           clearable
         />
-        <el-input v-model="filters.minPrice" type="number" placeholder="Min" />
-        <el-input v-model="filters.maxPrice" type="number" placeholder="Max" />
+        <el-input v-model="filters.minPrice" type="number" :placeholder="$t('common.minPrice')" />
+        <el-input v-model="filters.maxPrice" type="number" :placeholder="$t('common.maxPrice')" />
         <el-checkbox v-model="filters.inStockOnly">
           {{ $t('shop.inStockOnly') }}
         </el-checkbox>
@@ -111,11 +88,15 @@ onMounted(() => {
       <template #default>
         <div class="product-grid">
           <article v-for="monkey in filteredMonkeys" :key="monkey.id" class="product-card">
-            <ProductImage :src="monkey.imageUrl" :alt="monkey.name" />
+            <RouterLink :to="`/shop/${monkey.id}`" :aria-label="monkey.name">
+              <ProductImage :src="monkey.imageUrl" :alt="monkey.name" />
+            </RouterLink>
             <div class="product-body">
               <div class="product-heading">
                 <div>
-                  <h2>{{ monkey.name }}</h2>
+                  <RouterLink :to="`/shop/${monkey.id}`">
+                    <h2>{{ monkey.name }}</h2>
+                  </RouterLink>
                   <p>{{ monkey.breed }}</p>
                 </div>
                 <strong>{{ money(monkey.price) }}</strong>
@@ -129,7 +110,8 @@ onMounted(() => {
                 </el-tag>
                 <el-button
                   type="primary"
-                  :disabled="monkey.stock <= 0"
+                  :loading="openingCheckoutId === monkey.id"
+                  :disabled="monkey.stock <= 0 || openingCheckoutId !== null"
                   @click="openCheckout(monkey)"
                 >
                   {{ monkey.stock > 0 ? $t('shop.buy') : $t('shop.soldOut') }}
@@ -153,15 +135,15 @@ onMounted(() => {
 
       <el-radio-group v-model="selectedAddressId" class="address-list">
         <el-radio v-for="address in addresses" :key="address.id" :label="address.id" border>
-          {{ address.receiverName }} · {{ address.phone }} · {{ address.detailAddress }}
+          {{ address.receiverName }} - {{ address.phone }} - {{ address.detailAddress }}
         </el-radio>
       </el-radio-group>
 
       <el-divider>{{ $t('shop.addAddress') }}</el-divider>
       <div class="inline-form">
-        <el-input v-model="newAddress.receiverName" placeholder="Receiver" />
-        <el-input v-model="newAddress.phone" placeholder="Phone" />
-        <el-input v-model="newAddress.detailAddress" placeholder="Address" />
+        <el-input v-model="newAddress.receiverName" :placeholder="$t('common.receiver')" />
+        <el-input v-model="newAddress.phone" :placeholder="$t('auth.phone')" />
+        <el-input v-model="newAddress.detailAddress" :placeholder="$t('common.address')" />
         <el-button plain @click="saveAddress">
           {{ $t('common.save') }}
         </el-button>
@@ -171,7 +153,12 @@ onMounted(() => {
         <el-button @click="checkoutOpen = false">
           {{ $t('common.cancel') }}
         </el-button>
-        <el-button type="primary" @click="submitOrder">
+        <el-button
+          type="primary"
+          :loading="submittingOrder"
+          :disabled="submittingOrder"
+          @click="submitOrder"
+        >
           {{ $t('shop.placeOrder') }}
         </el-button>
       </template>

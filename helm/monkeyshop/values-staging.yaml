@@ -12,9 +12,9 @@ image:
 
 config:
   SPRING_PROFILES_ACTIVE: staging
-  DB_URL: jdbc:mysql://staging-mysql.internal:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=true&requireSSL=true&verifyServerCertificate=true
+  DB_URL: jdbc:mysql://monkeyshop-mysql.monkeyshop-staging.svc.cluster.local:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=true&requireSSL=true&verifyServerCertificate=true
   DB_USERNAME: monkeyuser
-  SPRING_DATA_REDIS_HOST: staging-redis.internal
+  SPRING_DATA_REDIS_HOST: monkeyshop-redis.monkeyshop-staging.svc.cluster.local
   APP_TURNSTILE_EXPECTED_HOSTNAME: staging.monkeyshop.example.com
   APP_PII_VAULT_ADDR: https://vault.staging.example.com
   APP_PII_VAULT_TRANSIT_KEY: monkeyshop-pii-staging
@@ -68,6 +68,10 @@ externalSecret:
       remoteRef:
         key: monkeyshop/staging
         property: APP_PII_VAULT_HMAC_CIPHERTEXT
+    - secretKey: APP_PII_VAULT_PREVIOUS_AES_CIPHERTEXTS
+      remoteRef:
+        key: monkeyshop/staging
+        property: APP_PII_VAULT_PREVIOUS_AES_CIPHERTEXTS
     - secretKey: APP_PASSWORD_RESET_SMS_WEBHOOK_URL
       remoteRef:
         key: monkeyshop/staging
@@ -96,6 +100,20 @@ externalSecret:
       remoteRef:
         key: monkeyshop/staging
         property: SENTRY_DSN
+
+externalServices:
+  enabled: true
+  services:
+    mysql:
+      enabled: true
+      name: monkeyshop-mysql
+      externalName: staging-mysql.internal
+      port: 3306
+    redis:
+      enabled: true
+      name: monkeyshop-redis
+      externalName: staging-redis.internal
+      port: 6379
 
 ingress:
   enabled: true

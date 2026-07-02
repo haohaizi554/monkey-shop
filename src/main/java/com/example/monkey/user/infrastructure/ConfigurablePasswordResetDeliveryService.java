@@ -15,6 +15,7 @@ import java.util.Locale;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -36,6 +37,7 @@ public class ConfigurablePasswordResetDeliveryService implements PasswordResetDe
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
 
+    @Autowired
     public ConfigurablePasswordResetDeliveryService(
             @Value("${app.auth.password-reset.delivery-mode:disabled}") String deliveryMode,
             @Value("${app.auth.password-reset.sms-webhook-url:}") String smsWebhookUrl,

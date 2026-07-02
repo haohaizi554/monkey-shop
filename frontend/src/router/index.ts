@@ -19,6 +19,7 @@ export const router = createRouter({
       meta: { publicOnly: true },
     },
     { path: '/shop', component: () => import('@/views/ShopView.vue') },
+    { path: '/shop/:productId', component: () => import('@/views/ProductDetailView.vue') },
     {
       path: '/orders',
       component: () => import('@/views/OrdersView.vue'),

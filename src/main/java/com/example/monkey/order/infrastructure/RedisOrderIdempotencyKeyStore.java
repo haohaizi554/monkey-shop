@@ -5,6 +5,7 @@ import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -16,6 +17,7 @@ public class RedisOrderIdempotencyKeyStore implements OrderIdempotencyKeyStore {
 
     private final StringRedisTemplate redisTemplate;
 
+    @Autowired
     public RedisOrderIdempotencyKeyStore(ObjectProvider<StringRedisTemplate> redisTemplateProvider) {
         this(redisTemplateProvider.getIfAvailable());
     }

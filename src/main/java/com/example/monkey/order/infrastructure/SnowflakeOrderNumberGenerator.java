@@ -3,6 +3,7 @@ package com.example.monkey.order.infrastructure;
 import com.example.monkey.order.domain.OrderNumberGenerator;
 import java.time.Instant;
 import java.util.function.LongSupplier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -31,6 +32,7 @@ public class SnowflakeOrderNumberGenerator implements OrderNumberGenerator {
     private long sequence;
     private long lastTimestamp = -1L;
 
+    @Autowired
     public SnowflakeOrderNumberGenerator(
             @Value("${app.order.snowflake.worker-id:0}") long workerId,
             @Value("${app.order.snowflake.datacenter-id:0}") long datacenterId) {

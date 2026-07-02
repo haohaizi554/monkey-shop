@@ -44,10 +44,13 @@ public class User implements UserDetails, PhoneBlindIndexTarget {
     @Column(length = 1024)
     private String phone;
 
-    @Column(name = "phone_hmac", length = 64)
+    @Column(name = "phone_hmac", columnDefinition = "CHAR(64)")
     private String phoneHmac;
 
+    @Convert(converter = EncryptedStringAttributeConverter.class)
+    @Column(length = 1024)
     private String email;
+
     private String avatar;
     private String role;
     private String nickname;

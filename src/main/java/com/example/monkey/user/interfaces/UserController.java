@@ -27,6 +27,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping({"/api/user", "/api/v1/users"})
 public class UserController {
 
+    private static final String ACTION_CHANGE_PASSWORD = "change-password";
+
     private final UserProfileApplicationService userProfileService;
     private final CaptchaService captchaService;
     private final PasswordChangeApplicationService passwordChangeService;

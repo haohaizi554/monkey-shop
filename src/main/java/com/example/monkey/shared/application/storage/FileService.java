@@ -27,6 +27,7 @@ import net.coobird.thumbnailator.geometry.Positions;
 import org.apache.tika.Tika;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -44,6 +45,7 @@ public class FileService {
     private final Duration presignedGetTtl;
     private final Duration presignedPostTtl;
 
+    @Autowired
     public FileService(
             @Value("${app.upload.max-image-pixels:12000000}") long maxImagePixels,
             @Value("${app.storage.presigned-get-ttl:PT15M}") Duration presignedGetTtl,
