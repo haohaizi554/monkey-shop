@@ -250,7 +250,10 @@ public class SecurityConfig {
                         .referrerPolicy(referrer -> referrer.policy(
                                 ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
                         .addHeaderWriter(new StaticHeadersWriter(
-                                "Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")))
+                                "Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()"))
+                        .addHeaderWriter(new StaticHeadersWriter("Cross-Origin-Opener-Policy", "same-origin"))
+                        .addHeaderWriter(new StaticHeadersWriter("Cross-Origin-Resource-Policy", "same-origin"))
+                        .addHeaderWriter(new StaticHeadersWriter("X-Permitted-Cross-Domain-Policies", "none")))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
                         .maximumSessions(1))
                 .formLogin(AbstractHttpConfigurer::disable)

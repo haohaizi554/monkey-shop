@@ -6,7 +6,8 @@ param(
     [switch]$DownloadHelmIfMissing,
     [string]$HelmVersion = "v3.21.2",
     [string]$ToolDir = "target/tools",
-    [string]$HelmWindowsAmd64Sha256 = "5f346e3338617e9fd1b8c216065383061bdb3bde26cb6b3abc8ce0481354a513"
+    [string]$HelmWindowsAmd64Sha256 = "5f346e3338617e9fd1b8c216065383061bdb3bde26cb6b3abc8ce0481354a513",
+    [string]$GitOpsRepoUrl = "https://github.com/haohaizi554/monkey-shop.git"
 )
 
 $ErrorActionPreference = "Stop"
@@ -211,6 +212,9 @@ $requiredFiles = @(
     "deploy/argocd/applications/monkeyshop-dev.yaml",
     "deploy/argocd/applications/monkeyshop-staging.yaml",
     "deploy/argocd/applications/monkeyshop-prod.yaml",
+    "scripts/verify-argocd-gitops-runtime.ps1",
+    "scripts/verify-microk8s-dev-runtime.ps1",
+    "scripts/verify-argocd-microk8s-gitops.ps1",
     "scripts/verify-runtime-image-supply-chain.ps1",
     "deploy/kyverno/monkeyshop-image-policy.yaml",
     "deploy/kyverno/monkeyshop-pod-security.yaml"
@@ -237,6 +241,9 @@ $grafanaDashboard = Read-RequiredFile -Path "$ChartDir/templates/grafana-dashboa
 $clusterIssuer = Read-RequiredFile -Path "deploy/cert-manager/clusterissuer-letsencrypt-dns01.yaml"
 $kyvernoImage = Read-RequiredFile -Path "deploy/kyverno/monkeyshop-image-policy.yaml"
 $kyvernoPod = Read-RequiredFile -Path "deploy/kyverno/monkeyshop-pod-security.yaml"
+$gitOpsRuntimeGate = Read-RequiredFile -Path "scripts/verify-argocd-gitops-runtime.ps1"
+$microk8sRuntimeGate = Read-RequiredFile -Path "scripts/verify-microk8s-dev-runtime.ps1"
+$argocdMicrok8sGate = Read-RequiredFile -Path "scripts/verify-argocd-microk8s-gitops.ps1"
 $runtimeImageGate = Read-RequiredFile -Path "scripts/verify-runtime-image-supply-chain.ps1"
 
 Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "(?m)^FROM\s+maven:3\.9-eclipse-temurin-21\s+AS\s+build\r?$" -Message "must use a Maven/Java 21 build stage"
@@ -271,6 +278,11 @@ Assert-Match -Name "values.yaml" -Text $values -Pattern "prometheusRule:\s*\r?\n
 Assert-Match -Name "values.yaml" -Text $values -Pattern "grafanaDashboard:\s*\r?\n\s+enabled:\s+false" -Message "must define Grafana dashboard support with a safe default"
 Assert-Match -Name "values.yaml" -Text $values -Pattern "errorRate:\s+0\.02" -Message "must define the HTTP 5xx alert threshold"
 Assert-Match -Name "values.yaml" -Text $values -Pattern "p99LatencySeconds:\s+1\.5" -Message "must define the p99 latency alert threshold"
+Assert-Match -Name "values.yaml" -Text $values -Pattern "progressDeadlineSeconds:\s+600" -Message "must define an Argo Rollouts progress deadline"
+Assert-Match -Name "values.yaml" -Text $values -Pattern "progressDeadlineAbort:\s+true" -Message "must abort failed rollout progress automatically"
+Assert-Match -Name "values.yaml" -Text $values -Pattern "rollbackWindow:\s*\r?\n\s+revisions:\s+3" -Message "must keep a rollback window for recent stable revisions"
+Assert-Match -Name "values.yaml" -Text $values -Pattern "setWeight:\s+10[\s\S]+templateName:\s+monkeyshop-http-5xx-rate[\s\S]+setWeight:\s+50[\s\S]+templateName:\s+monkeyshop-http-5xx-rate[\s\S]+setWeight:\s+100" -Message "must run 10 percent and midpoint Prometheus analysis before 100 percent promotion"
+Assert-NotMatch -Name "values.yaml" -Text $values -Pattern "setWeight:\s+20" -Message "must start production canaries at 10 percent, not 20 percent"
 Assert-RequiredSecretKeys -Name "values.yaml" -Text $values
 Assert-NotMatch -Name "values.yaml" -Text $values -Pattern "(?m)^\s*property:[^\r\n]*-[ \t]*secretKey:" -Message "must keep ExternalSecret data entries as separate YAML list items"
 
@@ -337,6 +349,9 @@ Assert-Match -Name "external-services.yaml" -Text $externalServices -Pattern "ty
 Assert-Match -Name "external-services.yaml" -Text $externalServices -Pattern "externalName:\s+{{\s*required" -Message "must require explicit external target hostnames"
 Assert-Match -Name "external-services.yaml" -Text $externalServices -Pattern "monkeyshop\.openai\.com/external-service" -Message "must label external dependency service resources"
 Assert-Match -Name "rollout.yaml" -Text $rollout -Pattern "kind:\s+Rollout" -Message "must template Argo Rollouts canary resources"
+Assert-Match -Name "rollout.yaml" -Text $rollout -Pattern "progressDeadlineSeconds:\s+{{\s*\.Values\.rollout\.progressDeadlineSeconds\s*}}" -Message "must template rollout progress deadlines"
+Assert-Match -Name "rollout.yaml" -Text $rollout -Pattern "progressDeadlineAbort:\s+{{\s*\.Values\.rollout\.progressDeadlineAbort\s*}}" -Message "must template automatic progress abort"
+Assert-Match -Name "rollout.yaml" -Text $rollout -Pattern "rollbackWindow:\s*\r?\n\s+revisions:\s+{{\s*\.Values\.rollout\.rollbackWindow\.revisions\s*}}" -Message "must template rollback windows"
 Assert-Match -Name "analysis-template.yaml" -Text $analysis -Pattern "kind:\s+AnalysisTemplate" -Message "must template canary analysis"
 Assert-Match -Name "analysis-template.yaml" -Text $analysis -Pattern "http-5xx-rate" -Message "must analyze HTTP 5xx rate"
 Assert-Match -Name "analysis-template.yaml" -Text $analysis -Pattern "prometheus:" -Message "must use Prometheus analysis provider"
@@ -380,8 +395,39 @@ Assert-NotMatch -Name "Runtime image supply-chain gate" -Text $runtimeImageGate 
 $vmPasswordCanary = "12" + "3456"
 Assert-NotMatch -Name "Runtime image supply-chain gate" -Text $runtimeImageGate -Pattern $vmPasswordCanary -Message "must not store VM passwords"
 
+Assert-Match -Name "Argo CD runtime GitOps gate" -Text $gitOpsRuntimeGate -Pattern "argocd app wait" -Message "must wait for Argo CD applications"
+Assert-Match -Name "Argo CD runtime GitOps gate" -Text $gitOpsRuntimeGate -Pattern "Synced" -Message "must verify sync status"
+Assert-Match -Name "Argo CD runtime GitOps gate" -Text $gitOpsRuntimeGate -Pattern "Healthy" -Message "must verify health status"
+Assert-Match -Name "Argo CD runtime GitOps gate" -Text $gitOpsRuntimeGate -Pattern "monkeyshop-dev" -Message "must include the dev application"
+Assert-Match -Name "Argo CD runtime GitOps gate" -Text $gitOpsRuntimeGate -Pattern "monkeyshop-staging" -Message "must include the staging application"
+Assert-Match -Name "Argo CD runtime GitOps gate" -Text $gitOpsRuntimeGate -Pattern "monkeyshop-prod" -Message "must include the prod application"
+
+Assert-Match -Name "MicroK8s dev runtime gate" -Text $microk8sRuntimeGate -Pattern "microk8s status" -Message "must check MicroK8s cluster readiness"
+Assert-Match -Name "MicroK8s dev runtime gate" -Text $microk8sRuntimeGate -Pattern "microk8s kubectl get nodes" -Message "must verify Kubernetes node state"
+Assert-Match -Name "MicroK8s dev runtime gate" -Text $microk8sRuntimeGate -Pattern "microk8s helm3" -Message "must deploy through MicroK8s Helm"
+Assert-Match -Name "MicroK8s dev runtime gate" -Text $microk8sRuntimeGate -Pattern "upgrade --install" -Message "must use an idempotent Helm install or upgrade"
+Assert-Match -Name "MicroK8s dev runtime gate" -Text $microk8sRuntimeGate -Pattern "NodePort" -Message "must expose a verifiable NodePort endpoint"
+Assert-Match -Name "MicroK8s dev runtime gate" -Text $microk8sRuntimeGate -Pattern "verify-runtime-smoke\.ps1" -Message "must reuse the runtime smoke gate"
+Assert-Match -Name "MicroK8s dev runtime gate" -Text $microk8sRuntimeGate -Pattern "verify-runtime-api-security\.ps1" -Message "must support API security smoke verification"
+Assert-Match -Name "MicroK8s dev runtime gate" -Text $microk8sRuntimeGate -Pattern "MONKEYSHOP_DEV_DB_PASSWORD" -Message "must source optional runtime database secrets from the environment"
+Assert-NotMatch -Name "MicroK8s dev runtime gate" -Text $microk8sRuntimeGate -Pattern $vmPasswordCanary -Message "must not store VM or database passwords"
+
+Assert-Match -Name "Argo CD MicroK8s GitOps gate" -Text $argocdMicrok8sGate -Pattern "git daemon" -Message "must serve a local GitOps repository to Argo CD"
+Assert-Match -Name "Argo CD MicroK8s GitOps gate" -Text $argocdMicrok8sGate -Pattern "kind:\s+Application" -Message "must create or reconcile an Argo CD Application"
+Assert-Match -Name "Argo CD MicroK8s GitOps gate" -Text $argocdMicrok8sGate -Pattern "Synced" -Message "must verify Argo CD sync status"
+Assert-Match -Name "Argo CD MicroK8s GitOps gate" -Text $argocdMicrok8sGate -Pattern "Healthy" -Message "must verify Argo CD health status"
+Assert-Match -Name "Argo CD MicroK8s GitOps gate" -Text $argocdMicrok8sGate -Pattern "microk8s status" -Message "must verify the MicroK8s cluster before GitOps reconciliation"
+Assert-Match -Name "Argo CD MicroK8s GitOps gate" -Text $argocdMicrok8sGate -Pattern "argocd" -Message "must manage Argo CD resources"
+Assert-Match -Name "Argo CD MicroK8s GitOps gate" -Text $argocdMicrok8sGate -Pattern "TARGET_REVISION" -Message "must wait for the exact pushed Git revision"
+Assert-Match -Name "Argo CD MicroK8s GitOps gate" -Text $argocdMicrok8sGate -Pattern "verify-runtime-smoke\.ps1" -Message "must reuse the runtime smoke gate"
+Assert-Match -Name "Argo CD MicroK8s GitOps gate" -Text $argocdMicrok8sGate -Pattern "verify-runtime-api-security\.ps1" -Message "must support API security smoke verification"
+Assert-Match -Name "Argo CD MicroK8s GitOps gate" -Text $argocdMicrok8sGate -Pattern "MONKEYSHOP_DEV_DB_PASSWORD" -Message "must source optional runtime database secrets from the environment"
+Assert-NotMatch -Name "Argo CD MicroK8s GitOps gate" -Text $argocdMicrok8sGate -Pattern $vmPasswordCanary -Message "must not store VM or database passwords"
+
 foreach ($environment in @("dev", "staging", "prod")) {
     $app = Read-RequiredFile -Path "deploy/argocd/applications/monkeyshop-$environment.yaml"
+    Assert-Match -Name "ArgoCD $environment" -Text $app -Pattern "repoURL:\s+$([regex]::Escape($GitOpsRepoUrl))" -Message "must point to the real MonkeyShop GitOps repository"
+    Assert-NotMatch -Name "ArgoCD $environment" -Text $app -Pattern "github\.com/example/" -Message "must not use placeholder GitOps repository URLs"
     Assert-Match -Name "ArgoCD $environment" -Text $app -Pattern "path:\s+helm/monkeyshop" -Message "must point to the MonkeyShop Helm chart"
     Assert-Match -Name "ArgoCD $environment" -Text $app -Pattern "values-$environment\.yaml" -Message "must use values-$environment.yaml"
     Assert-Match -Name "ArgoCD $environment" -Text $app -Pattern "namespace:\s+monkeyshop-$environment" -Message "must target monkeyshop-$environment namespace"
@@ -423,6 +469,11 @@ if (-not $helm) {
     foreach ($environment in @("staging", "prod")) {
         $manifest = $rendered[$environment]
         Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "kind:\s+Rollout" -Message "must render an Argo Rollout"
+        Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "progressDeadlineSeconds:\s+600" -Message "must render a rollout progress deadline"
+        Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "progressDeadlineAbort:\s+true" -Message "must render automatic progress abort"
+        Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "rollbackWindow:\s*\r?\n\s+revisions:\s+3" -Message "must render a rollback window"
+        Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "setWeight:\s+10[\s\S]+templateName:\s+monkeyshop-http-5xx-rate[\s\S]+setWeight:\s+50[\s\S]+templateName:\s+monkeyshop-http-5xx-rate[\s\S]+setWeight:\s+100" -Message "must render analyzed canary promotion from 10 percent to 100 percent"
+        Assert-NotMatch -Name "rendered $environment" -Text $manifest -Pattern "setWeight:\s+20" -Message "must not start the canary at 20 percent"
         Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "kind:\s+AnalysisTemplate" -Message "must render a canary AnalysisTemplate"
         Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "kind:\s+ExternalSecret" -Message "must render an ExternalSecret"
         Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "key:\s+monkeyshop/$environment" -Message "must render ExternalSecret remoteRefs for the target environment"

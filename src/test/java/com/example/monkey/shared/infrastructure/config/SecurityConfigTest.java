@@ -205,7 +205,10 @@ class SecurityConfigTest {
                 .andExpect(header().string("X-Frame-Options", "DENY"))
                 .andExpect(header().string("Referrer-Policy", "strict-origin-when-cross-origin"))
                 .andExpect(
-                        header().string("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()"));
+                        header().string("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()"))
+                .andExpect(header().string("Cross-Origin-Opener-Policy", "same-origin"))
+                .andExpect(header().string("Cross-Origin-Resource-Policy", "same-origin"))
+                .andExpect(header().string("X-Permitted-Cross-Domain-Policies", "none"));
     }
 
     @Test

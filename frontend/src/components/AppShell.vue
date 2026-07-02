@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Box, Moon, ShoppingBag, Sunny, User, Tickets, DataBoard } from '@element-plus/icons-vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
@@ -18,57 +17,65 @@ function toggleLocale() {
 </script>
 
 <template>
-  <el-container class="app-shell">
-    <el-header class="app-header">
+  <div class="app-shell">
+    <header class="app-header">
       <RouterLink class="brand" to="/shop" aria-label="MonkeyShop">
-        <el-icon><Box /></el-icon>
+        <span class="brand-mark" aria-hidden="true">MS</span>
         <span>MonkeyShop</span>
       </RouterLink>
 
       <nav class="primary-nav" aria-label="Primary">
         <RouterLink to="/shop">
-          <el-icon><ShoppingBag /></el-icon>
+          <span class="nav-mark" aria-hidden="true">S</span>
           <span>{{ t('nav.shop') }}</span>
         </RouterLink>
         <RouterLink v-if="auth.isLoggedIn" to="/orders">
-          <el-icon><Tickets /></el-icon>
+          <span class="nav-mark" aria-hidden="true">O</span>
           <span>{{ t('nav.orders') }}</span>
         </RouterLink>
         <RouterLink v-if="auth.isLoggedIn" to="/profile">
-          <el-icon><User /></el-icon>
+          <span class="nav-mark" aria-hidden="true">P</span>
           <span>{{ t('nav.profile') }}</span>
         </RouterLink>
         <RouterLink v-if="auth.isAdmin" to="/admin">
-          <el-icon><DataBoard /></el-icon>
+          <span class="nav-mark" aria-hidden="true">A</span>
           <span>{{ t('nav.admin') }}</span>
         </RouterLink>
       </nav>
 
       <div class="header-actions">
-        <el-button
-          text
-          circle
+        <button
+          class="icon-button"
+          type="button"
           :aria-label="theme.isDark ? 'Light theme' : 'Dark theme'"
           @click="theme.toggle()"
         >
-          <el-icon><component :is="theme.isDark ? Sunny : Moon" /></el-icon>
-        </el-button>
-        <el-button text aria-label="Switch language" @click="toggleLocale">
+          <span aria-hidden="true">{{ theme.isDark ? 'L' : 'D' }}</span>
+        </button>
+        <button
+          class="text-button"
+          type="button"
+          aria-label="Switch language"
+          @click="toggleLocale"
+        >
           {{ languageLabel }}
-        </el-button>
-        <el-button v-if="auth.isLoggedIn" type="primary" plain @click="auth.logout()">
+        </button>
+        <button
+          v-if="auth.isLoggedIn"
+          class="secondary-button"
+          type="button"
+          @click="auth.logout()"
+        >
           {{ t('nav.logout') }}
-        </el-button>
-        <RouterLink v-else to="/login">
-          <el-button type="primary">
-            {{ t('nav.login') }}
-          </el-button>
+        </button>
+        <RouterLink v-else class="primary-button" to="/login">
+          {{ t('nav.login') }}
         </RouterLink>
       </div>
-    </el-header>
+    </header>
 
-    <el-main class="app-main">
+    <main class="app-main">
       <slot />
-    </el-main>
-  </el-container>
+    </main>
+  </div>
 </template>

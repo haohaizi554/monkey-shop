@@ -1,5 +1,3 @@
-import { useDebounceFn } from '@vueuse/core'
-import { ElMessage } from 'element-plus'
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { createOrder } from '@/api/orders'
@@ -7,8 +5,11 @@ import { addAddress, addresses as fetchAddresses } from '@/api/user'
 import { useAuthStore } from '@/stores/auth'
 import type { Address, AddressRequest, Monkey } from '@/types'
 
+type NoticeLevel = 'error' | 'success' | 'warning'
+
 interface CheckoutOptions {
   afterOrderCreated?: () => Promise<void> | void
+  notify?: (level: NoticeLevel, message: string) => void
 }
 
 export function useCheckout(options: CheckoutOptions = {}) {
@@ -25,6 +26,11 @@ export function useCheckout(options: CheckoutOptions = {}) {
     phone: '',
     detailAddress: '',
   })
+  let submitTimer: ReturnType<typeof setTimeout> | undefined
+
+  function notify(level: NoticeLevel, message: string) {
+    options.notify?.(level, message)
+  }
 
   async function openCheckout(monkey: Monkey) {
     if (!auth.isLoggedIn) {
@@ -42,7 +48,7 @@ export function useCheckout(options: CheckoutOptions = {}) {
         addresses.value.find((item) => item.isDefault === 1)?.id ?? addresses.value[0]?.id ?? null
       checkoutOpen.value = true
     } catch (error) {
-      ElMessage.error(error instanceof Error ? error.message : 'Unable to open checkout')
+      notify('error', error instanceof Error ? error.message : 'Unable to open checkout')
     } finally {
       openingCheckoutId.value = null
     }
@@ -55,31 +61,40 @@ export function useCheckout(options: CheckoutOptions = {}) {
       selectedAddressId.value = saved.id
       Object.assign(newAddress, { receiverName: '', phone: '', detailAddress: '' })
     } catch (error) {
-      ElMessage.error(error instanceof Error ? error.message : 'Unable to save address')
+      notify('error', error instanceof Error ? error.message : 'Unable to save address')
     }
   }
 
-  const submitOrder = useDebounceFn(async () => {
+  async function doSubmitOrder() {
     if (submittingOrder.value) {
       return
     }
     if (!selectedMonkey.value || !selectedAddressId.value) {
-      ElMessage.warning('Choose an address first')
+      notify('warning', 'Choose an address first')
       return
     }
     submittingOrder.value = true
     try {
       await createOrder(selectedMonkey.value.id, selectedAddressId.value)
-      ElMessage.success('Order created')
+      notify('success', 'Order created')
       checkoutOpen.value = false
       await options.afterOrderCreated?.()
       await router.push('/orders')
     } catch (error) {
-      ElMessage.error(error instanceof Error ? error.message : 'Unable to create order')
+      notify('error', error instanceof Error ? error.message : 'Unable to create order')
     } finally {
       submittingOrder.value = false
     }
-  }, 350)
+  }
+
+  function submitOrder() {
+    if (submitTimer !== undefined) {
+      clearTimeout(submitTimer)
+    }
+    submitTimer = setTimeout(() => {
+      void doSubmitOrder()
+    }, 350)
+  }
 
   return {
     openingCheckoutId,

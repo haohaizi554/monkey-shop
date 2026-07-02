@@ -250,6 +250,7 @@ Security and DevOps gates:
 .\scripts\verify-ws7-devops.ps1 -RequireHelm -DownloadHelmIfMissing
 .\scripts\verify-ws8-security.ps1
 .\scripts\verify-runtime-smoke.ps1 -BaseUrl http://localhost:8888
+.\scripts\verify-public-edge-security.ps1 -BaseUrl https://monkeyshop.example.com
 .\scripts\verify-runtime-api-security.ps1 -BaseUrl http://localhost:8888
 .\scripts\verify-runtime-image-supply-chain.ps1 -ImageRef monkey-shop-myshop:latest
 .\scripts\run-pii-backfill-compose.ps1 -ComposeProject monkey-shop
@@ -269,6 +270,8 @@ After a full Maven `verify` has already passed, rerun only the WS1 scanner layer
 `-SkipMaven` is only for repeat scanner runs after a successful full build. `-SkipTrivyDbUpdate` keeps Trivy in cached/offline mode and adds `--skip-check-update`, `--offline-scan`, and `--skip-version-check` for deterministic local verification.
 
 Run `.\scripts\verify-runtime-smoke.ps1 -BaseUrl http://localhost:8888` after local or VM deployment. Use `-RequireHttps` for public TLS endpoints so HSTS preload posture is enforced.
+
+Run `.\scripts\verify-public-edge-security.ps1 -BaseUrl https://monkeyshop.example.com`, or set `MONKEYSHOP_PUBLIC_URL`, after public DNS and certificates are active. It verifies the public edge is HTTPS-only, negotiates TLS 1.3, has a certificate with enough remaining validity, and returns HSTS preload plus the security headers expected for a SecurityHeaders-style A+ posture.
 
 Run `.\scripts\verify-runtime-api-security.ps1 -BaseUrl http://localhost:8888` after deployment to verify anonymous API reads, authentication barriers, captcha config, and WAF honeypot blocking. Add `-RunRateLimitProbe` only when it is acceptable to consume the shared search endpoint bucket briefly and prove 429/Retry-After behavior.
 
@@ -343,11 +346,35 @@ Kubernetes assets:
 
 The Helm chart supports dev Deployment mode, staging/prod Argo Rollouts canaries, External Secrets, HPA, PDB, NetworkPolicy, ServiceMonitor, PrometheusRule, Grafana dashboard, read-only root filesystem, restricted pod security, and digest-pinned production images.
 
+Staging and production canaries start at 10 percent, run Prometheus 5xx-rate analysis before further promotion, repeat the analysis at 50 percent, and promote to 100 percent only after the analysis gates pass. Failed progress deadlines abort automatically and keep the last three stable revisions available for rollback.
+
 ```powershell
 helm template monkeyshop .\helm\monkeyshop -f .\helm\monkeyshop\values-dev.yaml
 helm template monkeyshop .\helm\monkeyshop -f .\helm\monkeyshop\values-staging.yaml
 helm template monkeyshop .\helm\monkeyshop -f .\helm\monkeyshop\values-prod.yaml
 ```
+
+The Argo CD Applications point at `https://github.com/haohaizi554/monkey-shop.git`. After applying the platform dependencies and logging in with `argocd` or configuring `kubectl` for the cluster, verify the live GitOps state with:
+
+```powershell
+.\scripts\verify-argocd-gitops-runtime.ps1 -RequireCluster
+```
+
+For the local VM development cluster, verify the MicroK8s/Helm runtime path with:
+
+```powershell
+.\scripts\verify-microk8s-dev-runtime.ps1 -SshTarget lly@192.168.119.129 -SkipDeploy -RunApiSecurityProbe
+```
+
+Omit `-SkipDeploy` to copy the chart to the VM, reconcile the `monkeyshop-dev` Helm release, expose it through a NodePort, and then run the runtime smoke gates. Runtime secrets can be supplied with `MONKEYSHOP_DEV_DB_PASSWORD`, `MONKEYSHOP_DEV_ADMIN_INIT_PASSWORD`, `MONKEYSHOP_DEV_ADMIN_TOTP_SECRET`, and `MONKEYSHOP_DEV_JWT_SECRET`; otherwise the verifier generates temporary values.
+
+To prove Argo CD reconciliation against the VM MicroK8s cluster with a local GitOps repository, run:
+
+```powershell
+.\scripts\verify-argocd-microk8s-gitops.ps1 -SshTarget lly@192.168.119.129 -InstallArgoCd -RunApiSecurityProbe
+```
+
+The first run can use `-InstallArgoCd` to install Argo CD; later runs can omit it. The verifier serves a local `git://<vm>/monkeyshop-gitops.git` repository, waits for the Argo CD Application to reach the exact pushed revision in `Synced` and `Healthy` state, then runs the same runtime smoke gates through the VM NodePort.
 
 ## CI And Supply Chain
 

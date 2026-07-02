@@ -31,6 +31,7 @@ const sourceFiles = [
   'public/sitemap.xml',
   'tests/a11y.spec.ts',
   'scripts/lighthouse.mjs',
+  'vite.config.ts',
 ]
 
 const sources = Object.fromEntries(
@@ -103,7 +104,7 @@ requireIncludes(
   "import('@/views/ProductDetailView.vue')",
   'product detail route component',
 )
-requireIncludes('src/composables/useCheckout.ts', 'useDebounceFn', 'shared checkout debounce')
+requireIncludes('src/composables/useCheckout.ts', 'submitTimer', 'shared checkout debounce')
 requireIncludes(
   'src/composables/useCheckout.ts',
   'afterOrderCreated',
@@ -126,14 +127,14 @@ requireIncludes(
 )
 requireIncludes(
   'src/views/ShopView.vue',
-  'useCheckout({ afterOrderCreated: loadMonkeys })',
+  'useCheckout({ afterOrderCreated: loadMonkeys, notify: showNotice })',
   'shared checkout flow',
 )
 requireIncludes('src/views/ShopView.vue', 'submittingOrder', 'checkout submit loading guard')
 requireIncludes(
   'src/views/ShopView.vue',
-  ':loading="submittingOrder"',
-  'checkout submit loading state',
+  ':disabled="submittingOrder"',
+  'checkout submit disabled state',
 )
 requireIncludes('src/views/ShopView.vue', 'openingCheckoutId', 'checkout dialog open loading guard')
 requireIncludes('src/views/ShopView.vue', '`/shop/${monkey.id}`', 'catalog product detail links')
@@ -146,6 +147,23 @@ requireIncludes(
   'src/views/ShopView.vue',
   "useJsonLd('monkeyshop-product-list-jsonld'",
   'shop JSON-LD injection',
+)
+forbidIn(
+  'src/views/ShopView.vue',
+  sources['src/views/ShopView.vue'],
+  /element-plus/,
+  'shop Element Plus import',
+)
+forbidIn(
+  'src/components/AppShell.vue',
+  sources['src/components/AppShell.vue'],
+  /element-plus/,
+  'shell Element Plus import',
+)
+requireIncludes(
+  'vite.config.ts',
+  'resolveDependencies(_filename, deps)',
+  'modulepreload dependency filter',
 )
 requireIncludes(
   'src/views/ProductDetailView.vue',

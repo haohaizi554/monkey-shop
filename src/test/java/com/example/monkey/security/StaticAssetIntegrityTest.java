@@ -118,22 +118,39 @@ class StaticAssetIntegrityTest {
         String ordersApi = Files.readString(Path.of("frontend/src/api/orders.ts"), StandardCharsets.UTF_8);
 
         assertThat(shop)
-                .contains("useCheckout({ afterOrderCreated: loadMonkeys })")
-                .contains(":loading=\"submittingOrder\"")
+                .contains("useCheckout({ afterOrderCreated: loadMonkeys, notify: showNotice })")
                 .contains(":disabled=\"submittingOrder\"")
                 .contains("openingCheckoutId")
-                .contains(":loading=\"openingCheckoutId === monkey.id\"")
+                .contains(":disabled=\"monkey.stock <= 0 || openingCheckoutId !== null\"")
+                .contains("openingCheckoutId === monkey.id")
                 .contains("`/shop/${monkey.id}`");
         assertThat(checkout)
-                .contains("useDebounceFn")
+                .contains("submitTimer")
+                .contains("setTimeout(() =>")
                 .contains("submittingOrder")
                 .contains("if (submittingOrder.value)")
                 .contains("await createOrder(selectedMonkey.value.id, selectedAddressId.value)")
-                .contains("afterOrderCreated");
+                .contains("afterOrderCreated")
+                .doesNotContain("useDebounceFn");
         assertThat(ordersApi)
                 .contains("'Idempotency-Key'")
                 .contains("crypto.randomUUID()")
                 .contains("method: 'POST'");
+    }
+
+    @Test
+    void viteCriticalShopShellAvoidsElementPlusStartupAndPreloads() throws IOException {
+        String shop = Files.readString(Path.of("frontend/src/views/ShopView.vue"), StandardCharsets.UTF_8);
+        String shell = Files.readString(Path.of("frontend/src/components/AppShell.vue"), StandardCharsets.UTF_8);
+        String config = Files.readString(Path.of("frontend/vite.config.ts"), StandardCharsets.UTF_8);
+
+        assertThat(shop).doesNotContain("element-plus").doesNotContain("@element-plus");
+        assertThat(shell).doesNotContain("element-plus").doesNotContain("@element-plus");
+        assertThat(config)
+                .contains("resolveDependencies(_filename, deps)")
+                .contains("!dep.includes('element-')")
+                .doesNotContain("element-plus':")
+                .doesNotContain("@element-plus");
     }
 
     @Test

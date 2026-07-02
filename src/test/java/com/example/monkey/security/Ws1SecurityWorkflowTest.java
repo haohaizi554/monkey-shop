@@ -96,8 +96,44 @@ class Ws1SecurityWorkflowTest {
         assertThat(script).contains("frame-src https://challenges.cloudflare.com");
         assertThat(script).contains("upgrade-insecure-requests");
         assertThat(script).contains("Strict-Transport-Security");
+        assertThat(script).contains("scripts/verify-public-edge-security.ps1");
+        assertThat(script).contains("TLS protocol must negotiate TLS 1.3");
+        assertThat(script).contains("Cross-Origin-Opener-Policy");
+        assertThat(script).contains("Cross-Origin-Resource-Policy");
+        assertThat(script).contains("X-Permitted-Cross-Domain-Policies");
         assertThat(script).contains("add_header Content-Security-Policy");
         assertThat(script).contains("proxy_hide_header Content-Security-Policy");
+    }
+
+    @Test
+    void publicEdgeVerifierChecksTlsAndSecurityHeaders() throws IOException {
+        String script = Files.readString(Path.of("scripts/verify-public-edge-security.ps1"), StandardCharsets.UTF_8);
+        String readme = Files.readString(Path.of("README.md"), StandardCharsets.UTF_8);
+
+        assertThat(script)
+                .contains("MONKEYSHOP_PUBLIC_URL")
+                .contains("Public edge verification requires an https BaseUrl")
+                .contains("TLS protocol must negotiate TLS 1.3")
+                .contains("TLS certificate must remain valid")
+                .contains("Strict-Transport-Security")
+                .contains("includeSubDomains")
+                .contains("preload")
+                .contains("Content-Security-Policy")
+                .contains("script-src 'self' 'nonce-")
+                .contains("X-Frame-Options")
+                .contains("X-Content-Type-Options")
+                .contains("Referrer-Policy")
+                .contains("Permissions-Policy")
+                .contains("Cross-Origin-Opener-Policy")
+                .contains("Cross-Origin-Resource-Policy")
+                .contains("X-Permitted-Cross-Domain-Policies")
+                .contains("Public edge security gate completed successfully");
+
+        assertThat(readme)
+                .contains("verify-public-edge-security.ps1")
+                .contains("MONKEYSHOP_PUBLIC_URL")
+                .contains("TLS 1.3")
+                .contains("HSTS preload");
     }
 
     @Test

@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { Search } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { listMonkeys } from '@/api/catalog'
@@ -9,13 +7,32 @@ import ProductImage from '@/components/ProductImage.vue'
 import { useCheckout } from '@/composables/useCheckout'
 import { productListJsonLd } from '@/seo/product-json-ld'
 import { useJsonLd } from '@/seo/useJsonLd'
-import type { Monkey } from '@/types'
+import type { Address, Monkey } from '@/types'
 import { money } from '@/utils/format'
+
+type NoticeLevel = 'error' | 'success' | 'warning'
 
 const loading = ref(false)
 const monkeys = ref<Monkey[]>([])
 const filters = reactive({ keyword: '', minPrice: '', maxPrice: '', inStockOnly: false })
 const { t } = useI18n()
+const notice = ref<{ level: NoticeLevel; message: string } | null>(null)
+let noticeTimer: ReturnType<typeof setTimeout> | undefined
+
+function addressLabel(address: Address) {
+  return `${address.receiverName} - ${address.phone} - ${address.detailAddress}`
+}
+
+function showNotice(level: NoticeLevel, message: string) {
+  notice.value = { level, message }
+  if (noticeTimer !== undefined) {
+    clearTimeout(noticeTimer)
+  }
+  noticeTimer = setTimeout(() => {
+    notice.value = null
+  }, 4000)
+}
+
 const {
   openingCheckoutId,
   submittingOrder,
@@ -27,7 +44,7 @@ const {
   openCheckout,
   saveAddress,
   submitOrder,
-} = useCheckout({ afterOrderCreated: loadMonkeys })
+} = useCheckout({ afterOrderCreated: loadMonkeys, notify: showNotice })
 
 const filteredMonkeys = computed(() =>
   monkeys.value.filter((monkey) => {
@@ -51,7 +68,7 @@ async function loadMonkeys() {
   try {
     monkeys.value = await listMonkeys()
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t('common.unableToLoadCatalog'))
+    showNotice('error', error instanceof Error ? error.message : t('common.unableToLoadCatalog'))
   } finally {
     loading.value = false
   }
@@ -64,104 +81,162 @@ onMounted(() => {
 
 <template>
   <AppShell>
+    <div v-if="notice" class="notice" :class="`notice-${notice.level}`" role="status">
+      {{ notice.message }}
+    </div>
+
     <section class="toolbar-band">
       <div>
         <h1>{{ $t('shop.title') }}</h1>
         <p>{{ $t('shop.subtitle') }}</p>
       </div>
       <div class="catalog-tools">
-        <el-input
+        <input
+          id="catalog-keyword"
           v-model="filters.keyword"
-          :prefix-icon="Search"
+          :aria-label="$t('common.search')"
+          class="native-input"
           :placeholder="$t('common.search')"
-          clearable
         />
-        <el-input v-model="filters.minPrice" type="number" :placeholder="$t('common.minPrice')" />
-        <el-input v-model="filters.maxPrice" type="number" :placeholder="$t('common.maxPrice')" />
-        <el-checkbox v-model="filters.inStockOnly">
-          {{ $t('shop.inStockOnly') }}
-        </el-checkbox>
+        <input
+          id="catalog-min-price"
+          v-model="filters.minPrice"
+          :aria-label="$t('common.minPrice')"
+          class="native-input"
+          type="number"
+          :placeholder="$t('common.minPrice')"
+        />
+        <input
+          id="catalog-max-price"
+          v-model="filters.maxPrice"
+          :aria-label="$t('common.maxPrice')"
+          class="native-input"
+          type="number"
+          :placeholder="$t('common.maxPrice')"
+        />
+        <div class="native-checkbox">
+          <input
+            v-model="filters.inStockOnly"
+            type="checkbox"
+            :aria-label="$t('shop.inStockOnly')"
+          />
+          <span>{{ $t('shop.inStockOnly') }}</span>
+        </div>
       </div>
     </section>
 
-    <el-skeleton :loading="loading" animated :count="6">
-      <template #default>
-        <div class="product-grid">
-          <article v-for="monkey in filteredMonkeys" :key="monkey.id" class="product-card">
-            <RouterLink :to="`/shop/${monkey.id}`" :aria-label="monkey.name">
-              <ProductImage :src="monkey.imageUrl" :alt="monkey.name" />
-            </RouterLink>
-            <div class="product-body">
-              <div class="product-heading">
-                <div>
-                  <RouterLink :to="`/shop/${monkey.id}`">
-                    <h2>{{ monkey.name }}</h2>
-                  </RouterLink>
-                  <p>{{ monkey.breed }}</p>
-                </div>
-                <strong>{{ money(monkey.price) }}</strong>
-              </div>
-              <p class="description">
-                {{ monkey.description }}
-              </p>
-              <div class="product-actions">
-                <el-tag :type="monkey.stock > 0 ? 'success' : 'info'" disable-transitions>
-                  {{ $t('common.stock') }} {{ monkey.stock }}
-                </el-tag>
-                <el-button
-                  type="primary"
-                  :loading="openingCheckoutId === monkey.id"
-                  :disabled="monkey.stock <= 0 || openingCheckoutId !== null"
-                  @click="openCheckout(monkey)"
-                >
-                  {{ monkey.stock > 0 ? $t('shop.buy') : $t('shop.soldOut') }}
-                </el-button>
-              </div>
+    <div v-if="loading" class="skeleton-grid" aria-busy="true">
+      <div v-for="item in 6" :key="item" class="skeleton-card" />
+    </div>
+
+    <div v-else class="product-grid">
+      <article v-for="monkey in filteredMonkeys" :key="monkey.id" class="product-card">
+        <RouterLink :to="`/shop/${monkey.id}`" :aria-label="monkey.name">
+          <ProductImage :src="monkey.imageUrl" :alt="monkey.name" />
+        </RouterLink>
+        <div class="product-body">
+          <div class="product-heading">
+            <div>
+              <RouterLink :to="`/shop/${monkey.id}`">
+                <h2>{{ monkey.name }}</h2>
+              </RouterLink>
+              <p>{{ monkey.breed }}</p>
             </div>
-          </article>
+            <strong>{{ money(monkey.price) }}</strong>
+          </div>
+          <p class="description">
+            {{ monkey.description }}
+          </p>
+          <div class="product-actions">
+            <span class="stock-pill" :class="{ 'stock-pill-muted': monkey.stock <= 0 }">
+              {{ $t('common.stock') }} {{ monkey.stock }}
+            </span>
+            <button
+              class="primary-button"
+              type="button"
+              :disabled="monkey.stock <= 0 || openingCheckoutId !== null"
+              @click="openCheckout(monkey)"
+            >
+              {{
+                openingCheckoutId === monkey.id
+                  ? $t('common.loading')
+                  : monkey.stock > 0
+                    ? $t('shop.buy')
+                    : $t('shop.soldOut')
+              }}
+            </button>
+          </div>
         </div>
-      </template>
-    </el-skeleton>
+      </article>
+    </div>
 
-    <el-dialog v-model="checkoutOpen" :title="$t('shop.checkout')" width="720">
-      <div v-if="selectedMonkey" class="checkout-summary">
-        <ProductImage :src="selectedMonkey.imageUrl" :alt="selectedMonkey.name" />
-        <div>
-          <h2>{{ selectedMonkey.name }}</h2>
-          <p>{{ selectedMonkey.breed }}</p>
-          <strong>{{ money(selectedMonkey.price) }}</strong>
+    <div v-if="checkoutOpen" class="modal-backdrop" role="presentation">
+      <section
+        class="checkout-dialog"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="$t('shop.checkout')"
+      >
+        <div class="section-title">
+          <h2>{{ $t('shop.checkout') }}</h2>
+          <button class="text-button" type="button" @click="checkoutOpen = false">
+            {{ $t('common.cancel') }}
+          </button>
         </div>
-      </div>
 
-      <el-radio-group v-model="selectedAddressId" class="address-list">
-        <el-radio v-for="address in addresses" :key="address.id" :label="address.id" border>
-          {{ address.receiverName }} - {{ address.phone }} - {{ address.detailAddress }}
-        </el-radio>
-      </el-radio-group>
+        <div v-if="selectedMonkey" class="checkout-summary">
+          <ProductImage :src="selectedMonkey.imageUrl" :alt="selectedMonkey.name" />
+          <div>
+            <h2>{{ selectedMonkey.name }}</h2>
+            <p>{{ selectedMonkey.breed }}</p>
+            <strong>{{ money(selectedMonkey.price) }}</strong>
+          </div>
+        </div>
 
-      <el-divider>{{ $t('shop.addAddress') }}</el-divider>
-      <div class="inline-form">
-        <el-input v-model="newAddress.receiverName" :placeholder="$t('common.receiver')" />
-        <el-input v-model="newAddress.phone" :placeholder="$t('auth.phone')" />
-        <el-input v-model="newAddress.detailAddress" :placeholder="$t('common.address')" />
-        <el-button plain @click="saveAddress">
-          {{ $t('common.save') }}
-        </el-button>
-      </div>
+        <div class="address-list">
+          <div v-for="address in addresses" :key="address.id" class="address-option">
+            <input
+              v-model="selectedAddressId"
+              type="radio"
+              :value="address.id"
+              :aria-label="addressLabel(address)"
+            />
+            <span>{{ addressLabel(address) }}</span>
+          </div>
+        </div>
 
-      <template #footer>
-        <el-button @click="checkoutOpen = false">
-          {{ $t('common.cancel') }}
-        </el-button>
-        <el-button
-          type="primary"
-          :loading="submittingOrder"
-          :disabled="submittingOrder"
-          @click="submitOrder"
-        >
-          {{ $t('shop.placeOrder') }}
-        </el-button>
-      </template>
-    </el-dialog>
+        <div class="divider">{{ $t('shop.addAddress') }}</div>
+        <div class="inline-form">
+          <input
+            v-model="newAddress.receiverName"
+            class="native-input"
+            :placeholder="$t('common.receiver')"
+          />
+          <input v-model="newAddress.phone" class="native-input" :placeholder="$t('auth.phone')" />
+          <input
+            v-model="newAddress.detailAddress"
+            class="native-input"
+            :placeholder="$t('common.address')"
+          />
+          <button class="secondary-button" type="button" @click="saveAddress">
+            {{ $t('common.save') }}
+          </button>
+        </div>
+
+        <div class="checkout-footer">
+          <button class="text-button" type="button" @click="checkoutOpen = false">
+            {{ $t('common.cancel') }}
+          </button>
+          <button
+            class="primary-button"
+            type="button"
+            :disabled="submittingOrder"
+            @click="submitOrder"
+          >
+            {{ submittingOrder ? $t('common.loading') : $t('shop.placeOrder') }}
+          </button>
+        </div>
+      </section>
+    </div>
   </AppShell>
 </template>

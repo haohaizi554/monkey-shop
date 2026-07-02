@@ -19,3 +19,11 @@ Mount a real certificate and key at:
 ```
 
 For Kubernetes, translate the same policy to Ingress annotations and cert-manager TLS resources instead of running this file directly.
+
+After public DNS and certificates are active, run:
+
+```powershell
+.\scripts\verify-public-edge-security.ps1 -BaseUrl https://monkeyshop.example.com
+```
+
+The verifier checks HTTPS-only public edge posture, TLS 1.3 negotiation, certificate validity, HSTS preload, nonce-based CSP, and the browser security headers expected for the production security baseline.

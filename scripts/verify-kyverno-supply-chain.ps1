@@ -48,7 +48,7 @@ function Assert-NotMatch {
 function Assert-ProdImagesDigestPinned {
     param([string]$Text)
 
-    $imageLines = $Text -split "\r?\n" | Where-Object { $_ -match "^\s*image:\s+" }
+    $imageLines = @($Text -split "\r?\n" | Where-Object { $_ -match "^\s*image:\s+" })
     if ($imageLines.Count -eq 0) {
         Add-Failure "rendered prod: must render at least one container image"
         return

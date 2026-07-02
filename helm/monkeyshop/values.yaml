@@ -323,8 +323,12 @@ grafanaDashboard:
 
 rollout:
   enabled: false
+  progressDeadlineSeconds: 600
+  progressDeadlineAbort: true
+  rollbackWindow:
+    revisions: 3
   steps:
-    - setWeight: 20
+    - setWeight: 10
     - pause:
         duration: 2m
     - analysis:
@@ -336,6 +340,12 @@ rollout:
     - setWeight: 50
     - pause:
         duration: 5m
+    - analysis:
+        templates:
+          - templateName: monkeyshop-http-5xx-rate
+        args:
+          - name: service-name
+            value: monkeyshop
     - setWeight: 100
   analysis:
     prometheusAddress: http://prometheus-operated.observability.svc.cluster.local:9090

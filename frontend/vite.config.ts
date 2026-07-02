@@ -46,6 +46,11 @@ export default defineConfig({
     },
   },
   build: {
+    modulePreload: {
+      resolveDependencies(_filename, deps) {
+        return deps.filter((dep) => !dep.includes('element-'))
+      },
+    },
     sourcemap: false,
     minify: 'terser',
     terserOptions: {
@@ -62,12 +67,6 @@ export default defineConfig({
         manualChunks(id) {
           if (id.includes('node_modules/vue') || id.includes('node_modules/pinia')) {
             return 'vue'
-          }
-          if (
-            id.includes('node_modules/element-plus') ||
-            id.includes('node_modules/@element-plus')
-          ) {
-            return 'element'
           }
           if (id.includes('node_modules/axios') || id.includes('node_modules/@vueuse')) {
             return 'vendor'

@@ -167,15 +167,20 @@ function Invoke-SecurityHeaderPostureScan {
 
     $securityConfigPath = "src/main/java/com/example/monkey/shared/infrastructure/config/SecurityConfig.java"
     $nginxConfigPath = "deploy/nginx/monkeyshop.conf"
+    $publicEdgeVerifierPath = "scripts/verify-public-edge-security.ps1"
     if (-not (Test-Path -LiteralPath $securityConfigPath)) {
         throw "SecurityConfig not found: $securityConfigPath"
     }
     if (-not (Test-Path -LiteralPath $nginxConfigPath)) {
         throw "Nginx edge config not found: $nginxConfigPath"
     }
+    if (-not (Test-Path -LiteralPath $publicEdgeVerifierPath)) {
+        throw "Public edge security verifier not found: $publicEdgeVerifierPath"
+    }
 
     $securityConfig = Get-Content -LiteralPath $securityConfigPath -Raw
     $nginxConfig = Get-Content -LiteralPath $nginxConfigPath -Raw
+    $publicEdgeVerifier = Get-Content -LiteralPath $publicEdgeVerifierPath -Raw
 
     $springRequired = @(
         "Content-Security-Policy",
@@ -194,7 +199,10 @@ function Invoke-SecurityHeaderPostureScan {
         "frame.deny()",
         "ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN",
         "Permissions-Policy",
-        "camera=(), microphone=(), geolocation=(), payment=()"
+        "camera=(), microphone=(), geolocation=(), payment=()",
+        "Cross-Origin-Opener-Policy",
+        "Cross-Origin-Resource-Policy",
+        "X-Permitted-Cross-Domain-Policies"
     )
     foreach ($expected in $springRequired) {
         Assert-TextContains -Name $securityConfigPath -Content $securityConfig -Expected $expected
@@ -217,6 +225,9 @@ function Invoke-SecurityHeaderPostureScan {
         'add_header X-Content-Type-Options "nosniff" always;',
         'add_header Referrer-Policy "strict-origin-when-cross-origin" always;',
         'add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;',
+        'add_header Cross-Origin-Opener-Policy "same-origin" always;',
+        'add_header Cross-Origin-Resource-Policy "same-origin" always;',
+        'add_header X-Permitted-Cross-Domain-Policies "none" always;',
         'Content-Security-Policy is emitted by Spring Security',
         'proxy_set_header X-Forwarded-Proto https;',
         'proxy_set_header X-Forwarded-Port 443;'
@@ -231,6 +242,24 @@ function Invoke-SecurityHeaderPostureScan {
     )
     foreach ($forbidden in $nginxForbidden) {
         Assert-TextDoesNotContain -Name $nginxConfigPath -Content $nginxConfig -Forbidden $forbidden
+    }
+
+    $publicEdgeRequired = @(
+        "MONKEYSHOP_PUBLIC_URL",
+        "Public edge verification requires an https BaseUrl",
+        "TLS protocol must negotiate TLS 1.3",
+        "TLS certificate must remain valid",
+        "Strict-Transport-Security",
+        "includeSubDomains",
+        "preload",
+        "Content-Security-Policy",
+        "Cross-Origin-Opener-Policy",
+        "Cross-Origin-Resource-Policy",
+        "X-Permitted-Cross-Domain-Policies",
+        "Public edge security gate completed successfully"
+    )
+    foreach ($expected in $publicEdgeRequired) {
+        Assert-TextContains -Name $publicEdgeVerifierPath -Content $publicEdgeVerifier -Expected $expected
     }
 }
 
