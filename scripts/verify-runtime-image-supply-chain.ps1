@@ -9,8 +9,18 @@ param(
     [string]$TrivyPath = "trivy",
     [string]$Severity = "HIGH,CRITICAL",
     [string]$PkgTypes = "os,library",
-    [string[]]$TrivyDbRepository = @("ghcr.io/aquasecurity/trivy-db:2", "mirror.gcr.io/aquasec/trivy-db:2"),
-    [string[]]$TrivyJavaDbRepository = @("ghcr.io/aquasecurity/trivy-java-db:1", "mirror.gcr.io/aquasec/trivy-java-db:1"),
+    [string[]]$TrivyDbRepository = @(
+        "public.ecr.aws/aquasecurity/trivy-db:2",
+        "ghcr.io/aquasecurity/trivy-db:2",
+        "aquasec/trivy-db:2",
+        "mirror.gcr.io/aquasec/trivy-db:2"
+    ),
+    [string[]]$TrivyJavaDbRepository = @(
+        "public.ecr.aws/aquasecurity/trivy-java-db:1",
+        "ghcr.io/aquasecurity/trivy-java-db:1",
+        "aquasec/trivy-java-db:1",
+        "mirror.gcr.io/aquasec/trivy-java-db:1"
+    ),
     [int]$TimeoutMinutes = 15,
     [switch]$SkipDbUpdate,
     [switch]$KeepImageTar,

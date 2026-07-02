@@ -56,7 +56,7 @@ jobs:
       - name: Run Maven verify
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-        run: mvn --batch-mode clean verify
+        run: mvn --batch-mode -DautoUpdate=true clean verify
 
   frontend:
     name: Frontend Verify

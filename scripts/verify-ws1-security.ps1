@@ -247,7 +247,7 @@ $trivy = Resolve-GateTool `
     -FallbackPaths @("$env:USERPROFILE\.cache\codex-tools\ws1-security\trivy\trivy.exe")
 
 if ((-not $SkipMaven) -and (-not $SkipDependencyCheck) -and (-not $SkipDependencyCheckUpdate) -and (-not $env:NVD_API_KEY)) {
-    Write-Warning "NVD_API_KEY is not set. dependency-check will use nvdApiDelay=$UnauthenticatedNvdDelayMs to reduce NVD API rate-limit failures."
+    Write-Warning "NVD_API_KEY is not set. dependency-check will use the local NVD cache with autoUpdate=false."
 }
 
 if ($SkipMaven) {
@@ -259,7 +259,7 @@ if ($SkipMaven) {
     } elseif ($SkipDependencyCheckUpdate) {
         $mavenArgs = @("-DautoUpdate=false", "clean", "verify")
     } elseif (-not $env:NVD_API_KEY) {
-        $mavenArgs = @("-DnvdApiDelay=$UnauthenticatedNvdDelayMs", "clean", "verify")
+        $mavenArgs = @("-DautoUpdate=false", "clean", "verify")
     }
     Invoke-GateCommand -Name "Maven verify" -FilePath $mvn -Arguments $mavenArgs -TimeoutSeconds $MavenTimeoutSeconds
 }

@@ -25,6 +25,7 @@
         <jackson-bom.version>2.21.4</jackson-bom.version>
         <log4j2.version>2.26.0</log4j2.version>
         <dependency-check-maven.version>12.2.2</dependency-check-maven.version>
+        <autoUpdate>false</autoUpdate>
         <jacoco.version>0.8.15</jacoco.version>
         <pitest.version>1.25.5</pitest.version>
         <pitest-junit5-plugin.version>1.2.3</pitest-junit5-plugin.version>
@@ -489,6 +490,7 @@
                 <version>${dependency-check-maven.version}</version>
                 <configuration>
                     <failBuildOnCVSS>7.0</failBuildOnCVSS>
+                    <autoUpdate>${autoUpdate}</autoUpdate>
                     <nvdApiKeyEnvironmentVariable>NVD_API_KEY</nvdApiKeyEnvironmentVariable>
                     <formats>
                         <format>HTML</format>

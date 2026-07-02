@@ -43,7 +43,7 @@ class Ws1SecurityWorkflowTest {
         assertThat(workflow).contains("target/ws1-security/");
         assertThat(workflow).contains("NVD_API_KEY: ${{ secrets.NVD_API_KEY }}");
         assertThat(workflow).contains("Set repository secret NVD_API_KEY");
-        assertThat(workflow).contains("mvn --batch-mode clean verify");
+        assertThat(workflow).contains("mvn --batch-mode -DautoUpdate=true clean verify");
     }
 
     @Test

@@ -83,7 +83,7 @@ jobs:
 
       - name: Run Maven verify with OWASP dependency-check
         shell: pwsh
-        run: mvn --batch-mode clean verify
+        run: mvn --batch-mode -DautoUpdate=true clean verify
 
       - name: Upload dependency-check reports
         if: always()
