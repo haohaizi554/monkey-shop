@@ -10,6 +10,10 @@ This file records the current verification evidence for the WS1-WS8 production h
 
 - `scripts/verify-ws1-ws8-acceptance.ps1` is the repeatable umbrella gate for WS1-WS8 evidence.
 - By default it runs the local repository gates: Maven verify, quality reports, WS1 scanners, frontend checks, WS6/WS7/WS8 checks, and Kyverno.
+- The VM runtime umbrella path passed with:
+  - `scripts/verify-ws1-ws8-acceptance.ps1 -SkipBackendVerify -SkipFrontend -SkipWs1Scanners -RuntimeBaseUrl http://192.168.119.129:8888 -IncludeVmRuntime -SshTarget lly@192.168.119.129 -IncludeRuntimeImageScan -IncludeRuntimeDataProtection`
+  - Passed gates: WS6, WS7, WS8, Kyverno, Compose runtime smoke/API security, MicroK8s dev runtime, Argo CD MicroK8s GitOps, runtime image supply-chain, and remote runtime data protection.
+  - Backend Maven verify, WS1 scanners, and WS5 frontend were skipped in this umbrella run because their current evidence is recorded separately below.
 - Optional flags attach runtime and external evidence without pretending those systems are always present:
   - `-RuntimeBaseUrl`
   - `-IncludeVmRuntime -SshTarget <user@host>`
@@ -80,6 +84,7 @@ This file records the current verification evidence for the WS1-WS8 production h
   - Command: `scripts/verify-runtime-image-supply-chain.ps1 -SshTarget lly@192.168.119.129 -ImageRef monkey-shop-myshop:latest -SkipDbUpdate`
   - Exported VM runtime image digest: `85b125f729b92b1331c79dd66eea0af963e2899992416f4dffbf3e4ca0969a8d`
   - Report: `target/runtime-supply-chain/trivy-runtime-image.json`
+  - Re-verified after VM runtime stabilization; Trivy completed without blocking HIGH/CRITICAL vulnerability, secret, or misconfiguration findings.
 
 ### WS8 Anti-Abuse And Data Protection
 
@@ -102,6 +107,7 @@ This file records the current verification evidence for the WS1-WS8 production h
 - SSH target: `lly@192.168.119.129`
 - Docker Compose app container: `monkey-app`, status healthy.
 - Public VM URL: `http://192.168.119.129:8888`
+- Compose configuration renders with a default MySQL URL using `sslMode=REQUIRED`; the dev profile also requires encrypted MySQL transport.
 - `scripts/verify-runtime-smoke.ps1 -BaseUrl http://192.168.119.129:8888` passed.
 - `scripts/verify-runtime-api-security.ps1 -BaseUrl http://192.168.119.129:8888` passed.
 
@@ -111,21 +117,26 @@ This file records the current verification evidence for the WS1-WS8 production h
 - Node: `lly-vmware-virtual-platform`, status Ready.
 - Namespace: `monkeyshop-dev`
 - Deployment: `monkeyshop-dev`, 1/1 available.
+- Data namespace `monkeyshop-data` includes in-cluster MySQL and Redis Services; the dev runtime points Redis-backed auth, JWT, and rate-limit state at `redis.monkeyshop-data.svc.cluster.local`.
 - NodePort: `30143`
 - `scripts/verify-microk8s-dev-runtime.ps1 -SshTarget lly@192.168.119.129 -SkipDeploy -RunApiSecurityProbe` passed.
+- `scripts/verify-microk8s-dev-runtime.ps1 -SshTarget lly@192.168.119.129 -RunApiSecurityProbe` also passed after reconciling the runtime to the in-cluster Redis topology.
 
 ### Argo CD GitOps Runtime
 
 - Application: `monkeyshop-gitops-dev`
 - Sync status: Synced.
 - Health status: Healthy.
-- Synced revision: `cd8bffcb54eb53028c6fe75f7401f7824f254502`
+- Synced revision: `efb0627186d1a1ca29e9aa88332bd8923ee49700`
 - NodePort: `30209`
 - `scripts/verify-argocd-microk8s-gitops.ps1 -SshTarget lly@192.168.119.129 -RunApiSecurityProbe` passed.
+- The GitOps runtime also uses `redis.monkeyshop-data.svc.cluster.local` for Redis-backed app state; Argo CD's own Redis runs in-cluster with `imagePullPolicy: IfNotPresent` to avoid Docker Hub pull flakiness on the VM.
 
 ## Open External Proof
 
 These items are not proven by the current local VM and repository evidence, and should not be claimed complete until the relevant external systems are available:
+
+The operator has indicated that no additional external resources are available in this thread, so these proof items are blocked until an external DNS/TLS edge, SonarQube/SonarCloud configuration, production-like clusters, and live third-party provider credentials/endpoints exist.
 
 - Public DNS and TLS edge verification with `scripts/verify-public-edge-security.ps1 -BaseUrl https://<public-domain>`:
   - HTTPS-only redirect

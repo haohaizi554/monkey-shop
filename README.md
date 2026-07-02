@@ -373,6 +373,7 @@ For the local VM development cluster, verify the MicroK8s/Helm runtime path with
 ```
 
 Omit `-SkipDeploy` to copy the chart to the VM, reconcile the `monkeyshop-dev` Helm release, expose it through a NodePort, and then run the runtime smoke gates. Runtime secrets can be supplied with `MONKEYSHOP_DEV_DB_PASSWORD`, `MONKEYSHOP_DEV_ADMIN_INIT_PASSWORD`, `MONKEYSHOP_DEV_ADMIN_TOTP_SECRET`, and `MONKEYSHOP_DEV_JWT_SECRET`; otherwise the verifier generates temporary values.
+The VM verifier also reconciles an in-cluster Redis Service in `monkeyshop-data` and points auth, JWT, and rate-limit state at `redis.monkeyshop-data.svc.cluster.local` so the app runtime is not coupled to host Docker Redis.
 
 To prove Argo CD reconciliation against the VM MicroK8s cluster with a local GitOps repository, run:
 

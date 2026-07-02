@@ -459,8 +459,18 @@ fi
 pkill -f "git daemon.*base-path=`$REMOTE_GIT_BASE" >/dev/null 2>&1 || true
 nohup git daemon --reuseaddr --base-path="`$REMOTE_GIT_BASE" --export-all --informative-errors --verbose >"`$REMOTE_WORK_DIR/git-daemon.log" 2>&1 &
 echo `$! > "`$REMOTE_WORK_DIR/git-daemon.pid"
-sleep 2
-TARGET_REVISION=`$(git ls-remote "`$REPO_URL" main | awk '{print `$1}')
+for attempt in `$(seq 1 30); do
+  TARGET_REVISION=`$( (git ls-remote "`$REPO_URL" main 2>/dev/null | awk '{print `$1}') || true )
+  if [ -n "`$TARGET_REVISION" ]; then
+    break
+  fi
+  sleep 1
+done
+if [ -z "`$TARGET_REVISION" ]; then
+  cat "`$REMOTE_WORK_DIR/git-daemon.log" >&2 || true
+  echo "git daemon did not serve `$REPO_URL within 30 seconds" >&2
+  exit 1
+fi
 echo "TARGET_REVISION=`$TARGET_REVISION"
 
 DB_PASSWORD_VALUE=`$(`$K -n "`$DATA_NS" get secret mysql-secret -o jsonpath='{.data.MYSQL_PASSWORD}' | base64 -d)

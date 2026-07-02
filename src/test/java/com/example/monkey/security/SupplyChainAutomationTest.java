@@ -278,8 +278,25 @@ class SupplyChainAutomationTest {
                 .contains("deployment/argocd-redis")
                 .contains("delete endpoints argocd-redis")
                 .contains("imagePullPolicy: IfNotPresent")
+                .contains("git daemon did not serve")
                 .contains("image: redis:7-alpine")
                 .contains("rollout status deployment/redis")
                 .doesNotContain("scale deployment argocd-redis --replicas=0");
+    }
+
+    @Test
+    void devRuntimeRequiresEncryptedMysqlTransport() throws IOException {
+        String compose = Files.readString(Path.of("docker-compose.yml"), StandardCharsets.UTF_8);
+        String devProfile = Files.readString(Path.of("src/main/resources/application-dev.yml"), StandardCharsets.UTF_8);
+
+        assertThat(compose)
+                .contains("sslMode=REQUIRED")
+                .doesNotContain("requireSSL=false")
+                .doesNotContain("verifyServerCertificate=false");
+        assertThat(devProfile)
+                .contains("sslMode=REQUIRED")
+                .contains("username: ${DB_USERNAME:monkeyuser}")
+                .doesNotContain("requireSSL=false")
+                .doesNotContain("verifyServerCertificate=false");
     }
 }
