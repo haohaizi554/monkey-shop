@@ -30,6 +30,58 @@ spec:
             summary: MonkeyShop HTTP 5xx rate is above the SLO budget
             description: More than {{ .Values.prometheusRule.thresholds.errorRate }} of requests are returning 5xx responses for {{ $fullname }}.
             runbook_url: {{ .Values.prometheusRule.runbookUrl | quote }}
+        - alert: MonkeyShopSloFastBurn
+          expr: |
+            (
+              (
+                sum(rate(http_server_requests_seconds_count{service="{{ $fullname }}",status=~"5.."}[5m]))
+                /
+                clamp_min(sum(rate(http_server_requests_seconds_count{service="{{ $fullname }}"}[5m])), 1)
+              ) > ({{ .Values.prometheusRule.slo.errorBudgetRatio }} * {{ .Values.prometheusRule.slo.burnRates.fast }})
+            )
+            and
+            (
+              (
+                sum(rate(http_server_requests_seconds_count{service="{{ $fullname }}",status=~"5.."}[1h]))
+                /
+                clamp_min(sum(rate(http_server_requests_seconds_count{service="{{ $fullname }}"}[1h])), 1)
+              ) > ({{ .Values.prometheusRule.slo.errorBudgetRatio }} * {{ .Values.prometheusRule.slo.burnRates.fast }})
+            )
+          for: {{ .Values.prometheusRule.for.sloFastBurn }}
+          labels:
+            severity: critical
+            slo: availability
+            target: {{ .Values.prometheusRule.slo.targetAvailability | quote }}
+          annotations:
+            summary: MonkeyShop 99.9% availability SLO fast burn
+            description: The 5m and 1h HTTP 5xx ratios are burning the {{ .Values.prometheusRule.slo.window }} availability error budget faster than {{ .Values.prometheusRule.slo.burnRates.fast }}x.
+            runbook_url: {{ .Values.prometheusRule.runbookUrl | quote }}
+        - alert: MonkeyShopSloSlowBurn
+          expr: |
+            (
+              (
+                sum(rate(http_server_requests_seconds_count{service="{{ $fullname }}",status=~"5.."}[30m]))
+                /
+                clamp_min(sum(rate(http_server_requests_seconds_count{service="{{ $fullname }}"}[30m])), 1)
+              ) > ({{ .Values.prometheusRule.slo.errorBudgetRatio }} * {{ .Values.prometheusRule.slo.burnRates.slow }})
+            )
+            and
+            (
+              (
+                sum(rate(http_server_requests_seconds_count{service="{{ $fullname }}",status=~"5.."}[6h]))
+                /
+                clamp_min(sum(rate(http_server_requests_seconds_count{service="{{ $fullname }}"}[6h])), 1)
+              ) > ({{ .Values.prometheusRule.slo.errorBudgetRatio }} * {{ .Values.prometheusRule.slo.burnRates.slow }})
+            )
+          for: {{ .Values.prometheusRule.for.sloSlowBurn }}
+          labels:
+            severity: {{ .Values.prometheusRule.severity | quote }}
+            slo: availability
+            target: {{ .Values.prometheusRule.slo.targetAvailability | quote }}
+          annotations:
+            summary: MonkeyShop 99.9% availability SLO slow burn
+            description: The 30m and 6h HTTP 5xx ratios are burning the {{ .Values.prometheusRule.slo.window }} availability error budget faster than {{ .Values.prometheusRule.slo.burnRates.slow }}x.
+            runbook_url: {{ .Values.prometheusRule.runbookUrl | quote }}
         - alert: MonkeyShopP99LatencyHigh
           expr: |
             histogram_quantile(

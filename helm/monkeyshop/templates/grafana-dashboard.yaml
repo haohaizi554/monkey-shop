@@ -267,6 +267,43 @@ data:
               "refId": "A"
             }
           ]
+        },
+        {
+          "id": 12,
+          "type": "stat",
+          "title": "SLO Availability 30d",
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 24 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "1 - (sum(increase(http_server_requests_seconds_count{service=\"$service\",status=~\"5..\"}[30d])) / clamp_min(sum(increase(http_server_requests_seconds_count{service=\"$service\"}[30d])), 1))",
+              "legendFormat": "availability",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "percentunit", "thresholds": { "steps": [{ "color": "red", "value": null }, { "color": "green", "value": {{ .Values.prometheusRule.slo.targetAvailability }} }] } },
+            "overrides": []
+          }
+        },
+        {
+          "id": 13,
+          "type": "timeseries",
+          "title": "Error Budget Burn Rate",
+          "gridPos": { "h": 8, "w": 16, "x": 8, "y": 24 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "expr": "(sum(rate(http_server_requests_seconds_count{service=\"$service\",status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count{service=\"$service\"}[5m])), 1)) / {{ .Values.prometheusRule.slo.errorBudgetRatio }}",
+              "legendFormat": "5m burn rate",
+              "refId": "A"
+            },
+            {
+              "expr": "(sum(rate(http_server_requests_seconds_count{service=\"$service\",status=~\"5..\"}[1h])) / clamp_min(sum(rate(http_server_requests_seconds_count{service=\"$service\"}[1h])), 1)) / {{ .Values.prometheusRule.slo.errorBudgetRatio }}",
+              "legendFormat": "1h burn rate",
+              "refId": "B"
+            }
+          ]
         }
       ]
     }

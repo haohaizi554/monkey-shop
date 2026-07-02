@@ -172,6 +172,7 @@ class SupplyChainAutomationTest {
     @Test
     void sonarQualityGateBlocksMerges() throws IOException {
         String workflow = Files.readString(Path.of(".github/workflows/sonarqube.yml"), StandardCharsets.UTF_8);
+        String script = Files.readString(Path.of("scripts/verify-sonarqube-quality-gate.ps1"), StandardCharsets.UTF_8);
         String properties = Files.readString(Path.of("sonar-project.properties"), StandardCharsets.UTF_8);
         String pom = Files.readString(Path.of("pom.xml"), StandardCharsets.UTF_8);
         String readme = Files.readString(Path.of("README.md"), StandardCharsets.UTF_8);
@@ -188,6 +189,15 @@ class SupplyChainAutomationTest {
                 .contains("SONAR_MAVEN_PLUGIN_VERSION: 5.7.0.6970")
                 .contains("org.sonarsource.scanner.maven:sonar-maven-plugin:${SONAR_MAVEN_PLUGIN_VERSION}:sonar")
                 .contains("fetch-depth: 0");
+        assertThat(script)
+                .contains("SONAR_TOKEN is required")
+                .contains("SONAR_PROJECT_KEY is required")
+                .contains("SONAR_ORGANIZATION is required")
+                .contains("sonar.qualitygate.wait=true")
+                .contains("target/site/jacoco/jacoco.xml")
+                .contains("target/spotbugsXml.xml")
+                .contains("org.sonarsource.scanner.maven:sonar-maven-plugin:$SonarMavenPluginVersion`:sonar")
+                .contains("SonarQube Quality Gate completed successfully");
         assertThat(pom)
                 .contains("<sonar-maven-plugin.version>5.7.0.6970</sonar-maven-plugin.version>")
                 .contains("<groupId>org.sonarsource.scanner.maven</groupId>")
@@ -203,8 +213,73 @@ class SupplyChainAutomationTest {
                 .contains("target/**");
         assertThat(readme)
                 .contains(".github/workflows/sonarqube.yml")
+                .contains("verify-sonarqube-quality-gate.ps1")
                 .contains("SONAR_TOKEN")
                 .contains("SONAR_PROJECT_KEY")
                 .contains("SonarQube Quality Gate");
+    }
+
+    @Test
+    void umbrellaAcceptanceGateOrchestratesLocalRuntimeAndExternalProof() throws IOException {
+        String script = Files.readString(Path.of("scripts/verify-ws1-ws8-acceptance.ps1"), StandardCharsets.UTF_8);
+        String readme = Files.readString(Path.of("README.md"), StandardCharsets.UTF_8);
+        String evidence = Files.readString(Path.of("docs/acceptance/ws1-ws8-evidence.md"), StandardCharsets.UTF_8);
+
+        assertThat(script)
+                .contains("verify-quality-reports.ps1")
+                .contains("verify-ws1-security.ps1")
+                .contains("verify-ws5-frontend.ps1")
+                .contains("verify-ws6-observability.ps1")
+                .contains("verify-ws7-devops.ps1")
+                .contains("verify-ws8-security.ps1")
+                .contains("verify-kyverno-supply-chain.ps1")
+                .contains("verify-runtime-smoke.ps1")
+                .contains("verify-runtime-api-security.ps1")
+                .contains("verify-microk8s-dev-runtime.ps1")
+                .contains("verify-argocd-microk8s-gitops.ps1")
+                .contains("verify-runtime-image-supply-chain.ps1")
+                .contains("verify-runtime-data-protection.ps1")
+                .contains("verify-public-edge-security.ps1")
+                .contains("verify-sonarqube-quality-gate.ps1")
+                .contains("TimeoutSeconds = 30")
+                .contains("Open proof not executed in this run")
+                .doesNotContain("12" + "3456");
+
+        assertThat(readme)
+                .contains("verify-ws1-ws8-acceptance.ps1")
+                .contains("-IncludeVmRuntime")
+                .contains("-IncludePublicEdge")
+                .contains("-IncludeSonar");
+        assertThat(evidence)
+                .contains("Umbrella Acceptance Entry Point")
+                .contains("scripts/verify-ws1-ws8-acceptance.ps1")
+                .contains("-IncludeRuntimeDataProtection");
+    }
+
+    @Test
+    void microk8sRuntimeGatesUseInClusterRedisForApplicationState() throws IOException {
+        String directRuntime =
+                Files.readString(Path.of("scripts/verify-microk8s-dev-runtime.ps1"), StandardCharsets.UTF_8);
+        String gitopsRuntime =
+                Files.readString(Path.of("scripts/verify-argocd-microk8s-gitops.ps1"), StandardCharsets.UTF_8);
+
+        assertThat(directRuntime)
+                .contains("SPRING_DATA_REDIS_HOST: \"redis.$DataNamespace.svc.cluster.local\"")
+                .contains("APP_AUTH_REQUIRE_REDIS_STATE: \"true\"")
+                .contains("APP_RATE_LIMIT_REQUIRE_REDIS_STATE: \"true\"")
+                .contains("APP_JWT_REQUIRE_REDIS_TOKEN_STORE: \"true\"")
+                .contains("image: redis:7-alpine")
+                .contains("rollout status deployment/redis");
+        assertThat(gitopsRuntime)
+                .contains("SPRING_DATA_REDIS_HOST: \"redis.$DataNamespace.svc.cluster.local\"")
+                .contains("APP_AUTH_REQUIRE_REDIS_STATE: \"true\"")
+                .contains("APP_RATE_LIMIT_REQUIRE_REDIS_STATE: \"true\"")
+                .contains("APP_JWT_REQUIRE_REDIS_TOKEN_STORE: \"true\"")
+                .contains("deployment/argocd-redis")
+                .contains("delete endpoints argocd-redis")
+                .contains("imagePullPolicy: IfNotPresent")
+                .contains("image: redis:7-alpine")
+                .contains("rollout status deployment/redis")
+                .doesNotContain("scale deployment argocd-redis --replicas=0");
     }
 }

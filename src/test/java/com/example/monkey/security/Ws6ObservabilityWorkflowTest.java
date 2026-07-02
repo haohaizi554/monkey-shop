@@ -130,6 +130,50 @@ class Ws6ObservabilityWorkflowTest {
     }
 
     @Test
+    void helmObservabilityDefinesAvailabilitySloBurnAlertsAndDashboard() throws IOException {
+        String values = read("helm/monkeyshop/values.yaml");
+        String prometheusRule = read("helm/monkeyshop/templates/prometheusrule.yaml");
+        String grafanaDashboard = read("helm/monkeyshop/templates/grafana-dashboard.yaml");
+        String docs = read("docs/observability/ws6.md");
+        String readme = read("README.md");
+
+        assertThat(values)
+                .contains("targetAvailability: 0.999")
+                .contains("errorBudgetRatio: 0.001")
+                .contains("window: 30d")
+                .contains("fast: 14.4")
+                .contains("slow: 6")
+                .contains("sloFastBurn: 2m")
+                .contains("sloSlowBurn: 15m");
+        assertThat(prometheusRule)
+                .contains("MonkeyShopSloFastBurn")
+                .contains("MonkeyShopSloSlowBurn")
+                .contains("[5m]")
+                .contains("[1h]")
+                .contains("[30m]")
+                .contains("[6h]")
+                .contains(".Values.prometheusRule.slo.errorBudgetRatio")
+                .contains(".Values.prometheusRule.slo.burnRates.fast")
+                .contains(".Values.prometheusRule.slo.burnRates.slow")
+                .contains("severity: critical")
+                .contains("slo: availability");
+        assertThat(grafanaDashboard)
+                .contains("SLO Availability 30d")
+                .contains("Error Budget Burn Rate")
+                .contains("[30d]")
+                .contains("5m burn rate")
+                .contains("1h burn rate")
+                .contains(".Values.prometheusRule.slo.targetAvailability")
+                .contains(".Values.prometheusRule.slo.errorBudgetRatio");
+        assertThat(docs)
+                .contains("99.9% Availability SLO")
+                .contains("0.001")
+                .contains("MonkeyShopSloFastBurn")
+                .contains("MonkeyShopSloSlowBurn");
+        assertThat(readme).contains("99.9% over 30 days").contains("fast and slow burn-rate alerts");
+    }
+
+    @Test
     void ws6VerifierIsDocumentedAndRunsInCi() throws IOException {
         String verifier = read("scripts/verify-ws6-observability.ps1");
         String workflow = read(".github/workflows/ci.yaml");

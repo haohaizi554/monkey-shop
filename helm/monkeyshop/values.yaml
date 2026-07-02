@@ -296,6 +296,13 @@ prometheusRule:
   labels: {}
   severity: warning
   runbookUrl: https://runbooks.example.com/monkeyshop
+  slo:
+    targetAvailability: 0.999
+    errorBudgetRatio: 0.001
+    window: 30d
+    burnRates:
+      fast: 14.4
+      slow: 6
   thresholds:
     errorRate: 0.02
     p99LatencySeconds: 1.5
@@ -307,6 +314,8 @@ prometheusRule:
     p99Latency: 10m
     hikariSaturation: 10m
     appDown: 2m
+    sloFastBurn: 2m
+    sloSlowBurn: 15m
     stockDeductFailures: 5m
     pendingOrders: 15m
 

@@ -242,6 +242,7 @@ The WS5 frontend verifier runs npm audit, Prettier format checks, Vite/TypeScrip
 Security and DevOps gates:
 
 ```powershell
+.\scripts\verify-ws1-ws8-acceptance.ps1
 .\scripts\bootstrap-ws1-tools.ps1
 .\scripts\verify-ws1-security.ps1
 .\scripts\verify-quality-reports.ps1
@@ -251,12 +252,15 @@ Security and DevOps gates:
 .\scripts\verify-ws8-security.ps1
 .\scripts\verify-runtime-smoke.ps1 -BaseUrl http://localhost:8888
 .\scripts\verify-public-edge-security.ps1 -BaseUrl https://monkeyshop.example.com
+.\scripts\verify-sonarqube-quality-gate.ps1
 .\scripts\verify-runtime-api-security.ps1 -BaseUrl http://localhost:8888
 .\scripts\verify-runtime-image-supply-chain.ps1 -ImageRef monkey-shop-myshop:latest
 .\scripts\run-pii-backfill-compose.ps1 -ComposeProject monkey-shop
 .\scripts\verify-runtime-data-protection.ps1 -ComposeProject monkey-shop -RequirePopulatedPii
 bash scripts/verify-runtime-data-protection.sh --compose-project monkey-shop --require-populated-pii
 ```
+
+`.\scripts\verify-ws1-ws8-acceptance.ps1` is the umbrella local acceptance gate. By default it runs backend Maven verify, quality report checks, WS1 scanner checks, frontend verification, WS6/WS7/WS8 static gates, and Kyverno. Add `-RuntimeBaseUrl http://localhost:8888` for runtime smoke/API checks, `-IncludeVmRuntime -SshTarget user@host` for VM MicroK8s and Argo CD checks, `-IncludeRuntimeImageScan` for the runtime image Trivy gate, `-IncludeRuntimeDataProtection` for the PII runtime database gate, `-IncludePublicEdge -PublicBaseUrl https://...` for the public TLS/SecurityHeaders gate, and `-IncludeSonar` for the external SonarQube Quality Gate.
 
 `.\scripts\bootstrap-ws1-tools.ps1` installs cached scanner tools under `%USERPROFILE%\.cache\codex-tools\ws1-security`; keep both scanner directories on `PATH` before running the WS1 security scripts.
 
@@ -272,6 +276,8 @@ After a full Maven `verify` has already passed, rerun only the WS1 scanner layer
 Run `.\scripts\verify-runtime-smoke.ps1 -BaseUrl http://localhost:8888` after local or VM deployment. Use `-RequireHttps` for public TLS endpoints so HSTS preload posture is enforced.
 
 Run `.\scripts\verify-public-edge-security.ps1 -BaseUrl https://monkeyshop.example.com`, or set `MONKEYSHOP_PUBLIC_URL`, after public DNS and certificates are active. It verifies the public edge is HTTPS-only, negotiates TLS 1.3, has a certificate with enough remaining validity, and returns HSTS preload plus the security headers expected for a SecurityHeaders-style A+ posture.
+
+Run `.\scripts\verify-sonarqube-quality-gate.ps1` after `mvn verify` when `SONAR_TOKEN`, `SONAR_PROJECT_KEY`, `SONAR_HOST_URL`, and, for SonarCloud, `SONAR_ORGANIZATION` are configured. The script reuses the generated JaCoCo and SpotBugs XML reports and waits for the blocking SonarQube Quality Gate result. Pass `-GenerateReports` when those reports have not been generated yet.
 
 Run `.\scripts\verify-runtime-api-security.ps1 -BaseUrl http://localhost:8888` after deployment to verify anonymous API reads, authentication barriers, captcha config, and WAF honeypot blocking. Add `-RunRateLimitProbe` only when it is acceptable to consume the shared search endpoint bucket briefly and prove 429/Retry-After behavior.
 
@@ -380,16 +386,20 @@ The first run can use `-InstallArgoCd` to install Argo CD; later runs can omit i
 
 GitHub Actions cover backend verification, frontend verification, DevOps manifest checks, Docker build/scan/sign, CodeQL, Snyk, SonarQube, and Dependabot. Branch protection expectations are documented in `.github/required-checks.yml`.
 
+The staging and production Helm values enable ServiceMonitor, PrometheusRule, and Grafana dashboard resources. The default availability SLO is 99.9% over 30 days, with fast and slow burn-rate alerts (`MonkeyShopSloFastBurn` and `MonkeyShopSloSlowBurn`) backed by the HTTP 5xx error budget.
+
 ### Supply-chain gates
 
 - `.github/dependabot.yml` maintains Maven, frontend npm, GitHub Actions, and Docker dependencies.
 - `.github/workflows/codeql.yml` runs CodeQL for Java/Kotlin and JavaScript/TypeScript sources.
 - `.github/workflows/snyk.yml` scans `pom.xml` and `frontend/package-lock.json`; the `SNYK_TOKEN` repository secret is required for the Snyk dependency gate.
 - `.github/workflows/sonarqube.yml` runs the blocking SonarQube Quality Gate with JaCoCo and SpotBugs reports; `SONAR_TOKEN`, `SONAR_PROJECT_KEY`, and Sonar host variables must be configured in the repository.
+- `scripts/verify-sonarqube-quality-gate.ps1` provides the same blocking SonarQube Quality Gate as a manual release-readiness gate.
 - `.github/workflows/ci.yaml` builds `monkeyshop:ci`, blocks HIGH/CRITICAL Trivy image findings, uploads SARIF to code scanning, and keeps `target/runtime-supply-chain/trivy-runtime-image.json` as the runtime-image audit report.
 
 ## Documentation
 
+- `docs/acceptance/ws1-ws8-evidence.md`: current WS1-WS8 verification evidence, runtime endpoints, and remaining external proof.
 - `docs/security/ws1-history-cleanup.md`: historical secret cleanup and release-blocking attestation; evidence is written to `target/ws1-security/gitleaks-history.json`.
 - `docs/security/ws2-rbac-matrix.md`: role-permission matrix.
 - `docs/security/ws8.md`: anti-abuse, PII encryption, retention, and compliance posture.

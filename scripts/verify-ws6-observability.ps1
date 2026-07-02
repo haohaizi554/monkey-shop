@@ -114,6 +114,7 @@ $requiredFiles = @(
     "src/main/java/com/example/monkey/shared/infrastructure/observability/JpaVisitLogRecorder.java",
     "src/main/java/com/example/monkey/order/application/OrderService.java",
     "src/main/java/com/example/monkey/admin/interfaces/StatsController.java",
+    "helm/monkeyshop/values.yaml",
     "helm/monkeyshop/templates/servicemonitor.yaml",
     "helm/monkeyshop/templates/prometheusrule.yaml",
     "helm/monkeyshop/templates/grafana-dashboard.yaml",
@@ -147,6 +148,7 @@ $visitMetrics = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared
 $visitRecorder = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared/infrastructure/observability/JpaVisitLogRecorder.java"
 $orderService = Read-RequiredFile -Path "src/main/java/com/example/monkey/order/application/OrderService.java"
 $statsController = Read-RequiredFile -Path "src/main/java/com/example/monkey/admin/interfaces/StatsController.java"
+$helmValues = Read-RequiredFile -Path "helm/monkeyshop/values.yaml"
 $serviceMonitor = Read-RequiredFile -Path "helm/monkeyshop/templates/servicemonitor.yaml"
 $prometheusRule = Read-RequiredFile -Path "helm/monkeyshop/templates/prometheusrule.yaml"
 $grafanaDashboard = Read-RequiredFile -Path "helm/monkeyshop/templates/grafana-dashboard.yaml"
@@ -227,16 +229,27 @@ Assert-Contains -Name "StatsController.java" -Text $statsController -Expected '@
 Assert-Contains -Name "StatsController.java" -Text $statsController -Expected "ADMIN_DASHBOARD_READ" -Message "must protect audit trace lookup"
 
 Assert-Contains -Name "servicemonitor.yaml" -Text $serviceMonitor -Expected "path: /actuator/prometheus" -Message "must scrape Prometheus metrics"
-foreach ($signal in @("MonkeyShopHighErrorRate", "MonkeyShopP99LatencyHigh", "MonkeyShopHikariPoolSaturation", "MonkeyShopDown", "MonkeyShopStockDeductFailures", "MonkeyShopPendingOrdersBacklog")) {
+Assert-Contains -Name "values.yaml" -Text $helmValues -Expected "targetAvailability: 0.999" -Message "must define a 99.9 percent availability SLO"
+Assert-Contains -Name "values.yaml" -Text $helmValues -Expected "errorBudgetRatio: 0.001" -Message "must define the 0.1 percent error budget"
+Assert-Contains -Name "values.yaml" -Text $helmValues -Expected "window: 30d" -Message "must define the SLO window"
+Assert-Contains -Name "values.yaml" -Text $helmValues -Expected "fast: 14.4" -Message "must define the fast burn-rate threshold"
+Assert-Contains -Name "values.yaml" -Text $helmValues -Expected "slow: 6" -Message "must define the slow burn-rate threshold"
+Assert-Contains -Name "values.yaml" -Text $helmValues -Expected "sloFastBurn: 2m" -Message "must define a fast burn alert hold time"
+Assert-Contains -Name "values.yaml" -Text $helmValues -Expected "sloSlowBurn: 15m" -Message "must define a slow burn alert hold time"
+foreach ($signal in @("MonkeyShopHighErrorRate", "MonkeyShopSloFastBurn", "MonkeyShopSloSlowBurn", "MonkeyShopP99LatencyHigh", "MonkeyShopHikariPoolSaturation", "MonkeyShopDown", "MonkeyShopStockDeductFailures", "MonkeyShopPendingOrdersBacklog")) {
     Assert-Contains -Name "prometheusrule.yaml" -Text $prometheusRule -Expected $signal -Message "must include alert $signal"
 }
-foreach ($panel in @("HTTP RPS", "HTTP P99 Latency", "HTTP 5xx Error Rate", "HikariCP Saturation", "JVM Memory", "Orders Created", "Stock Deduct Failures", "Order Create P99", "Pending Orders", "Audit Events By TraceId", "Tempo Trace Drilldown")) {
+foreach ($panel in @("HTTP RPS", "HTTP P99 Latency", "HTTP 5xx Error Rate", "HikariCP Saturation", "JVM Memory", "Orders Created", "Stock Deduct Failures", "Order Create P99", "Pending Orders", "Audit Events By TraceId", "Tempo Trace Drilldown", "SLO Availability 30d", "Error Budget Burn Rate")) {
     Assert-Contains -Name "grafana-dashboard.yaml" -Text $grafanaDashboard -Expected $panel -Message "must include dashboard panel $panel"
 }
 Assert-Contains -Name "grafana-dashboard.yaml" -Text $grafanaDashboard -Expected '"traceId"' -Message "must provide traceId dashboard variable"
 Assert-Contains -Name "docs/observability/ws6.md" -Text $docs -Expected "TraceId Flow" -Message "must document trace ID flow"
+Assert-Contains -Name "docs/observability/ws6.md" -Text $docs -Expected "99.9% Availability SLO" -Message "must document the production availability SLO"
+Assert-Contains -Name "docs/observability/ws6.md" -Text $docs -Expected "MonkeyShopSloFastBurn" -Message "must document fast burn-rate alerting"
+Assert-Contains -Name "docs/observability/ws6.md" -Text $docs -Expected "MonkeyShopSloSlowBurn" -Message "must document slow burn-rate alerting"
 Assert-Contains -Name "docs/observability/ws6.md" -Text $docs -Expected "Production Drilldown" -Message "must document production drilldown"
 Assert-Contains -Name "README.md" -Text $readme -Expected "Prometheus" -Message "must advertise Prometheus visibility"
+Assert-Contains -Name "README.md" -Text $readme -Expected "fast and slow burn-rate alerts" -Message "must advertise 99.9 percent SLA burn-rate alerting"
 Assert-Contains -Name ".github/workflows/ci.yaml" -Text $workflow -Expected ".\scripts\verify-ws6-observability.ps1" -Message "must run WS6 observability checks in CI"
 
 if ($RunMaven) {

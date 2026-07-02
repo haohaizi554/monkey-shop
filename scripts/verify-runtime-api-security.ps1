@@ -26,7 +26,7 @@ function Assert-True {
 function New-ReservedTestIp {
     param([string[]]$Exclude = @())
 
-    $ranges = @("203.0.113", "198.51.100")
+    $ranges = @("192.0.2", "198.51.100", "203.0.113")
     for ($attempt = 1; $attempt -le 512; $attempt++) {
         $range = $ranges | Get-Random
         $candidate = "$range.$(Get-Random -Minimum 10 -Maximum 240)"
@@ -36,6 +36,29 @@ function New-ReservedTestIp {
         }
     }
     throw "Could not allocate a unique reserved test IP address"
+}
+
+function Invoke-AnonymousOrdersProbe {
+    param([int]$MaxAttempts = 8)
+
+    $lastResponse = $null
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        $ordersIp = New-ReservedTestIp
+        $response = Invoke-ApiSmokeRequest `
+            -Path "/api/orders/my" `
+            -Headers @{ "X-Forwarded-For" = $ordersIp; "X-Trace-Id" = ([guid]::NewGuid().ToString()) }
+        if ($response.StatusCode -eq 401) {
+            return $response
+        }
+        if ($response.StatusCode -eq 403) {
+            $lastResponse = $response
+            Write-Host "    Synthetic IP $ordersIp is already blocked; retrying anonymous auth probe"
+            continue
+        }
+        return $response
+    }
+
+    throw "anonymous orders probe could not find an unblocked synthetic IP after $MaxAttempts attempts; last status $($lastResponse.StatusCode)"
 }
 
 function Join-ApiSmokeUrl {
@@ -166,9 +189,7 @@ try {
     Assert-True ($null -ne $captchaJson.data.PSObject.Properties["siteKey"]) "captcha config must include siteKey field"
 
     Write-Host "==> Protected API rejects anonymous access"
-    $ordersResponse = Invoke-ApiSmokeRequest `
-        -Path "/api/orders/my" `
-        -Headers @{ "X-Forwarded-For" = (New-ReservedTestIp); "X-Trace-Id" = ([guid]::NewGuid().ToString()) }
+    $ordersResponse = Invoke-AnonymousOrdersProbe
     Assert-Problem -Response $ordersResponse -ExpectedStatus 401 -ExpectedCode "UNAUTHORIZED" -Name "anonymous orders"
 
     Write-Host "==> Honeypot blocks only the synthetic probe IP"
