@@ -188,4 +188,60 @@ export interface CategoryNode {
   name: string
   children: CategoryNode[]
 }
+
+export interface WarehouseStock {
+  skuId: number
+  warehouseId: number
+  warehouseCode?: string
+  province?: string
+  availableQuantity: number
+  lockedQuantity: number
+  deductedQuantity: number
+  inTransitQuantity: number
+  safetyStock: number
+  totalQuantity: number
+  belowSafetyStock: boolean
+}
+
+export interface InventoryReserveRequest {
+  skuId: number
+  warehouseId?: number
+  province?: string
+  orderId?: number
+  quantity: number
+  reservationKey: string
+}
+
+export interface InventoryCompensateRequest {
+  skuId: number
+  warehouseId: number
+  orderId?: number
+  quantity: number
+  idempotencyKey: string
+}
+
+export interface InventoryReservation {
+  reservationKey: string
+  skuId: number
+  warehouseId: number
+  orderId?: number
+  quantity: number
+  status: 'RESERVED' | 'RELEASED' | 'DEDUCTED' | 'EXPIRED'
+  expiresAt: string
+  stock: WarehouseStock
+}
+
+export interface InventoryReconciliation {
+  balanced: boolean
+  discrepancies: InventoryDiscrepancy[]
+}
+
+export interface InventoryDiscrepancy {
+  skuId: number
+  warehouseId: number
+  actualLocked: number
+  expectedLocked: number
+  actualDeducted: number
+  expectedDeducted: number
+}
 export type ToastKind = 'success' | 'warning' | 'error' | 'info'

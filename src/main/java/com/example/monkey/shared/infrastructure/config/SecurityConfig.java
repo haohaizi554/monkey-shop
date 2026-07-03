@@ -205,6 +205,16 @@ public class SecurityConfig {
                         .authenticated()
                         .requestMatchers("/api/orders/create", "/api/v1/orders/create")
                         .hasAuthority("ORDER_CREATE")
+                        .requestMatchers("/api/inventory/reservations", "/api/v1/inventory/reservations")
+                        .hasAuthority("ORDER_CREATE")
+                        .requestMatchers(
+                                "/api/inventory/reservations/*/release", "/api/v1/inventory/reservations/*/release")
+                        .hasAnyAuthority("ORDER_CREATE", "ORDER_MANAGE")
+                        .requestMatchers(
+                                HttpMethod.GET, "/api/inventory/skus/*/stocks", "/api/v1/inventory/skus/*/stocks")
+                        .hasAnyAuthority("ORDER_CREATE", "ORDER_MANAGE", "PRODUCT_MANAGE")
+                        .requestMatchers("/api/inventory/**", "/api/v1/inventory/**")
+                        .hasAuthority("ORDER_MANAGE")
                         .requestMatchers(
                                 "/api/orders/my",
                                 "/api/v1/orders/my",

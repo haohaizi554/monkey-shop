@@ -35,6 +35,11 @@ export const router = createRouter({
       component: () => import('@/views/AdminView.vue'),
       meta: { requiresAuth: true, requiresAdmin: true },
     },
+    {
+      path: '/inventory',
+      component: () => import('@/views/InventoryView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
   ],
   scrollBehavior: () => ({ top: 0 }),
 })

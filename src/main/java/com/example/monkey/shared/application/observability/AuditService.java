@@ -58,6 +58,11 @@ public class AuditService {
     public static final String ORDER_HIDDEN = "ORDER_HIDDEN";
     public static final String PRODUCT_SPU_CREATED = "PRODUCT_SPU_CREATED";
     public static final String PRODUCT_STATUS_CHANGED = "PRODUCT_STATUS_CHANGED";
+    public static final String INVENTORY_RESERVED = "INVENTORY_RESERVED";
+    public static final String INVENTORY_RELEASED = "INVENTORY_RELEASED";
+    public static final String INVENTORY_DEDUCTED = "INVENTORY_DEDUCTED";
+    public static final String INVENTORY_COMPENSATED = "INVENTORY_COMPENSATED";
+    public static final String INVENTORY_RECONCILED = "INVENTORY_RECONCILED";
 
     private static final Logger log = LoggerFactory.getLogger(AuditService.class);
     private static final int DEFAULT_RETENTION_DAYS = 180;

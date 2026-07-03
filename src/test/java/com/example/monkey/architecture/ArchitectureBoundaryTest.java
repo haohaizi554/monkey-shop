@@ -12,6 +12,26 @@ import com.example.monkey.admin.infrastructure.JpaAdminStatsReader;
 import com.example.monkey.admin.interfaces.StatsController;
 import com.example.monkey.admin.interfaces.dto.AuditTraceRequestDto;
 import com.example.monkey.admin.interfaces.dto.StatsQueryRequestDto;
+import com.example.monkey.inventory.application.InventoryApplicationService;
+import com.example.monkey.inventory.application.dto.InventoryCompensateRequestDto;
+import com.example.monkey.inventory.application.dto.InventoryReconciliationResponseDto;
+import com.example.monkey.inventory.application.dto.InventoryReservationResponseDto;
+import com.example.monkey.inventory.application.dto.InventoryReserveRequestDto;
+import com.example.monkey.inventory.application.dto.WarehouseStockResponseDto;
+import com.example.monkey.inventory.domain.InventoryLockManager;
+import com.example.monkey.inventory.domain.InventoryStore;
+import com.example.monkey.inventory.domain.WarehouseStock;
+import com.example.monkey.inventory.infrastructure.InventoryReservationEntity;
+import com.example.monkey.inventory.infrastructure.InventoryReservationRepository;
+import com.example.monkey.inventory.infrastructure.InventoryStock;
+import com.example.monkey.inventory.infrastructure.InventoryStockLedger;
+import com.example.monkey.inventory.infrastructure.InventoryStockLedgerRepository;
+import com.example.monkey.inventory.infrastructure.InventoryStockRepository;
+import com.example.monkey.inventory.infrastructure.InventoryWarehouse;
+import com.example.monkey.inventory.infrastructure.InventoryWarehouseRepository;
+import com.example.monkey.inventory.infrastructure.JpaInventoryStore;
+import com.example.monkey.inventory.infrastructure.RedissonInventoryLockManager;
+import com.example.monkey.inventory.interfaces.InventoryController;
 import com.example.monkey.order.application.OrderApplicationService;
 import com.example.monkey.order.application.OrderIdempotencyService;
 import com.example.monkey.order.application.OrderOwnershipService;
@@ -546,6 +566,7 @@ class ArchitectureBoundaryTest {
             .that()
             .resideInAnyPackage(
                     "com.example.monkey.admin..",
+                    "com.example.monkey.inventory..",
                     "com.example.monkey.order..",
                     "com.example.monkey.product..",
                     "com.example.monkey.shared..",
@@ -556,6 +577,10 @@ class ArchitectureBoundaryTest {
                     "com.example.monkey.admin.application..",
                     "com.example.monkey.admin.infrastructure..",
                     "com.example.monkey.admin.interfaces..",
+                    "com.example.monkey.inventory.domain..",
+                    "com.example.monkey.inventory.application..",
+                    "com.example.monkey.inventory.infrastructure..",
+                    "com.example.monkey.inventory.interfaces..",
                     "com.example.monkey.order.domain..",
                     "com.example.monkey.order.application..",
                     "com.example.monkey.order.infrastructure..",
@@ -626,6 +651,43 @@ class ArchitectureBoundaryTest {
         assertThat(Monkey.class.getPackageName()).isEqualTo("com.example.monkey.product.infrastructure");
         assertThat(MonkeyRepository.class.getPackageName()).isEqualTo("com.example.monkey.product.infrastructure");
         assertThat(MonkeyController.class.getPackageName()).isEqualTo("com.example.monkey.product.interfaces");
+    }
+
+    @Test
+    void inventorySliceUsesWs2BoundedContextLayers() {
+        assertThat(InventoryStore.class.getPackageName()).isEqualTo("com.example.monkey.inventory.domain");
+        assertThat(InventoryLockManager.class.getPackageName()).isEqualTo("com.example.monkey.inventory.domain");
+        assertThat(WarehouseStock.class.getPackageName()).isEqualTo("com.example.monkey.inventory.domain");
+        assertThat(InventoryApplicationService.class.getPackageName())
+                .isEqualTo("com.example.monkey.inventory.application");
+        assertThat(InventoryCompensateRequestDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.inventory.application.dto");
+        assertThat(InventoryReconciliationResponseDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.inventory.application.dto");
+        assertThat(InventoryReservationResponseDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.inventory.application.dto");
+        assertThat(InventoryReserveRequestDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.inventory.application.dto");
+        assertThat(WarehouseStockResponseDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.inventory.application.dto");
+        assertThat(JpaInventoryStore.class.getPackageName()).isEqualTo("com.example.monkey.inventory.infrastructure");
+        assertThat(RedissonInventoryLockManager.class.getPackageName())
+                .isEqualTo("com.example.monkey.inventory.infrastructure");
+        assertThat(InventoryReservationEntity.class.getPackageName())
+                .isEqualTo("com.example.monkey.inventory.infrastructure");
+        assertThat(InventoryReservationRepository.class.getPackageName())
+                .isEqualTo("com.example.monkey.inventory.infrastructure");
+        assertThat(InventoryStock.class.getPackageName()).isEqualTo("com.example.monkey.inventory.infrastructure");
+        assertThat(InventoryStockLedger.class.getPackageName())
+                .isEqualTo("com.example.monkey.inventory.infrastructure");
+        assertThat(InventoryStockLedgerRepository.class.getPackageName())
+                .isEqualTo("com.example.monkey.inventory.infrastructure");
+        assertThat(InventoryStockRepository.class.getPackageName())
+                .isEqualTo("com.example.monkey.inventory.infrastructure");
+        assertThat(InventoryWarehouse.class.getPackageName()).isEqualTo("com.example.monkey.inventory.infrastructure");
+        assertThat(InventoryWarehouseRepository.class.getPackageName())
+                .isEqualTo("com.example.monkey.inventory.infrastructure");
+        assertThat(InventoryController.class.getPackageName()).isEqualTo("com.example.monkey.inventory.interfaces");
     }
 
     @Test
@@ -1020,6 +1082,14 @@ class ArchitectureBoundaryTest {
             .resideInAPackage("com.example.monkey.product.domain..");
 
     @ArchTest
+    static final ArchRule inventory_interfaces_do_not_depend_on_inventory_domain = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.inventory.interfaces..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("com.example.monkey.inventory.domain..");
+
+    @ArchTest
     static final ArchRule address_controller_does_not_depend_on_user_domain = noClasses()
             .that()
             .haveSimpleName("AddressController")
@@ -1071,6 +1141,24 @@ class ArchitectureBoundaryTest {
     static final ArchRule product_catalog_adapters_stay_out_of_service_package = classes()
             .that()
             .areAssignableTo(ProductCatalog.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule inventory_store_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(InventoryStore.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule inventory_lock_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(InventoryLockManager.class)
             .and()
             .areNotInterfaces()
             .should()
