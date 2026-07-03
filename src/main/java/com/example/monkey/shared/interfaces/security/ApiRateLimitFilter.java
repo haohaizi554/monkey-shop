@@ -93,7 +93,7 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
 
     private static boolean isHoneypot(HttpServletRequest request) {
         String path = ApiPaths.canonicalize(request.getRequestURI());
-        return "/api/.env".equals(path) || "/admin/secret".equals(path);
+        return "/api/.env".equals(path) || "/admin/secret".equals(path) || "/api/seckill/internal/active".equals(path);
     }
 
     private static ApiRateLimitOperation operationFor(HttpServletRequest request) {
@@ -107,6 +107,10 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
         }
         if (HttpMethod.POST.matches(method) && "/api/orders/create".equals(path)) {
             return ApiRateLimitOperation.ORDER;
+        }
+        if (HttpMethod.POST.matches(method)
+                && ("/api/marketing/seckill-orders".equals(path) || "/api/v1/marketing/seckill-orders".equals(path))) {
+            return ApiRateLimitOperation.SECKILL;
         }
         if (HttpMethod.GET.matches(method)
                 && ("/api/monkeys".equals(path)

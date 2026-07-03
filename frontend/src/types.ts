@@ -244,4 +244,84 @@ export interface InventoryDiscrepancy {
   actualDeducted: number
   expectedDeducted: number
 }
+
+export interface CouponClaimRequest {
+  couponId: number
+  userId: number
+  idempotencyKey: string
+}
+
+export interface CouponRedeemRequest {
+  couponCode: string
+  orderId: number
+}
+
+export interface CouponReturnRequest {
+  couponCode: string
+  orderId: number
+}
+
+export interface CouponWalletEntry {
+  id: number
+  couponId: number
+  couponCode: string
+  userId: number
+  status: 'CLAIMED' | 'USED' | 'RETURNED' | 'EXPIRED'
+  orderId?: number
+  claimedAt: string
+  usedAt?: string
+}
+
+export interface MarketingPriceRequest {
+  orderAmount: string | number
+  userId?: number
+  categoryId?: number
+  shopId?: number
+  couponCodes: string[]
+}
+
+export interface MarketingPriceQuote {
+  originalAmount: string | number
+  discountAmount: string | number
+  payableAmount: string | number
+  appliedCoupons: string[]
+}
+
+export interface SeckillRequest {
+  activityId: number
+  userId: number
+  orderId?: number
+  quantity: number
+  idempotencyKey: string
+  turnstileToken?: string
+}
+
+export interface SeckillOrder {
+  id: number
+  activityId: number
+  skuId: number
+  userId: number
+  orderId?: number
+  quantity: number
+  idempotencyKey: string
+  createdAt: string
+}
+
+export interface GroupBuyJoinRequest {
+  activityId: number
+  userId: number
+  teamId?: number
+  idempotencyKey: string
+}
+
+export interface GroupBuyTeam {
+  id: number
+  activityId: number
+  skuId: number
+  leaderUserId: number
+  targetSize: number
+  joinedCount: number
+  status: 'OPEN' | 'SUCCEEDED' | 'CANCELLED'
+  expiresAt: string
+}
 export type ToastKind = 'success' | 'warning' | 'error' | 'info'

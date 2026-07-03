@@ -32,6 +32,22 @@ import com.example.monkey.inventory.infrastructure.InventoryWarehouseRepository;
 import com.example.monkey.inventory.infrastructure.JpaInventoryStore;
 import com.example.monkey.inventory.infrastructure.RedissonInventoryLockManager;
 import com.example.monkey.inventory.interfaces.InventoryController;
+import com.example.monkey.marketing.application.MarketingApplicationService;
+import com.example.monkey.marketing.application.dto.CouponClaimRequestDto;
+import com.example.monkey.marketing.application.dto.GroupBuyJoinRequestDto;
+import com.example.monkey.marketing.application.dto.SeckillRequestDto;
+import com.example.monkey.marketing.domain.CouponDefinition;
+import com.example.monkey.marketing.domain.MarketingIdempotencyStore;
+import com.example.monkey.marketing.domain.MarketingLockManager;
+import com.example.monkey.marketing.domain.MarketingStore;
+import com.example.monkey.marketing.domain.SeckillActivity;
+import com.example.monkey.marketing.infrastructure.JpaMarketingStore;
+import com.example.monkey.marketing.infrastructure.MarketingCouponEntity;
+import com.example.monkey.marketing.infrastructure.MarketingCouponRepository;
+import com.example.monkey.marketing.infrastructure.MarketingSeckillActivityEntity;
+import com.example.monkey.marketing.infrastructure.RedisMarketingIdempotencyStore;
+import com.example.monkey.marketing.infrastructure.RedissonMarketingLockManager;
+import com.example.monkey.marketing.interfaces.MarketingController;
 import com.example.monkey.order.application.OrderApplicationService;
 import com.example.monkey.order.application.OrderIdempotencyService;
 import com.example.monkey.order.application.OrderOwnershipService;
@@ -567,6 +583,7 @@ class ArchitectureBoundaryTest {
             .resideInAnyPackage(
                     "com.example.monkey.admin..",
                     "com.example.monkey.inventory..",
+                    "com.example.monkey.marketing..",
                     "com.example.monkey.order..",
                     "com.example.monkey.product..",
                     "com.example.monkey.shared..",
@@ -581,6 +598,10 @@ class ArchitectureBoundaryTest {
                     "com.example.monkey.inventory.application..",
                     "com.example.monkey.inventory.infrastructure..",
                     "com.example.monkey.inventory.interfaces..",
+                    "com.example.monkey.marketing.domain..",
+                    "com.example.monkey.marketing.application..",
+                    "com.example.monkey.marketing.infrastructure..",
+                    "com.example.monkey.marketing.interfaces..",
                     "com.example.monkey.order.domain..",
                     "com.example.monkey.order.application..",
                     "com.example.monkey.order.infrastructure..",
@@ -688,6 +709,34 @@ class ArchitectureBoundaryTest {
         assertThat(InventoryWarehouseRepository.class.getPackageName())
                 .isEqualTo("com.example.monkey.inventory.infrastructure");
         assertThat(InventoryController.class.getPackageName()).isEqualTo("com.example.monkey.inventory.interfaces");
+    }
+
+    @Test
+    void marketingSliceUsesWs3BoundedContextLayers() {
+        assertThat(MarketingStore.class.getPackageName()).isEqualTo("com.example.monkey.marketing.domain");
+        assertThat(MarketingLockManager.class.getPackageName()).isEqualTo("com.example.monkey.marketing.domain");
+        assertThat(MarketingIdempotencyStore.class.getPackageName()).isEqualTo("com.example.monkey.marketing.domain");
+        assertThat(CouponDefinition.class.getPackageName()).isEqualTo("com.example.monkey.marketing.domain");
+        assertThat(SeckillActivity.class.getPackageName()).isEqualTo("com.example.monkey.marketing.domain");
+        assertThat(MarketingApplicationService.class.getPackageName())
+                .isEqualTo("com.example.monkey.marketing.application");
+        assertThat(CouponClaimRequestDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.marketing.application.dto");
+        assertThat(SeckillRequestDto.class.getPackageName()).isEqualTo("com.example.monkey.marketing.application.dto");
+        assertThat(GroupBuyJoinRequestDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.marketing.application.dto");
+        assertThat(JpaMarketingStore.class.getPackageName()).isEqualTo("com.example.monkey.marketing.infrastructure");
+        assertThat(RedisMarketingIdempotencyStore.class.getPackageName())
+                .isEqualTo("com.example.monkey.marketing.infrastructure");
+        assertThat(RedissonMarketingLockManager.class.getPackageName())
+                .isEqualTo("com.example.monkey.marketing.infrastructure");
+        assertThat(MarketingCouponEntity.class.getPackageName())
+                .isEqualTo("com.example.monkey.marketing.infrastructure");
+        assertThat(MarketingSeckillActivityEntity.class.getPackageName())
+                .isEqualTo("com.example.monkey.marketing.infrastructure");
+        assertThat(MarketingCouponRepository.class.getPackageName())
+                .isEqualTo("com.example.monkey.marketing.infrastructure");
+        assertThat(MarketingController.class.getPackageName()).isEqualTo("com.example.monkey.marketing.interfaces");
     }
 
     @Test
@@ -1090,6 +1139,14 @@ class ArchitectureBoundaryTest {
             .resideInAPackage("com.example.monkey.inventory.domain..");
 
     @ArchTest
+    static final ArchRule marketing_interfaces_do_not_depend_on_marketing_domain = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.marketing.interfaces..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("com.example.monkey.marketing.domain..");
+
+    @ArchTest
     static final ArchRule address_controller_does_not_depend_on_user_domain = noClasses()
             .that()
             .haveSimpleName("AddressController")
@@ -1159,6 +1216,33 @@ class ArchitectureBoundaryTest {
     static final ArchRule inventory_lock_adapters_stay_out_of_service_package = classes()
             .that()
             .areAssignableTo(InventoryLockManager.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule marketing_store_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(MarketingStore.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule marketing_lock_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(MarketingLockManager.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule marketing_idempotency_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(MarketingIdempotencyStore.class)
             .and()
             .areNotInterfaces()
             .should()

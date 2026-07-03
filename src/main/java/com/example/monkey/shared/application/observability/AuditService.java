@@ -63,6 +63,13 @@ public class AuditService {
     public static final String INVENTORY_DEDUCTED = "INVENTORY_DEDUCTED";
     public static final String INVENTORY_COMPENSATED = "INVENTORY_COMPENSATED";
     public static final String INVENTORY_RECONCILED = "INVENTORY_RECONCILED";
+    public static final String MARKETING_COUPON_CLAIMED = "MARKETING_COUPON_CLAIMED";
+    public static final String MARKETING_COUPON_REDEEMED = "MARKETING_COUPON_REDEEMED";
+    public static final String MARKETING_COUPON_RETURNED = "MARKETING_COUPON_RETURNED";
+    public static final String MARKETING_SECKILL_ORDERED = "MARKETING_SECKILL_ORDERED";
+    public static final String MARKETING_SECKILL_DENIED = "MARKETING_SECKILL_DENIED";
+    public static final String MARKETING_GROUP_JOINED = "MARKETING_GROUP_JOINED";
+    public static final String MARKETING_GROUP_CANCELLED = "MARKETING_GROUP_CANCELLED";
 
     private static final Logger log = LoggerFactory.getLogger(AuditService.class);
     private static final int DEFAULT_RETENTION_DAYS = 180;

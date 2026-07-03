@@ -216,6 +216,20 @@ public class SecurityConfig {
                         .requestMatchers("/api/inventory/**", "/api/v1/inventory/**")
                         .hasAuthority("ORDER_MANAGE")
                         .requestMatchers(
+                                "/api/marketing/coupons/claim",
+                                "/api/v1/marketing/coupons/claim",
+                                "/api/marketing/coupons/redeem",
+                                "/api/v1/marketing/coupons/redeem",
+                                "/api/marketing/price/quote",
+                                "/api/v1/marketing/price/quote",
+                                "/api/marketing/seckill-orders",
+                                "/api/v1/marketing/seckill-orders",
+                                "/api/marketing/group-buy/join",
+                                "/api/v1/marketing/group-buy/join")
+                        .hasAuthority("ORDER_CREATE")
+                        .requestMatchers("/api/marketing/**", "/api/v1/marketing/**")
+                        .hasAuthority("ORDER_MANAGE")
+                        .requestMatchers(
                                 "/api/orders/my",
                                 "/api/v1/orders/my",
                                 "/api/orders/receive/**",
