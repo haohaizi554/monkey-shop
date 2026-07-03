@@ -5,6 +5,7 @@ public enum ApiRateLimitOperation {
     REGISTER,
     ORDER,
     SECKILL,
+    CART,
     SEARCH,
     UPLOAD,
     DEFAULT

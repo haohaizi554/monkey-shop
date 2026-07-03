@@ -229,6 +229,8 @@ public class SecurityConfig {
                         .hasAuthority("ORDER_CREATE")
                         .requestMatchers("/api/marketing/**", "/api/v1/marketing/**")
                         .hasAuthority("ORDER_MANAGE")
+                        .requestMatchers("/api/cart/**", "/api/v1/cart/**")
+                        .hasAuthority("ORDER_CREATE")
                         .requestMatchers(
                                 "/api/orders/my",
                                 "/api/v1/orders/my",

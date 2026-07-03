@@ -33,6 +33,10 @@ function toggleLocale() {
           <span class="nav-mark" aria-hidden="true">O</span>
           <span>{{ t('nav.orders') }}</span>
         </RouterLink>
+        <RouterLink v-if="auth.isLoggedIn" to="/cart">
+          <span class="nav-mark" aria-hidden="true">C</span>
+          <span>{{ t('nav.cart') }}</span>
+        </RouterLink>
         <RouterLink v-if="auth.isLoggedIn" to="/profile">
           <span class="nav-mark" aria-hidden="true">P</span>
           <span>{{ t('nav.profile') }}</span>

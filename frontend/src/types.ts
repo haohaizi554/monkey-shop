@@ -324,4 +324,86 @@ export interface GroupBuyTeam {
   status: 'OPEN' | 'SUCCEEDED' | 'CANCELLED'
   expiresAt: string
 }
+
+export interface CartAddItemRequest {
+  skuId: number
+  shopId: number
+  quantity: number
+  selected: boolean
+}
+
+export interface CartUpdateItemRequest {
+  quantity: number
+}
+
+export interface CartSelectItemRequest {
+  selected: boolean
+}
+
+export interface CartItem {
+  skuId: number
+  shopId: number
+  productName: string
+  productImage?: string
+  unitPrice: string | number
+  quantity: number
+  selected: boolean
+  lineAmount: string | number
+  updatedAt: string
+}
+
+export interface Cart {
+  userId: number
+  items: CartItem[]
+  selectedQuantity: number
+  selectedAmount: string | number
+}
+
+export interface CartCheckoutRequest {
+  addressId: number
+  province?: string
+  couponCodes: string[]
+}
+
+export interface CartCheckoutLine {
+  id: number
+  skuId: number
+  shopId: number
+  categoryId?: number
+  productName: string
+  productImage?: string
+  quantity: number
+  unitPrice: string | number
+  originalAmount: string | number
+  discountAmount: string | number
+  payableAmount: string | number
+  couponCodes: string[]
+  reservationKey: string
+  warehouseId?: number
+}
+
+export interface CartSubOrder {
+  id: number
+  shopId: number
+  orderNo: string
+  originalAmount: string | number
+  discountAmount: string | number
+  payableAmount: string | number
+  status: 'RESERVED' | 'CHECKED_OUT'
+  lines: CartCheckoutLine[]
+}
+
+export interface CartCheckout {
+  id: number
+  checkoutNo: string
+  userId: number
+  addressId: number
+  originalAmount: string | number
+  discountAmount: string | number
+  payableAmount: string | number
+  status: 'RESERVED' | 'CHECKED_OUT'
+  province?: string
+  createdAt: string
+  subOrders: CartSubOrder[]
+}
 export type ToastKind = 'success' | 'warning' | 'error' | 'info'

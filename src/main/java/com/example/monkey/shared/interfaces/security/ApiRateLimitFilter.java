@@ -112,6 +112,10 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
                 && ("/api/marketing/seckill-orders".equals(path) || "/api/v1/marketing/seckill-orders".equals(path))) {
             return ApiRateLimitOperation.SECKILL;
         }
+        if ((HttpMethod.POST.matches(method) || HttpMethod.PATCH.matches(method) || HttpMethod.DELETE.matches(method))
+                && isCartPath(path)) {
+            return ApiRateLimitOperation.CART;
+        }
         if (HttpMethod.GET.matches(method)
                 && ("/api/monkeys".equals(path)
                         || (path != null
@@ -125,6 +129,10 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
             return ApiRateLimitOperation.UPLOAD;
         }
         return ApiRateLimitOperation.DEFAULT;
+    }
+
+    private static boolean isCartPath(String path) {
+        return "/api/cart".equals(path) || (path != null && path.startsWith("/api/cart/"));
     }
 
     private static String authenticatedUserKey() {

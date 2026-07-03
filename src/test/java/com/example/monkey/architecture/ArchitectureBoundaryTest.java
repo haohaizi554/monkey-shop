@@ -12,6 +12,21 @@ import com.example.monkey.admin.infrastructure.JpaAdminStatsReader;
 import com.example.monkey.admin.interfaces.StatsController;
 import com.example.monkey.admin.interfaces.dto.AuditTraceRequestDto;
 import com.example.monkey.admin.interfaces.dto.StatsQueryRequestDto;
+import com.example.monkey.cart.application.CartApplicationService;
+import com.example.monkey.cart.application.dto.CartAddItemRequestDto;
+import com.example.monkey.cart.application.dto.CartCheckoutRequestDto;
+import com.example.monkey.cart.application.dto.CartResponseDto;
+import com.example.monkey.cart.domain.CartCatalogReader;
+import com.example.monkey.cart.domain.CartCheckoutStore;
+import com.example.monkey.cart.domain.CartItem;
+import com.example.monkey.cart.domain.CartLockManager;
+import com.example.monkey.cart.domain.CartStore;
+import com.example.monkey.cart.infrastructure.CartCheckoutEntity;
+import com.example.monkey.cart.infrastructure.JpaCartCatalogReader;
+import com.example.monkey.cart.infrastructure.JpaCartCheckoutStore;
+import com.example.monkey.cart.infrastructure.RedisCartStore;
+import com.example.monkey.cart.infrastructure.RedissonCartLockManager;
+import com.example.monkey.cart.interfaces.CartController;
 import com.example.monkey.inventory.application.InventoryApplicationService;
 import com.example.monkey.inventory.application.dto.InventoryCompensateRequestDto;
 import com.example.monkey.inventory.application.dto.InventoryReconciliationResponseDto;
@@ -582,6 +597,7 @@ class ArchitectureBoundaryTest {
             .that()
             .resideInAnyPackage(
                     "com.example.monkey.admin..",
+                    "com.example.monkey.cart..",
                     "com.example.monkey.inventory..",
                     "com.example.monkey.marketing..",
                     "com.example.monkey.order..",
@@ -594,6 +610,10 @@ class ArchitectureBoundaryTest {
                     "com.example.monkey.admin.application..",
                     "com.example.monkey.admin.infrastructure..",
                     "com.example.monkey.admin.interfaces..",
+                    "com.example.monkey.cart.domain..",
+                    "com.example.monkey.cart.application..",
+                    "com.example.monkey.cart.infrastructure..",
+                    "com.example.monkey.cart.interfaces..",
                     "com.example.monkey.inventory.domain..",
                     "com.example.monkey.inventory.application..",
                     "com.example.monkey.inventory.infrastructure..",
@@ -737,6 +757,25 @@ class ArchitectureBoundaryTest {
         assertThat(MarketingCouponRepository.class.getPackageName())
                 .isEqualTo("com.example.monkey.marketing.infrastructure");
         assertThat(MarketingController.class.getPackageName()).isEqualTo("com.example.monkey.marketing.interfaces");
+    }
+
+    @Test
+    void cartSliceUsesWs4BoundedContextLayers() {
+        assertThat(CartStore.class.getPackageName()).isEqualTo("com.example.monkey.cart.domain");
+        assertThat(CartCheckoutStore.class.getPackageName()).isEqualTo("com.example.monkey.cart.domain");
+        assertThat(CartLockManager.class.getPackageName()).isEqualTo("com.example.monkey.cart.domain");
+        assertThat(CartCatalogReader.class.getPackageName()).isEqualTo("com.example.monkey.cart.domain");
+        assertThat(CartItem.class.getPackageName()).isEqualTo("com.example.monkey.cart.domain");
+        assertThat(CartApplicationService.class.getPackageName()).isEqualTo("com.example.monkey.cart.application");
+        assertThat(CartAddItemRequestDto.class.getPackageName()).isEqualTo("com.example.monkey.cart.application.dto");
+        assertThat(CartCheckoutRequestDto.class.getPackageName()).isEqualTo("com.example.monkey.cart.application.dto");
+        assertThat(CartResponseDto.class.getPackageName()).isEqualTo("com.example.monkey.cart.application.dto");
+        assertThat(JpaCartCheckoutStore.class.getPackageName()).isEqualTo("com.example.monkey.cart.infrastructure");
+        assertThat(JpaCartCatalogReader.class.getPackageName()).isEqualTo("com.example.monkey.cart.infrastructure");
+        assertThat(RedisCartStore.class.getPackageName()).isEqualTo("com.example.monkey.cart.infrastructure");
+        assertThat(RedissonCartLockManager.class.getPackageName()).isEqualTo("com.example.monkey.cart.infrastructure");
+        assertThat(CartCheckoutEntity.class.getPackageName()).isEqualTo("com.example.monkey.cart.infrastructure");
+        assertThat(CartController.class.getPackageName()).isEqualTo("com.example.monkey.cart.interfaces");
     }
 
     @Test
@@ -1030,6 +1069,9 @@ class ArchitectureBoundaryTest {
             .dependOnClassesThat()
             .resideInAnyPackage(
                     "com.example.monkey.admin.domain..",
+                    "com.example.monkey.cart.domain..",
+                    "com.example.monkey.inventory.domain..",
+                    "com.example.monkey.marketing.domain..",
                     "com.example.monkey.order.domain..",
                     "com.example.monkey.product.domain..",
                     "com.example.monkey.user.domain..");
@@ -1039,6 +1081,7 @@ class ArchitectureBoundaryTest {
             .that()
             .resideInAnyPackage(
                     "com.example.monkey.admin.interfaces..",
+                    "com.example.monkey.cart.interfaces..",
                     "com.example.monkey.order.interfaces..",
                     "com.example.monkey.product.interfaces..",
                     "com.example.monkey.shared.interfaces..")
@@ -1147,6 +1190,14 @@ class ArchitectureBoundaryTest {
             .resideInAPackage("com.example.monkey.marketing.domain..");
 
     @ArchTest
+    static final ArchRule cart_interfaces_do_not_depend_on_cart_domain = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.cart.interfaces..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("com.example.monkey.cart.domain..");
+
+    @ArchTest
     static final ArchRule address_controller_does_not_depend_on_user_domain = noClasses()
             .that()
             .haveSimpleName("AddressController")
@@ -1243,6 +1294,42 @@ class ArchitectureBoundaryTest {
     static final ArchRule marketing_idempotency_adapters_stay_out_of_service_package = classes()
             .that()
             .areAssignableTo(MarketingIdempotencyStore.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule cart_store_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(CartStore.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule cart_checkout_store_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(CartCheckoutStore.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule cart_lock_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(CartLockManager.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule cart_catalog_reader_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(CartCatalogReader.class)
             .and()
             .areNotInterfaces()
             .should()

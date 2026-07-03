@@ -3,6 +3,7 @@ package com.example.monkey.shared.interfaces.security;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -97,6 +98,57 @@ class ApiRateLimitFilterTest {
 
         verify(uploadChain).doFilter(uploadRequest, uploadResponse);
         verify(rateLimitService).consume(ApiRateLimitOperation.UPLOAD, "127.0.0.1", "anonymous");
+    }
+
+    @Test
+    void cartMutationsUseCartPolicyAcrossUnsafeMethodsAndVersionedPaths() throws Exception {
+        when(rateLimitService.consume(ApiRateLimitOperation.CART, "127.0.0.1", "anonymous"))
+                .thenReturn(new ApiRateLimitResult(true, 0));
+
+        MockHttpServletRequest addRequest = new MockHttpServletRequest("POST", "/api/cart/items");
+        addRequest.setRemoteAddr("127.0.0.1");
+        MockHttpServletResponse addResponse = new MockHttpServletResponse();
+        FilterChain addChain = mock(FilterChain.class);
+        filter.doFilter(addRequest, addResponse, addChain);
+
+        MockHttpServletRequest updateRequest = new MockHttpServletRequest("PATCH", "/api/v1/cart/items/1001");
+        updateRequest.setRemoteAddr("127.0.0.1");
+        MockHttpServletResponse updateResponse = new MockHttpServletResponse();
+        FilterChain updateChain = mock(FilterChain.class);
+        filter.doFilter(updateRequest, updateResponse, updateChain);
+
+        MockHttpServletRequest deleteRequest = new MockHttpServletRequest("DELETE", "/api/cart/items/1001");
+        deleteRequest.setRemoteAddr("127.0.0.1");
+        MockHttpServletResponse deleteResponse = new MockHttpServletResponse();
+        FilterChain deleteChain = mock(FilterChain.class);
+        filter.doFilter(deleteRequest, deleteResponse, deleteChain);
+
+        verify(addChain).doFilter(addRequest, addResponse);
+        verify(updateChain).doFilter(updateRequest, updateResponse);
+        verify(deleteChain).doFilter(deleteRequest, deleteResponse);
+        verify(rateLimitService, times(3)).consume(ApiRateLimitOperation.CART, "127.0.0.1", "anonymous");
+    }
+
+    @Test
+    void cartReadsAndCartLikePrefixesDoNotUseCartMutationPolicy() throws Exception {
+        when(rateLimitService.consume(ApiRateLimitOperation.DEFAULT, "127.0.0.1", "anonymous"))
+                .thenReturn(new ApiRateLimitResult(true, 0));
+
+        MockHttpServletRequest readRequest = new MockHttpServletRequest("GET", "/api/cart");
+        readRequest.setRemoteAddr("127.0.0.1");
+        MockHttpServletResponse readResponse = new MockHttpServletResponse();
+        FilterChain readChain = mock(FilterChain.class);
+        filter.doFilter(readRequest, readResponse, readChain);
+
+        MockHttpServletRequest prefixRequest = new MockHttpServletRequest("POST", "/api/cartography");
+        prefixRequest.setRemoteAddr("127.0.0.1");
+        MockHttpServletResponse prefixResponse = new MockHttpServletResponse();
+        FilterChain prefixChain = mock(FilterChain.class);
+        filter.doFilter(prefixRequest, prefixResponse, prefixChain);
+
+        verify(readChain).doFilter(readRequest, readResponse);
+        verify(prefixChain).doFilter(prefixRequest, prefixResponse);
+        verify(rateLimitService, times(2)).consume(ApiRateLimitOperation.DEFAULT, "127.0.0.1", "anonymous");
     }
 
     @Test

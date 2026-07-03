@@ -7,6 +7,7 @@ const messages = {
     nav: {
       shop: 'Shop',
       orders: 'Orders',
+      cart: 'Cart',
       profile: 'Profile',
       admin: 'Admin',
       inventory: 'Inventory',
@@ -121,6 +122,7 @@ const messages = {
     nav: {
       shop: '\u5546\u57ce',
       orders: '\u8ba2\u5355',
+      cart: '\u8d2d\u7269\u8f66',
       profile: '\u4e2a\u4eba\u4e2d\u5fc3',
       admin: '\u7ba1\u7406\u53f0',
       inventory: '\u5e93\u5b58',

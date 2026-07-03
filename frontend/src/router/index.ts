@@ -26,6 +26,16 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/cart',
+      component: () => import('@/views/CartView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/checkout',
+      component: () => import('@/views/CheckoutView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/profile',
       component: () => import('@/views/ProfileView.vue'),
       meta: { requiresAuth: true },

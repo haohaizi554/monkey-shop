@@ -37,6 +37,7 @@ public class ApiRateLimitApplicationService {
             case REGISTER -> RateLimitPolicy.REGISTER;
             case ORDER -> RateLimitPolicy.ORDER;
             case SECKILL -> RateLimitPolicy.SECKILL;
+            case CART -> RateLimitPolicy.CART;
             case SEARCH -> RateLimitPolicy.SEARCH;
             case UPLOAD -> RateLimitPolicy.UPLOAD;
             case DEFAULT -> RateLimitPolicy.DEFAULT;

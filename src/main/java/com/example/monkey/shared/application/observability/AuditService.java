@@ -70,6 +70,8 @@ public class AuditService {
     public static final String MARKETING_SECKILL_DENIED = "MARKETING_SECKILL_DENIED";
     public static final String MARKETING_GROUP_JOINED = "MARKETING_GROUP_JOINED";
     public static final String MARKETING_GROUP_CANCELLED = "MARKETING_GROUP_CANCELLED";
+    public static final String CART_ITEM_CHANGED = "CART_ITEM_CHANGED";
+    public static final String CART_CHECKOUT_CREATED = "CART_CHECKOUT_CREATED";
 
     private static final Logger log = LoggerFactory.getLogger(AuditService.class);
     private static final int DEFAULT_RETENTION_DAYS = 180;
