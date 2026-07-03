@@ -108,7 +108,9 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
         if (HttpMethod.POST.matches(method) && "/api/orders/create".equals(path)) {
             return ApiRateLimitOperation.ORDER;
         }
-        if (HttpMethod.GET.matches(method) && "/api/monkeys".equals(path)) {
+        if (HttpMethod.GET.matches(method)
+                && ("/api/monkeys".equals(path)
+                        || (path != null && (path.startsWith("/api/catalog") || path.startsWith("/api/v1/catalog"))))) {
             return ApiRateLimitOperation.SEARCH;
         }
         if (HttpMethod.POST.matches(method) && path != null && path.startsWith("/api/upload")) {

@@ -74,6 +74,16 @@ export interface Monkey {
   description?: string
   imageUrl: string
   stock: number
+  categoryId?: number
+  categoryName?: string
+  status?: ProductStatus
+  memberPrice?: string | number
+  strikePrice?: string | number
+  regionPrices?: Record<string, string | number>
+  attributes?: Record<string, unknown>
+  detailJsonLd?: string
+  skus?: CatalogSku[]
+  selectedSkuId?: number
 }
 
 export interface MonkeyRequest {
@@ -132,4 +142,50 @@ export interface UploadResponse {
   variants: Record<string, string>
 }
 
+export type ProductStatus =
+  'DRAFT' | 'PENDING_REVIEW' | 'APPROVED' | 'LISTED' | 'UNLISTED' | 'RECYCLED'
+
+export interface CatalogSku {
+  id: number
+  spuId: number
+  skuCode: string
+  specification: Record<string, string>
+  originalPrice: string | number
+  memberPrice?: string | number
+  strikePrice?: string | number
+  regionPrices: Record<string, string | number>
+  active: boolean
+}
+
+export interface CatalogSpu {
+  id: number
+  categoryId: number
+  name: string
+  title: string
+  status: ProductStatus
+  originalPrice: string | number
+  memberPrice?: string | number
+  strikePrice?: string | number
+  regionPrices: Record<string, string | number>
+  attributes: Record<string, unknown>
+  detailJsonLd?: string
+  imageUrl?: string
+  skus: CatalogSku[]
+}
+
+export interface CatalogPriceQuote {
+  spuId: number
+  salePrice: string | number
+  strikePrice?: string | number
+  strategy: string
+}
+
+export interface CategoryNode {
+  id: number
+  parentId?: number | null
+  level: number
+  code: string
+  name: string
+  children: CategoryNode[]
+}
 export type ToastKind = 'success' | 'warning' | 'error' | 'info'

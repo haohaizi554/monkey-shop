@@ -4,22 +4,44 @@ import { ElMessage } from 'element-plus'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
-import { listMonkeys } from '@/api/catalog'
+import { getCatalogSpu, listMonkeys } from '@/api/catalog'
 import AppShell from '@/components/AppShell.vue'
 import ProductImage from '@/components/ProductImage.vue'
 import { useCheckout } from '@/composables/useCheckout'
 import { productJsonLd } from '@/seo/product-json-ld'
 import { useJsonLd } from '@/seo/useJsonLd'
-import type { Monkey } from '@/types'
+import type { CatalogSku, CatalogSpu, Monkey } from '@/types'
 import { money } from '@/utils/format'
 
 const route = useRoute()
 const loading = ref(false)
 const { t } = useI18n()
 const product = ref<Monkey | null>(null)
+const selectedSkuId = ref<number | null>(null)
 const productId = computed(() => Number(route.params.productId))
+const skuOptions = computed(() => product.value?.skus?.filter((sku) => sku.active) ?? [])
+const selectedSku = computed(
+  () => skuOptions.value.find((sku) => sku.id === selectedSkuId.value) ?? skuOptions.value[0],
+)
+const displayPrice = computed(
+  () =>
+    selectedSku.value?.memberPrice ?? selectedSku.value?.originalPrice ?? product.value?.price ?? 0,
+)
+const displayStrikePrice = computed(
+  () => selectedSku.value?.strikePrice ?? product.value?.strikePrice,
+)
+const checkoutProduct = computed(() => {
+  if (!product.value) {
+    return null
+  }
+  return {
+    ...product.value,
+    price: displayPrice.value,
+    selectedSkuId: selectedSku.value?.id,
+  }
+})
 const productStructuredData = computed(() =>
-  product.value ? productJsonLd(product.value) : undefined,
+  checkoutProduct.value ? productJsonLd(checkoutProduct.value) : undefined,
 )
 
 useJsonLd('monkeyshop-product-jsonld', productStructuredData)
@@ -40,8 +62,7 @@ const {
 async function loadProduct() {
   loading.value = true
   try {
-    const catalog = await listMonkeys()
-    product.value = catalog.find((item) => item.id === productId.value) ?? null
+    product.value = await loadCatalogProduct()
   } catch (error) {
     product.value = null
     ElMessage.error(error instanceof Error ? error.message : t('common.unableToLoadProduct'))
@@ -50,7 +71,56 @@ async function loadProduct() {
   }
 }
 
+async function loadCatalogProduct(): Promise<Monkey | null> {
+  try {
+    const spu = await getCatalogSpu(productId.value)
+    return catalogSpuToMonkey(spu)
+  } catch {
+    const catalog = await listMonkeys()
+    return catalog.find((item) => item.id === productId.value) ?? null
+  }
+}
+
+function catalogSpuToMonkey(spu: CatalogSpu): Monkey {
+  const firstSku = spu.skus.find((sku) => sku.active) ?? spu.skus[0]
+  const description =
+    typeof spu.attributes.description === 'string' ? spu.attributes.description : spu.title
+  return {
+    id: spu.id,
+    name: spu.name,
+    breed: spu.title,
+    price: firstSku?.memberPrice ?? spu.memberPrice ?? firstSku?.originalPrice ?? spu.originalPrice,
+    description,
+    imageUrl: spu.imageUrl || '/images/default_product.png',
+    stock: spu.skus.filter((sku) => sku.active).length,
+    categoryId: spu.categoryId,
+    status: spu.status,
+    memberPrice: spu.memberPrice,
+    strikePrice: spu.strikePrice,
+    regionPrices: spu.regionPrices,
+    attributes: spu.attributes,
+    detailJsonLd: spu.detailJsonLd,
+    skus: spu.skus,
+  }
+}
+
+function skuLabel(sku: CatalogSku): string {
+  const label = Object.entries(sku.specification)
+    .map(([name, value]) => `${name}: ${value}`)
+    .join(' / ')
+  return label || sku.skuCode
+}
+
+function buyCurrentProduct() {
+  if (checkoutProduct.value) {
+    openCheckout(checkoutProduct.value)
+  }
+}
+
 watch(productId, () => void loadProduct(), { immediate: true })
+watch(product, () => {
+  selectedSkuId.value = skuOptions.value[0]?.id ?? null
+})
 </script>
 
 <template>
@@ -78,12 +148,24 @@ watch(productId, () => void loadProduct(), { immediate: true })
                 <h1>{{ product.name }}</h1>
                 <p>{{ product.breed }}</p>
               </div>
-              <strong>{{ money(product.price) }}</strong>
+              <div class="price-stack">
+                <strong>{{ money(displayPrice) }}</strong>
+                <del v-if="displayStrikePrice">{{ money(displayStrikePrice) }}</del>
+              </div>
             </div>
 
             <p class="detail-description">
               {{ product.description }}
             </p>
+
+            <div v-if="skuOptions.length" class="sku-selector">
+              <span class="sku-title">SKU</span>
+              <el-radio-group v-model="selectedSkuId" class="sku-options">
+                <el-radio-button v-for="sku in skuOptions" :key="sku.id" :label="sku.id">
+                  {{ skuLabel(sku) }}
+                </el-radio-button>
+              </el-radio-group>
+            </div>
 
             <div class="detail-actions">
               <el-tag :type="product.stock > 0 ? 'success' : 'info'" disable-transitions>
@@ -93,7 +175,7 @@ watch(productId, () => void loadProduct(), { immediate: true })
                 type="primary"
                 :loading="openingCheckoutId === product.id"
                 :disabled="product.stock <= 0 || openingCheckoutId !== null"
-                @click="openCheckout(product)"
+                @click="buyCurrentProduct"
               >
                 {{ product.stock > 0 ? $t('shop.buy') : $t('shop.soldOut') }}
               </el-button>
@@ -145,3 +227,38 @@ watch(productId, () => void loadProduct(), { immediate: true })
     </el-dialog>
   </AppShell>
 </template>
+
+<style scoped>
+.price-stack {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+}
+
+.price-stack del {
+  color: var(--el-text-color-secondary);
+  font-size: 0.9rem;
+}
+
+.sku-selector {
+  display: grid;
+  gap: 8px;
+}
+
+.sku-title {
+  color: var(--el-text-color-regular);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.sku-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+:deep(.sku-options .el-radio-button__inner) {
+  border-radius: 6px;
+  min-height: 36px;
+}
+</style>

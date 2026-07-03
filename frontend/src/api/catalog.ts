@@ -1,5 +1,12 @@
 import { request } from './http'
-import type { Monkey, MonkeyRequest, UploadResponse } from '@/types'
+import type {
+  CatalogPriceQuote,
+  CatalogSpu,
+  CategoryNode,
+  Monkey,
+  MonkeyRequest,
+  UploadResponse,
+} from '@/types'
 
 export function listMonkeys(): Promise<Monkey[]> {
   return request<Monkey[]>({ url: '/monkeys' })
@@ -22,4 +29,23 @@ export async function uploadImage(file: File, type: 'avatar' | 'product'): Promi
   form.set('file', file)
   form.set('type', type)
   return request<UploadResponse>({ url: '/uploads', method: 'POST', data: form })
+}
+
+export function getCategoryTree(): Promise<CategoryNode[]> {
+  return request<CategoryNode[]>({ url: '/catalog/categories/tree' })
+}
+
+export function getCatalogSpu(spuId: number): Promise<CatalogSpu> {
+  return request<CatalogSpu>({ url: `/catalog/spus/${spuId}` })
+}
+
+export function getCatalogPrice(
+  spuId: number,
+  identity = 'ANONYMOUS',
+  region = '',
+): Promise<CatalogPriceQuote> {
+  return request<CatalogPriceQuote>({
+    url: `/catalog/spus/${spuId}/price`,
+    params: { identity, region },
+  })
 }

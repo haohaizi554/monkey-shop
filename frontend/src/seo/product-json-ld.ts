@@ -13,19 +13,23 @@ function absoluteUrl(value?: string): string {
 }
 
 export function productJsonLd(monkey: Monkey) {
+  const selectedSku =
+    monkey.skus?.find((sku) => sku.id === monkey.selectedSkuId) ??
+    monkey.skus?.find((sku) => sku.active)
+  const offerPrice = selectedSku?.memberPrice ?? selectedSku?.originalPrice ?? monkey.price
   return {
     '@context': 'https://schema.org',
     '@type': 'Product',
     name: monkey.name,
     description: monkey.description || `${monkey.name} ${monkey.breed}`,
     image: absoluteUrl(monkey.imageUrl),
-    sku: `monkey-${monkey.id}`,
-    category: monkey.breed,
+    sku: selectedSku?.skuCode ?? `monkey-${monkey.id}`,
+    category: monkey.categoryName ?? monkey.breed,
     offers: {
       '@type': 'Offer',
       url: `${siteOrigin}/shop/${monkey.id}`,
       priceCurrency: 'CNY',
-      price: String(monkey.price),
+      price: String(offerPrice),
       availability:
         monkey.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
     },

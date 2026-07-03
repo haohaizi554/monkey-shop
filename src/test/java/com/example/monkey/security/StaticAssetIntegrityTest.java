@@ -256,7 +256,8 @@ class StaticAssetIntegrityTest {
                 .contains("`/shop/${monkey.id}`");
         assertThat(productDetail)
                 .contains("useJsonLd('monkeyshop-product-jsonld'")
-                .contains("productJsonLd(product.value)")
+                .contains("productJsonLd(checkoutProduct.value)")
+                .contains("selectedSkuId: selectedSku.value?.id")
                 .contains("useCheckout()")
                 .contains("listMonkeys()");
         assertThat(productJsonLd)
