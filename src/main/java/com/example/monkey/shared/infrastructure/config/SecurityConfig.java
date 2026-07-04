@@ -136,6 +136,7 @@ public class SecurityConfig {
                                 "/membership",
                                 "/search",
                                 "/recommendations",
+                                "/risk",
                                 "/profile",
                                 "/index.html",
                                 "/shop.html",
@@ -284,6 +285,12 @@ public class SecurityConfig {
                         .hasAuthority("SEARCH_WRITE")
                         .requestMatchers("/api/search/conversions", "/api/v1/search/conversions")
                         .hasAuthority("SEARCH_WRITE")
+                        .requestMatchers("/api/risk/reviews/**", "/api/v1/risk/reviews/**")
+                        .hasAuthority("RISK_REVIEW")
+                        .requestMatchers("/api/risk/assess", "/api/v1/risk/assess")
+                        .hasAuthority("RISK_WRITE")
+                        .requestMatchers("/api/risk/**", "/api/v1/risk/**")
+                        .hasAuthority("RISK_READ")
                         .requestMatchers(
                                 "/api/orders/my",
                                 "/api/v1/orders/my",

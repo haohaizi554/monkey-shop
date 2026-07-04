@@ -42,6 +42,7 @@ public class ApiRateLimitApplicationService {
             case LOGISTICS -> RateLimitPolicy.LOGISTICS;
             case MEMBERSHIP -> RateLimitPolicy.MEMBERSHIP;
             case SEARCH -> RateLimitPolicy.SEARCH;
+            case RISK -> RateLimitPolicy.RISK;
             case UPLOAD -> RateLimitPolicy.UPLOAD;
             case DEFAULT -> RateLimitPolicy.DEFAULT;
         };

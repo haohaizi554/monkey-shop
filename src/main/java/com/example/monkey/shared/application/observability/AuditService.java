@@ -101,6 +101,9 @@ public class AuditService {
     public static final String SEARCH_QUERY_RECORDED = "SEARCH_QUERY_RECORDED";
     public static final String SEARCH_PROFILE_UPDATED = "SEARCH_PROFILE_UPDATED";
     public static final String SEARCH_CONVERSION_RECORDED = "SEARCH_CONVERSION_RECORDED";
+    public static final String RISK_DECISION_RECORDED = "RISK_DECISION_RECORDED";
+    public static final String RISK_REVIEW_DECIDED = "RISK_REVIEW_DECIDED";
+    public static final String RISK_REVIEW_DENIED = "RISK_REVIEW_DENIED";
 
     private static final Logger log = LoggerFactory.getLogger(AuditService.class);
     private static final int DEFAULT_RETENTION_DAYS = 180;

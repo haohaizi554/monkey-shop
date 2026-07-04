@@ -449,6 +449,9 @@ class SecurityConfigTest {
                 authenticatedRoute(HttpMethod.GET, "/api/search/recommendations"),
                 authenticatedRoute(HttpMethod.POST, "/api/search/profile"),
                 authenticatedRoute(HttpMethod.POST, "/api/search/conversions"),
+                authenticatedRoute(HttpMethod.POST, "/api/risk/assess"),
+                adminRoute(HttpMethod.GET, "/api/risk/reviews"),
+                adminRoute(HttpMethod.POST, "/api/risk/reviews/1/resolve"),
                 authenticatedRoute(HttpMethod.POST, "/api/orders/create"),
                 authenticatedRoute(HttpMethod.GET, "/api/orders/my"),
                 authenticatedRoute(HttpMethod.POST, "/api/orders/receive/1"),
@@ -497,6 +500,9 @@ class SecurityConfigTest {
                 authenticatedRoute(HttpMethod.GET, "/api/v1/search/recommendations"),
                 authenticatedRoute(HttpMethod.POST, "/api/v1/search/profile"),
                 authenticatedRoute(HttpMethod.POST, "/api/v1/search/conversions"),
+                authenticatedRoute(HttpMethod.POST, "/api/v1/risk/assess"),
+                adminRoute(HttpMethod.GET, "/api/v1/risk/reviews"),
+                adminRoute(HttpMethod.POST, "/api/v1/risk/reviews/1/resolve"),
                 authenticatedRoute(HttpMethod.POST, "/api/v1/orders/create"),
                 authenticatedRoute(HttpMethod.GET, "/api/v1/orders/my"),
                 authenticatedRoute(HttpMethod.POST, "/api/v1/orders/receive/1"),
@@ -683,6 +689,21 @@ class SecurityConfigTest {
             return "ok";
         }
 
+        @PostMapping({"/api/risk/assess", "/api/v1/risk/assess"})
+        String riskAssess() {
+            return "ok";
+        }
+
+        @GetMapping({"/api/risk/reviews", "/api/v1/risk/reviews"})
+        String riskReviews() {
+            return "ok";
+        }
+
+        @PostMapping({"/api/risk/reviews/{id}/resolve", "/api/v1/risk/reviews/{id}/resolve"})
+        String riskResolve() {
+            return "ok";
+        }
+
         @PostMapping({"/api/orders/create", "/api/v1/orders/create"})
         String createOrder() {
             return "ok";
@@ -857,6 +878,9 @@ class SecurityConfigTest {
                     new SimpleGrantedAuthority("SEARCH_READ"),
                     new SimpleGrantedAuthority("SEARCH_WRITE"),
                     new SimpleGrantedAuthority("SEARCH_ADMIN"),
+                    new SimpleGrantedAuthority("RISK_READ"),
+                    new SimpleGrantedAuthority("RISK_WRITE"),
+                    new SimpleGrantedAuthority("RISK_REVIEW"),
                     new SimpleGrantedAuthority("UPLOAD_PRODUCT_IMAGE"));
         }
         return List.of(
@@ -871,6 +895,8 @@ class SecurityConfigTest {
                 new SimpleGrantedAuthority("MEMBERSHIP_WRITE"),
                 new SimpleGrantedAuthority("SEARCH_READ"),
                 new SimpleGrantedAuthority("SEARCH_WRITE"),
+                new SimpleGrantedAuthority("RISK_READ"),
+                new SimpleGrantedAuthority("RISK_WRITE"),
                 new SimpleGrantedAuthority("UPLOAD_AVATAR"));
     }
 

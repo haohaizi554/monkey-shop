@@ -15,6 +15,9 @@ public class BusinessMetricsService {
     private final Counter orderCreatedCounter;
     private final Counter stockDeductFailureCounter;
     private final Counter searchConversionCounter;
+    private final Counter riskHighScoreCounter;
+    private final Counter riskBlockedCounter;
+    private final Counter riskPriceAnomalyCounter;
 
     public BusinessMetricsService(MeterRegistry meterRegistry, PendingOrderCounter pendingOrderCounter) {
         this.orderCreateTimer = Timer.builder("order.create")
@@ -28,6 +31,15 @@ public class BusinessMetricsService {
                 .register(meterRegistry);
         this.searchConversionCounter = Counter.builder("search.conversion")
                 .description("Search result conversion events")
+                .register(meterRegistry);
+        this.riskHighScoreCounter = Counter.builder("risk.high_score")
+                .description("Risk decisions with score at or above 80")
+                .register(meterRegistry);
+        this.riskBlockedCounter = Counter.builder("risk.blocked")
+                .description("Risk decisions that revoked user tokens")
+                .register(meterRegistry);
+        this.riskPriceAnomalyCounter = Counter.builder("risk.price_anomaly")
+                .description("Price anomaly decisions that auto-unlisted a product")
                 .register(meterRegistry);
         Gauge.builder("order.pending", pendingOrderCounter, counter -> counter.countPendingOrders())
                 .description("Orders paid but not shipped")
@@ -54,5 +66,25 @@ public class BusinessMetricsService {
 
     public void recordSearchConversion() {
         searchConversionCounter.increment();
+    }
+
+    public void recordRiskDecision(int score, boolean priceAnomaly, boolean blocked) {
+        if (score >= 80) {
+            riskHighScoreCounter.increment();
+        }
+        if (priceAnomaly) {
+            riskPriceAnomalyCounter.increment();
+        }
+        if (blocked) {
+            riskBlockedCounter.increment();
+        }
+    }
+
+    public void recordRiskBlocked() {
+        riskBlockedCounter.increment();
+    }
+
+    public void recordRiskPriceAnomaly() {
+        riskPriceAnomalyCounter.increment();
     }
 }

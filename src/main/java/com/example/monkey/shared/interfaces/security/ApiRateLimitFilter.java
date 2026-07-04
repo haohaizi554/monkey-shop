@@ -96,7 +96,8 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
         return "/api/.env".equals(path)
                 || "/admin/secret".equals(path)
                 || "/api/seckill/internal/active".equals(path)
-                || "/api/search/internal/hot".equals(path);
+                || "/api/search/internal/hot".equals(path)
+                || "/api/risk/internal/probe".equals(path);
     }
 
     private static ApiRateLimitOperation operationFor(HttpServletRequest request) {
@@ -130,6 +131,9 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
         }
         if (isSearchPath(path)) {
             return ApiRateLimitOperation.SEARCH;
+        }
+        if (isRiskPath(path)) {
+            return ApiRateLimitOperation.RISK;
         }
         if (HttpMethod.GET.matches(method)
                 && ("/api/monkeys".equals(path)
@@ -168,6 +172,10 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
 
     private static boolean isSearchPath(String path) {
         return path != null && (path.startsWith("/api/search") || path.startsWith("/api/v1/search"));
+    }
+
+    private static boolean isRiskPath(String path) {
+        return path != null && (path.startsWith("/api/risk") || path.startsWith("/api/v1/risk"));
     }
 
     private static String authenticatedUserKey() {

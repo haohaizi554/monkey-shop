@@ -138,4 +138,34 @@ spec:
             summary: MonkeyShop pending order backlog is high
             description: Paid but unshipped orders are above {{ .Values.prometheusRule.thresholds.pendingOrders }}.
             runbook_url: {{ .Values.prometheusRule.runbookUrl | quote }}
+        - alert: MonkeyShopRiskHighScoreSpike
+          expr: |
+            sum(increase(risk_high_score_total{service="{{ $fullname }}"}[5m])) > {{ .Values.prometheusRule.thresholds.riskHighScores }}
+          for: {{ .Values.prometheusRule.for.riskHighScores }}
+          labels:
+            severity: {{ .Values.prometheusRule.severity | quote }}
+          annotations:
+            summary: MonkeyShop high-risk decisions are elevated
+            description: Risk scores at or above 80 exceeded {{ .Values.prometheusRule.thresholds.riskHighScores }} decisions in five minutes.
+            runbook_url: {{ .Values.prometheusRule.runbookUrl | quote }}
+        - alert: MonkeyShopRiskPriceAnomaly
+          expr: |
+            sum(increase(risk_price_anomaly_total{service="{{ $fullname }}"}[5m])) > {{ .Values.prometheusRule.thresholds.riskPriceAnomalies }}
+          for: {{ .Values.prometheusRule.for.riskPriceAnomalies }}
+          labels:
+            severity: critical
+          annotations:
+            summary: MonkeyShop risk price anomalies triggered auto-unlist
+            description: Price anomaly risk controls auto-unlisted more than {{ .Values.prometheusRule.thresholds.riskPriceAnomalies }} products in five minutes.
+            runbook_url: {{ .Values.prometheusRule.runbookUrl | quote }}
+        - alert: MonkeyShopRiskAccountBlocks
+          expr: |
+            sum(increase(risk_blocked_total{service="{{ $fullname }}"}[5m])) > {{ .Values.prometheusRule.thresholds.riskAccountBlocks }}
+          for: {{ .Values.prometheusRule.for.riskAccountBlocks }}
+          labels:
+            severity: critical
+          annotations:
+            summary: MonkeyShop risk controls blocked accounts
+            description: Risk controls revoked tokens for more than {{ .Values.prometheusRule.thresholds.riskAccountBlocks }} accounts in five minutes.
+            runbook_url: {{ .Values.prometheusRule.runbookUrl | quote }}
 {{- end }}

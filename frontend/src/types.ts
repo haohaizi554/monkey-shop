@@ -801,4 +801,66 @@ export interface SearchConversionRequest {
   productId: number
   source?: string
 }
+
+export type RiskDecision = 'ALLOW' | 'RATE_LIMIT' | 'TOTP_REQUIRED' | 'REVIEW' | 'BLOCK'
+export type RiskSignalType =
+  | 'DEVICE_MULTI_ACCOUNT'
+  | 'PHONE_MULTI_ACCOUNT'
+  | 'SECKILL_SCALPER'
+  | 'SELF_BUY'
+  | 'PRICE_ANOMALY'
+  | 'HIGH_RISK_SCORE'
+  | 'ACCOUNT_BLOCKED'
+export type RiskReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'BLOCKED'
+
+export interface RiskSignal {
+  type: RiskSignalType
+  weight: number
+  detail?: string
+}
+
+export interface RiskAssessmentRequest {
+  phone?: string
+  deviceFingerprint?: string
+  clientIp?: string
+  productId?: number
+  orderId?: number
+  seckillActivityId?: number
+  sellerUserId?: number
+  priceBefore?: string | number
+  priceAfter?: string | number
+  totpCode?: string
+}
+
+export interface RiskAssessmentResponse {
+  userId: number
+  score: number
+  decision: RiskDecision
+  signals: RiskSignal[]
+  reviewCaseId?: number
+  productAutoUnlisted: boolean
+  userTokensRevoked: boolean
+  assessedAt: string
+}
+
+export interface RiskReviewCase {
+  id: number
+  userId: number
+  orderId?: number
+  productId?: number
+  type: RiskSignalType
+  score: number
+  status: RiskReviewStatus
+  detail?: string
+  createdAt: string
+  handledAt?: string
+  handlerUserId?: number
+  resolution?: string
+}
+
+export interface RiskReviewResolveRequest {
+  status: Exclude<RiskReviewStatus, 'PENDING'>
+  resolution?: string
+  totpCode?: string
+}
 export type ToastKind = 'success' | 'warning' | 'error' | 'info'

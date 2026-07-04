@@ -87,6 +87,18 @@ class ApiRateLimitFilterTest {
         verify(searchChain).doFilter(searchRequest, searchResponse);
         verify(rateLimitService).consume(ApiRateLimitOperation.SEARCH, "127.0.0.1", "anonymous");
 
+        when(rateLimitService.consume(ApiRateLimitOperation.RISK, "127.0.0.1", "anonymous"))
+                .thenReturn(new ApiRateLimitResult(true, 0));
+        MockHttpServletRequest riskRequest = new MockHttpServletRequest("POST", "/api/v1/risk/assess");
+        riskRequest.setRemoteAddr("127.0.0.1");
+        MockHttpServletResponse riskResponse = new MockHttpServletResponse();
+        FilterChain riskChain = mock(FilterChain.class);
+
+        filter.doFilter(riskRequest, riskResponse, riskChain);
+
+        verify(riskChain).doFilter(riskRequest, riskResponse);
+        verify(rateLimitService).consume(ApiRateLimitOperation.RISK, "127.0.0.1", "anonymous");
+
         when(rateLimitService.consume(ApiRateLimitOperation.UPLOAD, "127.0.0.1", "anonymous"))
                 .thenReturn(new ApiRateLimitResult(true, 0));
         MockHttpServletRequest uploadRequest = new MockHttpServletRequest("POST", "/api/v1/uploads/product");
@@ -352,5 +364,16 @@ class ApiRateLimitFilterTest {
         assertThat(trapResponse.getStatus()).isEqualTo(403);
         verify(rateLimitService).blockForHoneypot("198.51.100.25");
         verify(trapChain, never()).doFilter(searchTrap, trapResponse);
+
+        MockHttpServletRequest riskTrap = new MockHttpServletRequest("GET", "/api/v1/risk/internal/probe");
+        riskTrap.setRemoteAddr("198.51.100.26");
+        MockHttpServletResponse riskTrapResponse = new MockHttpServletResponse();
+        FilterChain riskTrapChain = mock(FilterChain.class);
+
+        filter.doFilter(riskTrap, riskTrapResponse, riskTrapChain);
+
+        assertThat(riskTrapResponse.getStatus()).isEqualTo(403);
+        verify(rateLimitService).blockForHoneypot("198.51.100.26");
+        verify(riskTrapChain, never()).doFilter(riskTrap, riskTrapResponse);
     }
 }

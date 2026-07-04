@@ -170,6 +170,21 @@ import com.example.monkey.product.infrastructure.Monkey;
 import com.example.monkey.product.infrastructure.MonkeyRepository;
 import com.example.monkey.product.infrastructure.ProductImageReferenceSource;
 import com.example.monkey.product.interfaces.MonkeyController;
+import com.example.monkey.risk.application.RiskApplicationService;
+import com.example.monkey.risk.application.dto.RiskAssessmentRequestDto;
+import com.example.monkey.risk.application.dto.RiskAssessmentResponseDto;
+import com.example.monkey.risk.domain.RiskBlindIndexService;
+import com.example.monkey.risk.domain.RiskCache;
+import com.example.monkey.risk.domain.RiskPolicy;
+import com.example.monkey.risk.domain.RiskScore;
+import com.example.monkey.risk.domain.RiskStore;
+import com.example.monkey.risk.infrastructure.JpaRiskStore;
+import com.example.monkey.risk.infrastructure.PiiRiskBlindIndexService;
+import com.example.monkey.risk.infrastructure.RedisRiskCache;
+import com.example.monkey.risk.infrastructure.RiskDeviceFingerprintEntity;
+import com.example.monkey.risk.infrastructure.RiskReviewCaseEntity;
+import com.example.monkey.risk.infrastructure.RiskScoreEntity;
+import com.example.monkey.risk.interfaces.RiskController;
 import com.example.monkey.search.application.SearchApplicationService;
 import com.example.monkey.search.application.dto.SearchPageDto;
 import com.example.monkey.search.application.dto.SearchProductQueryDto;
@@ -982,6 +997,28 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
+    void riskSliceUsesWs10BoundedContextLayers() {
+        assertThat(RiskStore.class.getPackageName()).isEqualTo("com.example.monkey.risk.domain");
+        assertThat(RiskCache.class.getPackageName()).isEqualTo("com.example.monkey.risk.domain");
+        assertThat(RiskBlindIndexService.class.getPackageName()).isEqualTo("com.example.monkey.risk.domain");
+        assertThat(RiskScore.class.getPackageName()).isEqualTo("com.example.monkey.risk.domain");
+        assertThat(RiskPolicy.class.getPackageName()).isEqualTo("com.example.monkey.risk.domain");
+        assertThat(RiskApplicationService.class.getPackageName()).isEqualTo("com.example.monkey.risk.application");
+        assertThat(RiskAssessmentRequestDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.risk.application.dto");
+        assertThat(RiskAssessmentResponseDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.risk.application.dto");
+        assertThat(JpaRiskStore.class.getPackageName()).isEqualTo("com.example.monkey.risk.infrastructure");
+        assertThat(RedisRiskCache.class.getPackageName()).isEqualTo("com.example.monkey.risk.infrastructure");
+        assertThat(PiiRiskBlindIndexService.class.getPackageName()).isEqualTo("com.example.monkey.risk.infrastructure");
+        assertThat(RiskDeviceFingerprintEntity.class.getPackageName())
+                .isEqualTo("com.example.monkey.risk.infrastructure");
+        assertThat(RiskScoreEntity.class.getPackageName()).isEqualTo("com.example.monkey.risk.infrastructure");
+        assertThat(RiskReviewCaseEntity.class.getPackageName()).isEqualTo("com.example.monkey.risk.infrastructure");
+        assertThat(RiskController.class.getPackageName()).isEqualTo("com.example.monkey.risk.interfaces");
+    }
+
+    @Test
     void cartSliceUsesWs4BoundedContextLayers() {
         assertThat(CartStore.class.getPackageName()).isEqualTo("com.example.monkey.cart.domain");
         assertThat(CartCheckoutStore.class.getPackageName()).isEqualTo("com.example.monkey.cart.domain");
@@ -1304,6 +1341,7 @@ class ArchitectureBoundaryTest {
                     "com.example.monkey.marketing.domain..",
                     "com.example.monkey.order.domain..",
                     "com.example.monkey.product.domain..",
+                    "com.example.monkey.risk.domain..",
                     "com.example.monkey.user.domain..");
 
     @ArchTest
@@ -1314,6 +1352,7 @@ class ArchitectureBoundaryTest {
                     "com.example.monkey.cart.interfaces..",
                     "com.example.monkey.order.interfaces..",
                     "com.example.monkey.product.interfaces..",
+                    "com.example.monkey.risk.interfaces..",
                     "com.example.monkey.shared.interfaces..")
             .should()
             .dependOnClassesThat()
@@ -1643,6 +1682,41 @@ class ArchitectureBoundaryTest {
             .should()
             .dependOnClassesThat()
             .resideInAPackage("com.example.monkey.search.domain..");
+
+    @ArchTest
+    static final ArchRule risk_store_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(RiskStore.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule risk_cache_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(RiskCache.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule risk_blind_index_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(RiskBlindIndexService.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule risk_interfaces_do_not_depend_on_risk_domain = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.risk.interfaces..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("com.example.monkey.risk.domain..");
 
     @ArchTest
     static final ArchRule address_book_adapters_stay_out_of_service_package = classes()

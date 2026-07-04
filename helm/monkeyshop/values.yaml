@@ -309,6 +309,9 @@ prometheusRule:
     hikariSaturation: 0.9
     stockDeductFailures: 5
     pendingOrders: 100
+    riskHighScores: 20
+    riskPriceAnomalies: 0
+    riskAccountBlocks: 0
   for:
     errorRate: 5m
     p99Latency: 10m
@@ -318,6 +321,9 @@ prometheusRule:
     sloSlowBurn: 15m
     stockDeductFailures: 5m
     pendingOrders: 15m
+    riskHighScores: 5m
+    riskPriceAnomalies: 1m
+    riskAccountBlocks: 1m
 
 grafanaDashboard:
   enabled: false

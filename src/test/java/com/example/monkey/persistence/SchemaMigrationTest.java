@@ -54,6 +54,9 @@ class SchemaMigrationTest {
         String v36 = read("src/main/resources/db/migration/V36__membership_collection.sql");
         String v37 = read("src/main/resources/db/migration/V37__search_history.sql");
         String v38 = read("src/main/resources/db/migration/V38__user_search_profile.sql");
+        String v39 = read("src/main/resources/db/migration/V39__risk_device_fingerprint.sql");
+        String v40 = read("src/main/resources/db/migration/V40__risk_score.sql");
+        String v41 = read("src/main/resources/db/migration/V41__risk_audit_queue.sql");
 
         assertThat(v1).contains("CREATE TABLE IF NOT EXISTS `orders`");
         assertThat(v1).contains("`price` DOUBLE");
@@ -151,6 +154,16 @@ class SchemaMigrationTest {
         assertThat(v38).contains("interest_profile_hmac");
         assertThat(v38).contains("SEARCH_READ");
         assertThat(v38).contains("SEARCH_WRITE");
+        assertThat(v39).contains("CREATE TABLE risk_device_fingerprint");
+        assertThat(v39).contains("device_fingerprint_hash");
+        assertThat(v39).contains("phone_hmac");
+        assertThat(v39).contains("idx_risk_device_users");
+        assertThat(v40).contains("CREATE TABLE risk_score");
+        assertThat(v40).contains("signals_json");
+        assertThat(v40).contains("idx_risk_score_decision_assessed");
+        assertThat(v41).contains("CREATE TABLE risk_audit_queue");
+        assertThat(v41).contains("RISK_WRITE");
+        assertThat(v41).contains("RISK_REVIEW");
     }
 
     private static String read(String path) throws IOException {
