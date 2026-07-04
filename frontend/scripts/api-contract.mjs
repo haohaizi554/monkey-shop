@@ -172,7 +172,7 @@ requireIncludes(
 )
 requireIncludes(
   'src/views/ProductDetailView.vue',
-  'productJsonLd(product.value)',
+  'productJsonLd(checkoutProduct.value)',
   'Product JSON-LD source',
 )
 requireIncludes('src/views/ProductDetailView.vue', 'useCheckout()', 'detail checkout flow')
