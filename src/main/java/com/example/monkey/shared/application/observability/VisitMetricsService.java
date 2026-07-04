@@ -22,9 +22,14 @@ public class VisitMetricsService {
             return;
         }
         String page = normalizedPage(requestUri);
+        recordClientPageView(page, clientIp);
+    }
+
+    public void recordClientPageView(String page, String clientIp) {
+        String normalizedPage = normalizedPage(page);
         Counter.builder("visit.page.views")
                 .description("Page views served by MonkeyShop")
-                .tag("page", page)
+                .tag("page", normalizedPage)
                 .register(meterRegistry)
                 .increment();
         visitLogRecorder.recordVisit(clientIp);

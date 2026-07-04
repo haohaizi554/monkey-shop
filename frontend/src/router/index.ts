@@ -86,6 +86,11 @@ export const router = createRouter({
       component: () => import('@/views/RiskReviewView.vue'),
       meta: { requiresAuth: true, requiresAdmin: true },
     },
+    {
+      path: '/dashboard',
+      component: () => import('@/views/DashboardView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
   ],
   scrollBehavior: () => ({ top: 0 }),
 })

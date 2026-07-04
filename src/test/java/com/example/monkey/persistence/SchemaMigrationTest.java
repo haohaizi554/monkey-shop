@@ -57,6 +57,8 @@ class SchemaMigrationTest {
         String v39 = read("src/main/resources/db/migration/V39__risk_device_fingerprint.sql");
         String v40 = read("src/main/resources/db/migration/V40__risk_score.sql");
         String v41 = read("src/main/resources/db/migration/V41__risk_audit_queue.sql");
+        String v42 = read("src/main/resources/db/migration/V42__tracking_event.sql");
+        String v43 = read("src/main/resources/db/migration/V43__user_profile_tag.sql");
 
         assertThat(v1).contains("CREATE TABLE IF NOT EXISTS `orders`");
         assertThat(v1).contains("`price` DOUBLE");
@@ -164,6 +166,15 @@ class SchemaMigrationTest {
         assertThat(v41).contains("CREATE TABLE risk_audit_queue");
         assertThat(v41).contains("RISK_WRITE");
         assertThat(v41).contains("RISK_REVIEW");
+        assertThat(v42).contains("CREATE TABLE tracking_event");
+        assertThat(v42).contains("attributes_json JSON");
+        assertThat(v42).contains("TRACKING_READ");
+        assertThat(v42).contains("TRACKING_ADMIN");
+        assertThat(v43).contains("CREATE TABLE user_profile_tag");
+        assertThat(v43).contains("encrypted_profile_summary");
+        assertThat(v43).contains("profile_summary_hmac");
+        assertThat(v43).contains("CREATE TABLE product_profile");
+        assertThat(v43).contains("tag_vector_json JSON");
     }
 
     private static String read(String path) throws IOException {

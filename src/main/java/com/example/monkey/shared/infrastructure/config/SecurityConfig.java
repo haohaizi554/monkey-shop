@@ -137,6 +137,7 @@ public class SecurityConfig {
                                 "/search",
                                 "/recommendations",
                                 "/risk",
+                                "/dashboard",
                                 "/profile",
                                 "/index.html",
                                 "/shop.html",
@@ -291,6 +292,12 @@ public class SecurityConfig {
                         .hasAuthority("RISK_WRITE")
                         .requestMatchers("/api/risk/**", "/api/v1/risk/**")
                         .hasAuthority("RISK_READ")
+                        .requestMatchers(HttpMethod.POST, "/api/tracking/events", "/api/v1/tracking/events")
+                        .permitAll()
+                        .requestMatchers("/api/tracking/profile/me", "/api/v1/tracking/profile/me")
+                        .hasAuthority("TRACKING_READ")
+                        .requestMatchers("/api/tracking/**", "/api/v1/tracking/**")
+                        .hasAuthority("TRACKING_ADMIN")
                         .requestMatchers(
                                 "/api/orders/my",
                                 "/api/v1/orders/my",

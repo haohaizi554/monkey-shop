@@ -77,6 +77,10 @@ function toggleLocale() {
           <span class="nav-mark" aria-hidden="true">K</span>
           <span>{{ t('nav.risk') }}</span>
         </RouterLink>
+        <RouterLink v-if="auth.isAdmin" to="/dashboard">
+          <span class="nav-mark" aria-hidden="true">D</span>
+          <span>{{ t('nav.dashboard') }}</span>
+        </RouterLink>
       </nav>
 
       <div class="header-actions">

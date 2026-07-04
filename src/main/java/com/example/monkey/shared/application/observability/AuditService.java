@@ -104,6 +104,9 @@ public class AuditService {
     public static final String RISK_DECISION_RECORDED = "RISK_DECISION_RECORDED";
     public static final String RISK_REVIEW_DECIDED = "RISK_REVIEW_DECIDED";
     public static final String RISK_REVIEW_DENIED = "RISK_REVIEW_DENIED";
+    public static final String TRACKING_EVENT_RECORDED = "TRACKING_EVENT_RECORDED";
+    public static final String USER_PROFILE_TAG_UPDATED = "USER_PROFILE_TAG_UPDATED";
+    public static final String PRODUCT_PROFILE_UPDATED = "PRODUCT_PROFILE_UPDATED";
 
     private static final Logger log = LoggerFactory.getLogger(AuditService.class);
     private static final int DEFAULT_RETENTION_DAYS = 180;

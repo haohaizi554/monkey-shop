@@ -863,4 +863,72 @@ export interface RiskReviewResolveRequest {
   resolution?: string
   totpCode?: string
 }
+
+export type TrackingEventType =
+  | 'PAGE_VIEW'
+  | 'CLICK'
+  | 'SEARCH'
+  | 'PRODUCT_VIEW'
+  | 'ADD_TO_CART'
+  | 'ORDER_CREATED'
+  | 'PAYMENT_SUCCESS'
+
+export interface TrackingEventRequest {
+  eventType: TrackingEventType
+  sessionId?: string
+  traceId?: string
+  page?: string
+  source?: string
+  productId?: number
+  categoryId?: number
+  orderId?: number
+  amount?: string | number
+  attributes?: Record<string, string>
+  occurredAt?: string
+}
+
+export interface TrackingEventResponse {
+  id: number
+  userId?: number
+  sessionId: string
+  traceId: string
+  eventType: TrackingEventType
+  page: string
+  occurredAt: string
+}
+
+export interface UserProfileTag {
+  userId: number
+  profileSummary: string
+  behaviorTags: string[]
+  interestTags: string[]
+  lastEventAt: string
+  version: number
+}
+
+export interface ProductProfile {
+  productId: number
+  categoryId?: number
+  tagVector: string[]
+  salesCount: number
+  reviewScore: string | number
+  lastEventAt: string
+  version: number
+}
+
+export interface FunnelStep {
+  eventType: TrackingEventType
+  count: number
+  conversionRate: string | number
+}
+
+export interface RealtimeDashboard {
+  pageViews: number
+  uniqueVisitors: number
+  orderCount: number
+  paymentAmount: string | number
+  funnel: FunnelStep[]
+  generatedAt: string
+  refreshIntervalSeconds: number
+}
 export type ToastKind = 'success' | 'warning' | 'error' | 'info'

@@ -19,6 +19,9 @@ class BusinessMetricsServiceTest {
         metricsService.recordStockDeductFailure();
         metricsService.recordSearchConversion();
         metricsService.recordRiskDecision(88, true, true);
+        metricsService.recordTrackingEvent("PAYMENT_SUCCESS");
+        metricsService.recordFunnelSnapshot("PAYMENT_SUCCESS", 4L);
+        metricsService.recordFunnelSnapshot("PAYMENT_SUCCESS", 6L);
 
         assertThat(value).isEqualTo("created");
         assertThat(meterRegistry.find("order.create").timer().count()).isEqualTo(1);
@@ -28,6 +31,18 @@ class BusinessMetricsServiceTest {
         assertThat(meterRegistry.find("risk.high_score").counter().count()).isEqualTo(1);
         assertThat(meterRegistry.find("risk.price_anomaly").counter().count()).isEqualTo(1);
         assertThat(meterRegistry.find("risk.blocked").counter().count()).isEqualTo(1);
+        assertThat(meterRegistry
+                        .find("tracking.event")
+                        .tag("type", "PAYMENT_SUCCESS")
+                        .counter()
+                        .count())
+                .isEqualTo(1);
+        assertThat(meterRegistry
+                        .find("tracking.funnel")
+                        .tag("step", "PAYMENT_SUCCESS")
+                        .gauge()
+                        .value())
+                .isEqualTo(6);
         assertThat(meterRegistry.find("order.pending").gauge().value()).isEqualTo(7);
     }
 }

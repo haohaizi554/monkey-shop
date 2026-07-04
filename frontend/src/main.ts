@@ -1,8 +1,13 @@
 import { createPinia } from 'pinia'
 import { createApp } from 'vue'
 import App from './App.vue'
+import { installTracking } from './TrackingSdk'
 import { i18n } from './locales'
 import { router } from './router'
 import './styles/main.css'
 
-createApp(App).use(createPinia()).use(router).use(i18n).mount('#app')
+const app = createApp(App).use(createPinia()).use(router).use(i18n)
+
+installTracking(router)
+
+app.mount('#app')

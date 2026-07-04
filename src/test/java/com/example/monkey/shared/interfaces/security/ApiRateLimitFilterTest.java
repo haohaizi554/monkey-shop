@@ -87,6 +87,18 @@ class ApiRateLimitFilterTest {
         verify(searchChain).doFilter(searchRequest, searchResponse);
         verify(rateLimitService).consume(ApiRateLimitOperation.SEARCH, "127.0.0.1", "anonymous");
 
+        when(rateLimitService.consume(ApiRateLimitOperation.TRACKING, "127.0.0.1", "anonymous"))
+                .thenReturn(new ApiRateLimitResult(true, 0));
+        MockHttpServletRequest trackingRequest = new MockHttpServletRequest("POST", "/api/v1/tracking/events");
+        trackingRequest.setRemoteAddr("127.0.0.1");
+        MockHttpServletResponse trackingResponse = new MockHttpServletResponse();
+        FilterChain trackingChain = mock(FilterChain.class);
+
+        filter.doFilter(trackingRequest, trackingResponse, trackingChain);
+
+        verify(trackingChain).doFilter(trackingRequest, trackingResponse);
+        verify(rateLimitService).consume(ApiRateLimitOperation.TRACKING, "127.0.0.1", "anonymous");
+
         when(rateLimitService.consume(ApiRateLimitOperation.RISK, "127.0.0.1", "anonymous"))
                 .thenReturn(new ApiRateLimitResult(true, 0));
         MockHttpServletRequest riskRequest = new MockHttpServletRequest("POST", "/api/v1/risk/assess");
@@ -375,5 +387,16 @@ class ApiRateLimitFilterTest {
         assertThat(riskTrapResponse.getStatus()).isEqualTo(403);
         verify(rateLimitService).blockForHoneypot("198.51.100.26");
         verify(riskTrapChain, never()).doFilter(riskTrap, riskTrapResponse);
+
+        MockHttpServletRequest trackingTrap = new MockHttpServletRequest("GET", "/api/v1/tracking/internal/pixel");
+        trackingTrap.setRemoteAddr("198.51.100.27");
+        MockHttpServletResponse trackingTrapResponse = new MockHttpServletResponse();
+        FilterChain trackingTrapChain = mock(FilterChain.class);
+
+        filter.doFilter(trackingTrap, trackingTrapResponse, trackingTrapChain);
+
+        assertThat(trackingTrapResponse.getStatus()).isEqualTo(403);
+        verify(rateLimitService).blockForHoneypot("198.51.100.27");
+        verify(trackingTrapChain, never()).doFilter(trackingTrap, trackingTrapResponse);
     }
 }

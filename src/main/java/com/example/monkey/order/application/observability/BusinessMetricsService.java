@@ -5,6 +5,9 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import org.springframework.stereotype.Service;
 
@@ -18,8 +21,11 @@ public class BusinessMetricsService {
     private final Counter riskHighScoreCounter;
     private final Counter riskBlockedCounter;
     private final Counter riskPriceAnomalyCounter;
+    private final MeterRegistry meterRegistry;
+    private final Map<String, AtomicLong> funnelSnapshots = new ConcurrentHashMap<>();
 
     public BusinessMetricsService(MeterRegistry meterRegistry, PendingOrderCounter pendingOrderCounter) {
+        this.meterRegistry = meterRegistry;
         this.orderCreateTimer = Timer.builder("order.create")
                 .description("Order creation latency")
                 .register(meterRegistry);
@@ -86,5 +92,28 @@ public class BusinessMetricsService {
 
     public void recordRiskPriceAnomaly() {
         riskPriceAnomalyCounter.increment();
+    }
+
+    public void recordTrackingEvent(String eventType) {
+        Counter.builder("tracking.event")
+                .description("Tracking events accepted by the data platform")
+                .tag("type", eventType == null ? "UNKNOWN" : eventType)
+                .register(meterRegistry)
+                .increment();
+    }
+
+    public void recordFunnelSnapshot(String step, long count) {
+        String normalizedStep = step == null ? "UNKNOWN" : step;
+        funnelSnapshots
+                .computeIfAbsent(normalizedStep, key -> {
+                    AtomicLong gaugeValue = new AtomicLong();
+                    Gauge.builder("tracking.funnel", gaugeValue, AtomicLong::get)
+                            .description("Latest tracking funnel count snapshot")
+                            .tag("step", key)
+                            .strongReference(true)
+                            .register(meterRegistry);
+                    return gaugeValue;
+                })
+                .set(count);
     }
 }

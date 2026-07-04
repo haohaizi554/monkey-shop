@@ -452,6 +452,12 @@ class SecurityConfigTest {
                 authenticatedRoute(HttpMethod.POST, "/api/risk/assess"),
                 adminRoute(HttpMethod.GET, "/api/risk/reviews"),
                 adminRoute(HttpMethod.POST, "/api/risk/reviews/1/resolve"),
+                publicRoute(HttpMethod.POST, "/api/tracking/events"),
+                authenticatedRoute(HttpMethod.GET, "/api/tracking/profile/me"),
+                adminRoute(HttpMethod.GET, "/api/tracking/dashboard"),
+                adminRoute(HttpMethod.GET, "/api/tracking/funnel"),
+                adminRoute(HttpMethod.GET, "/api/tracking/profile/7"),
+                adminRoute(HttpMethod.GET, "/api/tracking/products/42"),
                 authenticatedRoute(HttpMethod.POST, "/api/orders/create"),
                 authenticatedRoute(HttpMethod.GET, "/api/orders/my"),
                 authenticatedRoute(HttpMethod.POST, "/api/orders/receive/1"),
@@ -503,6 +509,12 @@ class SecurityConfigTest {
                 authenticatedRoute(HttpMethod.POST, "/api/v1/risk/assess"),
                 adminRoute(HttpMethod.GET, "/api/v1/risk/reviews"),
                 adminRoute(HttpMethod.POST, "/api/v1/risk/reviews/1/resolve"),
+                publicRoute(HttpMethod.POST, "/api/v1/tracking/events"),
+                authenticatedRoute(HttpMethod.GET, "/api/v1/tracking/profile/me"),
+                adminRoute(HttpMethod.GET, "/api/v1/tracking/dashboard"),
+                adminRoute(HttpMethod.GET, "/api/v1/tracking/funnel"),
+                adminRoute(HttpMethod.GET, "/api/v1/tracking/profile/7"),
+                adminRoute(HttpMethod.GET, "/api/v1/tracking/products/42"),
                 authenticatedRoute(HttpMethod.POST, "/api/v1/orders/create"),
                 authenticatedRoute(HttpMethod.GET, "/api/v1/orders/my"),
                 authenticatedRoute(HttpMethod.POST, "/api/v1/orders/receive/1"),
@@ -704,6 +716,36 @@ class SecurityConfigTest {
             return "ok";
         }
 
+        @PostMapping({"/api/tracking/events", "/api/v1/tracking/events"})
+        String trackingEvents() {
+            return "ok";
+        }
+
+        @GetMapping({"/api/tracking/profile/me", "/api/v1/tracking/profile/me"})
+        String trackingProfileMe() {
+            return "ok";
+        }
+
+        @GetMapping({"/api/tracking/dashboard", "/api/v1/tracking/dashboard"})
+        String trackingDashboard() {
+            return "ok";
+        }
+
+        @GetMapping({"/api/tracking/funnel", "/api/v1/tracking/funnel"})
+        String trackingFunnel() {
+            return "ok";
+        }
+
+        @GetMapping({"/api/tracking/profile/{id}", "/api/v1/tracking/profile/{id}"})
+        String trackingProfile() {
+            return "ok";
+        }
+
+        @GetMapping({"/api/tracking/products/{id}", "/api/v1/tracking/products/{id}"})
+        String trackingProduct() {
+            return "ok";
+        }
+
         @PostMapping({"/api/orders/create", "/api/v1/orders/create"})
         String createOrder() {
             return "ok";
@@ -881,6 +923,9 @@ class SecurityConfigTest {
                     new SimpleGrantedAuthority("RISK_READ"),
                     new SimpleGrantedAuthority("RISK_WRITE"),
                     new SimpleGrantedAuthority("RISK_REVIEW"),
+                    new SimpleGrantedAuthority("TRACKING_READ"),
+                    new SimpleGrantedAuthority("TRACKING_WRITE"),
+                    new SimpleGrantedAuthority("TRACKING_ADMIN"),
                     new SimpleGrantedAuthority("UPLOAD_PRODUCT_IMAGE"));
         }
         return List.of(
@@ -897,6 +942,8 @@ class SecurityConfigTest {
                 new SimpleGrantedAuthority("SEARCH_WRITE"),
                 new SimpleGrantedAuthority("RISK_READ"),
                 new SimpleGrantedAuthority("RISK_WRITE"),
+                new SimpleGrantedAuthority("TRACKING_READ"),
+                new SimpleGrantedAuthority("TRACKING_WRITE"),
                 new SimpleGrantedAuthority("UPLOAD_AVATAR"));
     }
 

@@ -264,6 +264,24 @@ import com.example.monkey.shared.interfaces.storage.dto.PresignedUploadRequestDt
 import com.example.monkey.shared.interfaces.storage.dto.UploadFileRequestDto;
 import com.example.monkey.shared.interfaces.storage.dto.UploadRequestDto;
 import com.example.monkey.shared.interfaces.web.ErrorHttpStatuses;
+import com.example.monkey.tracking.application.TrackingApplicationService;
+import com.example.monkey.tracking.application.dto.FunnelStepDto;
+import com.example.monkey.tracking.application.dto.ProductProfileDto;
+import com.example.monkey.tracking.application.dto.RealtimeDashboardDto;
+import com.example.monkey.tracking.application.dto.TrackingEventRequestDto;
+import com.example.monkey.tracking.application.dto.TrackingEventResponseDto;
+import com.example.monkey.tracking.application.dto.UserProfileTagDto;
+import com.example.monkey.tracking.domain.FunnelStep;
+import com.example.monkey.tracking.domain.ProductProfile;
+import com.example.monkey.tracking.domain.RealtimeDashboard;
+import com.example.monkey.tracking.domain.TrackingEvent;
+import com.example.monkey.tracking.domain.TrackingStore;
+import com.example.monkey.tracking.domain.UserProfileTag;
+import com.example.monkey.tracking.infrastructure.JpaTrackingStore;
+import com.example.monkey.tracking.infrastructure.ProductProfileEntity;
+import com.example.monkey.tracking.infrastructure.TrackingEventEntity;
+import com.example.monkey.tracking.infrastructure.UserProfileTagEntity;
+import com.example.monkey.tracking.interfaces.TrackingController;
 import com.example.monkey.user.application.AddressApplicationService;
 import com.example.monkey.user.application.AddressService;
 import com.example.monkey.user.application.AuthDtoAssembler;
@@ -703,6 +721,7 @@ class ArchitectureBoundaryTest {
                     "com.example.monkey.order..",
                     "com.example.monkey.payment..",
                     "com.example.monkey.product..",
+                    "com.example.monkey.tracking..",
                     "com.example.monkey.shared..",
                     "com.example.monkey.user..")
             .should()
@@ -735,6 +754,10 @@ class ArchitectureBoundaryTest {
                     "com.example.monkey.product.application..",
                     "com.example.monkey.product.infrastructure..",
                     "com.example.monkey.product.interfaces..",
+                    "com.example.monkey.tracking.domain..",
+                    "com.example.monkey.tracking.application..",
+                    "com.example.monkey.tracking.infrastructure..",
+                    "com.example.monkey.tracking.interfaces..",
                     "com.example.monkey.shared.domain..",
                     "com.example.monkey.shared.application..",
                     "com.example.monkey.shared.infrastructure..",
@@ -1016,6 +1039,32 @@ class ArchitectureBoundaryTest {
         assertThat(RiskScoreEntity.class.getPackageName()).isEqualTo("com.example.monkey.risk.infrastructure");
         assertThat(RiskReviewCaseEntity.class.getPackageName()).isEqualTo("com.example.monkey.risk.infrastructure");
         assertThat(RiskController.class.getPackageName()).isEqualTo("com.example.monkey.risk.interfaces");
+    }
+
+    @Test
+    void trackingSliceUsesWs11BoundedContextLayers() {
+        assertThat(TrackingStore.class.getPackageName()).isEqualTo("com.example.monkey.tracking.domain");
+        assertThat(TrackingEvent.class.getPackageName()).isEqualTo("com.example.monkey.tracking.domain");
+        assertThat(UserProfileTag.class.getPackageName()).isEqualTo("com.example.monkey.tracking.domain");
+        assertThat(ProductProfile.class.getPackageName()).isEqualTo("com.example.monkey.tracking.domain");
+        assertThat(FunnelStep.class.getPackageName()).isEqualTo("com.example.monkey.tracking.domain");
+        assertThat(RealtimeDashboard.class.getPackageName()).isEqualTo("com.example.monkey.tracking.domain");
+        assertThat(TrackingApplicationService.class.getPackageName())
+                .isEqualTo("com.example.monkey.tracking.application");
+        assertThat(TrackingEventRequestDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.tracking.application.dto");
+        assertThat(TrackingEventResponseDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.tracking.application.dto");
+        assertThat(UserProfileTagDto.class.getPackageName()).isEqualTo("com.example.monkey.tracking.application.dto");
+        assertThat(ProductProfileDto.class.getPackageName()).isEqualTo("com.example.monkey.tracking.application.dto");
+        assertThat(RealtimeDashboardDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.tracking.application.dto");
+        assertThat(FunnelStepDto.class.getPackageName()).isEqualTo("com.example.monkey.tracking.application.dto");
+        assertThat(JpaTrackingStore.class.getPackageName()).isEqualTo("com.example.monkey.tracking.infrastructure");
+        assertThat(TrackingEventEntity.class.getPackageName()).isEqualTo("com.example.monkey.tracking.infrastructure");
+        assertThat(UserProfileTagEntity.class.getPackageName()).isEqualTo("com.example.monkey.tracking.infrastructure");
+        assertThat(ProductProfileEntity.class.getPackageName()).isEqualTo("com.example.monkey.tracking.infrastructure");
+        assertThat(TrackingController.class.getPackageName()).isEqualTo("com.example.monkey.tracking.interfaces");
     }
 
     @Test
@@ -1342,6 +1391,7 @@ class ArchitectureBoundaryTest {
                     "com.example.monkey.order.domain..",
                     "com.example.monkey.product.domain..",
                     "com.example.monkey.risk.domain..",
+                    "com.example.monkey.tracking.domain..",
                     "com.example.monkey.user.domain..");
 
     @ArchTest
@@ -1353,6 +1403,7 @@ class ArchitectureBoundaryTest {
                     "com.example.monkey.order.interfaces..",
                     "com.example.monkey.product.interfaces..",
                     "com.example.monkey.risk.interfaces..",
+                    "com.example.monkey.tracking.interfaces..",
                     "com.example.monkey.shared.interfaces..")
             .should()
             .dependOnClassesThat()
@@ -1717,6 +1768,23 @@ class ArchitectureBoundaryTest {
             .should()
             .dependOnClassesThat()
             .resideInAPackage("com.example.monkey.risk.domain..");
+
+    @ArchTest
+    static final ArchRule tracking_store_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(TrackingStore.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule tracking_interfaces_do_not_depend_on_tracking_domain = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.tracking.interfaces..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("com.example.monkey.tracking.domain..");
 
     @ArchTest
     static final ArchRule address_book_adapters_stay_out_of_service_package = classes()

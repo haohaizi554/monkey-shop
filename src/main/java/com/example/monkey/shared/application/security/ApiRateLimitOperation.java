@@ -11,6 +11,7 @@ public enum ApiRateLimitOperation {
     MEMBERSHIP,
     SEARCH,
     RISK,
+    TRACKING,
     UPLOAD,
     DEFAULT
 }

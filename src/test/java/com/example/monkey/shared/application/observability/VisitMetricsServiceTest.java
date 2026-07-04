@@ -41,4 +41,19 @@ class VisitMetricsServiceTest {
         assertThat(meterRegistry.find("visit.page.views").counter()).isNull();
         verify(visitLogRecorder, never()).recordVisit(org.mockito.ArgumentMatchers.any());
     }
+
+    @Test
+    void recordsClientSidePageViewFromTrackingSdk() {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        VisitMetricsService service = new VisitMetricsService(meterRegistry, visitLogRecorder);
+        service.recordClientPageView("/shop/42", "203.0.113.42");
+
+        assertThat(meterRegistry
+                        .find("visit.page.views")
+                        .tag("page", "shop/42")
+                        .counter()
+                        .count())
+                .isEqualTo(1);
+        verify(visitLogRecorder).recordVisit("203.0.113.42");
+    }
 }
