@@ -45,6 +45,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
@@ -58,6 +59,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @WebMvcTest(controllers = SecurityConfigTest.TestApiController.class)
 @Import({SecurityConfig.class, ApiRateLimitFilter.class, SecurityConfigTest.TestApiController.class})
+@TestPropertySource(properties = "app.security.csp.upgrade-insecure-requests=false")
 class SecurityConfigTest {
 
     private static final Pattern CSP_SCRIPT_NONCE = Pattern.compile("script-src [^;]*'nonce-([^']+)'");
@@ -200,7 +202,8 @@ class SecurityConfigTest {
                                 org.hamcrest.Matchers.containsString("frame-ancestors 'none'")))
                 .andExpect(header().string(
                                 "Content-Security-Policy",
-                                org.hamcrest.Matchers.containsString("upgrade-insecure-requests")))
+                                org.hamcrest.Matchers.not(
+                                        org.hamcrest.Matchers.containsString("upgrade-insecure-requests"))))
                 .andExpect(header().string(
                                 "Strict-Transport-Security", org.hamcrest.Matchers.containsString("max-age=31536000")))
                 .andExpect(header().string("X-Frame-Options", "DENY"))

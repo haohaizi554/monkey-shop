@@ -38,6 +38,9 @@ sentry:
   traces-sample-rate: ${SENTRY_TRACES_SAMPLE_RATE:0.0}
 
 app:
+  security:
+    csp:
+      upgrade-insecure-requests: ${APP_SECURITY_CSP_UPGRADE_INSECURE_REQUESTS:true}
   auth:
     require-redis-state: ${APP_AUTH_REQUIRE_REDIS_STATE:true}
     captcha:

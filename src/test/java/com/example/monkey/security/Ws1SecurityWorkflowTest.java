@@ -106,6 +106,18 @@ class Ws1SecurityWorkflowTest {
     }
 
     @Test
+    void httpDevProfileDisablesBrowserHttpsUpgradeWhileProdKeepsIt() throws IOException {
+        String dev = Files.readString(Path.of("src/main/resources/application-dev.yml"), StandardCharsets.UTF_8);
+        String staging =
+                Files.readString(Path.of("src/main/resources/application-staging.yml"), StandardCharsets.UTF_8);
+        String prod = Files.readString(Path.of("src/main/resources/application-prod.yml"), StandardCharsets.UTF_8);
+
+        assertThat(dev).contains("upgrade-insecure-requests: ${APP_SECURITY_CSP_UPGRADE_INSECURE_REQUESTS:false}");
+        assertThat(staging).contains("upgrade-insecure-requests: ${APP_SECURITY_CSP_UPGRADE_INSECURE_REQUESTS:true}");
+        assertThat(prod).contains("upgrade-insecure-requests: ${APP_SECURITY_CSP_UPGRADE_INSECURE_REQUESTS:true}");
+    }
+
+    @Test
     void publicEdgeVerifierChecksTlsAndSecurityHeaders() throws IOException {
         String script = Files.readString(Path.of("scripts/verify-public-edge-security.ps1"), StandardCharsets.UTF_8);
         String readme = Files.readString(Path.of("README.md"), StandardCharsets.UTF_8);

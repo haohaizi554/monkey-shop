@@ -118,7 +118,8 @@ public class SecurityConfig {
             ApiRateLimitFilter apiRateLimitFilter,
             SessionTokenTransport tokenTransport,
             AuditService auditService,
-            ObjectMapper objectMapper)
+            ObjectMapper objectMapper,
+            @Value("${app.security.csp.upgrade-insecure-requests:true}") boolean cspUpgradeInsecureRequests)
             throws Exception {
         http.csrf(csrf -> csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse()))
                 .addFilterBefore(jwtAuthenticationFilter, LogoutFilter.class)
@@ -148,6 +149,7 @@ public class SecurityConfig {
                                 "/orders.html",
                                 "/profile.html",
                                 "/favicon.ico",
+                                "/favicon.svg",
                                 "/icons.svg",
                                 "/robots.txt",
                                 "/sitemap.xml",
@@ -364,7 +366,8 @@ public class SecurityConfig {
                         .denyAll()
                         .anyRequest()
                         .denyAll())
-                .headers(headers -> headers.addHeaderWriter(new NonceContentSecurityPolicyHeaderWriter())
+                .headers(headers -> headers.addHeaderWriter(
+                                new NonceContentSecurityPolicyHeaderWriter(cspUpgradeInsecureRequests))
                         .httpStrictTransportSecurity(hsts ->
                                 hsts.includeSubDomains(true).preload(true).maxAgeInSeconds(31536000))
                         .frameOptions(frame -> frame.deny())
@@ -527,13 +530,18 @@ public class SecurityConfig {
         private static final SecureRandom SECURE_RANDOM = new SecureRandom();
         private static final Base64.Encoder BASE64_ENCODER = Base64.getEncoder().withoutPadding();
         private static final int NONCE_BYTES = 16;
+        private final boolean upgradeInsecureRequests;
+
+        private NonceContentSecurityPolicyHeaderWriter(boolean upgradeInsecureRequests) {
+            this.upgradeInsecureRequests = upgradeInsecureRequests;
+        }
 
         @Override
         public void writeHeaders(
                 jakarta.servlet.http.HttpServletRequest request, jakarta.servlet.http.HttpServletResponse response) {
             String nonce = newNonce();
             request.setAttribute(CSP_NONCE_ATTRIBUTE, nonce);
-            response.setHeader("Content-Security-Policy", policy(nonce));
+            response.setHeader("Content-Security-Policy", policy(nonce, upgradeInsecureRequests));
         }
 
         private static String newNonce() {
@@ -542,8 +550,8 @@ public class SecurityConfig {
             return BASE64_ENCODER.encodeToString(nonceBytes);
         }
 
-        private static String policy(String nonce) {
-            return "default-src 'self'; "
+        private static String policy(String nonce, boolean upgradeInsecureRequests) {
+            String policy = "default-src 'self'; "
                     + "script-src 'self' 'nonce-"
                     + nonce
                     + "' https://challenges.cloudflare.com; "
@@ -555,8 +563,11 @@ public class SecurityConfig {
                     + "object-src 'none'; "
                     + "base-uri 'self'; "
                     + "form-action 'self'; "
-                    + "frame-ancestors 'none'; "
-                    + "upgrade-insecure-requests";
+                    + "frame-ancestors 'none'";
+            if (upgradeInsecureRequests) {
+                policy += "; upgrade-insecure-requests";
+            }
+            return policy;
         }
     }
 

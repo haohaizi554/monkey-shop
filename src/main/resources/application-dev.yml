@@ -16,6 +16,9 @@ server:
         secure: ${SESSION_COOKIE_SECURE:false}
 
 app:
+  security:
+    csp:
+      upgrade-insecure-requests: ${APP_SECURITY_CSP_UPGRADE_INSECURE_REQUESTS:false}
   auth:
     require-redis-state: ${APP_AUTH_REQUIRE_REDIS_STATE:false}
     captcha:
