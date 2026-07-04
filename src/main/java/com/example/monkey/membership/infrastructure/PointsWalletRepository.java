@@ -1,5 +1,6 @@
 package com.example.monkey.membership.infrastructure;
 
+import com.example.monkey.shared.application.tenant.TenantContext;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -11,6 +12,12 @@ public interface PointsWalletRepository extends JpaRepository<PointsWalletEntity
 
     Optional<PointsWalletEntity> findByUserId(Long userId);
 
+    default int updateWallet(
+            Long userId, long version, long balance, long totalEarned, long totalSpent, LocalDateTime now) {
+        return updateWallet(
+                userId, version, balance, totalEarned, totalSpent, now, TenantContext.currentTenantIdOrDefault());
+    }
+
     @Modifying
     @Query("""
             update PointsWalletEntity w
@@ -20,6 +27,7 @@ public interface PointsWalletRepository extends JpaRepository<PointsWalletEntity
                    w.updateTime = :now,
                    w.version = w.version + 1
              where w.userId = :userId
+               and w.tenantId = :tenantId
                and w.version = :version
             """)
     int updateWallet(
@@ -28,5 +36,6 @@ public interface PointsWalletRepository extends JpaRepository<PointsWalletEntity
             @Param("balance") long balance,
             @Param("totalEarned") long totalEarned,
             @Param("totalSpent") long totalSpent,
-            @Param("now") LocalDateTime now);
+            @Param("now") LocalDateTime now,
+            @Param("tenantId") Long tenantId);
 }

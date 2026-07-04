@@ -65,7 +65,7 @@ class LogisticsControllerTest {
                         post("/api/logistics/webhook")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(
-                                        "{\"carrier\":\"SF\",\"trackingNo\":\"SF7000\",\"eventId\":\"event-1\",\"event\":\"PICKUP\"}"))
+                                        "{\"carrier\":\"SF\",\"trackingNo\":\"SF7000\",\"eventId\":\"event-1\",\"event\":\"PICKUP\",\"signature\":\"valid-signature\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.trackingNo").value("SF7000"));
     }

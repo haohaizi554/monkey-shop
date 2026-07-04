@@ -12,7 +12,7 @@ can detect provider/platform drift and suspend risky payment orders.
 - Payment orders use Snowflake IDs and a unique payment number.
 - Callback replay is blocked with Redis SETNX and database uniqueness.
 - The callback replay path is covered by a unit test and by the WS6 verifier.
-- Provider callbacks must carry a valid signature before state changes.
+- Provider callbacks must carry a valid signature before state changes, and the signing secret is externalized through `APP_PAYMENT_CALLBACK_SECRET`.
 - Amounts over 5000 require a valid user TOTP code.
 - Bank-card numbers are stored only as Tink ciphertext plus HMAC blind index.
 - The bank-card PII invariant is fail-closed: plaintext card numbers never persist.

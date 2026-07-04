@@ -1,6 +1,7 @@
 package com.example.monkey.logistics.infrastructure;
 
 import com.example.monkey.logistics.domain.LogisticsCarrier;
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -11,7 +12,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "logistics_webhook_log")
-public class LogisticsWebhookLogEntity {
+public class LogisticsWebhookLogEntity extends TenantScopedJpaEntity {
 
     @Id
     private Long id;

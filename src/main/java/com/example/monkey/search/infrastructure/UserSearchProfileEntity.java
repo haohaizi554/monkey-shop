@@ -1,5 +1,6 @@
 package com.example.monkey.search.infrastructure;
 
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -9,7 +10,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "user_search_profile")
-public class UserSearchProfileEntity {
+public class UserSearchProfileEntity extends TenantScopedJpaEntity {
 
     @Id
     private Long userId;

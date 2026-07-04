@@ -11,6 +11,8 @@ param(
     [string]$ArgoCdVersion = "v2.13.3",
     [string]$HostRedisIp = "",
     [string]$DbPassword = $env:MONKEYSHOP_DEV_DB_PASSWORD,
+    [string]$PaymentCallbackSecret = $env:MONKEYSHOP_DEV_PAYMENT_CALLBACK_SECRET,
+    [string]$LogisticsWebhookSecret = $env:MONKEYSHOP_DEV_LOGISTICS_WEBHOOK_SECRET,
     [int]$TimeoutSeconds = 600,
     [switch]$InstallArgoCd,
     [switch]$RunApiSecurityProbe,
@@ -238,6 +240,8 @@ ARGOCD_VERSION="$ArgoCdVersion"
 ARGOCD_INSTALL_URL="https://raw.githubusercontent.com/argoproj/argo-cd/$ArgoCdVersion/manifests/install.yaml"
 HOST_REDIS_IP="$HostRedisIp"
 DB_PASSWORD_OVERRIDE=$(ConvertTo-ShellSingleQuoted $DbPassword)
+PAYMENT_CALLBACK_SECRET_OVERRIDE=$(ConvertTo-ShellSingleQuoted $PaymentCallbackSecret)
+LOGISTICS_WEBHOOK_SECRET_OVERRIDE=$(ConvertTo-ShellSingleQuoted $LogisticsWebhookSecret)
 INSTALL_ARGOCD=$(if ($InstallArgoCd) { "true" } else { "false" })
 TIMEOUT_SECONDS="$TimeoutSeconds"
 
@@ -477,6 +481,16 @@ DB_PASSWORD_VALUE=`$(`$K -n "`$DATA_NS" get secret mysql-secret -o jsonpath='{.d
 ADMIN_PASSWORD_VALUE="Admin`$(openssl rand -hex 12)aA1!"
 ADMIN_TOTP_SECRET_VALUE="`$(head -c 20 /dev/urandom | base32 | tr -d '=')"
 JWT_SECRET_VALUE="`$(openssl rand -base64 48 | tr -d '\n')"
+if [ -z "`$PAYMENT_CALLBACK_SECRET_OVERRIDE" ]; then
+  PAYMENT_CALLBACK_SECRET_VALUE="`$(openssl rand -base64 48 | tr -d '\n')"
+else
+  PAYMENT_CALLBACK_SECRET_VALUE="`$PAYMENT_CALLBACK_SECRET_OVERRIDE"
+fi
+if [ -z "`$LOGISTICS_WEBHOOK_SECRET_OVERRIDE" ]; then
+  LOGISTICS_WEBHOOK_SECRET_VALUE="`$(openssl rand -base64 48 | tr -d '\n')"
+else
+  LOGISTICS_WEBHOOK_SECRET_VALUE="`$LOGISTICS_WEBHOOK_SECRET_OVERRIDE"
+fi
 
 `$K create namespace "`$APP_NS" --dry-run=client -o yaml | `$K apply -f -
 `$K label namespace "`$APP_NS" \
@@ -489,6 +503,8 @@ JWT_SECRET_VALUE="`$(openssl rand -base64 48 | tr -d '\n')"
   --from-literal=ADMIN_INIT_PASSWORD="`$ADMIN_PASSWORD_VALUE" \
   --from-literal=ADMIN_TOTP_SECRET="`$ADMIN_TOTP_SECRET_VALUE" \
   --from-literal=APP_JWT_SECRET="`$JWT_SECRET_VALUE" \
+  --from-literal=APP_PAYMENT_CALLBACK_SECRET="`$PAYMENT_CALLBACK_SECRET_VALUE" \
+  --from-literal=APP_LOGISTICS_WEBHOOK_SECRET="`$LOGISTICS_WEBHOOK_SECRET_VALUE" \
   --dry-run=client -o yaml | `$K apply -f -
 
 cat <<ARGO_APP | `$K apply -f -

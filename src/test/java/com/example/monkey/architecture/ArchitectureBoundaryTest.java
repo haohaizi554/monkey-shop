@@ -114,17 +114,21 @@ import com.example.monkey.order.application.OrderService;
 import com.example.monkey.order.application.dto.OrderPageQuery;
 import com.example.monkey.order.application.dto.OrderResponseDto;
 import com.example.monkey.order.application.observability.BusinessMetricsService;
+import com.example.monkey.order.domain.OrderCustomerPort;
 import com.example.monkey.order.domain.OrderFulfillmentStore;
 import com.example.monkey.order.domain.OrderIdempotencyKeyStore;
 import com.example.monkey.order.domain.OrderIdempotencyStore;
 import com.example.monkey.order.domain.OrderLockManager;
 import com.example.monkey.order.domain.OrderNumberGenerator;
 import com.example.monkey.order.domain.OrderOwnershipChecker;
+import com.example.monkey.order.domain.OrderProductPort;
 import com.example.monkey.order.domain.OrderStore;
 import com.example.monkey.order.domain.OrderTransitionResolver;
 import com.example.monkey.order.domain.PendingOrderCounter;
 import com.example.monkey.order.infrastructure.IdempotencyRecord;
 import com.example.monkey.order.infrastructure.IdempotencyRecordRepository;
+import com.example.monkey.order.infrastructure.JdbcOrderCustomerPort;
+import com.example.monkey.order.infrastructure.JdbcOrderProductPort;
 import com.example.monkey.order.infrastructure.JpaOrderFulfillmentStore;
 import com.example.monkey.order.infrastructure.JpaOrderStore;
 import com.example.monkey.order.infrastructure.Order;
@@ -187,7 +191,8 @@ import com.example.monkey.risk.infrastructure.RiskScoreEntity;
 import com.example.monkey.risk.interfaces.RiskController;
 import com.example.monkey.search.application.SearchApplicationService;
 import com.example.monkey.search.application.dto.SearchPageDto;
-import com.example.monkey.search.application.dto.SearchProductQueryDto;
+import com.example.monkey.search.application.dto.SearchProductQueryRequestDto;
+import com.example.monkey.search.application.dto.SearchSuggestionRequestDto;
 import com.example.monkey.search.application.dto.UserSearchProfileRequestDto;
 import com.example.monkey.search.domain.RecommendationEngine;
 import com.example.monkey.search.domain.SearchActivityStore;
@@ -289,6 +294,7 @@ import com.example.monkey.tracking.application.dto.ProductProfileDto;
 import com.example.monkey.tracking.application.dto.RealtimeDashboardDto;
 import com.example.monkey.tracking.application.dto.TrackingEventRequestDto;
 import com.example.monkey.tracking.application.dto.TrackingEventResponseDto;
+import com.example.monkey.tracking.application.dto.TrackingWindowRequestDto;
 import com.example.monkey.tracking.application.dto.UserProfileTagDto;
 import com.example.monkey.tracking.domain.FunnelStep;
 import com.example.monkey.tracking.domain.ProductProfile;
@@ -736,10 +742,14 @@ class ArchitectureBoundaryTest {
                     "com.example.monkey.admin..",
                     "com.example.monkey.cart..",
                     "com.example.monkey.inventory..",
+                    "com.example.monkey.logistics..",
                     "com.example.monkey.marketing..",
+                    "com.example.monkey.membership..",
                     "com.example.monkey.order..",
                     "com.example.monkey.payment..",
                     "com.example.monkey.product..",
+                    "com.example.monkey.risk..",
+                    "com.example.monkey.search..",
                     "com.example.monkey.tenant..",
                     "com.example.monkey.tracking..",
                     "com.example.monkey.shared..",
@@ -758,10 +768,18 @@ class ArchitectureBoundaryTest {
                     "com.example.monkey.inventory.application..",
                     "com.example.monkey.inventory.infrastructure..",
                     "com.example.monkey.inventory.interfaces..",
+                    "com.example.monkey.logistics.domain..",
+                    "com.example.monkey.logistics.application..",
+                    "com.example.monkey.logistics.infrastructure..",
+                    "com.example.monkey.logistics.interfaces..",
                     "com.example.monkey.marketing.domain..",
                     "com.example.monkey.marketing.application..",
                     "com.example.monkey.marketing.infrastructure..",
                     "com.example.monkey.marketing.interfaces..",
+                    "com.example.monkey.membership.domain..",
+                    "com.example.monkey.membership.application..",
+                    "com.example.monkey.membership.infrastructure..",
+                    "com.example.monkey.membership.interfaces..",
                     "com.example.monkey.order.domain..",
                     "com.example.monkey.order.application..",
                     "com.example.monkey.order.infrastructure..",
@@ -774,6 +792,14 @@ class ArchitectureBoundaryTest {
                     "com.example.monkey.product.application..",
                     "com.example.monkey.product.infrastructure..",
                     "com.example.monkey.product.interfaces..",
+                    "com.example.monkey.risk.domain..",
+                    "com.example.monkey.risk.application..",
+                    "com.example.monkey.risk.infrastructure..",
+                    "com.example.monkey.risk.interfaces..",
+                    "com.example.monkey.search.domain..",
+                    "com.example.monkey.search.application..",
+                    "com.example.monkey.search.infrastructure..",
+                    "com.example.monkey.search.interfaces..",
                     "com.example.monkey.tenant.domain..",
                     "com.example.monkey.tenant.application..",
                     "com.example.monkey.tenant.infrastructure..",
@@ -1031,7 +1057,10 @@ class ArchitectureBoundaryTest {
         assertThat(RecommendationEngine.class.getPackageName()).isEqualTo("com.example.monkey.search.domain");
         assertThat(SearchApplicationService.class.getPackageName()).isEqualTo("com.example.monkey.search.application");
         assertThat(SearchPageDto.class.getPackageName()).isEqualTo("com.example.monkey.search.application.dto");
-        assertThat(SearchProductQueryDto.class.getPackageName()).isEqualTo("com.example.monkey.search.application.dto");
+        assertThat(SearchProductQueryRequestDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.search.application.dto");
+        assertThat(SearchSuggestionRequestDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.search.application.dto");
         assertThat(UserSearchProfileRequestDto.class.getPackageName())
                 .isEqualTo("com.example.monkey.search.application.dto");
         assertThat(JpaSearchStore.class.getPackageName()).isEqualTo("com.example.monkey.search.infrastructure");
@@ -1078,6 +1107,8 @@ class ArchitectureBoundaryTest {
         assertThat(TrackingEventRequestDto.class.getPackageName())
                 .isEqualTo("com.example.monkey.tracking.application.dto");
         assertThat(TrackingEventResponseDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.tracking.application.dto");
+        assertThat(TrackingWindowRequestDto.class.getPackageName())
                 .isEqualTo("com.example.monkey.tracking.application.dto");
         assertThat(UserProfileTagDto.class.getPackageName()).isEqualTo("com.example.monkey.tracking.application.dto");
         assertThat(ProductProfileDto.class.getPackageName()).isEqualTo("com.example.monkey.tracking.application.dto");
@@ -1380,6 +1411,8 @@ class ArchitectureBoundaryTest {
 
     @Test
     void orderSliceUsesWs3BoundedContextLayers() {
+        assertThat(OrderProductPort.class.getPackageName()).isEqualTo("com.example.monkey.order.domain");
+        assertThat(OrderCustomerPort.class.getPackageName()).isEqualTo("com.example.monkey.order.domain");
         assertThat(OrderStore.class.getPackageName()).isEqualTo("com.example.monkey.order.domain");
         assertThat(OrderFulfillmentStore.class.getPackageName()).isEqualTo("com.example.monkey.order.domain");
         assertThat(OrderService.class.getPackageName()).isEqualTo("com.example.monkey.order.application");
@@ -1390,6 +1423,8 @@ class ArchitectureBoundaryTest {
         assertThat(OrderOwnershipService.class.getPackageName()).isEqualTo("com.example.monkey.order.application");
         assertThat(BusinessMetricsService.class.getPackageName())
                 .isEqualTo("com.example.monkey.order.application.observability");
+        assertThat(JdbcOrderProductPort.class.getPackageName()).isEqualTo("com.example.monkey.order.infrastructure");
+        assertThat(JdbcOrderCustomerPort.class.getPackageName()).isEqualTo("com.example.monkey.order.infrastructure");
         assertThat(JpaOrderStore.class.getPackageName()).isEqualTo("com.example.monkey.order.infrastructure");
         assertThat(JpaOrderFulfillmentStore.class.getPackageName())
                 .isEqualTo("com.example.monkey.order.infrastructure");
@@ -1436,10 +1471,14 @@ class ArchitectureBoundaryTest {
                     "com.example.monkey.admin.domain..",
                     "com.example.monkey.cart.domain..",
                     "com.example.monkey.inventory.domain..",
+                    "com.example.monkey.logistics.domain..",
                     "com.example.monkey.marketing.domain..",
+                    "com.example.monkey.membership.domain..",
                     "com.example.monkey.order.domain..",
+                    "com.example.monkey.payment.domain..",
                     "com.example.monkey.product.domain..",
                     "com.example.monkey.risk.domain..",
+                    "com.example.monkey.search.domain..",
                     "com.example.monkey.tenant.domain..",
                     "com.example.monkey.tracking.domain..",
                     "com.example.monkey.user.domain..");
@@ -1450,9 +1489,15 @@ class ArchitectureBoundaryTest {
             .resideInAnyPackage(
                     "com.example.monkey.admin.interfaces..",
                     "com.example.monkey.cart.interfaces..",
+                    "com.example.monkey.inventory.interfaces..",
+                    "com.example.monkey.logistics.interfaces..",
+                    "com.example.monkey.marketing.interfaces..",
+                    "com.example.monkey.membership.interfaces..",
                     "com.example.monkey.order.interfaces..",
+                    "com.example.monkey.payment.interfaces..",
                     "com.example.monkey.product.interfaces..",
                     "com.example.monkey.risk.interfaces..",
+                    "com.example.monkey.search.interfaces..",
                     "com.example.monkey.tenant.interfaces..",
                     "com.example.monkey.tracking.interfaces..",
                     "com.example.monkey.shared.interfaces..")
@@ -1535,6 +1580,33 @@ class ArchitectureBoundaryTest {
             .areNotInterfaces()
             .should()
             .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule order_product_port_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(OrderProductPort.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule order_customer_port_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(OrderCustomerPort.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule order_infrastructure_does_not_depend_on_user_or_product_infrastructure = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.order.infrastructure..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAnyPackage(
+                    "com.example.monkey.product.infrastructure..", "com.example.monkey.user.infrastructure..");
 
     @ArchTest
     static final ArchRule order_fulfillment_store_adapters_stay_out_of_service_package = classes()
@@ -1688,6 +1760,15 @@ class ArchitectureBoundaryTest {
             .resideOutsideOfPackage("..service..");
 
     @ArchTest
+    static final ArchRule membership_infrastructure_does_not_depend_on_marketing_or_product_infrastructure = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.membership.infrastructure..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAnyPackage(
+                    "com.example.monkey.marketing.infrastructure..", "com.example.monkey.product.infrastructure..");
+
+    @ArchTest
     static final ArchRule payment_store_adapters_stay_out_of_service_package = classes()
             .that()
             .areAssignableTo(PaymentStore.class)
@@ -1760,6 +1841,14 @@ class ArchitectureBoundaryTest {
             .resideOutsideOfPackage("..service..");
 
     @ArchTest
+    static final ArchRule cart_infrastructure_does_not_depend_on_product_infrastructure = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.cart.infrastructure..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("com.example.monkey.product.infrastructure..");
+
+    @ArchTest
     static final ArchRule search_store_adapters_stay_out_of_service_package = classes()
             .that()
             .areAssignableTo(SearchStore.class)
@@ -1776,6 +1865,15 @@ class ArchitectureBoundaryTest {
             .areNotInterfaces()
             .should()
             .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule search_infrastructure_does_not_depend_on_product_or_order_infrastructure = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.search.infrastructure..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAnyPackage(
+                    "com.example.monkey.product.infrastructure..", "com.example.monkey.order.infrastructure..");
 
     @ArchTest
     static final ArchRule search_interfaces_do_not_depend_on_search_domain = noClasses()
@@ -1811,6 +1909,14 @@ class ArchitectureBoundaryTest {
             .areNotInterfaces()
             .should()
             .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule risk_infrastructure_does_not_depend_on_product_infrastructure = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.risk.infrastructure..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("com.example.monkey.product.infrastructure..");
 
     @ArchTest
     static final ArchRule risk_interfaces_do_not_depend_on_risk_domain = noClasses()

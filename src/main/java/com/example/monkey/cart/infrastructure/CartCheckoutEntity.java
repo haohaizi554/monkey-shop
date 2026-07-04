@@ -1,6 +1,7 @@
 package com.example.monkey.cart.infrastructure;
 
 import com.example.monkey.cart.domain.CartCheckoutStatus;
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -13,7 +14,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "cart_checkout")
-public class CartCheckoutEntity {
+public class CartCheckoutEntity extends TenantScopedJpaEntity {
 
     @Id
     private Long id;

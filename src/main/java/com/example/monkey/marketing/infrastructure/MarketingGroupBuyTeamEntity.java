@@ -1,6 +1,7 @@
 package com.example.monkey.marketing.infrastructure;
 
 import com.example.monkey.marketing.domain.GroupBuyStatus;
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -12,7 +13,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "marketing_group_buy_team")
-public class MarketingGroupBuyTeamEntity {
+public class MarketingGroupBuyTeamEntity extends TenantScopedJpaEntity {
 
     @Id
     private Long id;

@@ -1,4 +1,10 @@
 {{- define "monkeyshop.podTemplate" -}}
+{{- if and (eq .Values.global.environment "prod") (not .Values.image.digest) -}}
+{{- fail "image.digest is required for prod releases; CI/CD must write the signed image digest before sync" -}}
+{{- end -}}
+{{- if and (eq .Values.global.environment "prod") (not (contains "@sha256:" .Values.initContainers.waitForMysql.image)) -}}
+{{- fail "initContainers.waitForMysql.image must be digest-pinned for prod releases" -}}
+{{- end -}}
 metadata:
   labels:
     {{- include "monkeyshop.selectorLabels" . | nindent 4 }}

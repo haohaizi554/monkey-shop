@@ -2,14 +2,13 @@ package com.example.monkey.membership.infrastructure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.example.monkey.marketing.domain.CouponStatus;
-import com.example.monkey.marketing.infrastructure.MarketingUserCouponEntity;
-import com.example.monkey.marketing.infrastructure.MarketingUserCouponRepository;
 import com.example.monkey.membership.domain.CouponWalletEntry;
 import com.example.monkey.membership.domain.MemberCollection;
 import com.example.monkey.membership.domain.MemberProfile;
@@ -20,8 +19,6 @@ import com.example.monkey.membership.domain.PointsLedgerType;
 import com.example.monkey.membership.domain.PointsWallet;
 import com.example.monkey.membership.domain.PriceDropEvent;
 import com.example.monkey.membership.domain.ProductSnapshot;
-import com.example.monkey.product.infrastructure.Monkey;
-import com.example.monkey.product.infrastructure.MonkeyRepository;
 import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -34,6 +31,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.stubbing.Answer;
 import org.springframework.data.domain.Pageable;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.test.util.ReflectionTestUtils;
 
 class JpaMembershipStoreTest {
@@ -49,8 +48,7 @@ class JpaMembershipStoreTest {
     private final MembershipCheckInRepository checkInRepository = mock(MembershipCheckInRepository.class);
     private final MemberCollectionRepository collectionRepository = mock(MemberCollectionRepository.class);
     private final PriceDropEventRepository priceDropEventRepository = mock(PriceDropEventRepository.class);
-    private final MarketingUserCouponRepository userCouponRepository = mock(MarketingUserCouponRepository.class);
-    private final MonkeyRepository monkeyRepository = mock(MonkeyRepository.class);
+    private final JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
     private final PiiCryptoService piiCryptoService = mock(PiiCryptoService.class);
 
     private final JpaMembershipStore store = new JpaMembershipStore(
@@ -61,8 +59,7 @@ class JpaMembershipStoreTest {
             checkInRepository,
             collectionRepository,
             priceDropEventRepository,
-            userCouponRepository,
-            monkeyRepository,
+            jdbcTemplate,
             piiCryptoService);
 
     @BeforeEach
@@ -199,11 +196,11 @@ class JpaMembershipStoreTest {
         when(collectionRepository.findByPriceDropNotifiedFalseAndTargetPriceIsNotNullOrderByUpdateTimeAsc(
                         any(Pageable.class)))
                 .thenAnswer(invocation -> List.of(collectionEntity.get()));
-        when(monkeyRepository.findById(101L))
-                .thenReturn(Optional.of(
-                        new Monkey(101L, "Phone", "Digital", BigDecimal.valueOf(89), "screen", "/p.png", 5)));
-        when(userCouponRepository.findTop20ByUserIdOrderByClaimedAtDesc(USER_ID))
-                .thenReturn(List.of(couponEntity()));
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(101L), eq(1L)))
+                .thenReturn(List.of(new ProductSnapshot(101L, "Phone", "/p.png", BigDecimal.valueOf(89))));
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(1L), eq(USER_ID), eq(20)))
+                .thenReturn(List.of(new CouponWalletEntry(
+                        8001L, 8101L, "CP-1", USER_ID, "CLAIMED", 9001L, NOW.minusHours(1), NOW)));
 
         MemberCollection savedCollection = store.saveCollection(new MemberCollection(
                 6001L,
@@ -237,20 +234,8 @@ class JpaMembershipStoreTest {
         verify(collectionRepository).deleteByUserIdAndProductId(USER_ID, 101L);
         verify(collectionRepository)
                 .findByPriceDropNotifiedFalseAndTargetPriceIsNotNullOrderByUpdateTimeAsc(any(Pageable.class));
-    }
-
-    private static MarketingUserCouponEntity couponEntity() {
-        MarketingUserCouponEntity entity = new MarketingUserCouponEntity();
-        entity.setId(8001L);
-        entity.setCouponId(8101L);
-        entity.setCouponCode("CP-1");
-        entity.setUserId(USER_ID);
-        entity.setStatus(CouponStatus.CLAIMED);
-        entity.setOrderId(9001L);
-        entity.setIdempotencyKey("coupon-1");
-        entity.setClaimedAt(NOW.minusHours(1));
-        entity.setUsedAt(NOW);
-        return entity;
+        verify(jdbcTemplate).query(anyString(), any(RowMapper.class), eq(101L), eq(1L));
+        verify(jdbcTemplate).query(anyString(), any(RowMapper.class), eq(1L), eq(USER_ID), eq(20));
     }
 
     private static String prefixed(String prefix, org.mockito.invocation.InvocationOnMock invocation) {

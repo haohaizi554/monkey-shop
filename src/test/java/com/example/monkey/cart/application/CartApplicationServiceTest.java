@@ -69,10 +69,24 @@ class CartApplicationServiceTest {
 
         assertThat(checkout.subOrders()).hasSize(2);
         assertThat(checkout.originalAmount()).isEqualByComparingTo("230.00");
-        assertThat(checkout.discountAmount()).isEqualByComparingTo("10.00");
-        assertThat(checkout.payableAmount()).isEqualByComparingTo("220.00");
+        assertThat(checkout.discountAmount()).isEqualByComparingTo("30.00");
+        assertThat(checkout.payableAmount()).isEqualByComparingTo("200.00");
         assertThat(fixture.cartStore.findCart(USER.id()).items()).isEmpty();
         verify(fixture.inventoryApplicationService, times(2)).reserve(any(InventoryReserveRequestDto.class));
+    }
+
+    @Test
+    void platformCouponIsAppliedOnceAcrossMultipleShops() {
+        Fixture fixture = new Fixture();
+        fixture.seedSelectedCart();
+
+        var checkout = fixture.service.checkout(
+                USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of("PLATFORM-20")), "cart-key-platform");
+
+        assertThat(checkout.subOrders()).hasSize(2);
+        assertThat(checkout.originalAmount()).isEqualByComparingTo("230.00");
+        assertThat(checkout.discountAmount()).isEqualByComparingTo("20.00");
+        assertThat(checkout.payableAmount()).isEqualByComparingTo("210.00");
     }
 
     @Test
@@ -123,8 +137,10 @@ class CartApplicationServiceTest {
                             1002L, 502L, 12L, "SKU-1002", "Keyboard", "/keyboard.png", new BigDecimal("30.00")));
             when(inventoryApplicationService.reserve(any()))
                     .thenAnswer(invocation -> reservation(invocation.getArgument(0)));
-            when(marketingApplicationService.quotePrice(any()))
-                    .thenAnswer(invocation -> quote(invocation.getArgument(0)));
+            when(marketingApplicationService.quotePlatformPrice(any()))
+                    .thenAnswer(invocation -> platformQuote(invocation.getArgument(0)));
+            when(marketingApplicationService.quoteStorePrice(any()))
+                    .thenAnswer(invocation -> storeQuote(invocation.getArgument(0)));
             service = new CartApplicationService(
                     cartStore,
                     skuId -> Optional.ofNullable(catalog.get(skuId)),
@@ -165,8 +181,24 @@ class CartApplicationServiceTest {
         }
 
         private static MarketingPriceQuoteDto quote(MarketingPriceRequestDto request) {
+            BigDecimal discount = request.couponCodes().contains("PLATFORM-20")
+                            && request.orderAmount().compareTo(new BigDecimal("100.00")) >= 0
+                    ? new BigDecimal("20.00")
+                    : BigDecimal.ZERO;
+            return new MarketingPriceQuoteDto(
+                    request.orderAmount(),
+                    discount,
+                    request.orderAmount().subtract(discount),
+                    discount.signum() > 0 ? List.of("PLATFORM-20") : List.of());
+        }
+
+        private static MarketingPriceQuoteDto platformQuote(MarketingPriceRequestDto request) {
+            return quote(request);
+        }
+
+        private static MarketingPriceQuoteDto storeQuote(MarketingPriceRequestDto request) {
             BigDecimal discount = Long.valueOf(1L).equals(request.shopId())
-                            && !request.couponCodes().isEmpty()
+                            && request.couponCodes().contains("SHOP-10")
                     ? new BigDecimal("10.00")
                     : BigDecimal.ZERO;
             return new MarketingPriceQuoteDto(

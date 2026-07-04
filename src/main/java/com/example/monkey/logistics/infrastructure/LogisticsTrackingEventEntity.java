@@ -3,6 +3,7 @@ package com.example.monkey.logistics.infrastructure;
 import com.example.monkey.logistics.domain.LogisticsCarrier;
 import com.example.monkey.logistics.domain.TrackingEvent;
 import com.example.monkey.logistics.domain.TrackingStatus;
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -13,7 +14,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "logistics_tracking_event")
-public class LogisticsTrackingEventEntity {
+public class LogisticsTrackingEventEntity extends TenantScopedJpaEntity {
 
     @Id
     private Long id;

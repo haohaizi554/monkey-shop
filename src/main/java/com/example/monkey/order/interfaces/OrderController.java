@@ -11,9 +11,13 @@ import com.example.monkey.order.application.dto.OrderReviewResponseDto;
 import com.example.monkey.order.application.dto.OrderShipmentRequestDto;
 import com.example.monkey.order.application.dto.OrderShipmentResponseDto;
 import com.example.monkey.order.interfaces.dto.CreateOrderRequestDto;
+import com.example.monkey.risk.application.RiskApplicationService;
+import com.example.monkey.risk.application.dto.RiskAssessmentRequestDto;
 import com.example.monkey.shared.application.dto.PageResponseDto;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.interfaces.dto.Result;
+import com.example.monkey.shared.interfaces.web.ClientIps;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.data.domain.Pageable;
@@ -36,18 +40,31 @@ public class OrderController {
 
     private final OrderApplicationService orderApplicationService;
     private final OrderService orderService;
+    private final RiskApplicationService riskApplicationService;
 
-    public OrderController(OrderApplicationService orderApplicationService, OrderService orderService) {
+    public OrderController(
+            OrderApplicationService orderApplicationService,
+            OrderService orderService,
+            RiskApplicationService riskApplicationService) {
         this.orderApplicationService = orderApplicationService;
         this.orderService = orderService;
+        this.riskApplicationService = riskApplicationService;
     }
 
     @PostMapping("/create")
     @PreAuthorize("hasAuthority('ORDER_CREATE')")
     public Result<OrderResponseDto> createOrder(
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "X-Device-Fingerprint", required = false) String deviceFingerprint,
             @Valid @RequestBody CreateOrderRequestDto requestBody,
-            @AuthenticationPrincipal SessionUser currentUser) {
+            @AuthenticationPrincipal SessionUser currentUser,
+            HttpServletRequest httpRequest) {
+        riskApplicationService.requireAllowed(
+                currentUser,
+                new RiskAssessmentRequestDto(
+                        null, deviceFingerprint, null, requestBody.monkeyId(), null, null, null, null, null, null),
+                ClientIps.resolve(httpRequest),
+                "order.create");
         return Result.success(orderApplicationService.createOrder(
                 currentUser, requestBody.monkeyId(), requestBody.addressId(), idempotencyKey));
     }

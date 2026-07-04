@@ -15,6 +15,7 @@ import com.example.monkey.order.application.dto.OrderPageQuery.SortOrder;
 import com.example.monkey.order.application.dto.OrderPageQuery.SortOrder.Direction;
 import com.example.monkey.order.application.dto.OrderResponseDto;
 import com.example.monkey.order.interfaces.dto.CreateOrderRequestDto;
+import com.example.monkey.risk.application.RiskApplicationService;
 import com.example.monkey.shared.application.dto.PageResponseDto;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.domain.exception.BusinessException;
@@ -32,6 +33,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.mock.web.MockHttpServletRequest;
 
 @ExtendWith(MockitoExtension.class)
 class OrderControllerTest {
@@ -42,11 +44,14 @@ class OrderControllerTest {
     @Mock
     private OrderService orderService;
 
+    @Mock
+    private RiskApplicationService riskApplicationService;
+
     private OrderController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new OrderController(orderApplicationService, orderService);
+        controller = new OrderController(orderApplicationService, orderService, riskApplicationService);
     }
 
     @Test
@@ -130,7 +135,8 @@ class OrderControllerTest {
         when(orderApplicationService.createOrder(currentUser, 3L, 5L, "order-key-1"))
                 .thenReturn(order);
 
-        var result = controller.createOrder("order-key-1", new CreateOrderRequestDto(3L, 5L), currentUser);
+        var result = controller.createOrder(
+                "order-key-1", "device-a", new CreateOrderRequestDto(3L, 5L), currentUser, request());
 
         assertThat(result.code()).isEqualTo("OK");
         assertThat(result.data()).isSameAs(order);
@@ -144,7 +150,8 @@ class OrderControllerTest {
                 .thenThrow(new BusinessException(ErrorCode.VALIDATION_ERROR, "Idempotency-Key header is required"));
 
         assertThatExceptionOfType(BusinessException.class)
-                .isThrownBy(() -> controller.createOrder(" ", new CreateOrderRequestDto(3L, 5L), currentUser))
+                .isThrownBy(() -> controller.createOrder(
+                        " ", "device-a", new CreateOrderRequestDto(3L, 5L), currentUser, request()))
                 .satisfies(exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.VALIDATION_ERROR));
 
         verify(orderApplicationService).createOrder(currentUser, 3L, 5L, " ");
@@ -231,5 +238,11 @@ class OrderControllerTest {
 
     private static SessionUser user(Long id) {
         return new SessionUser(id, UserRoles.USER);
+    }
+
+    private static MockHttpServletRequest request() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRemoteAddr("203.0.113.7");
+        return request;
     }
 }

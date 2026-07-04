@@ -1,5 +1,6 @@
 package com.example.monkey.inventory.infrastructure;
 
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -14,7 +15,7 @@ import jakarta.persistence.Version;
                 @UniqueConstraint(
                         name = "uk_inventory_stock_sku_warehouse",
                         columnNames = {"sku_id", "warehouse_id"}))
-public class InventoryStock {
+public class InventoryStock extends TenantScopedJpaEntity {
 
     @Id
     private Long id;

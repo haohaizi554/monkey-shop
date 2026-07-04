@@ -1,6 +1,9 @@
 package com.example.monkey.order.infrastructure;
 
+import com.example.monkey.shared.infrastructure.privacy.EncryptedStringAttributeConverter;
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
@@ -8,7 +11,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "order_review")
-public class OrderReviewEntity {
+public class OrderReviewEntity extends TenantScopedJpaEntity {
 
     @Id
     private Long id;
@@ -25,7 +28,8 @@ public class OrderReviewEntity {
     @Column(nullable = false)
     private int rating;
 
-    @Column(length = 1000)
+    @Convert(converter = EncryptedStringAttributeConverter.class)
+    @Column(length = 2048)
     private String content;
 
     @Column(length = 2048)

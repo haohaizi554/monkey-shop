@@ -4,6 +4,7 @@ import com.example.monkey.logistics.domain.LogisticsCarrier;
 import com.example.monkey.logistics.domain.TrackingEvent;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import java.time.LocalDateTime;
 
 public record TrackingWebhookRequestDto(
@@ -13,4 +14,5 @@ public record TrackingWebhookRequestDto(
         @NotNull TrackingEvent event,
         LocalDateTime eventTime,
         String location,
-        String remark) {}
+        String remark,
+        @NotBlank @Size(max = 128) String signature) {}

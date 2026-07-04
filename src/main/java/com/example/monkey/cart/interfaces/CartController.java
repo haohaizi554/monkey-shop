@@ -7,8 +7,12 @@ import com.example.monkey.cart.application.dto.CartCheckoutResponseDto;
 import com.example.monkey.cart.application.dto.CartResponseDto;
 import com.example.monkey.cart.application.dto.CartSelectItemRequestDto;
 import com.example.monkey.cart.application.dto.CartUpdateItemRequestDto;
+import com.example.monkey.risk.application.RiskApplicationService;
+import com.example.monkey.risk.application.dto.RiskAssessmentRequestDto;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.interfaces.dto.Result;
+import com.example.monkey.shared.interfaces.web.ClientIps;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -27,9 +31,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class CartController {
 
     private final CartApplicationService cartApplicationService;
+    private final RiskApplicationService riskApplicationService;
 
-    public CartController(CartApplicationService cartApplicationService) {
+    public CartController(
+            CartApplicationService cartApplicationService, RiskApplicationService riskApplicationService) {
         this.cartApplicationService = cartApplicationService;
+        this.riskApplicationService = riskApplicationService;
     }
 
     @GetMapping
@@ -81,8 +88,15 @@ public class CartController {
     @PreAuthorize("hasAuthority('ORDER_CREATE')")
     public Result<CartCheckoutResponseDto> checkout(
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "X-Device-Fingerprint", required = false) String deviceFingerprint,
             @Valid @RequestBody CartCheckoutRequestDto request,
-            @AuthenticationPrincipal SessionUser currentUser) {
+            @AuthenticationPrincipal SessionUser currentUser,
+            HttpServletRequest httpRequest) {
+        riskApplicationService.requireAllowed(
+                currentUser,
+                new RiskAssessmentRequestDto(null, deviceFingerprint, null, null, null, null, null, null, null, null),
+                ClientIps.resolve(httpRequest),
+                "cart.checkout");
         return Result.success(cartApplicationService.checkout(currentUser, request, idempotencyKey));
     }
 }

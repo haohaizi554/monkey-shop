@@ -1,9 +1,11 @@
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { browserDeviceFingerprint } from '@/api/http'
 import { createOrder } from '@/api/orders'
+import { assessRisk } from '@/api/risk'
 import { addAddress, addresses as fetchAddresses } from '@/api/user'
 import { useAuthStore } from '@/stores/auth'
-import type { Address, AddressRequest, Monkey } from '@/types'
+import type { Address, AddressRequest, Monkey, RiskDecision } from '@/types'
 
 type NoticeLevel = 'error' | 'success' | 'warning'
 
@@ -75,6 +77,7 @@ export function useCheckout(options: CheckoutOptions = {}) {
     }
     submittingOrder.value = true
     try {
+      await ensureRiskAllowed(selectedMonkey.value)
       await createOrder(selectedMonkey.value.id, selectedAddressId.value)
       notify('success', 'Order created')
       checkoutOpen.value = false
@@ -85,6 +88,26 @@ export function useCheckout(options: CheckoutOptions = {}) {
     } finally {
       submittingOrder.value = false
     }
+  }
+
+  async function ensureRiskAllowed(monkey: Monkey) {
+    const assessment = await assessRisk({
+      deviceFingerprint: browserDeviceFingerprint(),
+      productId: monkey.id,
+    })
+    if (assessment.decision !== 'ALLOW') {
+      throw new Error(riskDecisionMessage(assessment.decision))
+    }
+  }
+
+  function riskDecisionMessage(decision: RiskDecision) {
+    if (decision === 'RATE_LIMIT') {
+      return 'Too many checkout attempts'
+    }
+    if (decision === 'TOTP_REQUIRED') {
+      return 'Extra verification is required'
+    }
+    return 'Checkout needs review'
   }
 
   function submitOrder() {

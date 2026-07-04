@@ -278,32 +278,58 @@ public class CartApplicationService {
         for (ResolvedCartLine line : lines) {
             byShop.computeIfAbsent(line.shopId(), ignored -> new ArrayList<>()).add(line);
         }
-        List<CheckoutSubOrder> subOrders = new ArrayList<>();
+        Map<Long, List<PricedCartLine>> pricedByShop = new LinkedHashMap<>();
+        List<PricedCartLine> pricedLines = new ArrayList<>();
         for (Map.Entry<Long, List<ResolvedCartLine>> entry : byShop.entrySet()) {
-            subOrders.add(toSubOrder(userId, entry.getKey(), entry.getValue(), status));
+            List<PricedCartLine> shopLines = priceStoreDiscounts(userId, entry.getKey(), entry.getValue());
+            pricedByShop.put(entry.getKey(), shopLines);
+            pricedLines.addAll(shopLines);
+        }
+        MarketingPriceQuoteDto platformQuote = quotePlatformDiscount(userId, lines);
+        Map<Long, BigDecimal> platformDiscounts = allocatePlatformDiscount(platformQuote.discountAmount(), pricedLines);
+        List<CheckoutSubOrder> subOrders = new ArrayList<>();
+        for (Map.Entry<Long, List<PricedCartLine>> entry : pricedByShop.entrySet()) {
+            subOrders.add(toSubOrder(entry.getKey(), entry.getValue(), status, platformQuote, platformDiscounts));
         }
         return subOrders;
     }
 
-    private CheckoutSubOrder toSubOrder(
-            Long userId, Long shopId, List<ResolvedCartLine> lines, CartCheckoutStatus status) {
+    private List<PricedCartLine> priceStoreDiscounts(Long userId, Long shopId, List<ResolvedCartLine> lines) {
         BigDecimal originalAmount =
                 lines.stream().map(ResolvedCartLine::originalAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
-        MarketingPriceQuoteDto quote = marketingApplicationService.quotePrice(new MarketingPriceRequestDto(
-                originalAmount,
-                userId,
-                lines.get(0).sku().categoryId(),
-                shopId,
-                lines.stream()
-                        .flatMap(line -> line.couponCodes().stream())
-                        .distinct()
-                        .toList()));
+        MarketingPriceQuoteDto quote = marketingApplicationService.quoteStorePrice(new MarketingPriceRequestDto(
+                originalAmount, userId, lines.get(0).sku().categoryId(), shopId, couponCodes(lines)));
         List<BigDecimal> discounts = allocateDiscount(quote.discountAmount(), lines);
+        List<PricedCartLine> priced = new ArrayList<>();
+        for (int index = 0; index < lines.size(); index++) {
+            priced.add(new PricedCartLine(lines.get(index), discounts.get(index), quote.appliedCoupons()));
+        }
+        return priced;
+    }
+
+    private MarketingPriceQuoteDto quotePlatformDiscount(Long userId, List<ResolvedCartLine> lines) {
+        BigDecimal originalAmount =
+                lines.stream().map(ResolvedCartLine::originalAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        return marketingApplicationService.quotePlatformPrice(
+                new MarketingPriceRequestDto(originalAmount, userId, null, null, couponCodes(lines)));
+    }
+
+    private CheckoutSubOrder toSubOrder(
+            Long shopId,
+            List<PricedCartLine> lines,
+            CartCheckoutStatus status,
+            MarketingPriceQuoteDto platformQuote,
+            Map<Long, BigDecimal> platformDiscounts) {
+        BigDecimal originalAmount =
+                lines.stream().map(line -> line.line().originalAmount()).reduce(BigDecimal.ZERO, BigDecimal::add);
         Long subOrderId = idGenerator.nextId();
         List<CheckoutLine> checkoutLines = new ArrayList<>();
-        for (int index = 0; index < lines.size(); index++) {
-            ResolvedCartLine line = lines.get(index);
-            BigDecimal discount = discounts.get(index);
+        for (PricedCartLine pricedLine : lines) {
+            ResolvedCartLine line = pricedLine.line();
+            BigDecimal platformDiscount =
+                    platformDiscounts.getOrDefault(line.id(), BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
+            BigDecimal discount =
+                    money(pricedLine.storeDiscount().add(platformDiscount).min(line.originalAmount()));
             checkoutLines.add(new CheckoutLine(
                     line.id(),
                     line.sku().skuId(),
@@ -316,7 +342,7 @@ public class CartApplicationService {
                     line.originalAmount(),
                     discount,
                     money(line.originalAmount().subtract(discount)),
-                    quote.appliedCoupons(),
+                    appliedCoupons(pricedLine, platformQuote, platformDiscount),
                     line.reservationKey(),
                     line.warehouseId()));
         }
@@ -333,6 +359,25 @@ public class CartApplicationService {
                 money(payableAmount),
                 status,
                 checkoutLines);
+    }
+
+    private static List<String> couponCodes(List<ResolvedCartLine> lines) {
+        return lines.stream()
+                .flatMap(line -> line.couponCodes().stream())
+                .distinct()
+                .toList();
+    }
+
+    private static List<String> appliedCoupons(
+            PricedCartLine pricedLine, MarketingPriceQuoteDto platformQuote, BigDecimal platformDiscount) {
+        List<String> coupons = new ArrayList<>();
+        if (pricedLine.storeDiscount().compareTo(BigDecimal.ZERO) > 0) {
+            coupons.addAll(pricedLine.storeCoupons());
+        }
+        if (platformDiscount.compareTo(BigDecimal.ZERO) > 0) {
+            coupons.addAll(platformQuote.appliedCoupons());
+        }
+        return coupons.stream().distinct().toList();
     }
 
     private CartSkuSnapshot requireSku(Long skuId) {
@@ -372,25 +417,46 @@ public class CartApplicationService {
     }
 
     private static List<BigDecimal> allocateDiscount(BigDecimal discountAmount, List<ResolvedCartLine> lines) {
+        return allocateDiscountByBase(
+                discountAmount,
+                lines.stream().map(ResolvedCartLine::originalAmount).toList());
+    }
+
+    private static Map<Long, BigDecimal> allocatePlatformDiscount(
+            BigDecimal discountAmount, List<PricedCartLine> lines) {
+        List<BigDecimal> discounts = allocateDiscountByBase(
+                discountAmount,
+                lines.stream().map(PricedCartLine::remainingAmount).toList());
+        Map<Long, BigDecimal> byLineId = new HashMap<>();
+        for (int index = 0; index < lines.size(); index++) {
+            byLineId.put(lines.get(index).line().id(), discounts.get(index));
+        }
+        return byLineId;
+    }
+
+    private static List<BigDecimal> allocateDiscountByBase(BigDecimal discountAmount, List<BigDecimal> bases) {
         BigDecimal discount = money(discountAmount == null ? BigDecimal.ZERO : discountAmount);
-        if (discount.compareTo(BigDecimal.ZERO) <= 0 || lines.isEmpty()) {
-            return lines.stream()
+        if (discount.compareTo(BigDecimal.ZERO) <= 0 || bases.isEmpty()) {
+            return bases.stream()
                     .map(ignored -> BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP))
                     .toList();
         }
-        BigDecimal total =
-                lines.stream().map(ResolvedCartLine::originalAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal total = bases.stream().map(CartApplicationService::money).reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (total.compareTo(BigDecimal.ZERO) <= 0) {
+            return bases.stream()
+                    .map(ignored -> BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP))
+                    .toList();
+        }
         BigDecimal remaining = discount.min(total);
         List<BigDecimal> discounts = new ArrayList<>();
-        for (int index = 0; index < lines.size(); index++) {
+        for (int index = 0; index < bases.size(); index++) {
             BigDecimal lineDiscount;
-            if (index == lines.size() - 1) {
+            BigDecimal base = money(bases.get(index));
+            if (index == bases.size() - 1) {
                 lineDiscount = remaining;
             } else {
-                lineDiscount = money(
-                        lines.get(index).originalAmount().multiply(discount).divide(total, 8, RoundingMode.HALF_UP));
-                lineDiscount =
-                        lineDiscount.min(lines.get(index).originalAmount()).min(remaining);
+                lineDiscount = money(base.multiply(discount).divide(total, 8, RoundingMode.HALF_UP));
+                lineDiscount = lineDiscount.min(base).min(remaining);
             }
             discounts.add(money(lineDiscount));
             remaining = remaining.subtract(lineDiscount);
@@ -437,6 +503,17 @@ public class CartApplicationService {
             Long warehouseId) {
         ResolvedCartLine {
             couponCodes = couponCodes == null ? List.of() : List.copyOf(couponCodes);
+        }
+    }
+
+    private record PricedCartLine(ResolvedCartLine line, BigDecimal storeDiscount, List<String> storeCoupons) {
+        PricedCartLine {
+            storeDiscount = money(storeDiscount);
+            storeCoupons = storeCoupons == null ? List.of() : List.copyOf(storeCoupons);
+        }
+
+        BigDecimal remainingAmount() {
+            return money(line.originalAmount().subtract(storeDiscount));
         }
     }
 }

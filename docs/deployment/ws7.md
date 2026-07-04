@@ -48,6 +48,8 @@ The chart expects the runtime Secret to contain:
 - `APP_PASSWORD_RESET_SMS_WEBHOOK_URL`
 - `APP_PASSWORD_RESET_EMAIL_WEBHOOK_URL`
 - `APP_PASSWORD_RESET_WEBHOOK_SECRET`
+- `APP_PAYMENT_CALLBACK_SECRET`
+- `APP_LOGISTICS_WEBHOOK_SECRET`
 - `APP_STORAGE_MINIO_ENDPOINT`
 - `APP_STORAGE_MINIO_ACCESS_KEY`
 - `APP_STORAGE_MINIO_SECRET_KEY`
@@ -81,7 +83,7 @@ The development VM can host a lightweight MicroK8s cluster for runtime proof bef
 .\scripts\verify-microk8s-dev-runtime.ps1 -SshTarget lly@192.168.119.129 -SkipDeploy -RunApiSecurityProbe
 ```
 
-Without `-SkipDeploy`, the verifier copies `helm/monkeyshop` to the VM, applies a local MySQL dependency in `monkeyshop-data`, reconciles the `monkeyshop-dev` Helm release with `microk8s helm3 upgrade --install`, exposes the app through a NodePort, and runs the runtime smoke gates from the workstation. Runtime secret values are read from `MONKEYSHOP_DEV_DB_PASSWORD`, `MONKEYSHOP_DEV_ADMIN_INIT_PASSWORD`, `MONKEYSHOP_DEV_ADMIN_TOTP_SECRET`, and `MONKEYSHOP_DEV_JWT_SECRET` when present; otherwise the script generates temporary values and keeps them out of the repository.
+Without `-SkipDeploy`, the verifier copies `helm/monkeyshop` to the VM, applies a local MySQL dependency in `monkeyshop-data`, reconciles the `monkeyshop-dev` Helm release with `microk8s helm3 upgrade --install`, exposes the app through a NodePort, and runs the runtime smoke gates from the workstation. Runtime secret values are read from `MONKEYSHOP_DEV_DB_PASSWORD`, `MONKEYSHOP_DEV_ADMIN_INIT_PASSWORD`, `MONKEYSHOP_DEV_ADMIN_TOTP_SECRET`, `MONKEYSHOP_DEV_JWT_SECRET`, `MONKEYSHOP_DEV_PAYMENT_CALLBACK_SECRET`, and `MONKEYSHOP_DEV_LOGISTICS_WEBHOOK_SECRET` when present; otherwise the script generates temporary values and keeps them out of the repository.
 
 This VM path proves Helm rendering, Kubernetes probes, pod security labels, Ingress scheduling, NodePort reachability, actuator health, SPA security headers, Prometheus metrics, anonymous API behavior, protected API rejection, honeypot blocking, and optional rate-limit behavior. It does not replace the Argo CD, TLS, Kyverno, and managed-cluster gates for staging or production.
 

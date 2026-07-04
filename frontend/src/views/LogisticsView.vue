@@ -37,6 +37,7 @@ const webhook = reactive({
   eventId: '',
   location: 'Hangzhou hub',
   remark: 'Sandbox logistics push',
+  signature: '',
 })
 
 const currentTrackingNo = computed(() => tracking.value?.trackingNo || trackingNo.value)
@@ -142,6 +143,7 @@ async function submitWebhook() {
       event: webhook.event,
       location: webhook.location,
       remark: webhook.remark,
+      signature: webhook.signature,
     })
     webhook.eventId = ''
     ElMessage.success('Webhook accepted')
@@ -254,6 +256,7 @@ onMounted(() => {
           <el-input v-model="webhook.eventId" placeholder="event id" />
           <el-input v-model="webhook.location" />
           <el-input v-model="webhook.remark" />
+          <el-input v-model="webhook.signature" placeholder="signature" show-password />
           <el-button type="warning" native-type="submit" :loading="busy">
             {{ $t('common.pushWebhook') }}
           </el-button>

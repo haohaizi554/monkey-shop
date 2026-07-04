@@ -5,7 +5,9 @@ import { csrfHeader } from '@/utils/csrf'
 const unsafeMethods = new Set(['post', 'put', 'patch', 'delete'])
 const traceIdHeader = 'X-Trace-Id'
 const idempotencyKeyHeader = 'Idempotency-Key'
+const deviceFingerprintHeader = 'X-Device-Fingerprint'
 let fallbackTraceCounter = 0
+let pageDeviceFingerprint: string | undefined
 
 interface RetriableConfig extends InternalAxiosRequestConfig {
   _retry?: boolean
@@ -43,10 +45,24 @@ function createTraceId(): string {
   return `web-${Date.now().toString(36)}-${fallbackTraceCounter.toString(36)}`
 }
 
+export function browserDeviceFingerprint(): string | undefined {
+  if (typeof window === 'undefined') {
+    return undefined
+  }
+  if (!pageDeviceFingerprint) {
+    pageDeviceFingerprint = createTraceId()
+  }
+  return pageDeviceFingerprint
+}
+
 http.interceptors.request.use((config) => {
   const method = (config.method ?? 'get').toLowerCase()
   if (!config.headers.has(traceIdHeader)) {
     config.headers.set(traceIdHeader, createTraceId())
+  }
+  const deviceFingerprint = browserDeviceFingerprint()
+  if (deviceFingerprint && !config.headers.has(deviceFingerprintHeader)) {
+    config.headers.set(deviceFingerprintHeader, deviceFingerprint)
   }
   if (unsafeMethods.has(method)) {
     config.headers.set(csrfHeader())

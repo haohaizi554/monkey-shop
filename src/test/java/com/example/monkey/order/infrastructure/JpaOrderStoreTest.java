@@ -7,20 +7,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.order.domain.OrderStatus;
-import com.example.monkey.order.domain.OrderStore.AddressRecord;
-import com.example.monkey.order.domain.OrderStore.BuyerRecord;
 import com.example.monkey.order.domain.OrderStore.OrderPage;
 import com.example.monkey.order.domain.OrderStore.OrderPageRequest;
 import com.example.monkey.order.domain.OrderStore.OrderRecord;
-import com.example.monkey.order.domain.OrderStore.ProductRecord;
 import com.example.monkey.order.domain.OrderStore.SortOrder;
 import com.example.monkey.order.domain.OrderStore.SortOrder.Direction;
-import com.example.monkey.product.infrastructure.Monkey;
-import com.example.monkey.product.infrastructure.MonkeyRepository;
-import com.example.monkey.user.infrastructure.Address;
-import com.example.monkey.user.infrastructure.AddressRepository;
-import com.example.monkey.user.infrastructure.User;
-import com.example.monkey.user.infrastructure.UserRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -43,23 +34,13 @@ class JpaOrderStoreTest {
     private OrderRepository orderRepository;
 
     @Mock
-    private MonkeyRepository monkeyRepository;
-
-    @Mock
-    private AddressRepository addressRepository;
-
-    @Mock
-    private UserRepository userRepository;
-
-    @Mock
     private StockLogRepository stockLogRepository;
 
     private JpaOrderStore store;
 
     @BeforeEach
     void setUp() {
-        store = new JpaOrderStore(
-                orderRepository, monkeyRepository, addressRepository, userRepository, stockLogRepository);
+        store = new JpaOrderStore(orderRepository, stockLogRepository);
     }
 
     @Test
@@ -138,24 +119,9 @@ class JpaOrderStoreTest {
     }
 
     @Test
-    void mapsProductAddressAndBuyerLookupsToDomainRecords() {
-        when(monkeyRepository.findById(7L)).thenReturn(Optional.of(monkey()));
-        when(addressRepository.findById(3L)).thenReturn(Optional.of(address()));
-        when(userRepository.findById(42L)).thenReturn(Optional.of(user()));
-
-        assertThat(store.findProductById(7L)).contains(productRecord());
-        assertThat(store.findAddressById(3L)).contains(addressRecord());
-        assertThat(store.findBuyerById(42L)).contains(buyerRecord());
-    }
-
-    @Test
-    void stockOperationsDelegateToAtomicRepositories() {
-        when(monkeyRepository.deductStock(7L)).thenReturn(1);
-        when(monkeyRepository.restoreStock(7L)).thenReturn(0);
+    void recordStockRestoreDelegatesToAtomicRepository() {
         when(stockLogRepository.recordRestore(10L, 7L)).thenReturn(1);
 
-        assertThat(store.deductProductStock(7L)).isTrue();
-        assertThat(store.restoreProductStock(7L)).isFalse();
         assertThat(store.recordStockRestore(10L, 7L)).isTrue();
     }
 
@@ -288,39 +254,5 @@ class JpaOrderStoreTest {
                 OrderStatus.PAID.label(),
                 null,
                 false);
-    }
-
-    private static Monkey monkey() {
-        return new Monkey(7L, "Momo", "Golden", new BigDecimal("199.99"), "calm", "/images/product/momo.png", 5);
-    }
-
-    private static ProductRecord productRecord() {
-        return new ProductRecord(7L, "Momo", "/images/product/momo.png", new BigDecimal("199.99"), "calm", 5);
-    }
-
-    private static Address address() {
-        Address address = new Address();
-        address.setId(3L);
-        address.setUserId(42L);
-        address.setReceiverName("Ada");
-        address.setPhone("13800138000");
-        address.setDetailAddress("Hangzhou");
-        return address;
-    }
-
-    private static AddressRecord addressRecord() {
-        return new AddressRecord(3L, 42L, "Ada", "13800138000", "Hangzhou");
-    }
-
-    private static User user() {
-        User user = new User();
-        user.setId(42L);
-        user.setUsername("buyer");
-        user.setAvatar("/images/avatar/buyer.png");
-        return user;
-    }
-
-    private static BuyerRecord buyerRecord() {
-        return new BuyerRecord(42L, "buyer", "/images/avatar/buyer.png");
     }
 }

@@ -1,6 +1,7 @@
 package com.example.monkey.membership.infrastructure;
 
 import com.example.monkey.membership.domain.MembershipLevel;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -12,6 +13,10 @@ public interface MembershipProfileRepository extends JpaRepository<MembershipPro
 
     Optional<MembershipProfileEntity> findByUserId(Long userId);
 
+    default int updateLevel(Long userId, long version, MembershipLevel level, LocalDateTime now) {
+        return updateLevel(userId, version, level, now, TenantContext.currentTenantIdOrDefault());
+    }
+
     @Modifying
     @Query("""
             update MembershipProfileEntity p
@@ -19,11 +24,13 @@ public interface MembershipProfileRepository extends JpaRepository<MembershipPro
                    p.updateTime = :now,
                    p.version = p.version + 1
              where p.userId = :userId
+               and p.tenantId = :tenantId
                and p.version = :version
             """)
     int updateLevel(
             @Param("userId") Long userId,
             @Param("version") long version,
             @Param("level") MembershipLevel level,
-            @Param("now") LocalDateTime now);
+            @Param("now") LocalDateTime now,
+            @Param("tenantId") Long tenantId);
 }

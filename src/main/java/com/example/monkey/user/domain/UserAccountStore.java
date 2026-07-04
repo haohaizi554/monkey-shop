@@ -6,6 +6,8 @@ import java.util.Optional;
 
 public interface UserAccountStore {
 
+    long DEFAULT_TENANT_ID = 1L;
+
     Optional<UserAccount> findByUsername(String username);
 
     Optional<UserAccount> findById(Long id);
@@ -31,9 +33,43 @@ public interface UserAccountStore {
             boolean passwordChangeRequired,
             String totpSecret,
             boolean mfaEnabled,
-            List<String> authorityNames) {
+            List<String> authorityNames,
+            Long tenantId) {
+
+        public UserAccount(
+                Long id,
+                String username,
+                String passwordHash,
+                String phone,
+                String email,
+                String avatar,
+                String role,
+                String nickname,
+                LocalDateTime passwordLastChangedAt,
+                boolean passwordChangeRequired,
+                String totpSecret,
+                boolean mfaEnabled,
+                List<String> authorityNames) {
+            this(
+                    id,
+                    username,
+                    passwordHash,
+                    phone,
+                    email,
+                    avatar,
+                    role,
+                    nickname,
+                    passwordLastChangedAt,
+                    passwordChangeRequired,
+                    totpSecret,
+                    mfaEnabled,
+                    authorityNames,
+                    DEFAULT_TENANT_ID);
+        }
+
         public UserAccount {
             authorityNames = authorityNames == null ? List.of() : List.copyOf(authorityNames);
+            tenantId = tenantId == null || tenantId <= 0 ? DEFAULT_TENANT_ID : tenantId;
         }
 
         public UserAccount withAvatar(String newAvatar) {
@@ -50,7 +86,8 @@ public interface UserAccountStore {
                     passwordChangeRequired,
                     totpSecret,
                     mfaEnabled,
-                    authorityNames);
+                    authorityNames,
+                    tenantId);
         }
 
         public UserAccount withPassword(String newPasswordHash, LocalDateTime changedAt) {
@@ -67,7 +104,8 @@ public interface UserAccountStore {
                     false,
                     totpSecret,
                     mfaEnabled,
-                    authorityNames);
+                    authorityNames,
+                    tenantId);
         }
     }
 }

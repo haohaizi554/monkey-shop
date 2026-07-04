@@ -1,21 +1,12 @@
 package com.example.monkey.order.infrastructure;
 
 import com.example.monkey.order.domain.OrderStore;
-import com.example.monkey.order.domain.OrderStore.AddressRecord;
-import com.example.monkey.order.domain.OrderStore.BuyerRecord;
 import com.example.monkey.order.domain.OrderStore.OrderPage;
 import com.example.monkey.order.domain.OrderStore.OrderPageRequest;
 import com.example.monkey.order.domain.OrderStore.OrderRecord;
-import com.example.monkey.order.domain.OrderStore.ProductRecord;
 import com.example.monkey.order.domain.OrderStore.SortOrder.Direction;
-import com.example.monkey.product.infrastructure.Monkey;
-import com.example.monkey.product.infrastructure.MonkeyRepository;
 import com.example.monkey.shared.infrastructure.persistence.JpaPageRequests;
 import com.example.monkey.shared.infrastructure.persistence.JpaSorts;
-import com.example.monkey.user.infrastructure.Address;
-import com.example.monkey.user.infrastructure.AddressRepository;
-import com.example.monkey.user.infrastructure.User;
-import com.example.monkey.user.infrastructure.UserRepository;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -32,21 +23,10 @@ public class JpaOrderStore implements OrderStore {
             Set.of("id", "orderNo", "createTime", "status", "price", "productName", "userId");
 
     private final OrderRepository orderRepository;
-    private final MonkeyRepository monkeyRepository;
-    private final AddressRepository addressRepository;
-    private final UserRepository userRepository;
     private final StockLogRepository stockLogRepository;
 
-    public JpaOrderStore(
-            OrderRepository orderRepository,
-            MonkeyRepository monkeyRepository,
-            AddressRepository addressRepository,
-            UserRepository userRepository,
-            StockLogRepository stockLogRepository) {
+    public JpaOrderStore(OrderRepository orderRepository, StockLogRepository stockLogRepository) {
         this.orderRepository = orderRepository;
-        this.monkeyRepository = monkeyRepository;
-        this.addressRepository = addressRepository;
-        this.userRepository = userRepository;
         this.stockLogRepository = stockLogRepository;
     }
 
@@ -74,26 +54,6 @@ public class JpaOrderStore implements OrderStore {
     }
 
     @Override
-    public Optional<ProductRecord> findProductById(Long productId) {
-        return monkeyRepository.findById(productId).map(JpaOrderStore::toProductRecord);
-    }
-
-    @Override
-    public Optional<AddressRecord> findAddressById(Long addressId) {
-        return addressRepository.findById(addressId).map(JpaOrderStore::toAddressRecord);
-    }
-
-    @Override
-    public Optional<BuyerRecord> findBuyerById(Long userId) {
-        return userRepository.findById(userId).map(JpaOrderStore::toBuyerRecord);
-    }
-
-    @Override
-    public boolean deductProductStock(Long productId) {
-        return monkeyRepository.deductStock(productId) > 0;
-    }
-
-    @Override
     public OrderRecord savePlacedOrder(OrderRecord order) {
         Order entity = toEntity(order);
         Order saved = orderRepository.save(entity);
@@ -111,11 +71,6 @@ public class JpaOrderStore implements OrderStore {
     @Override
     public boolean recordStockRestore(Long orderId, Long productId) {
         return stockLogRepository.recordRestore(orderId, productId) > 0;
-    }
-
-    @Override
-    public boolean restoreProductStock(Long productId) {
-        return monkeyRepository.restoreStock(productId) > 0;
     }
 
     @Override
@@ -170,29 +125,6 @@ public class JpaOrderStore implements OrderStore {
                 order.getStatus(),
                 order.getCreateTime(),
                 order.isUserHidden());
-    }
-
-    private static ProductRecord toProductRecord(Monkey monkey) {
-        return new ProductRecord(
-                monkey.getId(),
-                monkey.getName(),
-                monkey.getImageUrl(),
-                monkey.getPrice(),
-                monkey.getDescription(),
-                monkey.getStock());
-    }
-
-    private static AddressRecord toAddressRecord(Address address) {
-        return new AddressRecord(
-                address.getId(),
-                address.getUserId(),
-                address.getReceiverName(),
-                address.getPhone(),
-                address.getDetailAddress());
-    }
-
-    private static BuyerRecord toBuyerRecord(User user) {
-        return new BuyerRecord(user.getId(), user.getUsername(), user.getAvatar());
     }
 
     private static Order toEntity(OrderRecord record) {

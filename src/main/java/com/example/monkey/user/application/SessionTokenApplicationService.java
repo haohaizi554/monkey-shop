@@ -22,6 +22,10 @@ public class SessionTokenApplicationService {
         return fromDomain(sessionTokenService.issueTokenPair(userId, role, authorities));
     }
 
+    public SessionTokenPair issueTokenPair(Long userId, String role, Collection<String> authorities, Long tenantId) {
+        return fromDomain(sessionTokenService.issueTokenPair(userId, role, authorities, tenantId));
+    }
+
     public Optional<AuthenticatedRefreshToken> parseRefreshToken(String rawToken) {
         return sessionTokenService.parseRefreshToken(rawToken).map(SessionTokenApplicationService::fromDomain);
     }

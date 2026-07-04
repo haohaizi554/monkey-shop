@@ -60,7 +60,7 @@ public class TenantAdminController {
     public Result<TenantResponseDto> renewTenant(
             @AuthenticationPrincipal SessionUser currentUser,
             @PathVariable Long tenantId,
-            @RequestBody(required = false) TenantRenewRequestDto request) {
+            @Valid @RequestBody(required = false) TenantRenewRequestDto request) {
         return Result.success(tenantApplicationService.renewTenant(currentUser, tenantId, request));
     }
 
@@ -69,7 +69,7 @@ public class TenantAdminController {
     public Result<TenantResponseDto> downgradeTenant(
             @AuthenticationPrincipal SessionUser currentUser,
             @PathVariable Long tenantId,
-            @RequestBody(required = false) TenantDowngradeRequestDto request) {
+            @Valid @RequestBody(required = false) TenantDowngradeRequestDto request) {
         return Result.success(tenantApplicationService.downgradeTenant(currentUser, tenantId, request));
     }
 
@@ -93,7 +93,7 @@ public class TenantAdminController {
     public Result<TenantBillDto> generateBill(
             @AuthenticationPrincipal SessionUser currentUser,
             @PathVariable Long tenantId,
-            @RequestBody(required = false) TenantBillGenerateRequestDto request) {
+            @Valid @RequestBody(required = false) TenantBillGenerateRequestDto request) {
         return Result.success(tenantApplicationService.generateBill(currentUser, tenantId, request));
     }
 
@@ -108,7 +108,7 @@ public class TenantAdminController {
     public Result<TenantExportJobDto> requestExport(
             @AuthenticationPrincipal SessionUser currentUser,
             @PathVariable Long tenantId,
-            @RequestBody(required = false) TenantExportRequestDto request) {
+            @Valid @RequestBody(required = false) TenantExportRequestDto request) {
         return Result.success(tenantApplicationService.requestExport(currentUser, tenantId, request));
     }
 

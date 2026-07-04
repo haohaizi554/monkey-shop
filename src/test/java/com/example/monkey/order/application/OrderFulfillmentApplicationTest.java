@@ -14,10 +14,12 @@ import com.example.monkey.order.application.dto.OrderShipmentLineRequestDto;
 import com.example.monkey.order.application.dto.OrderShipmentRequestDto;
 import com.example.monkey.order.application.dto.OrderShipmentResponseDto;
 import com.example.monkey.order.application.observability.BusinessMetricsService;
+import com.example.monkey.order.domain.OrderCustomerPort;
 import com.example.monkey.order.domain.OrderFulfillmentItem;
 import com.example.monkey.order.domain.OrderFulfillmentStore;
 import com.example.monkey.order.domain.OrderLockManager;
 import com.example.monkey.order.domain.OrderNumberGenerator;
+import com.example.monkey.order.domain.OrderProductPort;
 import com.example.monkey.order.domain.OrderShipmentBatch;
 import com.example.monkey.order.domain.OrderShipmentLine;
 import com.example.monkey.order.domain.OrderShipmentStatus;
@@ -49,6 +51,12 @@ class OrderFulfillmentApplicationTest {
     private OrderStore orderStore;
 
     @Mock
+    private OrderProductPort orderProductPort;
+
+    @Mock
+    private OrderCustomerPort orderCustomerPort;
+
+    @Mock
     private OrderFulfillmentStore fulfillmentStore;
 
     @Mock
@@ -78,6 +86,8 @@ class OrderFulfillmentApplicationTest {
     void setUp() {
         orderService = new OrderService(
                 orderStore,
+                orderProductPort,
+                orderCustomerPort,
                 orderNumberGenerator,
                 orderIdempotencyService,
                 orderLockManager,

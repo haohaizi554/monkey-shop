@@ -30,12 +30,17 @@ class Ws7LogisticsWorkflowTest {
         String logisticsView = read("frontend/src/views/LogisticsView.vue");
         String verifier = read("scripts/verify-ws7-logistics.ps1");
 
-        assertThat(docs).contains("tracking state machine", "freight", "webhook replay", "PII");
+        assertThat(docs).contains("tracking state machine", "freight", "webhook replay", "HMAC-SHA256", "PII");
         assertThat(trackingMigration).contains("CREATE TABLE logistics_tracking", "CREATE TABLE logistics_webhook_log");
         assertThat(trackingMigration).contains("recipient_phone_hmac", "version BIGINT");
         assertThat(freightMigration).contains("CREATE TABLE logistics_freight_template", "SF", "ZTO", "YTO");
         assertThat(service)
-                .contains("@WithSpan(\"logistics.create\")", "@WithSpan(\"logistics.webhook\")", "idGenerator.nextId");
+                .contains(
+                        "@WithSpan(\"logistics.create\")",
+                        "@WithSpan(\"logistics.webhook\")",
+                        "verifyWebhookSignature",
+                        "HmacSHA256",
+                        "idGenerator.nextId");
         assertThat(controller).contains("/shipments", "/freight/quote", "/address/parse", "/webhook");
         assertThat(store).contains("piiCryptoService.encrypt", "piiCryptoService.blindIndex");
         assertThat(replayGuard).contains("setIfAbsent", "LogisticsWebhookLogRepository");

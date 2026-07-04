@@ -5,8 +5,9 @@ import com.example.monkey.search.application.dto.HotKeywordDto;
 import com.example.monkey.search.application.dto.RecommendationDto;
 import com.example.monkey.search.application.dto.SearchConversionRequestDto;
 import com.example.monkey.search.application.dto.SearchPageDto;
-import com.example.monkey.search.application.dto.SearchProductQueryDto;
+import com.example.monkey.search.application.dto.SearchProductQueryRequestDto;
 import com.example.monkey.search.application.dto.SearchSuggestionDto;
+import com.example.monkey.search.application.dto.SearchSuggestionRequestDto;
 import com.example.monkey.search.application.dto.UserSearchProfileDto;
 import com.example.monkey.search.application.dto.UserSearchProfileRequestDto;
 import com.example.monkey.shared.application.security.SessionUser;
@@ -20,7 +21,6 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -36,15 +36,17 @@ public class SearchController {
     @GetMapping("/products")
     @PreAuthorize("permitAll()")
     public Result<SearchPageDto> products(
-            @Valid @ModelAttribute SearchProductQueryDto request, @AuthenticationPrincipal SessionUser currentUser) {
+            @Valid @ModelAttribute SearchProductQueryRequestDto request,
+            @AuthenticationPrincipal SessionUser currentUser) {
         return Result.success(searchApplicationService.search(request, currentUser));
     }
 
     @GetMapping("/suggestions")
     @PreAuthorize("permitAll()")
     public Result<List<SearchSuggestionDto>> suggestions(
-            @RequestParam String keyword, @AuthenticationPrincipal SessionUser currentUser) {
-        return Result.success(searchApplicationService.suggestions(keyword, currentUser));
+            @Valid @ModelAttribute SearchSuggestionRequestDto request,
+            @AuthenticationPrincipal SessionUser currentUser) {
+        return Result.success(searchApplicationService.suggestions(request.keyword(), currentUser));
     }
 
     @GetMapping("/hot")

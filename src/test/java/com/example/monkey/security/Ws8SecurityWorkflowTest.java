@@ -94,6 +94,8 @@ class Ws8SecurityWorkflowTest {
         String bashScript = read("scripts/verify-runtime-data-protection.sh");
         String compose = read("docker-compose.yml");
         String readme = read("README.md");
+        String application = read("src/main/resources/application.yml");
+        String devApplication = read("src/main/resources/application-dev.yml");
 
         assertThat(script)
                 .contains("APP_PII_ENCRYPTION_ENABLED")
@@ -123,6 +125,8 @@ class Ws8SecurityWorkflowTest {
                 .contains("APP_PII_PREVIOUS_AES_KEYS_BASE64: ${APP_PII_PREVIOUS_AES_KEYS_BASE64:-}")
                 .contains("APP_PII_ALLOW_PLAINTEXT_READ: ${APP_PII_ALLOW_PLAINTEXT_READ:-false}")
                 .contains("APP_PII_BACKFILL_ENABLED: ${APP_PII_BACKFILL_ENABLED:-false}");
+        assertThat(application).contains("enabled: ${APP_PII_ENCRYPTION_ENABLED:true}");
+        assertThat(devApplication).contains("enabled: ${APP_PII_ENCRYPTION_ENABLED:true}");
         assertThat(readme)
                 .contains("verify-runtime-data-protection.ps1")
                 .contains("verify-runtime-data-protection.sh")

@@ -5,11 +5,13 @@ import static org.mockito.Mockito.mock;
 
 import com.example.monkey.order.application.dto.OrderResponseDto;
 import com.example.monkey.order.application.observability.BusinessMetricsService;
+import com.example.monkey.order.domain.OrderCustomerPort;
 import com.example.monkey.order.domain.OrderFulfillmentStore;
 import com.example.monkey.order.domain.OrderIdempotencyKeyStore;
 import com.example.monkey.order.domain.OrderIdempotencyStore;
 import com.example.monkey.order.domain.OrderIdempotencyStore.IdempotencyReservationRecord;
 import com.example.monkey.order.domain.OrderLockManager;
+import com.example.monkey.order.domain.OrderProductPort;
 import com.example.monkey.order.domain.OrderStore;
 import com.example.monkey.order.domain.OrderStore.AddressRecord;
 import com.example.monkey.order.domain.OrderStore.BuyerRecord;
@@ -113,6 +115,8 @@ class OrderConcurrencyTest {
             InMemoryOrderStore orderStore, OrderIdempotencyService orderIdempotencyService) {
         AtomicLong orderNoSequence = new AtomicLong(1_000L);
         return new OrderService(
+                orderStore,
+                orderStore,
                 orderStore,
                 () -> "ORD" + orderNoSequence.getAndIncrement(),
                 orderIdempotencyService,
@@ -249,7 +253,7 @@ class OrderConcurrencyTest {
         }
     }
 
-    private static final class InMemoryOrderStore implements OrderStore {
+    private static final class InMemoryOrderStore implements OrderStore, OrderProductPort, OrderCustomerPort {
 
         private final Long productId;
         private final AtomicInteger stock;

@@ -125,8 +125,9 @@ class LoginApplicationServiceTest {
         when(captchaService.validate(CAPTCHA_CHALLENGE_ID, "1234", "login", "127.0.0.1"))
                 .thenReturn(true);
         when(authenticationService.authenticate("alice", "StrongPass1!"))
-                .thenReturn(new AuthenticatedUserPrincipal(7L, "USER"));
-        when(tokenService.issueTokenPair(7L, "USER", List.of("ROLE_USER"))).thenReturn(tokenPair);
+                .thenReturn(new AuthenticatedUserPrincipal(7L, "USER", List.of("ROLE_USER"), false, 200L));
+        when(tokenService.issueTokenPair(7L, "USER", List.of("ROLE_USER"), 200L))
+                .thenReturn(tokenPair);
 
         var result = loginService.login("alice", "StrongPass1!", "1234", null, CAPTCHA_CHALLENGE_ID, "127.0.0.1");
 
@@ -142,7 +143,7 @@ class LoginApplicationServiceTest {
                 new SessionTokenPair("access-token", "refresh-token", "access-id", "refresh-id", 900, 604800);
         AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(7L, "USER", List.of("ROLE_USER"), true);
         when(authenticationService.authenticate("alice", "StrongPass1!")).thenReturn(principal);
-        when(tokenService.issueTokenPair(7L, "USER", List.of("ROLE_USER"))).thenReturn(tokenPair);
+        when(tokenService.issueTokenPair(7L, "USER", List.of("ROLE_USER"), 1L)).thenReturn(tokenPair);
 
         var result = loginService.login("alice", "StrongPass1!", null, null, null, "203.0.113.10");
 
@@ -188,7 +189,8 @@ class LoginApplicationServiceTest {
         when(authenticationService.authenticate("admin", "StrongPass1!"))
                 .thenReturn(new AuthenticatedUserPrincipal(1L, "ADMIN"));
         when(authenticationService.verifyAdminTotp(1L, "654321")).thenReturn(true);
-        when(tokenService.issueTokenPair(1L, "ADMIN", List.of("ROLE_ADMIN"))).thenReturn(tokenPair);
+        when(tokenService.issueTokenPair(1L, "ADMIN", List.of("ROLE_ADMIN"), 1L))
+                .thenReturn(tokenPair);
 
         var result = loginService.login("admin", "StrongPass1!", null, "654321", null, "127.0.0.1");
 

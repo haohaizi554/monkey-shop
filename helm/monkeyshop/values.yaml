@@ -156,6 +156,14 @@ externalSecret:
       remoteRef:
         key: monkeyshop/prod
         property: APP_PASSWORD_RESET_WEBHOOK_SECRET
+    - secretKey: APP_PAYMENT_CALLBACK_SECRET
+      remoteRef:
+        key: monkeyshop/prod
+        property: APP_PAYMENT_CALLBACK_SECRET
+    - secretKey: APP_LOGISTICS_WEBHOOK_SECRET
+      remoteRef:
+        key: monkeyshop/prod
+        property: APP_LOGISTICS_WEBHOOK_SECRET
     - secretKey: APP_STORAGE_MINIO_ENDPOINT
       remoteRef:
         key: monkeyshop/prod

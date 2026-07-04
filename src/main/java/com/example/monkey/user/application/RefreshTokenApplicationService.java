@@ -60,7 +60,7 @@ public class RefreshTokenApplicationService {
 
     private RefreshTokenResult refreshCurrentPrincipal(AuthenticatedRefreshToken refreshToken, String clientIp) {
         return authenticationService
-                .currentPrincipal(refreshToken.userId())
+                .currentPrincipal(refreshToken.userId(), refreshToken.tenantId())
                 .map(principal -> {
                     SessionTokenPair pair =
                             tokenService.rotateRefreshToken(refreshToken, principal.role(), principal.authorities());

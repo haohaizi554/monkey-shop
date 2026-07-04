@@ -183,6 +183,8 @@ $env:MYSQL_PASSWORD = "<strong-app-db-password>"
 $env:ADMIN_INIT_PASSWORD = "<strong-initial-admin-password>"
 $env:ADMIN_TOTP_SECRET = "<base32-totp-secret>"
 $env:APP_JWT_SECRET = "<at-least-32-byte-jwt-signing-secret>"
+$env:APP_PAYMENT_CALLBACK_SECRET = "<strong-payment-callback-secret>"
+$env:APP_LOGISTICS_WEBHOOK_SECRET = "<strong-logistics-webhook-secret>"
 $env:APP_JWT_REQUIRE_REDIS_TOKEN_STORE = "false"
 $env:APP_AUTH_REQUIRE_REDIS_STATE = "false"
 $env:APP_PASSWORD_RESET_DELIVERY_MODE = "logging"
@@ -207,6 +209,8 @@ $env:DB_PASSWORD = "<local-db-password>"
 $env:ADMIN_INIT_PASSWORD = "<strong-initial-admin-password>"
 $env:ADMIN_TOTP_SECRET = "<base32-totp-secret>"
 $env:APP_JWT_SECRET = "<at-least-32-byte-jwt-signing-secret>"
+$env:APP_PAYMENT_CALLBACK_SECRET = "<strong-payment-callback-secret>"
+$env:APP_LOGISTICS_WEBHOOK_SECRET = "<strong-logistics-webhook-secret>"
 $env:SESSION_COOKIE_SECURE = "false"
 $env:APP_UPLOAD_PATH = "uploads/images"
 $env:APP_UPLOAD_VIRUS_SCAN_ENABLED = "false"
@@ -322,6 +326,8 @@ Runtime configuration is mainly driven by `src/main/resources/application.yml` a
 | `APP_AUTH_REQUIRE_REDIS_STATE` | require Redis-backed auth/captcha/rate-limit state |
 | `APP_AUTH_CAPTCHA_PROVIDER` | `local` or `turnstile` |
 | `APP_PASSWORD_RESET_DELIVERY_MODE` | `disabled`, `logging`, or `webhook` |
+| `APP_PAYMENT_CALLBACK_SECRET` | signing secret for payment provider callbacks |
+| `APP_LOGISTICS_WEBHOOK_SECRET` | HMAC signing secret for logistics carrier webhook callbacks |
 | `APP_UPLOAD_PATH` | upload root path |
 | `APP_UPLOAD_VIRUS_SCAN_ENABLED` | enable ClamAV scanning |
 | `APP_PII_ENCRYPTION_ENABLED` | enable PII encryption |
@@ -362,10 +368,10 @@ Staging and production canaries start at 10 percent, run Prometheus 5xx-rate ana
 ```powershell
 helm template monkeyshop .\helm\monkeyshop -f .\helm\monkeyshop\values-dev.yaml
 helm template monkeyshop .\helm\monkeyshop -f .\helm\monkeyshop\values-staging.yaml
-helm template monkeyshop .\helm\monkeyshop -f .\helm\monkeyshop\values-prod.yaml
+helm template monkeyshop .\helm\monkeyshop -f .\helm\monkeyshop\values-prod.yaml --set image.digest=sha256:1111111111111111111111111111111111111111111111111111111111111111
 ```
 
-The Argo CD Applications point at `https://github.com/haohaizi554/monkey-shop.git`. After applying the platform dependencies and logging in with `argocd` or configuring `kubectl` for the cluster, verify the live GitOps state with:
+Production rendering requires an immutable app image digest; CI writes the signed pushed digest back to `values-prod.yaml` before GitOps sync. The Argo CD Applications point at `https://github.com/haohaizi554/monkey-shop.git`. After applying the platform dependencies and logging in with `argocd` or configuring `kubectl` for the cluster, verify the live GitOps state with:
 
 ```powershell
 .\scripts\verify-argocd-gitops-runtime.ps1 -RequireCluster
@@ -377,7 +383,7 @@ For the local VM development cluster, verify the MicroK8s/Helm runtime path with
 .\scripts\verify-microk8s-dev-runtime.ps1 -SshTarget lly@192.168.119.129 -SkipDeploy -RunApiSecurityProbe
 ```
 
-Omit `-SkipDeploy` to copy the chart to the VM, reconcile the `monkeyshop-dev` Helm release, expose it through a NodePort, and then run the runtime smoke gates. Runtime secrets can be supplied with `MONKEYSHOP_DEV_DB_PASSWORD`, `MONKEYSHOP_DEV_ADMIN_INIT_PASSWORD`, `MONKEYSHOP_DEV_ADMIN_TOTP_SECRET`, and `MONKEYSHOP_DEV_JWT_SECRET`; otherwise the verifier generates temporary values.
+Omit `-SkipDeploy` to copy the chart to the VM, reconcile the `monkeyshop-dev` Helm release, expose it through a NodePort, and then run the runtime smoke gates. Runtime secrets can be supplied with `MONKEYSHOP_DEV_DB_PASSWORD`, `MONKEYSHOP_DEV_ADMIN_INIT_PASSWORD`, `MONKEYSHOP_DEV_ADMIN_TOTP_SECRET`, `MONKEYSHOP_DEV_JWT_SECRET`, `MONKEYSHOP_DEV_PAYMENT_CALLBACK_SECRET`, and `MONKEYSHOP_DEV_LOGISTICS_WEBHOOK_SECRET`; otherwise the verifier generates temporary values.
 The VM verifier also reconciles an in-cluster Redis Service in `monkeyshop-data` and points auth, JWT, and rate-limit state at `redis.monkeyshop-data.svc.cluster.local` so the app runtime is not coupled to host Docker Redis.
 
 To prove Argo CD reconciliation against the VM MicroK8s cluster with a local GitOps repository, run:

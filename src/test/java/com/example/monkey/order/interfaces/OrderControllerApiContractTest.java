@@ -15,6 +15,7 @@ import com.example.monkey.order.application.OrderService;
 import com.example.monkey.order.application.dto.OrderPageQuery;
 import com.example.monkey.order.application.dto.OrderResponseDto;
 import com.example.monkey.order.domain.OrderStatus;
+import com.example.monkey.risk.application.RiskApplicationService;
 import com.example.monkey.shared.application.dto.PageResponseDto;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
@@ -42,11 +43,14 @@ class OrderControllerApiContractTest {
     @Mock
     private OrderService orderService;
 
+    @Mock
+    private RiskApplicationService riskApplicationService;
+
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
-        OrderController controller = new OrderController(orderApplicationService, orderService);
+        OrderController controller = new OrderController(orderApplicationService, orderService, riskApplicationService);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new PageableHandlerMethodArgumentResolver())
@@ -134,7 +138,7 @@ class OrderControllerApiContractTest {
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.traceId").value("trace-validation-1"));
 
-        verifyNoInteractions(orderApplicationService, orderService);
+        verifyNoInteractions(riskApplicationService, orderApplicationService, orderService);
     }
 
     private static OrderResponseDto response() {

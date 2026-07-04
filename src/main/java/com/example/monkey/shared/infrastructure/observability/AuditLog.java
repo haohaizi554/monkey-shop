@@ -1,5 +1,6 @@
 package com.example.monkey.shared.infrastructure.observability;
 
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -10,7 +11,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "audit_log")
-public class AuditLog {
+public class AuditLog extends TenantScopedJpaEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

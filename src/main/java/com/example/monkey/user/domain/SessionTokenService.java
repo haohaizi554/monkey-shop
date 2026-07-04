@@ -10,6 +10,8 @@ public interface SessionTokenService {
 
     JwtTokenPair issueTokenPair(Long userId, String role, Collection<String> authorities);
 
+    JwtTokenPair issueTokenPair(Long userId, String role, Collection<String> authorities, Long tenantId);
+
     Optional<AuthenticatedAccessToken> parseAccessToken(String rawToken);
 
     Optional<AuthenticatedRefreshToken> parseRefreshToken(String rawToken);

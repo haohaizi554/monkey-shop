@@ -8,8 +8,8 @@ namespace:
 image:
   repository: harbor.example.com/monkeyshop/monkeyshop
   tag: prod
-  # CI/CD must update this value to the signed release digest before production sync.
-  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  # CI/CD writes the signed release digest here before production sync.
+  digest: ""
   pullPolicy: IfNotPresent
 
 replicaCount: 3
@@ -48,8 +48,7 @@ externalServices:
 
 initContainers:
   waitForMysql:
-    # CI/CD must update this value to a signed release digest before production sync.
-    image: busybox@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    image: busybox@sha256:9532d8c39891ca2ecde4d30d7710e01fb739c87a8b9299685c63704296b16028
 
 ingress:
   enabled: true

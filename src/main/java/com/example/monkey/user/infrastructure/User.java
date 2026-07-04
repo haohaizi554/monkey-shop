@@ -3,6 +3,7 @@ package com.example.monkey.user.infrastructure;
 import com.example.monkey.shared.domain.privacy.PhoneBlindIndexTarget;
 import com.example.monkey.shared.infrastructure.privacy.EncryptedStringAttributeConverter;
 import com.example.monkey.shared.infrastructure.privacy.PiiBlindIndexEntityListener;
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import com.example.monkey.user.domain.UserRoles;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.Column;
@@ -30,7 +31,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 @Entity
 @Table(name = "user")
 @EntityListeners(PiiBlindIndexEntityListener.class)
-public class User implements UserDetails, PhoneBlindIndexTarget {
+public class User extends TenantScopedJpaEntity implements UserDetails, PhoneBlindIndexTarget {
     private static final int PASSWORD_EXPIRATION_DAYS = 90;
 
     @Id

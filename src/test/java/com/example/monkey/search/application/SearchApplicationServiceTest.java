@@ -8,7 +8,7 @@ import com.example.monkey.membership.domain.BrowseHistoryItem;
 import com.example.monkey.membership.domain.MembershipActivityStore;
 import com.example.monkey.order.application.observability.BusinessMetricsService;
 import com.example.monkey.search.application.dto.SearchConversionRequestDto;
-import com.example.monkey.search.application.dto.SearchProductQueryDto;
+import com.example.monkey.search.application.dto.SearchProductQueryRequestDto;
 import com.example.monkey.search.application.dto.UserSearchProfileRequestDto;
 import com.example.monkey.search.domain.HotKeyword;
 import com.example.monkey.search.domain.PurchasedProduct;
@@ -48,8 +48,8 @@ class SearchApplicationServiceTest {
 
     @Test
     void searchRecordsHistoryHotKeywordAndSuggestions() {
-        var page =
-                service.search(new SearchProductQueryDto("phone", null, null, null, SearchSort.RELEVANCE, 0, 10), USER);
+        var page = service.search(
+                new SearchProductQueryRequestDto("phone", null, null, null, SearchSort.RELEVANCE, 0, 10), USER);
 
         assertThat(page.content()).hasSize(1);
         assertThat(searchStore.history).hasSize(1);

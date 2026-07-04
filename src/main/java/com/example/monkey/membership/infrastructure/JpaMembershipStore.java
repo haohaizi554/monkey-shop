@@ -1,7 +1,5 @@
 package com.example.monkey.membership.infrastructure;
 
-import com.example.monkey.marketing.infrastructure.MarketingUserCouponEntity;
-import com.example.monkey.marketing.infrastructure.MarketingUserCouponRepository;
 import com.example.monkey.membership.domain.CouponWalletEntry;
 import com.example.monkey.membership.domain.MemberCollection;
 import com.example.monkey.membership.domain.MemberProfile;
@@ -12,14 +10,17 @@ import com.example.monkey.membership.domain.PointsLedgerEntry;
 import com.example.monkey.membership.domain.PointsWallet;
 import com.example.monkey.membership.domain.PriceDropEvent;
 import com.example.monkey.membership.domain.ProductSnapshot;
-import com.example.monkey.product.infrastructure.Monkey;
-import com.example.monkey.product.infrastructure.MonkeyRepository;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -34,8 +35,7 @@ public class JpaMembershipStore implements MembershipStore {
     private final MembershipCheckInRepository checkInRepository;
     private final MemberCollectionRepository collectionRepository;
     private final PriceDropEventRepository priceDropEventRepository;
-    private final MarketingUserCouponRepository userCouponRepository;
-    private final MonkeyRepository monkeyRepository;
+    private final JdbcTemplate jdbcTemplate;
     private final PiiCryptoService piiCryptoService;
 
     public JpaMembershipStore(
@@ -46,8 +46,7 @@ public class JpaMembershipStore implements MembershipStore {
             MembershipCheckInRepository checkInRepository,
             MemberCollectionRepository collectionRepository,
             PriceDropEventRepository priceDropEventRepository,
-            MarketingUserCouponRepository userCouponRepository,
-            MonkeyRepository monkeyRepository,
+            JdbcTemplate jdbcTemplate,
             PiiCryptoService piiCryptoService) {
         this.profileRepository = profileRepository;
         this.levelHistoryRepository = levelHistoryRepository;
@@ -56,8 +55,7 @@ public class JpaMembershipStore implements MembershipStore {
         this.checkInRepository = checkInRepository;
         this.collectionRepository = collectionRepository;
         this.priceDropEventRepository = priceDropEventRepository;
-        this.userCouponRepository = userCouponRepository;
-        this.monkeyRepository = monkeyRepository;
+        this.jdbcTemplate = jdbcTemplate;
         this.piiCryptoService = piiCryptoService;
     }
 
@@ -156,7 +154,16 @@ public class JpaMembershipStore implements MembershipStore {
 
     @Override
     public Optional<ProductSnapshot> findProduct(Long productId) {
-        return monkeyRepository.findById(productId).map(JpaMembershipStore::toProduct);
+        return jdbcTemplate
+                .query("""
+                        SELECT id, name, image_url, price
+                        FROM monkey
+                        WHERE id = ?
+                          AND tenant_id = ?
+                          AND deleted = false
+                        """, (rs, rowNum) -> toProduct(rs), productId, TenantContext.currentTenantIdOrDefault())
+                .stream()
+                .findFirst();
     }
 
     @Override
@@ -199,9 +206,15 @@ public class JpaMembershipStore implements MembershipStore {
 
     @Override
     public List<CouponWalletEntry> findCouponWallet(Long userId) {
-        return userCouponRepository.findTop20ByUserIdOrderByClaimedAtDesc(userId).stream()
-                .map(JpaMembershipStore::toCoupon)
-                .toList();
+        return jdbcTemplate.query(
+                """
+                SELECT id, coupon_id, coupon_code, user_id, status, order_id, claimed_at, used_at
+                FROM marketing_user_coupon
+                WHERE tenant_id = ?
+                  AND user_id = ?
+                ORDER BY claimed_at DESC
+                LIMIT ?
+                """, (rs, rowNum) -> toCoupon(rs), TenantContext.currentTenantIdOrDefault(), userId, 20);
     }
 
     private MemberProfile toProfile(MembershipProfileEntity entity) {
@@ -374,19 +387,30 @@ public class JpaMembershipStore implements MembershipStore {
         return entity;
     }
 
-    private static ProductSnapshot toProduct(Monkey product) {
-        return new ProductSnapshot(product.getId(), product.getName(), product.getImageUrl(), product.getPrice());
+    private static ProductSnapshot toProduct(ResultSet rs) throws SQLException {
+        return new ProductSnapshot(
+                rs.getLong("id"), rs.getString("name"), rs.getString("image_url"), rs.getBigDecimal("price"));
     }
 
-    private static CouponWalletEntry toCoupon(MarketingUserCouponEntity entity) {
+    private static CouponWalletEntry toCoupon(ResultSet rs) throws SQLException {
         return new CouponWalletEntry(
-                entity.getId(),
-                entity.getCouponId(),
-                entity.getCouponCode(),
-                entity.getUserId(),
-                entity.getStatus().name(),
-                entity.getOrderId(),
-                entity.getClaimedAt(),
-                entity.getUsedAt());
+                rs.getLong("id"),
+                rs.getLong("coupon_id"),
+                rs.getString("coupon_code"),
+                rs.getLong("user_id"),
+                rs.getString("status"),
+                nullableLong(rs, "order_id"),
+                rs.getTimestamp("claimed_at").toLocalDateTime(),
+                nullableDateTime(rs, "used_at"));
+    }
+
+    private static Long nullableLong(ResultSet rs, String column) throws SQLException {
+        long value = rs.getLong(column);
+        return rs.wasNull() ? null : value;
+    }
+
+    private static LocalDateTime nullableDateTime(ResultSet rs, String column) throws SQLException {
+        Timestamp timestamp = rs.getTimestamp(column);
+        return timestamp == null ? null : timestamp.toLocalDateTime();
     }
 }

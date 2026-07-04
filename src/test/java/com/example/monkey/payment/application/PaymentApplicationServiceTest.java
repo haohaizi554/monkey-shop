@@ -221,6 +221,25 @@ class PaymentApplicationServiceTest {
     }
 
     @Test
+    void scheduledReconciliationDoesNotSuspendPaidPaymentsWhenProviderLinesAreMissing() {
+        paymentStore.savePayment(paidPaymentAt(LocalDateTime.parse("2026-07-03T08:10:00")));
+        when(idGenerator.nextId()).thenReturn(4100L);
+
+        var response = service.reconcileYesterday();
+
+        assertThat(response.status()).isEqualTo(ReconciliationStatus.PENDING_PROVIDER_DATA);
+        assertThat(response.issueCount()).isEqualTo(1);
+        assertThat(paymentStore.findByPaymentNo("PAY100"))
+                .get()
+                .extracting(PaymentOrder::status)
+                .isEqualTo(PaymentStatus.PAID);
+        assertThat(paymentStore.reports).singleElement().satisfies(report -> {
+            assertThat(report.platformAmount()).isEqualByComparingTo(new BigDecimal("100.00"));
+            assertThat(report.reportPayload()).contains("provider-lines:missing");
+        });
+    }
+
+    @Test
     void timedOutQueryConfirmsPendingPayment() {
         paymentStore.savePayment(
                 pendingPayment().withProviderTradeNo("wx-prepay-1", LocalDateTime.parse("2026-07-04T08:00:00")));
@@ -305,6 +324,10 @@ class PaymentApplicationServiceTest {
     }
 
     private static PaymentOrder paidPayment() {
+        return paidPaymentAt(LocalDateTime.parse("2026-07-04T08:10:00"));
+    }
+
+    private static PaymentOrder paidPaymentAt(LocalDateTime paidAt) {
         return new PaymentOrder(
                 100L,
                 "PAY100",
@@ -320,9 +343,9 @@ class PaymentApplicationServiceTest {
                 null,
                 null,
                 null,
-                LocalDateTime.parse("2026-07-04T08:10:00"),
+                paidAt,
                 LocalDateTime.parse("2026-07-04T08:00:00"),
-                LocalDateTime.parse("2026-07-04T08:10:00"));
+                paidAt);
     }
 
     private static PaymentCallbackRequestDto callback(String callbackId, String status, BigDecimal amount) {

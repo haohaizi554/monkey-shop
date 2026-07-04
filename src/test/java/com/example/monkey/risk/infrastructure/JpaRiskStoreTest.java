@@ -2,13 +2,11 @@ package com.example.monkey.risk.infrastructure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.example.monkey.product.domain.ProductStatus;
-import com.example.monkey.product.infrastructure.ProductSpu;
-import com.example.monkey.product.infrastructure.ProductSpuRepository;
 import com.example.monkey.risk.domain.RiskDecision;
 import com.example.monkey.risk.domain.RiskDeviceFingerprint;
 import com.example.monkey.risk.domain.RiskReviewCase;
@@ -27,6 +25,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Pageable;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 @ExtendWith(MockitoExtension.class)
 class JpaRiskStoreTest {
@@ -41,7 +40,7 @@ class JpaRiskStoreTest {
     private RiskReviewCaseRepository reviewCaseRepository;
 
     @Mock
-    private ProductSpuRepository productSpuRepository;
+    private JdbcTemplate jdbcTemplate;
 
     private JpaRiskStore store;
 
@@ -51,7 +50,7 @@ class JpaRiskStoreTest {
                 fingerprintRepository,
                 scoreRepository,
                 reviewCaseRepository,
-                productSpuRepository,
+                jdbcTemplate,
                 new ObjectMapper().findAndRegisterModules());
     }
 
@@ -155,22 +154,16 @@ class JpaRiskStoreTest {
     }
 
     @Test
-    void unlistProductForPriceAnomalyOnlyPersistsActiveProducts() {
-        when(productSpuRepository.findById(404L)).thenReturn(Optional.empty());
+    void unlistProductForPriceAnomalyUsesTenantScopedConditionalUpdate() {
+        when(jdbcTemplate.update(anyString(), eq("UNLISTED"), eq(404L), eq(1L), eq("UNLISTED"), eq("RECYCLED")))
+                .thenReturn(0);
         assertThat(store.unlistProductForPriceAnomaly(404L)).isFalse();
 
-        ProductSpu recycled = new ProductSpu(11L);
-        recycled.setStatus(ProductStatus.RECYCLED);
-        when(productSpuRepository.findById(11L)).thenReturn(Optional.of(recycled));
-        assertThat(store.unlistProductForPriceAnomaly(11L)).isFalse();
-
-        ProductSpu listed = new ProductSpu(12L);
-        listed.setStatus(ProductStatus.LISTED);
-        when(productSpuRepository.findById(12L)).thenReturn(Optional.of(listed));
+        when(jdbcTemplate.update(anyString(), eq("UNLISTED"), eq(12L), eq(1L), eq("UNLISTED"), eq("RECYCLED")))
+                .thenReturn(1);
         assertThat(store.unlistProductForPriceAnomaly(12L)).isTrue();
-        assertThat(listed.getStatus()).isEqualTo(ProductStatus.UNLISTED);
-        verify(productSpuRepository).save(listed);
-        verify(productSpuRepository, never()).save(recycled);
+        verify(jdbcTemplate).update(anyString(), eq("UNLISTED"), eq(404L), eq(1L), eq("UNLISTED"), eq("RECYCLED"));
+        verify(jdbcTemplate).update(anyString(), eq("UNLISTED"), eq(12L), eq(1L), eq("UNLISTED"), eq("RECYCLED"));
     }
 
     private RiskDeviceFingerprintEntity captureFingerprint() {

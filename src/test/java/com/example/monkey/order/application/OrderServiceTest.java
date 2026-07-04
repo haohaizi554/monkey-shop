@@ -14,11 +14,13 @@ import static org.mockito.Mockito.when;
 import com.example.monkey.order.application.dto.OrderPageQuery;
 import com.example.monkey.order.application.dto.OrderResponseDto;
 import com.example.monkey.order.application.observability.BusinessMetricsService;
+import com.example.monkey.order.domain.OrderCustomerPort;
 import com.example.monkey.order.domain.OrderFulfillmentItem;
 import com.example.monkey.order.domain.OrderFulfillmentStore;
 import com.example.monkey.order.domain.OrderIdempotencyStore.IdempotencyReservationRecord;
 import com.example.monkey.order.domain.OrderLockManager;
 import com.example.monkey.order.domain.OrderNumberGenerator;
+import com.example.monkey.order.domain.OrderProductPort;
 import com.example.monkey.order.domain.OrderStatus;
 import com.example.monkey.order.domain.OrderStore;
 import com.example.monkey.order.domain.OrderStore.AddressRecord;
@@ -59,6 +61,12 @@ class OrderServiceTest {
     private OrderStore orderStore;
 
     @Mock
+    private OrderProductPort orderProductPort;
+
+    @Mock
+    private OrderCustomerPort orderCustomerPort;
+
+    @Mock
     private OrderNumberGenerator orderNumberGenerator;
 
     @Mock
@@ -88,6 +96,8 @@ class OrderServiceTest {
     void setUp() {
         orderService = new OrderService(
                 orderStore,
+                orderProductPort,
+                orderCustomerPort,
                 orderNumberGenerator,
                 orderIdempotencyService,
                 orderLockManager,
@@ -184,10 +194,10 @@ class OrderServiceTest {
     @Test
     void createOrderSnapshotsProductIdAndUsesSnowflakeOrderNumber() {
         reserveOrderKey("order-key-1");
-        when(orderStore.findProductById(7L)).thenReturn(Optional.of(product()));
-        when(orderStore.findAddressById(3L)).thenReturn(Optional.of(address(42L)));
-        when(orderStore.findBuyerById(42L)).thenReturn(Optional.of(buyer()));
-        when(orderStore.deductProductStock(7L)).thenReturn(true);
+        when(orderProductPort.findProductById(7L)).thenReturn(Optional.of(product()));
+        when(orderCustomerPort.findAddressById(3L)).thenReturn(Optional.of(address(42L)));
+        when(orderCustomerPort.findBuyerById(42L)).thenReturn(Optional.of(buyer()));
+        when(orderProductPort.deductProductStock(7L)).thenReturn(true);
         when(orderNumberGenerator.nextOrderNo()).thenReturn("ORD329861640192000000");
         when(orderStore.savePlacedOrder(any(OrderRecord.class)))
                 .thenAnswer(invocation -> withId(invocation.getArgument(0), 11L));
@@ -244,7 +254,7 @@ class OrderServiceTest {
         OrderResponseDto result = orderService.createOrder(42L, 7L, 3L, "order-key-1");
 
         assertThat(result).isEqualTo(response());
-        verify(orderStore, never()).deductProductStock(any());
+        verify(orderProductPort, never()).deductProductStock(any());
         verify(orderStore, never()).savePlacedOrder(any(OrderRecord.class));
     }
 
@@ -259,7 +269,7 @@ class OrderServiceTest {
                         BusinessException.class,
                         exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
 
-        verify(orderStore, never()).findProductById(any());
+        verify(orderProductPort, never()).findProductById(any());
         verify(orderStore, never()).savePlacedOrder(any(OrderRecord.class));
     }
 
@@ -274,17 +284,17 @@ class OrderServiceTest {
                         BusinessException.class,
                         exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
 
-        verify(orderStore, never()).findProductById(any());
+        verify(orderProductPort, never()).findProductById(any());
         verify(orderStore, never()).savePlacedOrder(any(OrderRecord.class));
     }
 
     @Test
     void createOrderFailsWhenStockCannotBeDeducted() {
         reserveOrderKey("order-key-1");
-        when(orderStore.findProductById(7L)).thenReturn(Optional.of(product()));
-        when(orderStore.findAddressById(3L)).thenReturn(Optional.of(address(42L)));
-        when(orderStore.findBuyerById(42L)).thenReturn(Optional.of(buyer()));
-        when(orderStore.deductProductStock(7L)).thenReturn(false);
+        when(orderProductPort.findProductById(7L)).thenReturn(Optional.of(product()));
+        when(orderCustomerPort.findAddressById(3L)).thenReturn(Optional.of(address(42L)));
+        when(orderCustomerPort.findBuyerById(42L)).thenReturn(Optional.of(buyer()));
+        when(orderProductPort.deductProductStock(7L)).thenReturn(false);
 
         assertThatThrownBy(() -> orderService.createOrder(42L, 7L, 3L, "order-key-1"))
                 .isInstanceOfSatisfying(
@@ -307,18 +317,34 @@ class OrderServiceTest {
     @Test
     void createOrderRejectsProductWithoutStockBeforeAtomicDeduction() {
         reserveOrderKey("order-key-1");
-        when(orderStore.findProductById(7L)).thenReturn(Optional.of(outOfStockProduct()));
-        when(orderStore.findAddressById(3L)).thenReturn(Optional.of(address(42L)));
-        when(orderStore.findBuyerById(42L)).thenReturn(Optional.of(buyer()));
+        when(orderProductPort.findProductById(7L)).thenReturn(Optional.of(outOfStockProduct()));
+        when(orderCustomerPort.findAddressById(3L)).thenReturn(Optional.of(address(42L)));
+        when(orderCustomerPort.findBuyerById(42L)).thenReturn(Optional.of(buyer()));
 
         assertThatThrownBy(() -> orderService.createOrder(42L, 7L, 3L, "order-key-1"))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.OUT_OF_STOCK));
 
-        verify(orderStore, never()).deductProductStock(7L);
+        verify(orderProductPort, never()).deductProductStock(7L);
         verify(orderStore, never()).savePlacedOrder(any(OrderRecord.class));
         verify(businessMetricsService).recordStockDeductFailure();
+    }
+
+    @Test
+    void createOrderRejectsAddressOwnedByAnotherUserBeforeAtomicDeduction() {
+        reserveOrderKey("order-key-1");
+        when(orderProductPort.findProductById(7L)).thenReturn(Optional.of(product()));
+        when(orderCustomerPort.findAddressById(3L)).thenReturn(Optional.of(address(99L)));
+        when(orderCustomerPort.findBuyerById(42L)).thenReturn(Optional.of(buyer()));
+
+        assertThatThrownBy(() -> orderService.createOrder(42L, 7L, 3L, "order-key-1"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.FORBIDDEN));
+
+        verify(orderProductPort, never()).deductProductStock(7L);
+        verify(orderStore, never()).savePlacedOrder(any(OrderRecord.class));
     }
 
     @Test
@@ -361,7 +387,7 @@ class OrderServiceTest {
 
         verify(orderStore).hideFromUser(10L);
         verify(orderStore, never()).recordStockRestore(any(), any());
-        verify(orderStore, never()).restoreProductStock(any());
+        verify(orderProductPort, never()).restoreProductStock(any());
         verify(auditService)
                 .record(
                         eq(AuditService.ORDER_HIDDEN),
@@ -459,13 +485,13 @@ class OrderServiceTest {
     void confirmReturnRestoresStockBySnapshotProductId() {
         when(orderStore.findById(10L)).thenReturn(Optional.of(orderWithStatus(OrderStatus.RETURN_SHIPPING)));
         when(orderStore.recordStockRestore(10L, 7L)).thenReturn(true);
-        when(orderStore.restoreProductStock(7L)).thenReturn(true);
+        when(orderProductPort.restoreProductStock(7L)).thenReturn(true);
 
         OrderResponseDto result = orderService.confirmReturn(10L);
 
         assertThat(result.status()).isEqualTo(OrderStatus.REFUNDED.label());
         verify(orderStore).recordStockRestore(10L, 7L);
-        verify(orderStore).restoreProductStock(7L);
+        verify(orderProductPort).restoreProductStock(7L);
         verify(orderStore)
                 .transitionStatus(10L, OrderStatus.RETURN_SHIPPING.label(), OrderStatus.REFUNDED.label(), null);
         verify(auditService)
@@ -487,7 +513,7 @@ class OrderServiceTest {
         OrderResponseDto result = orderService.confirmReturn(10L);
 
         assertThat(result.status()).isEqualTo(OrderStatus.REFUNDED.label());
-        verify(orderStore, never()).restoreProductStock(any());
+        verify(orderProductPort, never()).restoreProductStock(any());
         verify(orderStore)
                 .transitionStatus(10L, OrderStatus.RETURN_SHIPPING.label(), OrderStatus.REFUNDED.label(), null);
     }
@@ -502,7 +528,7 @@ class OrderServiceTest {
                         exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
 
         verify(orderStore, never()).recordStockRestore(any(), any());
-        verify(orderStore, never()).restoreProductStock(any());
+        verify(orderProductPort, never()).restoreProductStock(any());
         verify(orderStore, never()).transitionStatus(any(), any(), any(), any());
     }
 
@@ -516,7 +542,7 @@ class OrderServiceTest {
                     assertThat(exception).hasMessage(OrderTransitionPolicy.STATUS_TRANSITION_NOT_ALLOWED);
                 });
 
-        verify(orderStore, never()).restoreProductStock(any());
+        verify(orderProductPort, never()).restoreProductStock(any());
         verify(orderStore, never()).transitionStatus(any(), any(), any(), any());
     }
 

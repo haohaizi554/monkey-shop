@@ -1,6 +1,7 @@
 package com.example.monkey.logistics.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -49,6 +50,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class LogisticsApplicationServiceTest {
 
+    private static final String WEBHOOK_SECRET = "logistics-secret";
     private static final Clock FIXED_CLOCK = Clock.fixed(Instant.parse("2026-07-04T08:30:00Z"), ZoneOffset.UTC);
 
     @Mock
@@ -79,7 +81,8 @@ class LogisticsApplicationServiceTest {
                 idGenerator,
                 auditService,
                 FIXED_CLOCK,
-                Duration.ofHours(24));
+                Duration.ofHours(24),
+                WEBHOOK_SECRET);
     }
 
     @Test
@@ -110,7 +113,7 @@ class LogisticsApplicationServiceTest {
         when(orderStore.findVisibleByIdAndUserId(10L, 42L)).thenReturn(Optional.of(order()));
         when(idGenerator.nextId()).thenReturn(7000L, 7001L);
         service.createShipment(user(), request(), "ship-key");
-        TrackingWebhookRequestDto webhook = new TrackingWebhookRequestDto(
+        TrackingWebhookRequestDto webhook = webhook(
                 LogisticsCarrier.SF,
                 "SF7000",
                 "event-1",
@@ -125,6 +128,32 @@ class LogisticsApplicationServiceTest {
         assertThat(first.status()).isEqualTo(TrackingStatus.PICKED_UP);
         assertThat(replay.status()).isEqualTo(TrackingStatus.PICKED_UP);
         assertThat(logisticsStore.events).hasSize(1);
+    }
+
+    @Test
+    void webhookRejectsInvalidSignatureBeforeStateChange() {
+        when(orderStore.findVisibleByIdAndUserId(10L, 42L)).thenReturn(Optional.of(order()));
+        when(idGenerator.nextId()).thenReturn(7000L);
+        service.createShipment(user(), request(), "ship-key");
+        TrackingWebhookRequestDto webhook = new TrackingWebhookRequestDto(
+                LogisticsCarrier.SF,
+                "SF7000",
+                "event-1",
+                TrackingEvent.PICKUP,
+                LocalDateTime.parse("2026-07-04T09:00:00"),
+                "Hangzhou hub",
+                "picked up",
+                "bad-signature");
+
+        assertThatThrownBy(() -> service.handleWebhook(webhook, "127.0.0.1"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.FORBIDDEN));
+        assertThat(logisticsStore.findByTrackingNo("SF7000"))
+                .get()
+                .extracting(LogisticsTracking::status)
+                .isEqualTo(TrackingStatus.ORDERED);
+        assertThat(logisticsStore.events).isEmpty();
     }
 
     private static SessionUser user() {
@@ -164,6 +193,20 @@ class LogisticsApplicationServiceTest {
                 "PAID",
                 LocalDateTime.parse("2026-07-04T08:00:00"),
                 false);
+    }
+
+    private static TrackingWebhookRequestDto webhook(
+            LogisticsCarrier carrier,
+            String trackingNo,
+            String eventId,
+            TrackingEvent event,
+            LocalDateTime eventTime,
+            String location,
+            String remark) {
+        String signature = LogisticsApplicationService.signature(
+                carrier, trackingNo, eventId, event, eventTime, location, remark, WEBHOOK_SECRET);
+        return new TrackingWebhookRequestDto(
+                carrier, trackingNo, eventId, event, eventTime, location, remark, signature);
     }
 
     private static final class StubAddressParser implements AddressParser {

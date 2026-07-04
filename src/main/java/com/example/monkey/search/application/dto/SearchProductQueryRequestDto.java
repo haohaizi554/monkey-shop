@@ -7,7 +7,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
 import java.util.Map;
 
-public record SearchProductQueryDto(
+public record SearchProductQueryRequestDto(
         @Size(max = 128) String keyword,
         Long categoryId,
         @Size(max = 64) String attributeKey,

@@ -1,5 +1,6 @@
 package com.example.monkey.order.infrastructure;
 
+import com.example.monkey.shared.application.tenant.TenantContext;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -70,12 +71,17 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     @Query("SELECT o.buyerAvatar FROM Order o WHERE o.buyerAvatar IS NOT NULL ORDER BY o.id")
     List<String> findBuyerAvatars(Pageable pageable);
 
+    default int transitionStatus(Long id, String expectedStatus, String nextStatus) {
+        return transitionStatus(id, expectedStatus, nextStatus, TenantContext.currentTenantIdOrDefault());
+    }
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             update Order o
             set o.status = :nextStatus,
                 o.version = o.version + 1
             where o.id = :id
+                and o.tenantId = :tenantId
                 and o.status = :expectedStatus
                 and o.deleted = false
                 and o.userHidden = false
@@ -83,7 +89,14 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     int transitionStatus(
             @Param("id") Long id,
             @Param("expectedStatus") String expectedStatus,
-            @Param("nextStatus") String nextStatus);
+            @Param("nextStatus") String nextStatus,
+            @Param("tenantId") Long tenantId);
+
+    default int transitionStatusWithShippingTime(
+            Long id, String expectedStatus, String nextStatus, LocalDateTime shippingTime) {
+        return transitionStatusWithShippingTime(
+                id, expectedStatus, nextStatus, shippingTime, TenantContext.currentTenantIdOrDefault());
+    }
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
@@ -92,6 +105,7 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
                 o.shippingTime = :shippingTime,
                 o.version = o.version + 1
             where o.id = :id
+                and o.tenantId = :tenantId
                 and o.status = :expectedStatus
                 and o.deleted = false
                 and o.userHidden = false
@@ -100,7 +114,8 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
             @Param("id") Long id,
             @Param("expectedStatus") String expectedStatus,
             @Param("nextStatus") String nextStatus,
-            @Param("shippingTime") LocalDateTime shippingTime);
+            @Param("shippingTime") LocalDateTime shippingTime,
+            @Param("tenantId") Long tenantId);
 
     interface OrderTrendProjection {
         Integer getBucketYear();

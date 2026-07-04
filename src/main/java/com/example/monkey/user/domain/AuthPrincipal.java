@@ -4,7 +4,10 @@ import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 
-public record AuthPrincipal(Long userId, String role, List<String> authorities, boolean passwordChangeRequired) {
+public record AuthPrincipal(
+        Long userId, String role, List<String> authorities, boolean passwordChangeRequired, Long tenantId) {
+
+    private static final long DEFAULT_TENANT_ID = 1L;
 
     public AuthPrincipal(Long userId, String role) {
         this(userId, role, List.of(), false);
@@ -14,8 +17,13 @@ public record AuthPrincipal(Long userId, String role, List<String> authorities, 
         this(userId, role, authorities, false);
     }
 
+    public AuthPrincipal(Long userId, String role, List<String> authorities, boolean passwordChangeRequired) {
+        this(userId, role, authorities, passwordChangeRequired, DEFAULT_TENANT_ID);
+    }
+
     public AuthPrincipal {
         authorities = normalizeAuthorities(role, authorities);
+        tenantId = tenantId == null || tenantId <= 0 ? DEFAULT_TENANT_ID : tenantId;
     }
 
     private static List<String> normalizeAuthorities(String role, Collection<String> authorityNames) {

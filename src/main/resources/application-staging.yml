@@ -33,6 +33,10 @@ app:
     require-redis-token-store: ${APP_JWT_REQUIRE_REDIS_TOKEN_STORE:true}
   rate-limit:
     require-redis-state: ${APP_RATE_LIMIT_REQUIRE_REDIS_STATE:true}
+  logistics:
+    webhook-secret: ${APP_LOGISTICS_WEBHOOK_SECRET}
+  payment:
+    callback-secret: ${APP_PAYMENT_CALLBACK_SECRET}
   pii:
     encryption:
       enabled: ${APP_PII_ENCRYPTION_ENABLED:true}

@@ -2,6 +2,7 @@ package com.example.monkey.user.application;
 
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.application.storage.ImageCleanupService;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.storage.ImageReferenceService;
@@ -136,6 +137,17 @@ public class UserService {
             return Optional.empty();
         }
         return userAccountStore.findById(userId).map(UserService::principalFor);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<AuthPrincipal> currentPrincipal(Long userId, Long tenantId) {
+        Optional<Long> previousTenant = TenantContext.currentTenantId();
+        TenantContext.setTenantId(tenantId);
+        try {
+            return currentPrincipal(userId);
+        } finally {
+            previousTenant.ifPresentOrElse(TenantContext::setTenantId, TenantContext::clear);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -278,7 +290,11 @@ public class UserService {
 
     private static AuthPrincipal principalFor(UserAccount user) {
         return new AuthPrincipal(
-                user.id(), normalizeRole(user.role()), user.authorityNames(), passwordChangeRequired(user));
+                user.id(),
+                normalizeRole(user.role()),
+                user.authorityNames(),
+                passwordChangeRequired(user),
+                user.tenantId());
     }
 
     private static boolean passwordChangeRequired(UserAccount user) {

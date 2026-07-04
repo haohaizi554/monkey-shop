@@ -1,6 +1,7 @@
 package com.example.monkey.risk.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -19,6 +20,8 @@ import com.example.monkey.risk.domain.RiskScore;
 import com.example.monkey.risk.domain.RiskStore;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.domain.exception.BusinessException;
+import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
 import com.example.monkey.user.domain.SessionTokenService;
 import com.example.monkey.user.domain.UserAccountStore;
@@ -122,6 +125,32 @@ class RiskApplicationServiceTest {
         assertThat(result.decision()).isEqualTo(RiskDecision.REVIEW);
         assertThat(result.reviewCaseId()).isNotNull();
         assertThat(riskStore.unlistedProductIds).containsExactly(20L);
+    }
+
+    @Test
+    void requireAllowedRejectsRateLimitDecisionBeforeBusinessAction() {
+        assess(1L, "13800000001", null, null, null);
+        when(userAccountStore.findById(7L)).thenReturn(Optional.of(account(7L, true)));
+        when(userMfaVerifier.verifyCode("secret-7", "739421")).thenReturn(true);
+
+        assertThatThrownBy(() -> service.requireAllowed(
+                        new SessionUser(7L, "USER"),
+                        new RiskAssessmentRequestDto(
+                                "13800000007",
+                                "browser-a",
+                                null,
+                                20L,
+                                30L,
+                                null,
+                                null,
+                                new BigDecimal("100.00"),
+                                new BigDecimal("170.00"),
+                                "739421"),
+                        "203.0.113.7",
+                        "order.create"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.RATE_LIMIT));
     }
 
     @Test

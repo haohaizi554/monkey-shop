@@ -12,6 +12,8 @@ param(
     [string]$AdminInitPassword = $env:MONKEYSHOP_DEV_ADMIN_INIT_PASSWORD,
     [string]$AdminTotpSecret = $env:MONKEYSHOP_DEV_ADMIN_TOTP_SECRET,
     [string]$JwtSecret = $env:MONKEYSHOP_DEV_JWT_SECRET,
+    [string]$PaymentCallbackSecret = $env:MONKEYSHOP_DEV_PAYMENT_CALLBACK_SECRET,
+    [string]$LogisticsWebhookSecret = $env:MONKEYSHOP_DEV_LOGISTICS_WEBHOOK_SECRET,
     [switch]$RecreateData,
     [switch]$SkipDeploy,
     [switch]$SkipRuntimeSmoke,
@@ -165,6 +167,12 @@ if (-not $AdminTotpSecret) {
 if (-not $JwtSecret) {
     $JwtSecret = [Convert]::ToBase64String((New-RandomBytes -Length 48))
 }
+if (-not $PaymentCallbackSecret) {
+    $PaymentCallbackSecret = [Convert]::ToBase64String((New-RandomBytes -Length 48))
+}
+if (-not $LogisticsWebhookSecret) {
+    $LogisticsWebhookSecret = [Convert]::ToBase64String((New-RandomBytes -Length 48))
+}
 
 Write-Host "==> MicroK8s dev runtime gate"
 Invoke-Remote -Name "microk8s status" -Command "microk8s status --format short && microk8s kubectl get nodes" | Write-Host
@@ -270,6 +278,8 @@ DB_PASSWORD_VALUE=$(ConvertTo-ShellSingleQuoted $DbPassword)
 ADMIN_PASSWORD_VALUE=$(ConvertTo-ShellSingleQuoted $AdminInitPassword)
 ADMIN_TOTP_SECRET_VALUE=$(ConvertTo-ShellSingleQuoted $AdminTotpSecret)
 JWT_SECRET_VALUE=$(ConvertTo-ShellSingleQuoted $JwtSecret)
+PAYMENT_CALLBACK_SECRET_VALUE=$(ConvertTo-ShellSingleQuoted $PaymentCallbackSecret)
+LOGISTICS_WEBHOOK_SECRET_VALUE=$(ConvertTo-ShellSingleQuoted $LogisticsWebhookSecret)
 RECREATE_DATA=$(if ($RecreateData) { "true" } else { "false" })
 
 microk8s status --format short
@@ -450,6 +460,8 @@ YAML
   --from-literal=ADMIN_INIT_PASSWORD="`$ADMIN_PASSWORD_VALUE" \
   --from-literal=ADMIN_TOTP_SECRET="`$ADMIN_TOTP_SECRET_VALUE" \
   --from-literal=APP_JWT_SECRET="`$JWT_SECRET_VALUE" \
+  --from-literal=APP_PAYMENT_CALLBACK_SECRET="`$PAYMENT_CALLBACK_SECRET_VALUE" \
+  --from-literal=APP_LOGISTICS_WEBHOOK_SECRET="`$LOGISTICS_WEBHOOK_SECRET_VALUE" \
   --dry-run=client -o yaml | `$K apply -f -
 
 `$H upgrade --install $ReleaseName $remoteChartDir \

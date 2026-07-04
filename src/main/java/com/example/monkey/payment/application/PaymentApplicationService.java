@@ -100,7 +100,7 @@ public class PaymentApplicationService {
             @Value("${app.payment.callback-ttl:PT24H}") Duration callbackTtl,
             @Value("${app.payment.query-after:PT5M}") Duration queryAfter,
             @Value("${app.payment.high-value-threshold:5000}") BigDecimal highValueThreshold,
-            @Value("${app.payment.callback-secret:dev-payment-callback-secret}") String callbackSecret) {
+            @Value("${app.payment.callback-secret:}") String callbackSecret) {
         this(
                 paymentStore,
                 paymentGateway,
@@ -146,7 +146,7 @@ public class PaymentApplicationService {
         this.callbackTtl = callbackTtl == null ? Duration.ofHours(24) : callbackTtl;
         this.queryAfter = queryAfter == null ? Duration.ofMinutes(5) : queryAfter;
         this.highValueThreshold = highValueThreshold == null ? DEFAULT_HIGH_VALUE_THRESHOLD : highValueThreshold;
-        this.callbackSecret = StringUtils.hasText(callbackSecret) ? callbackSecret : "dev-payment-callback-secret";
+        this.callbackSecret = requireCallbackSecret(callbackSecret);
     }
 
     @WithSpan("payment.create")
@@ -359,6 +359,9 @@ public class PaymentApplicationService {
     private PaymentReconciliationReport reconcileInternal(
             PaymentMethod provider, LocalDate reportDate, List<ReconciliationLine> providerLines) {
         List<PaymentOrder> platformPayments = paymentStore.findPaidByProviderAndDate(provider, reportDate);
+        if (providerLines == null || providerLines.isEmpty()) {
+            return savePendingProviderDataReport(provider, reportDate, platformPayments);
+        }
         Map<String, PaymentOrder> platformByPaymentNo = new LinkedHashMap<>();
         for (PaymentOrder payment : platformPayments) {
             platformByPaymentNo.put(payment.paymentNo(), payment);
@@ -406,6 +409,29 @@ public class PaymentApplicationService {
         return report;
     }
 
+    private PaymentReconciliationReport savePendingProviderDataReport(
+            PaymentMethod provider, LocalDate reportDate, List<PaymentOrder> platformPayments) {
+        BigDecimal platformAmount = sumPayments(platformPayments);
+        PaymentReconciliationReport report = paymentStore.saveReport(new PaymentReconciliationReport(
+                idGenerator.nextId(),
+                provider,
+                reportDate,
+                platformAmount,
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
+                1,
+                ReconciliationStatus.PENDING_PROVIDER_DATA,
+                payload(provider, reportDate, List.of("provider-lines:missing"), List.of()),
+                now()));
+        audit(
+                AuditService.PAYMENT_RECONCILED,
+                null,
+                provider + ":" + reportDate,
+                null,
+                "status=" + ReconciliationStatus.PENDING_PROVIDER_DATA + ",issues=1");
+        return report;
+    }
+
     private void suspendIfPossible(PaymentOrder payment) {
         if (PaymentStatus.PAID.equals(payment.status()) || PaymentStatus.PARTIALLY_REFUNDED.equals(payment.status())) {
             transitionResolver.nextStatus(payment.status(), PaymentEvent.SUSPEND);
@@ -427,6 +453,9 @@ public class PaymentApplicationService {
     }
 
     private void verifySignature(PaymentCallbackRequestDto request) {
+        if (!StringUtils.hasText(request.signature())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Payment callback signature is invalid");
+        }
         String expected = signature(
                 request.provider(),
                 request.paymentNo(),
@@ -544,5 +573,12 @@ public class PaymentApplicationService {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 digest is unavailable", e);
         }
+    }
+
+    private static String requireCallbackSecret(String secret) {
+        if (!StringUtils.hasText(secret)) {
+            throw new IllegalStateException("APP_PAYMENT_CALLBACK_SECRET must be set");
+        }
+        return secret.trim();
     }
 }

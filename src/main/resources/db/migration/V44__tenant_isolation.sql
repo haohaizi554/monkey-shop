@@ -1,4 +1,4 @@
-CREATE TABLE tenant (
+﻿CREATE TABLE tenant (
     id BIGINT NOT NULL,
     code VARCHAR(64) NOT NULL,
     name VARCHAR(128) NOT NULL,
@@ -75,6 +75,43 @@ ALTER TABLE idempotency_record ADD COLUMN tenant_id BIGINT NOT NULL DEFAULT 1;
 ALTER TABLE stock_log ADD COLUMN tenant_id BIGINT NOT NULL DEFAULT 1;
 ALTER TABLE visit_log ADD COLUMN tenant_id BIGINT NOT NULL DEFAULT 1;
 
+ALTER TABLE inventory_warehouse
+    DROP INDEX uk_inventory_warehouse_code,
+    ADD CONSTRAINT uk_inventory_warehouse_code UNIQUE (tenant_id, code);
+ALTER TABLE inventory_reservation
+    DROP INDEX uk_inventory_reservation_key,
+    ADD CONSTRAINT uk_inventory_reservation_key UNIQUE (tenant_id, reservation_key);
+ALTER TABLE inventory_stock_ledger
+    DROP INDEX uk_inventory_ledger_idempotency,
+    ADD CONSTRAINT uk_inventory_ledger_idempotency UNIQUE (tenant_id, idempotency_key);
+ALTER TABLE marketing_coupon
+    DROP INDEX uk_marketing_coupon_code,
+    ADD CONSTRAINT uk_marketing_coupon_code UNIQUE (tenant_id, code);
+ALTER TABLE marketing_user_coupon
+    DROP INDEX uk_marketing_user_coupon_idempotency,
+    ADD CONSTRAINT uk_marketing_user_coupon_idempotency UNIQUE (tenant_id, idempotency_key);
+ALTER TABLE cart_checkout_line
+    DROP INDEX uk_cart_checkout_line_reservation,
+    ADD CONSTRAINT uk_cart_checkout_line_reservation UNIQUE (tenant_id, reservation_key);
+ALTER TABLE payment_callback_log
+    DROP INDEX uk_payment_callback_provider_id,
+    ADD CONSTRAINT uk_payment_callback_provider_id UNIQUE (tenant_id, provider, callback_id);
+ALTER TABLE payment_reconciliation_report
+    DROP INDEX uk_payment_reconciliation_provider_date,
+    ADD CONSTRAINT uk_payment_reconciliation_provider_date UNIQUE (tenant_id, provider, report_date);
+ALTER TABLE logistics_tracking
+    DROP INDEX uk_logistics_tracking_no,
+    ADD CONSTRAINT uk_logistics_tracking_no UNIQUE (tenant_id, tracking_no);
+ALTER TABLE logistics_tracking_event
+    DROP INDEX uk_logistics_event_carrier_id,
+    ADD CONSTRAINT uk_logistics_event_carrier_id UNIQUE (tenant_id, carrier, event_id);
+ALTER TABLE logistics_webhook_log
+    DROP INDEX uk_logistics_webhook_carrier_event,
+    ADD CONSTRAINT uk_logistics_webhook_carrier_event UNIQUE (tenant_id, carrier, event_id);
+ALTER TABLE logistics_freight_template
+    DROP INDEX uk_logistics_freight_template,
+    ADD CONSTRAINT uk_logistics_freight_template UNIQUE (tenant_id, carrier, province, charge_mode);
+
 ALTER TABLE `user` ADD CONSTRAINT fk_user_tenant FOREIGN KEY (tenant_id) REFERENCES tenant (id);
 ALTER TABLE `orders` ADD CONSTRAINT fk_orders_tenant FOREIGN KEY (tenant_id) REFERENCES tenant (id);
 ALTER TABLE product_spu ADD CONSTRAINT fk_product_spu_tenant FOREIGN KEY (tenant_id) REFERENCES tenant (id);
@@ -93,7 +130,7 @@ CREATE INDEX idx_product_sku_tenant_spu ON product_sku (tenant_id, spu_id);
 CREATE INDEX idx_product_category_tenant_parent ON product_category (tenant_id, parent_id);
 CREATE INDEX idx_inventory_stock_tenant_sku ON inventory_stock (tenant_id, sku_id, warehouse_id);
 CREATE INDEX idx_inventory_reservation_tenant_status ON inventory_reservation (tenant_id, status, expires_at);
-CREATE INDEX idx_marketing_coupon_tenant_status ON marketing_coupon (tenant_id, status);
+CREATE INDEX idx_marketing_coupon_tenant_type ON marketing_coupon (tenant_id, type);
 CREATE INDEX idx_cart_checkout_tenant_user ON cart_checkout (tenant_id, user_id, create_time);
 CREATE INDEX idx_payment_order_tenant_status_created ON payment_order (tenant_id, status, create_time);
 CREATE INDEX idx_logistics_tracking_tenant_order ON logistics_tracking (tenant_id, order_id);

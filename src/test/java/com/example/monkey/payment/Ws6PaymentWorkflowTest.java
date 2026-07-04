@@ -31,7 +31,13 @@ class Ws6PaymentWorkflowTest {
         assertThat(paymentMigration).contains("CREATE TABLE payment_order", "CREATE TABLE payment_ledger");
         assertThat(paymentMigration).contains("CREATE TABLE payment_callback_log", "bank_card_hmac");
         assertThat(reconciliationMigration).contains("CREATE TABLE payment_reconciliation_report");
-        assertThat(service).contains("@WithSpan(\"payment.create\")", "verifySignature", "PaymentEvent.REFUND_PARTIAL");
+        assertThat(service)
+                .contains(
+                        "@WithSpan(\"payment.create\")",
+                        "verifySignature",
+                        "requireCallbackSecret",
+                        "APP_PAYMENT_CALLBACK_SECRET must be set",
+                        "PaymentEvent.REFUND_PARTIAL");
         assertThat(service).contains("userMfaVerifier.verifyCode", "payment-query-timeout-orders");
         assertThat(controller).contains("/pay", "/callback", "/refund", "/reconciliation");
         assertThat(store).contains("piiCryptoService.encrypt", "piiCryptoService.blindIndex");

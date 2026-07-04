@@ -8,12 +8,14 @@ import com.example.monkey.order.application.dto.OrderShipmentLineRequestDto;
 import com.example.monkey.order.application.dto.OrderShipmentRequestDto;
 import com.example.monkey.order.application.dto.OrderShipmentResponseDto;
 import com.example.monkey.order.application.observability.BusinessMetricsService;
+import com.example.monkey.order.domain.OrderCustomerPort;
 import com.example.monkey.order.domain.OrderEvent;
 import com.example.monkey.order.domain.OrderFulfillmentItem;
 import com.example.monkey.order.domain.OrderFulfillmentStore;
 import com.example.monkey.order.domain.OrderIdempotencyStore.IdempotencyReservationRecord;
 import com.example.monkey.order.domain.OrderLockManager;
 import com.example.monkey.order.domain.OrderNumberGenerator;
+import com.example.monkey.order.domain.OrderProductPort;
 import com.example.monkey.order.domain.OrderReview;
 import com.example.monkey.order.domain.OrderShipmentBatch;
 import com.example.monkey.order.domain.OrderShipmentLine;
@@ -70,6 +72,8 @@ public class OrderService {
             new OrderPageRequest(0, LEGACY_LIST_PAGE_SIZE, List.of(new SortOrder("createTime", Direction.DESC)));
 
     private final OrderStore orderStore;
+    private final OrderProductPort orderProductPort;
+    private final OrderCustomerPort orderCustomerPort;
     private final OrderFulfillmentStore fulfillmentStore;
     private final OrderNumberGenerator orderNumberGenerator;
     private final IdGenerator idGenerator;
@@ -85,6 +89,8 @@ public class OrderService {
 
     public OrderService(
             OrderStore orderStore,
+            OrderProductPort orderProductPort,
+            OrderCustomerPort orderCustomerPort,
             OrderNumberGenerator orderNumberGenerator,
             OrderIdempotencyService orderIdempotencyService,
             OrderLockManager orderLockManager,
@@ -97,6 +103,8 @@ public class OrderService {
             IdGenerator idGenerator,
             @Value("${app.order.auto-receive-after:P7D}") Duration autoReceiveAfter) {
         this.orderStore = orderStore;
+        this.orderProductPort = orderProductPort;
+        this.orderCustomerPort = orderCustomerPort;
         this.fulfillmentStore = fulfillmentStore;
         this.orderNumberGenerator = orderNumberGenerator;
         this.idGenerator = idGenerator;
@@ -165,30 +173,23 @@ public class OrderService {
             return resolveDuplicateOrder(reservation.record(), requestHash);
         }
 
-        ProductRecord product = orderStore
+        ProductRecord product = orderProductPort
                 .findProductById(monkeyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Product does not exist"));
-        AddressRecord address = orderStore
+        AddressRecord address = orderCustomerPort
                 .findAddressById(addressId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Address does not exist"));
-        BuyerRecord buyer = orderStore
+        BuyerRecord buyer = orderCustomerPort
                 .findBuyerById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User does not exist"));
 
-        if (!address.userId().equals(userId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Address does not belong to current user");
-        }
-
-        if (!product.hasStock()) {
-            businessMetricsService.recordStockDeductFailure();
-            throw new BusinessException(ErrorCode.OUT_OF_STOCK, "Insufficient stock");
-        }
-        if (!orderStore.deductProductStock(monkeyId)) {
+        ensureOrderPlaceable(userId, buyer, product, address);
+        if (!orderProductPort.deductProductStock(monkeyId)) {
             businessMetricsService.recordStockDeductFailure();
             throw new BusinessException(ErrorCode.OUT_OF_STOCK, "Insufficient stock");
         }
 
-        OrderRecord order = OrderRecord.place(orderNumberGenerator.nextOrderNo(), buyer, product, address);
+        OrderRecord order = OrderRecord.place(orderNumberGenerator.nextOrderNo(), userId, buyer, product, address);
         OrderRecord savedOrder = orderStore.savePlacedOrder(order);
         OrderRecord completedOrder = savedOrder != null ? savedOrder : order;
         imageReferenceService.retain(completedOrder.productImage());
@@ -197,6 +198,17 @@ public class OrderService {
         businessMetricsService.recordOrderCreated();
         auditOrderCreated(completedOrder, userId);
         return OrderDtoAssembler.toResponse(completedOrder);
+    }
+
+    private void ensureOrderPlaceable(Long userId, BuyerRecord buyer, ProductRecord product, AddressRecord address) {
+        try {
+            OrderRecord.ensurePlaceable(userId, buyer, product, address);
+        } catch (BusinessException e) {
+            if (e.errorCode() == ErrorCode.OUT_OF_STOCK) {
+                businessMetricsService.recordStockDeductFailure();
+            }
+            throw e;
+        }
     }
 
     @Transactional
@@ -366,7 +378,7 @@ public class OrderService {
         if (!orderStore.recordStockRestore(orderId, productId)) {
             return;
         }
-        if (!orderStore.restoreProductStock(productId)) {
+        if (!orderProductPort.restoreProductStock(productId)) {
             throw new BusinessException(ErrorCode.CONFLICT, "Product snapshot is missing or stale");
         }
     }

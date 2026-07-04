@@ -11,6 +11,7 @@ import com.example.monkey.marketing.application.dto.MarketingPriceRequestDto;
 import com.example.monkey.marketing.application.dto.SeckillOrderResponseDto;
 import com.example.monkey.marketing.application.dto.SeckillRequestDto;
 import com.example.monkey.marketing.domain.CouponDefinition;
+import com.example.monkey.marketing.domain.CouponType;
 import com.example.monkey.marketing.domain.GroupBuyActivity;
 import com.example.monkey.marketing.domain.GroupBuyStatus;
 import com.example.monkey.marketing.domain.GroupBuyTeam;
@@ -36,6 +37,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Predicate;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -129,13 +131,30 @@ public class MarketingApplicationService {
     @WithSpan("marketing.price.quote")
     @Transactional(readOnly = true)
     public MarketingPriceQuoteDto quotePrice(MarketingPriceRequestDto request) {
+        return quotePrice(request, coupon -> coupon.matches(request.categoryId(), request.shopId()));
+    }
+
+    @WithSpan("marketing.price.quote.platform")
+    @Transactional(readOnly = true)
+    public MarketingPriceQuoteDto quotePlatformPrice(MarketingPriceRequestDto request) {
+        return quotePrice(request, MarketingApplicationService::isPlatformCoupon);
+    }
+
+    @WithSpan("marketing.price.quote.store")
+    @Transactional(readOnly = true)
+    public MarketingPriceQuoteDto quoteStorePrice(MarketingPriceRequestDto request) {
+        return quotePrice(
+                request, coupon -> !isPlatformCoupon(coupon) && coupon.matches(request.categoryId(), request.shopId()));
+    }
+
+    private MarketingPriceQuoteDto quotePrice(MarketingPriceRequestDto request, Predicate<CouponDefinition> eligible) {
         BigDecimal orderAmount = request.orderAmount();
         Map<String, CouponDefinition> selected = new LinkedHashMap<>();
         for (String code : request.couponCodes() == null ? List.<String>of() : request.couponCodes()) {
             CouponDefinition coupon = marketingStore
                     .findCouponByCode(code)
                     .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Coupon does not exist"));
-            if (coupon.matches(request.categoryId(), request.shopId())) {
+            if (eligible.test(coupon)) {
                 CouponDefinition previous = selected.get(coupon.stackGroup());
                 if (previous == null
                         || coupon.discountFor(orderAmount).compareTo(previous.discountFor(orderAmount)) > 0) {
@@ -153,6 +172,10 @@ public class MarketingApplicationService {
                 orderAmount.subtract(payable),
                 payable,
                 selected.values().stream().map(CouponDefinition::code).toList()));
+    }
+
+    private static boolean isPlatformCoupon(CouponDefinition coupon) {
+        return CouponType.THRESHOLD.equals(coupon.type()) || CouponType.PERCENT.equals(coupon.type());
     }
 
     @WithSpan("marketing.seckill.order")

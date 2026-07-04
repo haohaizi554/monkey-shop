@@ -1,6 +1,7 @@
 package com.example.monkey.user.infrastructure;
 
 import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.interfaces.web.SessionTokenTransport;
 import com.example.monkey.user.domain.SessionTokenService;
 import com.example.monkey.user.domain.SessionTokenService.AuthenticatedAccessToken;
@@ -41,8 +42,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             tokenTransport
                     .resolveAccessToken(request)
                     .flatMap(tokenService::parseAccessToken)
-                    .flatMap(token ->
-                            currentAuthenticatedUser(token.userId()).map(currentUser -> session(token, currentUser)))
+                    .flatMap(token -> currentAuthenticatedUser(token).map(currentUser -> session(token, currentUser)))
                     .ifPresent(session -> {
                         UserAccount currentUser = session.user();
                         SessionUser user = new SessionUser(
@@ -63,8 +63,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    private Optional<UserAccount> currentAuthenticatedUser(Long userId) {
-        return userAccountStore.findById(userId);
+    private Optional<UserAccount> currentAuthenticatedUser(AuthenticatedAccessToken token) {
+        Optional<Long> previousTenant = TenantContext.currentTenantId();
+        TenantContext.setTenantId(token.tenantId());
+        try {
+            return userAccountStore.findById(token.userId());
+        } finally {
+            previousTenant.ifPresentOrElse(TenantContext::setTenantId, TenantContext::clear);
+        }
     }
 
     private static AuthenticatedSession session(AuthenticatedAccessToken token, UserAccount user) {

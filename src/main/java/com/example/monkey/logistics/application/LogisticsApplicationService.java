@@ -18,6 +18,7 @@ import com.example.monkey.logistics.domain.LogisticsTracking;
 import com.example.monkey.logistics.domain.LogisticsTransitionResolver;
 import com.example.monkey.logistics.domain.LogisticsWebhookReplayGuard;
 import com.example.monkey.logistics.domain.ParsedAddress;
+import com.example.monkey.logistics.domain.TrackingEvent;
 import com.example.monkey.logistics.domain.TrackingEventRecord;
 import com.example.monkey.logistics.domain.TrackingStatus;
 import com.example.monkey.order.domain.OrderStore;
@@ -30,10 +31,18 @@ import com.example.monkey.shared.domain.id.IdGenerator;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
+import java.security.InvalidKeyException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.HexFormat;
+import java.util.Locale;
 import java.util.regex.Pattern;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -45,6 +54,7 @@ public class LogisticsApplicationService {
 
     private static final int MAX_IDEMPOTENCY_KEY_LENGTH = 128;
     private static final Pattern IDEMPOTENCY_KEY_PATTERN = Pattern.compile("[A-Za-z0-9._:-]+");
+    private static final String HMAC_SHA256 = "HmacSHA256";
     private static final String CUSTOMER_ROLE = "CUSTOMER";
     private static final String SYSTEM_ROLE = "SYSTEM";
 
@@ -59,6 +69,7 @@ public class LogisticsApplicationService {
     private final AuditService auditService;
     private final Clock clock;
     private final Duration webhookTtl;
+    private final String webhookSecret;
 
     @Autowired
     public LogisticsApplicationService(
@@ -70,7 +81,8 @@ public class LogisticsApplicationService {
             OrderStore orderStore,
             IdGenerator idGenerator,
             AuditService auditService,
-            @Value("${app.logistics.webhook-ttl:PT24H}") Duration webhookTtl) {
+            @Value("${app.logistics.webhook-ttl:PT24H}") Duration webhookTtl,
+            @Value("${app.logistics.webhook-secret:}") String webhookSecret) {
         this(
                 logisticsStore,
                 logisticsGateway,
@@ -82,7 +94,8 @@ public class LogisticsApplicationService {
                 idGenerator,
                 auditService,
                 Clock.systemDefaultZone(),
-                webhookTtl);
+                webhookTtl,
+                webhookSecret);
     }
 
     LogisticsApplicationService(
@@ -96,7 +109,8 @@ public class LogisticsApplicationService {
             IdGenerator idGenerator,
             AuditService auditService,
             Clock clock,
-            Duration webhookTtl) {
+            Duration webhookTtl,
+            String webhookSecret) {
         this.logisticsStore = logisticsStore;
         this.logisticsGateway = logisticsGateway;
         this.webhookReplayGuard = webhookReplayGuard;
@@ -108,6 +122,7 @@ public class LogisticsApplicationService {
         this.auditService = auditService;
         this.clock = clock;
         this.webhookTtl = webhookTtl == null ? Duration.ofHours(24) : webhookTtl;
+        this.webhookSecret = requireWebhookSecret(webhookSecret);
     }
 
     @WithSpan("logistics.create")
@@ -146,6 +161,7 @@ public class LogisticsApplicationService {
     @WithSpan("logistics.webhook")
     @Transactional
     public LogisticsTrackingResponseDto handleWebhook(TrackingWebhookRequestDto request, String sourceIp) {
+        verifyWebhookSignature(request);
         LogisticsTracking tracking = requireTracking(request.trackingNo());
         if (request.carrier() != tracking.carrier()) {
             throw new BusinessException(ErrorCode.CONFLICT, "Webhook carrier does not match tracking carrier");
@@ -305,6 +321,65 @@ public class LogisticsApplicationService {
         return normalized;
     }
 
+    private void verifyWebhookSignature(TrackingWebhookRequestDto request) {
+        if (!StringUtils.hasText(request.signature())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Logistics webhook signature is invalid");
+        }
+        String expected = signature(
+                request.carrier(),
+                request.trackingNo(),
+                request.eventId(),
+                request.event(),
+                request.eventTime(),
+                request.location(),
+                request.remark(),
+                webhookSecret);
+        if (!MessageDigest.isEqual(
+                expected.getBytes(StandardCharsets.UTF_8),
+                request.signature().trim().toLowerCase(Locale.ROOT).getBytes(StandardCharsets.UTF_8))) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Logistics webhook signature is invalid");
+        }
+    }
+
+    public static String signature(
+            com.example.monkey.logistics.domain.LogisticsCarrier carrier,
+            String trackingNo,
+            String eventId,
+            TrackingEvent event,
+            LocalDateTime eventTime,
+            String location,
+            String remark,
+            String secret) {
+        return hmacSha256Hex(
+                secret,
+                String.join(
+                        ":",
+                        carrier == null ? "" : carrier.name(),
+                        canonical(trackingNo),
+                        canonical(eventId),
+                        event == null ? "" : event.name(),
+                        eventTime == null ? "" : eventTime.toString(),
+                        canonical(location),
+                        canonical(remark)));
+    }
+
+    private static String hmacSha256Hex(String secret, String payload) {
+        try {
+            Mac mac = Mac.getInstance(HMAC_SHA256);
+            mac.init(new SecretKeySpec(requireWebhookSecret(secret).getBytes(StandardCharsets.UTF_8), HMAC_SHA256));
+            return HexFormat.of().formatHex(mac.doFinal(payload.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException | InvalidKeyException exception) {
+            throw new IllegalStateException("Logistics webhook HMAC could not be initialized", exception);
+        }
+    }
+
+    private static String requireWebhookSecret(String secret) {
+        if (!StringUtils.hasText(secret)) {
+            throw new IllegalStateException("APP_LOGISTICS_WEBHOOK_SECRET must be set");
+        }
+        return secret.trim();
+    }
+
     private LocalDateTime now() {
         return LocalDateTime.now(clock);
     }
@@ -319,5 +394,9 @@ public class LogisticsApplicationService {
 
     private static String trim(String value) {
         return value == null ? null : value.trim();
+    }
+
+    private static String canonical(String value) {
+        return value == null ? "" : value.trim();
     }
 }

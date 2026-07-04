@@ -1,5 +1,6 @@
 package com.example.monkey.product.infrastructure;
 
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -8,7 +9,7 @@ import java.math.BigDecimal;
 
 @Entity
 @Table(name = "product_sku")
-public class ProductSku {
+public class ProductSku extends TenantScopedJpaEntity {
 
     @Id
     private Long id;

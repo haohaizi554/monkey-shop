@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.security.JwtTokenPair;
 import com.example.monkey.user.domain.UserAccountStore;
 import com.example.monkey.user.domain.UserAccountStore.UserAccount;
@@ -28,6 +29,7 @@ class JwtAuthenticationFilterTest {
     @AfterEach
     void clearSecurityContext() {
         SecurityContextHolder.clearContext();
+        TenantContext.clear();
     }
 
     @Test
@@ -35,8 +37,10 @@ class JwtAuthenticationFilterTest {
         JwtTokenService tokenService = new JwtTokenService(TEST_SECRET, 30, 60, 30, 60, false, null);
         JwtTokenPair tokenPair = tokenService.issueTokenPair(7L, "USER", List.of("ROLE_USER", "ORDER_CREATE"), 200L);
         UserAccountStore userAccountStore = mock(UserAccountStore.class);
-        when(userAccountStore.findById(7L))
-                .thenReturn(Optional.of(account(7L, false, List.of("ROLE_USER", "ORDER_READ_OWN"))));
+        when(userAccountStore.findById(7L)).thenAnswer(invocation -> {
+            assertThat(TenantContext.currentTenantIdOrDefault()).isEqualTo(200L);
+            return Optional.of(account(7L, false, List.of("ROLE_USER", "ORDER_READ_OWN")));
+        });
         JwtAuthenticationFilter filter = new JwtAuthenticationFilter(tokenService, tokenService, userAccountStore);
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + tokenPair.accessToken());

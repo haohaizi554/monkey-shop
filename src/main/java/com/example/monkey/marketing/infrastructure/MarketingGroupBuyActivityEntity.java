@@ -1,5 +1,6 @@
 package com.example.monkey.marketing.infrastructure;
 
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -7,7 +8,7 @@ import jakarta.persistence.Table;
 
 @Entity
 @Table(name = "marketing_group_buy_activity")
-public class MarketingGroupBuyActivityEntity {
+public class MarketingGroupBuyActivityEntity extends TenantScopedJpaEntity {
 
     @Id
     private Long id;

@@ -1,6 +1,7 @@
 package com.example.monkey.inventory.infrastructure;
 
 import com.example.monkey.inventory.domain.InventoryReservationStatus;
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -11,7 +12,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "inventory_reservation")
-public class InventoryReservationEntity {
+public class InventoryReservationEntity extends TenantScopedJpaEntity {
 
     @Id
     private Long id;

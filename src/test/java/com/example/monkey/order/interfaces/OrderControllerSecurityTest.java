@@ -16,6 +16,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.example.monkey.order.application.OrderApplicationService;
 import com.example.monkey.order.application.OrderOwnershipService;
 import com.example.monkey.order.application.OrderService;
+import com.example.monkey.risk.application.RiskApplicationService;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.ApiRateLimitApplicationService;
 import com.example.monkey.shared.application.security.ApiRateLimitResult;
@@ -55,6 +56,9 @@ class OrderControllerSecurityTest {
 
     @MockBean
     private OrderService orderService;
+
+    @MockBean
+    private RiskApplicationService riskApplicationService;
 
     @MockBean
     private UserAccountStore userAccountStore;

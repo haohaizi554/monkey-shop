@@ -1,6 +1,7 @@
 package com.example.monkey.order.infrastructure;
 
 import com.example.monkey.order.domain.OrderShipmentStatus;
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -11,7 +12,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "order_shipment_batch")
-public class OrderShipmentBatchEntity {
+public class OrderShipmentBatchEntity extends TenantScopedJpaEntity {
 
     @Id
     private Long id;

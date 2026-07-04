@@ -57,6 +57,9 @@ function Assert-ProdImagesDigestPinned {
         if ($line -notmatch "@sha256:[a-f0-9]{64}") {
             Add-Failure "rendered prod: image line must use an immutable digest: $line"
         }
+        if ($line -match "@sha256:0{64}") {
+            Add-Failure "rendered prod: image line must not use an all-zero digest placeholder: $line"
+        }
     }
 }
 

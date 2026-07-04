@@ -1,5 +1,6 @@
 package com.example.monkey.product.infrastructure;
 
+import com.example.monkey.shared.application.tenant.TenantContext;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -16,11 +17,19 @@ public interface MonkeyRepository extends JpaRepository<Monkey, Long> {
     @Query("SELECT m.imageUrl FROM Monkey m WHERE m.imageUrl IS NOT NULL ORDER BY m.id")
     List<String> findImageUrls(Pageable pageable);
 
-    @Modifying
-    @Query("UPDATE Monkey m SET m.stock = m.stock - 1 WHERE m.id = :id AND m.stock > 0")
-    int deductStock(@Param("id") Long id);
+    default int deductStock(Long id) {
+        return deductStock(id, TenantContext.currentTenantIdOrDefault());
+    }
 
     @Modifying
-    @Query("UPDATE Monkey m SET m.stock = m.stock + 1 WHERE m.id = :id")
-    int restoreStock(@Param("id") Long id);
+    @Query("UPDATE Monkey m SET m.stock = m.stock - 1 WHERE m.id = :id AND m.tenantId = :tenantId AND m.stock > 0")
+    int deductStock(@Param("id") Long id, @Param("tenantId") Long tenantId);
+
+    default int restoreStock(Long id) {
+        return restoreStock(id, TenantContext.currentTenantIdOrDefault());
+    }
+
+    @Modifying
+    @Query("UPDATE Monkey m SET m.stock = m.stock + 1 WHERE m.id = :id AND m.tenantId = :tenantId")
+    int restoreStock(@Param("id") Long id, @Param("tenantId") Long tenantId);
 }

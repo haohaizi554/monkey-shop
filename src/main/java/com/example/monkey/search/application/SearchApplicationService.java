@@ -7,7 +7,7 @@ import com.example.monkey.search.application.dto.HotKeywordDto;
 import com.example.monkey.search.application.dto.RecommendationDto;
 import com.example.monkey.search.application.dto.SearchConversionRequestDto;
 import com.example.monkey.search.application.dto.SearchPageDto;
-import com.example.monkey.search.application.dto.SearchProductQueryDto;
+import com.example.monkey.search.application.dto.SearchProductQueryRequestDto;
 import com.example.monkey.search.application.dto.SearchSuggestionDto;
 import com.example.monkey.search.application.dto.UserSearchProfileDto;
 import com.example.monkey.search.application.dto.UserSearchProfileRequestDto;
@@ -68,9 +68,9 @@ public class SearchApplicationService {
 
     @WithSpan("search.products")
     @Transactional
-    public SearchPageDto search(SearchProductQueryDto request, SessionUser currentUser) {
+    public SearchPageDto search(SearchProductQueryRequestDto request, SessionUser currentUser) {
         SearchQuery query = request == null
-                ? new SearchProductQueryDto(null, null, null, null, null, 0, 20).toQuery()
+                ? new SearchProductQueryRequestDto(null, null, null, null, null, 0, 20).toQuery()
                 : request.toQuery();
         SearchPage page = searchStore.search(query);
         if (StringUtils.hasText(query.keyword())) {

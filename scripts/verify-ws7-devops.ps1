@@ -14,6 +14,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $Failures = [System.Collections.Generic.List[string]]::new()
+$ProductionImageDigestFixture = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
 
 function Add-Failure {
     param([string]$Message)
@@ -171,6 +172,8 @@ function Assert-RequiredSecretKeys {
         "APP_PASSWORD_RESET_SMS_WEBHOOK_URL",
         "APP_PASSWORD_RESET_EMAIL_WEBHOOK_URL",
         "APP_PASSWORD_RESET_WEBHOOK_SECRET",
+        "APP_PAYMENT_CALLBACK_SECRET",
+        "APP_LOGISTICS_WEBHOOK_SECRET",
         "APP_STORAGE_MINIO_ENDPOINT",
         "APP_STORAGE_MINIO_ACCESS_KEY",
         "APP_STORAGE_MINIO_SECRET_KEY",
@@ -186,6 +189,7 @@ Write-Host "==> WS7 static artifact checks"
 
 $requiredFiles = @(
     "Dockerfile",
+    ".github/workflows/ci.yaml",
     "$ChartDir/Chart.yaml",
     "$ChartDir/values.yaml",
     "$ChartDir/values-dev.yaml",
@@ -225,6 +229,7 @@ foreach ($file in $requiredFiles) {
 }
 
 $dockerfile = Read-RequiredFile -Path "Dockerfile"
+$ciWorkflow = Read-RequiredFile -Path ".github/workflows/ci.yaml"
 $values = Read-RequiredFile -Path "$ChartDir/values.yaml"
 $valuesDev = Read-RequiredFile -Path "$ChartDir/values-dev.yaml"
 $valuesStaging = Read-RequiredFile -Path "$ChartDir/values-staging.yaml"
@@ -304,7 +309,8 @@ Assert-NotMatch -Name "values-staging.yaml" -Text $valuesStaging -Pattern "(?m)^
 Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "externalSecret:[\s\S]+data:[\s\S]+key:\s+monkeyshop/staging" -Message "must source staging ExternalSecret data from the staging secret path"
 Assert-NotMatch -Name "values-staging.yaml" -Text $valuesStaging -Pattern "key:\s+monkeyshop/prod" -Message "must not source staging ExternalSecret data from the prod secret path"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "name:\s+monkeyshop-prod" -Message "must create the prod namespace"
-Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "digest:\s+sha256:[a-fA-F0-9]{64}" -Message "must pin production image by digest to satisfy Kyverno"
+Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "digest:\s+`"`"" -Message "must leave the production app digest empty for CI/CD write-back"
+Assert-NotMatch -Name "values-prod.yaml" -Text $valuesProd -Pattern "sha256:0{64}" -Message "must not use all-zero digest placeholders"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "externalSecret:\s*\r?\n\s+enabled:\s+true" -Message "must use ExternalSecret in prod"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "externalServices:\s*\r?\n\s+enabled:\s+true" -Message "must use ExternalName services in prod"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "DB_URL:\s+jdbc:mysql://monkeyshop-mysql\.monkeyshop-prod\.svc\.cluster\.local:3306/monkeyshop" -Message "must route prod MySQL through an in-cluster ExternalName service"
@@ -312,6 +318,7 @@ Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "SPRING_DATA_RE
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "externalName:\s+prod-mysql\.internal" -Message "must map prod MySQL ExternalName to the internal managed database hostname"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "externalName:\s+prod-redis\.internal" -Message "must map prod Redis ExternalName to the internal managed cache hostname"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "waitForMysql:[\s\S]+image:\s+busybox@sha256:[a-fA-F0-9]{64}" -Message "must pin the production MySQL wait init container by digest"
+Assert-NotMatch -Name "values-prod.yaml" -Text $valuesProd -Pattern "busybox@sha256:0{64}" -Message "must not use all-zero init container digest placeholders"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "replicaCount:\s+3" -Message "must run at least three prod replicas"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "rollout:\s*\r?\n\s+enabled:\s+true" -Message "must enable Argo Rollouts in prod"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "serviceMonitor:\s*\r?\n\s+enabled:\s+true" -Message "must enable Prometheus ServiceMonitor in prod"
@@ -319,6 +326,7 @@ Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "prometheusRule
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "grafanaDashboard:\s*\r?\n\s+enabled:\s+true" -Message "must enable the Grafana dashboard in prod"
 
 Assert-Match -Name "_pod.tpl" -Text $podTemplate -Pattern "automountServiceAccountToken:\s+false" -Message "must disable automatic service account tokens"
+Assert-Match -Name "_pod.tpl" -Text $podTemplate -Pattern "image\.digest is required for prod releases" -Message "must fail closed when prod app digest is missing"
 Assert-Match -Name "_pod.tpl" -Text $podTemplate -Pattern "image:\s+`"{{\s*\.Values\.image\.repository\s*}}@{{\s*\.Values\.image\.digest\s*}}`"" -Message "must render digest-pinned images when image.digest is set"
 Assert-Match -Name "_pod.tpl" -Text $podTemplate -Pattern "initContainers:\s*\r?\n\s+-\s+name:\s+wait-for-mysql" -Message "must include the MySQL wait init container"
 Assert-Match -Name "_pod.tpl" -Text $podTemplate -Pattern "secretRef:\s*\r?\n\s+name:\s+{{\s*include\s+`"monkeyshop\.secretName`"" -Message "must inject runtime secrets through envFrom secretRef"
@@ -395,6 +403,12 @@ Assert-NotMatch -Name "Runtime image supply-chain gate" -Text $runtimeImageGate 
 $vmPasswordCanary = "12" + "3456"
 Assert-NotMatch -Name "Runtime image supply-chain gate" -Text $runtimeImageGate -Pattern $vmPasswordCanary -Message "must not store VM passwords"
 
+Assert-Match -Name "ci.yaml" -Text $ciWorkflow -Pattern "contents:\s+write" -Message "must be allowed to write the production digest back to Git"
+Assert-Match -Name "ci.yaml" -Text $ciWorkflow -Pattern "Update production image digest" -Message "must update values-prod.yaml with the pushed image digest"
+Assert-Match -Name "ci.yaml" -Text $ciWorkflow -Pattern "sed -i -E" -Message "must rewrite the production image digest field after image push"
+Assert-Match -Name "ci.yaml" -Text $ciWorkflow -Pattern "helm/monkeyshop/values-prod\.yaml" -Message "must commit the production digest values file"
+Assert-Match -Name "ci.yaml" -Text $ciWorkflow -Pattern "git commit -m `"ci: update production image digest`"" -Message "must commit the production digest update for GitOps"
+
 Assert-Match -Name "Argo CD runtime GitOps gate" -Text $gitOpsRuntimeGate -Pattern "argocd app wait" -Message "must wait for Argo CD applications"
 Assert-Match -Name "Argo CD runtime GitOps gate" -Text $gitOpsRuntimeGate -Pattern "Synced" -Message "must verify sync status"
 Assert-Match -Name "Argo CD runtime GitOps gate" -Text $gitOpsRuntimeGate -Pattern "Healthy" -Message "must verify health status"
@@ -410,6 +424,10 @@ Assert-Match -Name "MicroK8s dev runtime gate" -Text $microk8sRuntimeGate -Patte
 Assert-Match -Name "MicroK8s dev runtime gate" -Text $microk8sRuntimeGate -Pattern "verify-runtime-smoke\.ps1" -Message "must reuse the runtime smoke gate"
 Assert-Match -Name "MicroK8s dev runtime gate" -Text $microk8sRuntimeGate -Pattern "verify-runtime-api-security\.ps1" -Message "must support API security smoke verification"
 Assert-Match -Name "MicroK8s dev runtime gate" -Text $microk8sRuntimeGate -Pattern "MONKEYSHOP_DEV_DB_PASSWORD" -Message "must source optional runtime database secrets from the environment"
+Assert-Match -Name "MicroK8s dev runtime gate" -Text $microk8sRuntimeGate -Pattern "MONKEYSHOP_DEV_PAYMENT_CALLBACK_SECRET" -Message "must source optional runtime payment callback secrets from the environment"
+Assert-Match -Name "MicroK8s dev runtime gate" -Text $microk8sRuntimeGate -Pattern "MONKEYSHOP_DEV_LOGISTICS_WEBHOOK_SECRET" -Message "must source optional runtime logistics webhook secrets from the environment"
+Assert-Match -Name "MicroK8s dev runtime gate" -Text $microk8sRuntimeGate -Pattern "APP_PAYMENT_CALLBACK_SECRET" -Message "must inject payment callback secret into the runtime secret"
+Assert-Match -Name "MicroK8s dev runtime gate" -Text $microk8sRuntimeGate -Pattern "APP_LOGISTICS_WEBHOOK_SECRET" -Message "must inject logistics webhook secret into the runtime secret"
 Assert-NotMatch -Name "MicroK8s dev runtime gate" -Text $microk8sRuntimeGate -Pattern $vmPasswordCanary -Message "must not store VM or database passwords"
 
 Assert-Match -Name "Argo CD MicroK8s GitOps gate" -Text $argocdMicrok8sGate -Pattern "git daemon" -Message "must serve a local GitOps repository to Argo CD"
@@ -422,12 +440,18 @@ Assert-Match -Name "Argo CD MicroK8s GitOps gate" -Text $argocdMicrok8sGate -Pat
 Assert-Match -Name "Argo CD MicroK8s GitOps gate" -Text $argocdMicrok8sGate -Pattern "verify-runtime-smoke\.ps1" -Message "must reuse the runtime smoke gate"
 Assert-Match -Name "Argo CD MicroK8s GitOps gate" -Text $argocdMicrok8sGate -Pattern "verify-runtime-api-security\.ps1" -Message "must support API security smoke verification"
 Assert-Match -Name "Argo CD MicroK8s GitOps gate" -Text $argocdMicrok8sGate -Pattern "MONKEYSHOP_DEV_DB_PASSWORD" -Message "must source optional runtime database secrets from the environment"
+Assert-Match -Name "Argo CD MicroK8s GitOps gate" -Text $argocdMicrok8sGate -Pattern "MONKEYSHOP_DEV_PAYMENT_CALLBACK_SECRET" -Message "must source optional runtime payment callback secrets from the environment"
+Assert-Match -Name "Argo CD MicroK8s GitOps gate" -Text $argocdMicrok8sGate -Pattern "MONKEYSHOP_DEV_LOGISTICS_WEBHOOK_SECRET" -Message "must source optional runtime logistics webhook secrets from the environment"
+Assert-Match -Name "Argo CD MicroK8s GitOps gate" -Text $argocdMicrok8sGate -Pattern "APP_PAYMENT_CALLBACK_SECRET" -Message "must inject payment callback secret into the runtime secret"
+Assert-Match -Name "Argo CD MicroK8s GitOps gate" -Text $argocdMicrok8sGate -Pattern "APP_LOGISTICS_WEBHOOK_SECRET" -Message "must inject logistics webhook secret into the runtime secret"
 Assert-NotMatch -Name "Argo CD MicroK8s GitOps gate" -Text $argocdMicrok8sGate -Pattern $vmPasswordCanary -Message "must not store VM or database passwords"
 
 foreach ($environment in @("dev", "staging", "prod")) {
     $app = Read-RequiredFile -Path "deploy/argocd/applications/monkeyshop-$environment.yaml"
     Assert-Match -Name "ArgoCD $environment" -Text $app -Pattern "repoURL:\s+$([regex]::Escape($GitOpsRepoUrl))" -Message "must point to the real MonkeyShop GitOps repository"
     Assert-NotMatch -Name "ArgoCD $environment" -Text $app -Pattern "github\.com/example/" -Message "must not use placeholder GitOps repository URLs"
+    Assert-Match -Name "ArgoCD $environment" -Text $app -Pattern "targetRevision:\s+main" -Message "must sync from a stable branch revision"
+    Assert-NotMatch -Name "ArgoCD $environment" -Text $app -Pattern "targetRevision:\s+HEAD" -Message "must not sync from floating HEAD"
     Assert-Match -Name "ArgoCD $environment" -Text $app -Pattern "path:\s+helm/monkeyshop" -Message "must point to the MonkeyShop Helm chart"
     Assert-Match -Name "ArgoCD $environment" -Text $app -Pattern "values-$environment\.yaml" -Message "must use values-$environment.yaml"
     Assert-Match -Name "ArgoCD $environment" -Text $app -Pattern "namespace:\s+monkeyshop-$environment" -Message "must target monkeyshop-$environment namespace"
@@ -451,7 +475,7 @@ if (-not $helm) {
     $rendered = @{}
     foreach ($environment in @("dev", "staging", "prod")) {
         $valueFile = Join-Path $ChartDir "values-$environment.yaml"
-        $manifest = Invoke-Helm -Helm $helm -Name "helm template $environment" -Arguments @(
+        $arguments = @(
             "template",
             "monkeyshop",
             $ChartDir,
@@ -460,6 +484,10 @@ if (-not $helm) {
             "-f",
             $valueFile
         )
+        if ($environment -eq "prod") {
+            $arguments += @("--set", "image.digest=$ProductionImageDigestFixture")
+        }
+        $manifest = Invoke-Helm -Helm $helm -Name "helm template $environment" -Arguments $arguments
         $rendered[$environment] = $manifest
         Set-Content -LiteralPath (Join-Path $OutputDir "monkeyshop-$environment.yaml") -Value $manifest -Encoding utf8
     }

@@ -96,7 +96,7 @@ app:
     backfill:
       enabled: ${APP_PII_BACKFILL_ENABLED:false}
     encryption:
-      enabled: ${APP_PII_ENCRYPTION_ENABLED:false}
+      enabled: ${APP_PII_ENCRYPTION_ENABLED:true}
       key-provider: ${APP_PII_KEY_PROVIDER:env}
       aes-key-base64: ${APP_PII_AES_KEY_BASE64:}
       hmac-key-base64: ${APP_PII_HMAC_KEY_BASE64:}
@@ -152,6 +152,11 @@ app:
       access-key: ${APP_STORAGE_MINIO_ACCESS_KEY:}
       secret-key: ${APP_STORAGE_MINIO_SECRET_KEY:}
       bucket: ${APP_STORAGE_MINIO_BUCKET:monkeyshop}
+  payment:
+    callback-secret: ${APP_PAYMENT_CALLBACK_SECRET:}
+    callback-ttl: ${APP_PAYMENT_CALLBACK_TTL:PT24H}
+    query-after: ${APP_PAYMENT_QUERY_AFTER:PT5M}
+    high-value-threshold: ${APP_PAYMENT_HIGH_VALUE_THRESHOLD:5000}
   order:
     idempotency:
       ttl: ${APP_ORDER_IDEMPOTENCY_TTL:PT24H}
@@ -161,6 +166,9 @@ app:
     snowflake:
       worker-id: ${APP_ORDER_SNOWFLAKE_WORKER_ID:0}
       datacenter-id: ${APP_ORDER_SNOWFLAKE_DATACENTER_ID:0}
+  logistics:
+    webhook-secret: ${APP_LOGISTICS_WEBHOOK_SECRET:}
+    webhook-ttl: ${APP_LOGISTICS_WEBHOOK_TTL:PT24H}
   shedlock:
     environment: ${APP_SHEDLOCK_ENVIRONMENT:${spring.application.name:monkeyshop}}
     default-lock-at-most-for: ${APP_SHEDLOCK_DEFAULT_LOCK_AT_MOST_FOR:PT30M}

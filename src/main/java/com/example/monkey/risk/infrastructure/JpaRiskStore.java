@@ -1,14 +1,13 @@
 package com.example.monkey.risk.infrastructure;
 
 import com.example.monkey.product.domain.ProductStatus;
-import com.example.monkey.product.infrastructure.ProductSpu;
-import com.example.monkey.product.infrastructure.ProductSpuRepository;
 import com.example.monkey.risk.domain.RiskDeviceFingerprint;
 import com.example.monkey.risk.domain.RiskReviewCase;
 import com.example.monkey.risk.domain.RiskReviewStatus;
 import com.example.monkey.risk.domain.RiskScore;
 import com.example.monkey.risk.domain.RiskSignal;
 import com.example.monkey.risk.domain.RiskStore;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,6 +16,7 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -24,23 +24,25 @@ import org.springframework.stereotype.Component;
 public class JpaRiskStore implements RiskStore {
 
     private static final TypeReference<List<RiskSignal>> SIGNALS_TYPE = new TypeReference<>() {};
+    private static final ProductStatus UNLISTED_PRODUCT_STATUS = ProductStatus.UNLISTED;
+    private static final ProductStatus RECYCLED_PRODUCT_STATUS = ProductStatus.RECYCLED;
 
     private final RiskDeviceFingerprintRepository fingerprintRepository;
     private final RiskScoreRepository scoreRepository;
     private final RiskReviewCaseRepository reviewCaseRepository;
-    private final ProductSpuRepository productSpuRepository;
+    private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
 
     public JpaRiskStore(
             RiskDeviceFingerprintRepository fingerprintRepository,
             RiskScoreRepository scoreRepository,
             RiskReviewCaseRepository reviewCaseRepository,
-            ProductSpuRepository productSpuRepository,
+            JdbcTemplate jdbcTemplate,
             ObjectMapper objectMapper) {
         this.fingerprintRepository = fingerprintRepository;
         this.scoreRepository = scoreRepository;
         this.reviewCaseRepository = reviewCaseRepository;
-        this.productSpuRepository = productSpuRepository;
+        this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
     }
 
@@ -95,17 +97,21 @@ public class JpaRiskStore implements RiskStore {
 
     @Override
     public boolean unlistProductForPriceAnomaly(Long productId) {
-        Optional<ProductSpu> product = productSpuRepository.findById(productId);
-        if (product.isEmpty()) {
-            return false;
-        }
-        ProductSpu spu = product.get();
-        if (spu.getStatus() == ProductStatus.UNLISTED || spu.getStatus() == ProductStatus.RECYCLED) {
-            return false;
-        }
-        spu.setStatus(ProductStatus.UNLISTED);
-        productSpuRepository.save(spu);
-        return true;
+        return jdbcTemplate.update(
+                        """
+                        UPDATE product_spu
+                        SET status = ?
+                        WHERE id = ?
+                          AND tenant_id = ?
+                          AND deleted = false
+                          AND status NOT IN (?, ?)
+                        """,
+                        UNLISTED_PRODUCT_STATUS.name(),
+                        productId,
+                        TenantContext.currentTenantIdOrDefault(),
+                        UNLISTED_PRODUCT_STATUS.name(),
+                        RECYCLED_PRODUCT_STATUS.name())
+                > 0;
     }
 
     private static RiskDeviceFingerprintEntity toEntity(RiskDeviceFingerprint fingerprint) {

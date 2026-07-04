@@ -1,5 +1,6 @@
 package com.example.monkey.order.infrastructure;
 
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -16,7 +17,7 @@ import java.time.LocalDateTime;
                 @UniqueConstraint(
                         name = "uk_idempotency_user_key",
                         columnNames = {"user_id", "idempotency_key"}))
-public class IdempotencyRecord {
+public class IdempotencyRecord extends TenantScopedJpaEntity {
 
     public static final String STATUS_PROCESSING = "PROCESSING";
     public static final String STATUS_COMPLETED = "COMPLETED";

@@ -1,5 +1,6 @@
 package com.example.monkey.order.infrastructure;
 
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -9,7 +10,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "order_fulfillment_item")
-public class OrderFulfillmentItemEntity {
+public class OrderFulfillmentItemEntity extends TenantScopedJpaEntity {
 
     @Id
     private Long id;

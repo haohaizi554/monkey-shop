@@ -21,6 +21,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.http.HttpHeaders;
@@ -113,6 +116,20 @@ class JwtTokenServiceTest {
 
         assertThat(tokenService.parseAccessToken(" ")).isEmpty();
         assertThat(tokenService.parseRefreshToken("not-a-jwt")).isEmpty();
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void rejectedJwtTokensAreLoggedWithoutLeakingRawToken(CapturedOutput output) {
+        JwtTokenService tokenService = new JwtTokenService(TEST_SECRET, 30, 60, 30, 60, false, null);
+        String malformedToken = "not-a-jwt";
+
+        assertThat(tokenService.parseAccessToken(malformedToken)).isEmpty();
+
+        assertThat(output)
+                .contains("JWT token rejected while parsing request token")
+                .contains("ParseException")
+                .doesNotContain(malformedToken);
     }
 
     @Test

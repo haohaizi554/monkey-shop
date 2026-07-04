@@ -54,6 +54,8 @@ Assert-Matches "reconciliation migration" $reconciliationMigration "CREATE TABLE
 Assert-Matches "reconciliation migration" $reconciliationMigration "encrypted_report_payload"
 Assert-Matches "service" $service "@WithSpan\(""payment\.create""\)"
 Assert-Matches "service" $service "verifySignature"
+Assert-Matches "service" $service "requireCallbackSecret"
+Assert-Matches "service" $service "APP_PAYMENT_CALLBACK_SECRET must be set"
 Assert-Matches "service" $service "callbackReplayGuard\.reserve"
 Assert-Matches "service" $service "PaymentEvent\.REFUND_PARTIAL"
 Assert-Matches "service" $service "userMfaVerifier\.verifyCode"

@@ -111,6 +111,35 @@ class Ws7DevOpsWorkflowTest {
     }
 
     @Test
+    void prodGitOpsDoesNotUseFloatingRevisionsOrDigestPlaceholders() throws IOException {
+        String prod = read("helm/monkeyshop/values-prod.yaml");
+        String podTemplate = read("helm/monkeyshop/templates/_pod.tpl");
+        String workflow = read(".github/workflows/ci.yaml");
+        String script = read("scripts/verify-ws7-devops.ps1");
+
+        assertThat(prod)
+                .contains("digest: \"\"")
+                .contains("busybox@sha256:9532d8c39891ca2ecde4d30d7710e01fb739c87a8b9299685c63704296b16028")
+                .doesNotContain("sha256:0000000000000000000000000000000000000000000000000000000000000000");
+        assertThat(podTemplate).contains("image.digest is required for prod releases");
+        assertThat(workflow)
+                .contains("contents: write")
+                .contains("Update production image digest")
+                .contains("sed -i -E")
+                .contains("git commit -m \"ci: update production image digest\"");
+        assertThat(script)
+                .contains("ProductionImageDigestFixture")
+                .contains("must not use all-zero digest placeholders")
+                .contains("targetRevision:\\s+main")
+                .contains("targetRevision:\\s+HEAD");
+
+        for (String environment : new String[] {"dev", "staging", "prod"}) {
+            String application = read("deploy/argocd/applications/monkeyshop-" + environment + ".yaml");
+            assertThat(application).contains("targetRevision: main").doesNotContain("targetRevision: HEAD");
+        }
+    }
+
+    @Test
     void runtimeSmokeVerifierCoversDeployedHealthHeadersTraceAndMetrics() throws IOException {
         String script = read("scripts/verify-runtime-smoke.ps1");
         String readme = read("README.md");

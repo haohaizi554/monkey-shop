@@ -19,6 +19,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.text.ParseException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
@@ -337,7 +338,12 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
             }
             return Optional.of(
                     new AuthenticatedToken(userId, role, authorities, tenantId, tokenType, tokenId, expiresAt));
-        } catch (Exception e) {
+        } catch (ParseException | JOSEException | RuntimeException exception) {
+            log.warn(
+                    "JWT token rejected while parsing {} token; reason={}",
+                    enforceRevocationState ? "request" : "revocation",
+                    exception.getClass().getSimpleName());
+            log.debug("JWT token rejection details", exception);
             return Optional.empty();
         }
     }

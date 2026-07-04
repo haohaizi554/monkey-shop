@@ -52,6 +52,7 @@ import org.springframework.web.bind.annotation.RestController;
 class ControllerContractBoundaryTest {
 
     private static final Pattern RESPONSE_DTO_CONSTRUCTOR = Pattern.compile("\\bnew\\s+[A-Za-z0-9]+ResponseDto\\s*\\(");
+    private static final String CONTROLLER_SCAN_ROOT = "com.example.monkey";
 
     private static final List<Class<?>> CONTROLLERS = restControllers();
 
@@ -390,19 +391,18 @@ class ControllerContractBoundaryTest {
     private static List<Class<?>> restControllers() {
         ClassPathScanningCandidateComponentProvider scanner = new ClassPathScanningCandidateComponentProvider(false);
         scanner.addIncludeFilter(new AnnotationTypeFilter(RestController.class));
-        return Stream.of(
-                        "com.example.monkey.controller",
-                        "com.example.monkey.admin.interfaces",
-                        "com.example.monkey.product.interfaces",
-                        "com.example.monkey.user.interfaces",
-                        "com.example.monkey.order.interfaces",
-                        "com.example.monkey.shared.interfaces")
-                .flatMap(basePackage -> scanner.findCandidateComponents(basePackage).stream())
+        return scanner.findCandidateComponents(CONTROLLER_SCAN_ROOT).stream()
                 .map(BeanDefinition::getBeanClassName)
                 .filter(Objects::nonNull)
+                .filter(ControllerContractBoundaryTest::isProductionControllerClass)
                 .map(ControllerContractBoundaryTest::loadClass)
                 .sorted(java.util.Comparator.comparing(Class::getName))
                 .toList();
+    }
+
+    private static boolean isProductionControllerClass(String className) {
+        Path sourceFile = Path.of("src/main/java", className.replace('.', '/') + ".java");
+        return Files.isRegularFile(sourceFile);
     }
 
     private static Class<?> loadClass(String className) {

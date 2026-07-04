@@ -32,8 +32,12 @@ app:
     require-redis-token-store: ${APP_JWT_REQUIRE_REDIS_TOKEN_STORE:false}
   pii:
     encryption:
-      enabled: ${APP_PII_ENCRYPTION_ENABLED:false}
+      enabled: ${APP_PII_ENCRYPTION_ENABLED:true}
       allow-plaintext-read: true
+  logistics:
+    webhook-secret: ${APP_LOGISTICS_WEBHOOK_SECRET:${random.uuid}}
+  payment:
+    callback-secret: ${APP_PAYMENT_CALLBACK_SECRET:${random.uuid}}
 
 logging:
   level:

@@ -1,5 +1,6 @@
 package com.example.monkey.tracking.infrastructure;
 
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -9,7 +10,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "user_profile_tag")
-public class UserProfileTagEntity {
+public class UserProfileTagEntity extends TenantScopedJpaEntity {
 
     @Id
     private Long userId;

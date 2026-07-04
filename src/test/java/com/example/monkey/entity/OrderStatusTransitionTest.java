@@ -4,10 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 
 import com.example.monkey.order.domain.OrderStatus;
+import com.example.monkey.order.domain.OrderStore.AddressRecord;
+import com.example.monkey.order.domain.OrderStore.BuyerRecord;
+import com.example.monkey.order.domain.OrderStore.ProductRecord;
 import com.example.monkey.order.infrastructure.Order;
-import com.example.monkey.product.infrastructure.Monkey;
-import com.example.monkey.user.infrastructure.Address;
-import com.example.monkey.user.infrastructure.User;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
@@ -16,16 +16,10 @@ class OrderStatusTransitionTest {
 
     @Test
     void placeSnapshotsBuyerProductAddressAndMarksPaid() {
-        User buyer = new User();
-        buyer.setId(42L);
-        buyer.setUsername("buyer");
-        buyer.setAvatar("/images/avatar/buyer.png");
-        Monkey product =
-                new Monkey(7L, "Momo", "Golden", new BigDecimal("199.99"), "calm", "/images/product/momo.png", 5);
-        Address address = new Address();
-        address.setReceiverName("Ada");
-        address.setPhone("13800000000");
-        address.setDetailAddress("Hangzhou");
+        BuyerRecord buyer = new BuyerRecord(42L, "buyer", "/images/avatar/buyer.png");
+        ProductRecord product =
+                new ProductRecord(7L, "Momo", "/images/product/momo.png", new BigDecimal("199.99"), "calm", 5);
+        AddressRecord address = new AddressRecord(3L, 42L, "Ada", "13800000000", "Hangzhou");
 
         Order order = Order.place("ORD-1", buyer, product, address);
 

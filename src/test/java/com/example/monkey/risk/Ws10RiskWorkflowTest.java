@@ -45,7 +45,7 @@ class Ws10RiskWorkflowTest {
                         "userMfaVerifier.verifyCode");
         assertThat(blindIndex).contains("PiiCryptoService", "blindIndexPhone");
         assertThat(controller).contains("/api/risk", "/assess", "/reviews/{caseId}/resolve");
-        assertThat(store).contains("ProductStatus.UNLISTED", "RiskStore", "app.risk.store");
+        assertThat(store).contains("UNLISTED", "RECYCLED", "RiskStore", "app.risk.store");
         assertThat(cache).contains("risk:device:", "risk:score:user:", "risk:seckill:");
         assertThat(filter).contains("/api/risk/internal/probe", "ApiRateLimitOperation.RISK");
         assertThat(securityConfig).contains("/risk", "RISK_WRITE", "RISK_REVIEW");

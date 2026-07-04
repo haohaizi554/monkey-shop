@@ -1,5 +1,6 @@
 package com.example.monkey.order.infrastructure;
 
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -16,7 +17,7 @@ import java.time.LocalDateTime;
                 @UniqueConstraint(
                         name = "uk_stock_log_order_direction",
                         columnNames = {"order_id", "direction"}))
-public class StockLog {
+public class StockLog extends TenantScopedJpaEntity {
 
     public static final String DIRECTION_RESTORE = "RESTORE";
 

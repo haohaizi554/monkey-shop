@@ -299,6 +299,7 @@ export interface TrackingWebhookRequest {
   eventTime?: string
   location?: string
   remark?: string
+  signature: string
 }
 
 export interface TrackingEventRecord {

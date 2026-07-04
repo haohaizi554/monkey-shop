@@ -9,6 +9,7 @@ import com.example.monkey.tracking.application.dto.ProductProfileDto;
 import com.example.monkey.tracking.application.dto.RealtimeDashboardDto;
 import com.example.monkey.tracking.application.dto.TrackingEventRequestDto;
 import com.example.monkey.tracking.application.dto.TrackingEventResponseDto;
+import com.example.monkey.tracking.application.dto.TrackingWindowRequestDto;
 import com.example.monkey.tracking.application.dto.UserProfileTagDto;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -16,11 +17,11 @@ import java.util.List;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -45,14 +46,14 @@ public class TrackingController {
 
     @GetMapping("/dashboard")
     @PreAuthorize("hasAuthority('TRACKING_ADMIN')")
-    public Result<RealtimeDashboardDto> dashboard(@RequestParam(required = false) Integer minutes) {
-        return Result.success(trackingApplicationService.dashboard(minutes));
+    public Result<RealtimeDashboardDto> dashboard(@Valid @ModelAttribute TrackingWindowRequestDto request) {
+        return Result.success(trackingApplicationService.dashboard(request.minutes()));
     }
 
     @GetMapping("/funnel")
     @PreAuthorize("hasAuthority('TRACKING_ADMIN')")
-    public Result<List<FunnelStepDto>> funnel(@RequestParam(required = false) Integer minutes) {
-        return Result.success(trackingApplicationService.funnel(minutes));
+    public Result<List<FunnelStepDto>> funnel(@Valid @ModelAttribute TrackingWindowRequestDto request) {
+        return Result.success(trackingApplicationService.funnel(request.minutes()));
     }
 
     @GetMapping("/profile/me")

@@ -79,6 +79,7 @@ public class JpaUserAccountStore implements UserAccountStore {
         user.setPasswordChangeRequired(account.passwordChangeRequired());
         user.setTotpSecret(account.totpSecret());
         user.setMfaEnabled(account.mfaEnabled());
+        user.setTenantId(account.tenantId());
         user.setRoles(new LinkedHashSet<>(List.of(resolveRole(user.getRole()))));
         return user;
     }
@@ -114,7 +115,8 @@ public class JpaUserAccountStore implements UserAccountStore {
                 user.isPasswordChangeRequired(),
                 user.getTotpSecret(),
                 user.isMfaEnabled(),
-                authorityNames(user));
+                authorityNames(user),
+                user.getTenantId());
     }
 
     private static List<String> authorityNames(User user) {

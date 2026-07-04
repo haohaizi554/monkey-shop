@@ -1,11 +1,16 @@
 package com.example.monkey.cart.infrastructure;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.cart.domain.CartCheckoutStatus;
 import com.example.monkey.cart.domain.CartItem;
+import com.example.monkey.cart.domain.CartSkuSnapshot;
 import com.example.monkey.cart.domain.CartSnapshot;
 import com.example.monkey.cart.domain.CheckoutLine;
 import com.example.monkey.cart.domain.CheckoutOrder;
@@ -20,6 +25,8 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 
 class CartInfrastructureTest {
 
@@ -57,6 +64,21 @@ class CartInfrastructureTest {
         assertThat(restored.subOrders()).hasSize(1);
         assertThat(restored.subOrders().get(0).lines()).hasSize(1);
         assertThat(restored.payableAmount()).isEqualByComparingTo("90.00");
+    }
+
+    @Test
+    void jpaCartCatalogReaderReadsSkuSnapshotThroughTenantScopedJdbcQuery() {
+        JdbcTemplate jdbcTemplate = mock();
+        CartSkuSnapshot snapshot =
+                new CartSkuSnapshot(1001L, 2001L, 11L, "SKU-1", "Phone", "/phone.png", new BigDecimal("88.00"));
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(1001L), eq(1L), eq("LISTED")))
+                .thenReturn(List.of(snapshot));
+        JpaCartCatalogReader reader = new JpaCartCatalogReader(jdbcTemplate);
+
+        Optional<CartSkuSnapshot> result = reader.findActiveSku(1001L);
+
+        assertThat(result).contains(snapshot);
+        verify(jdbcTemplate).query(anyString(), any(RowMapper.class), eq(1001L), eq(1L), eq("LISTED"));
     }
 
     @Test

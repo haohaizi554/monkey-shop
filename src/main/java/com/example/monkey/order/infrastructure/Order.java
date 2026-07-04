@@ -2,13 +2,14 @@ package com.example.monkey.order.infrastructure;
 
 import com.example.monkey.order.domain.OrderEvent;
 import com.example.monkey.order.domain.OrderStatus;
+import com.example.monkey.order.domain.OrderStore.AddressRecord;
+import com.example.monkey.order.domain.OrderStore.BuyerRecord;
+import com.example.monkey.order.domain.OrderStore.ProductRecord;
 import com.example.monkey.order.domain.OrderTransitionPolicy;
-import com.example.monkey.product.infrastructure.Monkey;
 import com.example.monkey.shared.domain.privacy.PhoneBlindIndexTarget;
 import com.example.monkey.shared.infrastructure.privacy.EncryptedStringAttributeConverter;
 import com.example.monkey.shared.infrastructure.privacy.PiiBlindIndexEntityListener;
-import com.example.monkey.user.infrastructure.Address;
-import com.example.monkey.user.infrastructure.User;
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -28,7 +29,7 @@ import org.hibernate.annotations.SQLRestriction;
 @SQLDelete(sql = "UPDATE orders SET deleted = true, version = version + 1 WHERE id = ? AND version = ?")
 @SQLRestriction("deleted = false")
 @EntityListeners(PiiBlindIndexEntityListener.class)
-public class Order implements PhoneBlindIndexTarget {
+public class Order extends TenantScopedJpaEntity implements PhoneBlindIndexTarget {
     public static final String STATUS_TRANSITION_NOT_ALLOWED = OrderTransitionPolicy.STATUS_TRANSITION_NOT_ALLOWED;
 
     @Id
@@ -93,20 +94,20 @@ public class Order implements PhoneBlindIndexTarget {
     @Column(name = "create_time", insertable = false, updatable = false)
     private LocalDateTime createTime;
 
-    public static Order place(String orderNo, User buyer, Monkey product, Address address) {
+    public static Order place(String orderNo, BuyerRecord buyer, ProductRecord product, AddressRecord address) {
         Order order = new Order();
         order.setOrderNo(orderNo);
-        order.setUserId(buyer.getId());
-        order.setBuyerName(buyer.getUsername());
-        order.setBuyerAvatar(buyer.getAvatar());
-        order.setProductId(product.getId());
-        order.setProductName(product.getName());
-        order.setProductImage(product.getImageUrl());
-        order.setPrice(product.getPrice());
-        order.setDescription(product.getDescription());
-        order.setReceiverName(address.getReceiverName());
-        order.setReceiverPhone(address.getPhone());
-        order.setAddressSnapshot(address.getDetailAddress());
+        order.setUserId(buyer.id());
+        order.setBuyerName(buyer.username());
+        order.setBuyerAvatar(buyer.avatar());
+        order.setProductId(product.id());
+        order.setProductName(product.name());
+        order.setProductImage(product.imageUrl());
+        order.setPrice(product.price());
+        order.setDescription(product.description());
+        order.setReceiverName(address.receiverName());
+        order.setReceiverPhone(address.phone());
+        order.setAddressSnapshot(address.detailAddress());
         order.markPaid();
         return order;
     }

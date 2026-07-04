@@ -2,6 +2,7 @@ package com.example.monkey.risk.infrastructure;
 
 import com.example.monkey.risk.domain.RiskReviewStatus;
 import com.example.monkey.risk.domain.RiskSignalType;
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -12,7 +13,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "risk_audit_queue")
-public class RiskReviewCaseEntity {
+public class RiskReviewCaseEntity extends TenantScopedJpaEntity {
 
     @Id
     private Long id;

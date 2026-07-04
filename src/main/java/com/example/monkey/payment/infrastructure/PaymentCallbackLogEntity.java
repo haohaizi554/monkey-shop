@@ -1,6 +1,7 @@
 package com.example.monkey.payment.infrastructure;
 
 import com.example.monkey.payment.domain.PaymentMethod;
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -11,7 +12,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "payment_callback_log")
-public class PaymentCallbackLogEntity {
+public class PaymentCallbackLogEntity extends TenantScopedJpaEntity {
 
     @Id
     private Long id;

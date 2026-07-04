@@ -50,7 +50,7 @@ class RefreshTokenApplicationServiceTest {
         SessionTokenPair tokenPair =
                 new SessionTokenPair("access-token", "refresh-token", "access-id", "new-refresh-id", 900, 604800);
         when(tokenService.parseRefreshToken("old-refresh-token")).thenReturn(Optional.of(refreshToken));
-        when(authenticationService.currentPrincipal(7L)).thenReturn(Optional.of(currentPrincipal));
+        when(authenticationService.currentPrincipal(7L, 1L)).thenReturn(Optional.of(currentPrincipal));
         when(tokenService.rotateRefreshToken(refreshToken, "USER", currentPrincipal.authorities()))
                 .thenReturn(tokenPair);
 
@@ -146,7 +146,7 @@ class RefreshTokenApplicationServiceTest {
     void rejectedCurrentPrincipalRevokesRefreshTokenAndSignalsCookieClear() {
         AuthenticatedRefreshToken refreshToken = refreshToken(7L, "USER");
         when(tokenService.parseRefreshToken("old-refresh-token")).thenReturn(Optional.of(refreshToken));
-        when(authenticationService.currentPrincipal(7L)).thenReturn(Optional.empty());
+        when(authenticationService.currentPrincipal(7L, 1L)).thenReturn(Optional.empty());
 
         assertThatExceptionOfType(RefreshTokenFailure.class)
                 .isThrownBy(() -> refreshTokenService.refresh("old-refresh-token", "203.0.113.11"))

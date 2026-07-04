@@ -83,8 +83,8 @@ public class LoginApplicationService {
                 username,
                 clientIp,
                 null);
-        SessionTokenPair tokenPair =
-                tokenService.issueTokenPair(principal.userId(), principal.role(), principal.authorities());
+        SessionTokenPair tokenPair = tokenService.issueTokenPair(
+                principal.userId(), principal.role(), principal.authorities(), principal.tenantId());
         return new LoginResult(
                 tokenPair, authResponseService.loginResponse(principal.role(), principal.passwordChangeRequired()));
     }

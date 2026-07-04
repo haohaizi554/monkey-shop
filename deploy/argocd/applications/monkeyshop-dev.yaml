@@ -10,7 +10,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/haohaizi554/monkey-shop.git
-    targetRevision: HEAD
+    targetRevision: main
     path: helm/monkeyshop
     helm:
       releaseName: monkeyshop

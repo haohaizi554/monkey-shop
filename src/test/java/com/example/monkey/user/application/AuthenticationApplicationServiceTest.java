@@ -25,6 +25,7 @@ class AuthenticationApplicationServiceTest {
         assertThat(principal.role()).isEqualTo("USER");
         assertThat(principal.authorities()).containsExactly("ROLE_USER");
         assertThat(principal.passwordChangeRequired()).isTrue();
+        assertThat(principal.tenantId()).isEqualTo(1L);
     }
 
     @Test
@@ -46,5 +47,16 @@ class AuthenticationApplicationServiceTest {
                 .hasValueSatisfying(value -> assertThat(value.role()).isEqualTo("ADMIN"));
         assertThat(service.verifyAdminTotp(7L, "654321")).isTrue();
         verify(userService).verifyAdminTotp(7L, "654321");
+    }
+
+    @Test
+    void mapsCurrentPrincipalForTenantScopedLookup() {
+        when(userService.currentPrincipal(7L, 300L))
+                .thenReturn(Optional.of(new AuthPrincipal(7L, "USER", List.of("ROLE_USER"), false, 300L)));
+
+        Optional<AuthenticatedUserPrincipal> principal = service.currentPrincipal(7L, 300L);
+
+        assertThat(principal)
+                .hasValueSatisfying(value -> assertThat(value.tenantId()).isEqualTo(300L));
     }
 }

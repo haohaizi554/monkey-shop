@@ -42,7 +42,7 @@ public class PiiCryptoService {
 
     @Autowired
     public PiiCryptoService(
-            @Value("${app.pii.encryption.enabled:false}") boolean encryptionEnabled,
+            @Value("${app.pii.encryption.enabled:true}") boolean encryptionEnabled,
             PiiKeyMaterialProvider keyMaterialProvider,
             @Value("${app.pii.encryption.key-version:v1}") String keyVersion,
             @Value("${app.pii.encryption.allow-plaintext-read:true}") boolean allowPlaintextRead) {

@@ -21,6 +21,12 @@ public class AuthenticationApplicationService {
         return userService.currentPrincipal(userId).map(AuthenticationApplicationService::toAuthenticatedUserPrincipal);
     }
 
+    public Optional<AuthenticatedUserPrincipal> currentPrincipal(Long userId, Long tenantId) {
+        return userService
+                .currentPrincipal(userId, tenantId)
+                .map(AuthenticationApplicationService::toAuthenticatedUserPrincipal);
+    }
+
     public boolean verifyAdminTotp(Long userId, String totpCode) {
         return userService.verifyAdminTotp(userId, totpCode);
     }
@@ -30,6 +36,10 @@ public class AuthenticationApplicationService {
             return null;
         }
         return new AuthenticatedUserPrincipal(
-                principal.userId(), principal.role(), principal.authorities(), principal.passwordChangeRequired());
+                principal.userId(),
+                principal.role(),
+                principal.authorities(),
+                principal.passwordChangeRequired(),
+                principal.tenantId());
     }
 }

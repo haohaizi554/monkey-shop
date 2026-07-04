@@ -1,8 +1,11 @@
 package com.example.monkey.order.domain;
 
+import com.example.monkey.shared.domain.exception.BusinessException;
+import com.example.monkey.shared.domain.exception.ErrorCode;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 public interface OrderStore {
@@ -15,21 +18,11 @@ public interface OrderStore {
 
     Optional<OrderRecord> findVisibleByIdAndUserId(Long id, Long userId);
 
-    Optional<ProductRecord> findProductById(Long productId);
-
-    Optional<AddressRecord> findAddressById(Long addressId);
-
-    Optional<BuyerRecord> findBuyerById(Long userId);
-
-    boolean deductProductStock(Long productId);
-
     OrderRecord savePlacedOrder(OrderRecord order);
 
     void hideFromUser(Long orderId);
 
     boolean recordStockRestore(Long orderId, Long productId);
-
-    boolean restoreProductStock(Long productId);
 
     int transitionStatus(Long orderId, String expectedStatus, String nextStatus, LocalDateTime shippingTime);
 
@@ -53,7 +46,8 @@ public interface OrderStore {
             boolean userHidden) {
 
         public static OrderRecord place(
-                String orderNo, BuyerRecord buyer, ProductRecord product, AddressRecord address) {
+                String orderNo, Long currentUserId, BuyerRecord buyer, ProductRecord product, AddressRecord address) {
+            ensurePlaceable(currentUserId, buyer, product, address);
             return new OrderRecord(
                     null,
                     orderNo,
@@ -72,6 +66,19 @@ public interface OrderStore {
                     OrderStatus.PAID.label(),
                     null,
                     false);
+        }
+
+        public static void ensurePlaceable(
+                Long currentUserId, BuyerRecord buyer, ProductRecord product, AddressRecord address) {
+            if (!Objects.equals(buyer.id(), currentUserId)) {
+                throw new BusinessException(ErrorCode.FORBIDDEN, "Buyer does not match current user");
+            }
+            if (!Objects.equals(address.userId(), currentUserId)) {
+                throw new BusinessException(ErrorCode.FORBIDDEN, "Address does not belong to current user");
+            }
+            if (!product.hasStock()) {
+                throw new BusinessException(ErrorCode.OUT_OF_STOCK, "Insufficient stock");
+            }
         }
 
         public OrderRecord withStatus(OrderStatus nextStatus, LocalDateTime nextShippingTime) {

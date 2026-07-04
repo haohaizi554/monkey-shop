@@ -3,6 +3,7 @@ package com.example.monkey.user.infrastructure;
 import com.example.monkey.shared.domain.privacy.PhoneBlindIndexTarget;
 import com.example.monkey.shared.infrastructure.privacy.EncryptedStringAttributeConverter;
 import com.example.monkey.shared.infrastructure.privacy.PiiBlindIndexEntityListener;
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -19,7 +20,7 @@ import org.hibernate.annotations.SQLRestriction;
 @SQLDelete(sql = "UPDATE address SET deleted = true WHERE id = ?")
 @SQLRestriction("deleted = false")
 @EntityListeners(PiiBlindIndexEntityListener.class)
-public class Address implements PhoneBlindIndexTarget {
+public class Address extends TenantScopedJpaEntity implements PhoneBlindIndexTarget {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

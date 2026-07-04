@@ -1,5 +1,6 @@
 package com.example.monkey.marketing.infrastructure;
 
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -8,7 +9,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "marketing_group_buy_member")
-public class MarketingGroupBuyMemberEntity {
+public class MarketingGroupBuyMemberEntity extends TenantScopedJpaEntity {
 
     @Id
     private Long id;

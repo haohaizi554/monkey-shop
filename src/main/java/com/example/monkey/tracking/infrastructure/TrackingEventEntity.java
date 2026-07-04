@@ -1,5 +1,6 @@
 package com.example.monkey.tracking.infrastructure;
 
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import com.example.monkey.tracking.domain.TrackingEventType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -12,7 +13,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "tracking_event")
-public class TrackingEventEntity {
+public class TrackingEventEntity extends TenantScopedJpaEntity {
 
     @Id
     private Long id;

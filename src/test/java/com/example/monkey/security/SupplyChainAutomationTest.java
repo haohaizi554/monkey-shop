@@ -129,6 +129,7 @@ class SupplyChainAutomationTest {
                 .contains("verifyImages:")
                 .contains("Assert-ProdImagesDigestPinned")
                 .contains("must render the prod app image by immutable digest")
+                .contains("must not use an all-zero digest placeholder")
                 .contains("Kyverno supply-chain gate completed successfully");
     }
 

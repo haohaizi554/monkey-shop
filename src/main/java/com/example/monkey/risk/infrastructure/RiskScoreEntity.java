@@ -1,6 +1,7 @@
 package com.example.monkey.risk.infrastructure;
 
 import com.example.monkey.risk.domain.RiskDecision;
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -12,7 +13,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "risk_score")
-public class RiskScoreEntity {
+public class RiskScoreEntity extends TenantScopedJpaEntity {
 
     @Id
     private Long id;

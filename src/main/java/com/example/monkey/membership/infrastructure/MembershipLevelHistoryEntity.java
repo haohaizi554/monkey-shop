@@ -1,6 +1,7 @@
 package com.example.monkey.membership.infrastructure;
 
 import com.example.monkey.membership.domain.MembershipLevel;
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -11,7 +12,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "membership_level_history")
-public class MembershipLevelHistoryEntity {
+public class MembershipLevelHistoryEntity extends TenantScopedJpaEntity {
 
     @Id
     private Long id;

@@ -2,6 +2,7 @@ package com.example.monkey.product.infrastructure;
 
 import com.example.monkey.product.domain.ProductStatus;
 import com.example.monkey.shared.infrastructure.privacy.EncryptedStringAttributeConverter;
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -18,7 +19,7 @@ import org.hibernate.annotations.SQLRestriction;
 @Table(name = "product_spu")
 @SQLDelete(sql = "UPDATE product_spu SET deleted = true, version = version + 1 WHERE id = ? AND version = ?")
 @SQLRestriction("deleted = false")
-public class ProductSpu {
+public class ProductSpu extends TenantScopedJpaEntity {
 
     @Id
     private Long id;

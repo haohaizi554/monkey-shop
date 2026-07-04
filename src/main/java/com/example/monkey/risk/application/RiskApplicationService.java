@@ -123,6 +123,24 @@ public class RiskApplicationService {
     @Transactional
     public RiskAssessmentResponseDto assess(
             SessionUser currentUser, RiskAssessmentRequestDto request, String requestClientIp) {
+        return assessInternal(currentUser, request, requestClientIp);
+    }
+
+    @WithSpan("risk.require.allowed")
+    @Transactional(noRollbackFor = BusinessException.class)
+    public RiskAssessmentResponseDto requireAllowed(
+            SessionUser currentUser, RiskAssessmentRequestDto request, String requestClientIp, String operation) {
+        RiskAssessmentResponseDto response = assessInternal(currentUser, request, requestClientIp);
+        if (response.decision() == RiskDecision.ALLOW) {
+            return response;
+        }
+        ErrorCode errorCode =
+                response.decision() == RiskDecision.RATE_LIMIT ? ErrorCode.RATE_LIMIT : ErrorCode.FORBIDDEN;
+        throw new BusinessException(errorCode, "Risk decision " + response.decision() + " blocked " + operation);
+    }
+
+    private RiskAssessmentResponseDto assessInternal(
+            SessionUser currentUser, RiskAssessmentRequestDto request, String requestClientIp) {
         Long userId = requireUserId(currentUser);
         RiskAssessmentRequestDto safeRequest = request == null
                 ? new RiskAssessmentRequestDto(null, null, null, null, null, null, null, null, null, null)

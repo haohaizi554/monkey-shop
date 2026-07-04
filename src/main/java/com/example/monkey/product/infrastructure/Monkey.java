@@ -1,5 +1,6 @@
 package com.example.monkey.product.infrastructure;
 
+import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -15,7 +16,7 @@ import org.hibernate.annotations.SQLRestriction;
 @Table(name = "monkey")
 @SQLDelete(sql = "UPDATE monkey SET deleted = true, version = version + 1 WHERE id = ? AND version = ?")
 @SQLRestriction("deleted = false")
-public class Monkey {
+public class Monkey extends TenantScopedJpaEntity {
     public static final String STOCK_NOT_AVAILABLE = "Stock is not available";
 
     @Id
