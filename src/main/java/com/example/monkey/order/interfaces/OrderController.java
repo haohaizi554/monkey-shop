@@ -6,6 +6,10 @@ import com.example.monkey.order.application.dto.OrderPageQuery;
 import com.example.monkey.order.application.dto.OrderPageQuery.SortOrder;
 import com.example.monkey.order.application.dto.OrderPageQuery.SortOrder.Direction;
 import com.example.monkey.order.application.dto.OrderResponseDto;
+import com.example.monkey.order.application.dto.OrderReviewRequestDto;
+import com.example.monkey.order.application.dto.OrderReviewResponseDto;
+import com.example.monkey.order.application.dto.OrderShipmentRequestDto;
+import com.example.monkey.order.application.dto.OrderShipmentResponseDto;
 import com.example.monkey.order.interfaces.dto.CreateOrderRequestDto;
 import com.example.monkey.shared.application.dto.PageResponseDto;
 import com.example.monkey.shared.application.security.SessionUser;
@@ -85,11 +89,32 @@ public class OrderController {
         return Result.success(orderService.shipOrder(id));
     }
 
+    @PostMapping("/shipments/{id}")
+    @PreAuthorize("hasAuthority('ORDER_MANAGE')")
+    public Result<OrderShipmentResponseDto> shipOrder(
+            @PathVariable Long id, @Valid @RequestBody OrderShipmentRequestDto request) {
+        return Result.success(orderService.shipOrder(id, request));
+    }
+
+    @GetMapping("/{id}/shipments")
+    @PreAuthorize("hasAuthority('ORDER_READ_OWN') and @orderOwnership.isOwner(#id, authentication)")
+    public Result<List<OrderShipmentResponseDto>> shipments(
+            @PathVariable Long id, @AuthenticationPrincipal SessionUser currentUser) {
+        return Result.success(orderApplicationService.findShipments(currentUser, id));
+    }
+
     @PostMapping("/receive/{id}")
     @PreAuthorize("hasAuthority('ORDER_READ_OWN') and @orderOwnership.isOwner(#id, authentication)")
     public Result<OrderResponseDto> receiveOrder(
             @PathVariable Long id, @AuthenticationPrincipal SessionUser currentUser) {
         return Result.success(orderApplicationService.receiveOrder(currentUser, id));
+    }
+
+    @PostMapping("/shipments/receive/{id}")
+    @PreAuthorize("hasAuthority('ORDER_READ_OWN')")
+    public Result<OrderShipmentResponseDto> receiveShipment(
+            @PathVariable Long id, @AuthenticationPrincipal SessionUser currentUser) {
+        return Result.success(orderApplicationService.receiveShipment(currentUser, id));
     }
 
     @DeleteMapping("/{id}")
@@ -123,6 +148,22 @@ public class OrderController {
     @PreAuthorize("hasAuthority('ORDER_MANAGE')")
     public Result<OrderResponseDto> confirmReturn(@PathVariable Long id) {
         return Result.success(orderService.confirmReturn(id));
+    }
+
+    @PostMapping("/review/{id}")
+    @PreAuthorize("hasAuthority('ORDER_READ_OWN') and @orderOwnership.isOwner(#id, authentication)")
+    public Result<OrderReviewResponseDto> reviewOrder(
+            @PathVariable Long id,
+            @Valid @RequestBody OrderReviewRequestDto request,
+            @AuthenticationPrincipal SessionUser currentUser) {
+        return Result.success(orderApplicationService.reviewOrder(currentUser, id, request));
+    }
+
+    @GetMapping("/review/{id}")
+    @PreAuthorize("hasAuthority('ORDER_READ_OWN') and @orderOwnership.isOwner(#id, authentication)")
+    public Result<List<OrderReviewResponseDto>> reviews(
+            @PathVariable Long id, @AuthenticationPrincipal SessionUser currentUser) {
+        return Result.success(orderApplicationService.findReviews(currentUser, id));
     }
 
     private static OrderPageQuery toOrderPageQuery(Pageable pageable) {

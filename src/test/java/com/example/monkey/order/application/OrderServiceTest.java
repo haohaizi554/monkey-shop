@@ -14,6 +14,8 @@ import static org.mockito.Mockito.when;
 import com.example.monkey.order.application.dto.OrderPageQuery;
 import com.example.monkey.order.application.dto.OrderResponseDto;
 import com.example.monkey.order.application.observability.BusinessMetricsService;
+import com.example.monkey.order.domain.OrderFulfillmentItem;
+import com.example.monkey.order.domain.OrderFulfillmentStore;
 import com.example.monkey.order.domain.OrderIdempotencyStore.IdempotencyReservationRecord;
 import com.example.monkey.order.domain.OrderLockManager;
 import com.example.monkey.order.domain.OrderNumberGenerator;
@@ -33,6 +35,7 @@ import com.example.monkey.shared.application.dto.PageResponseDto;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
+import com.example.monkey.shared.domain.id.IdGenerator;
 import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -65,6 +68,12 @@ class OrderServiceTest {
     private OrderLockManager orderLockManager;
 
     @Mock
+    private OrderFulfillmentStore fulfillmentStore;
+
+    @Mock
+    private IdGenerator idGenerator;
+
+    @Mock
     private ImageReferenceService imageReferenceService;
 
     @Mock
@@ -86,7 +95,10 @@ class OrderServiceTest {
                 immediateTransactions(),
                 imageReferenceService,
                 businessMetricsService,
-                auditService);
+                auditService,
+                fulfillmentStore,
+                idGenerator,
+                java.time.Duration.ofDays(7));
         lenient().when(businessMetricsService.recordOrderCreate(any())).thenAnswer(invocation -> {
             Supplier<OrderResponseDto> supplier = invocation.getArgument(0);
             return supplier.get();
@@ -385,6 +397,12 @@ class OrderServiceTest {
     @Test
     void shipOrderAuditsAdminStatusTransition() {
         when(orderStore.findById(10L)).thenReturn(Optional.of(orderWithStatus(OrderStatus.PAID)));
+        when(idGenerator.nextId()).thenReturn(100L, 200L, 201L);
+        when(fulfillmentStore.findItem(10L, 7L)).thenReturn(Optional.empty());
+        when(fulfillmentStore.saveItem(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(fulfillmentStore.saveShipment(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(fulfillmentStore.findItems(10L))
+                .thenReturn(List.of(new OrderFulfillmentItem(100L, 10L, 7L, "Momo", 1, 1, 0, "SHIPPED")));
 
         OrderResponseDto result = orderService.shipOrder(10L);
 

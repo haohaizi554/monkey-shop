@@ -26,7 +26,9 @@ export function dateTime(value?: string): string {
 export function orderStatusKey(status: string): string {
   const aliases: Record<string, string> = {
     已支付: 'PAID',
+    部分发货: 'PARTIALLY_SHIPPED',
     已发货: 'SHIPPED',
+    部分签收: 'PARTIALLY_RECEIVED',
     已完成: 'COMPLETED',
     申请退货: 'RETURN_REQUESTED',
     待退货发货: 'WAITING_RETURN_SHIPMENT',

@@ -125,6 +125,57 @@ export interface Order {
   createTime: string
 }
 
+export interface OrderShipmentLine {
+  skuId: number
+  productName: string
+  quantity: number
+}
+
+export interface OrderShipment {
+  id: number
+  orderId: number
+  shipmentNo: string
+  carrier: string
+  trackingNo: string
+  status: 'SHIPPED' | 'RECEIVED'
+  shippedAt: string
+  receivedAt?: string
+  lines: OrderShipmentLine[]
+}
+
+export interface OrderShipmentLineRequest {
+  skuId: number
+  productName?: string
+  quantity: number
+  orderedQuantity: number
+}
+
+export interface OrderShipmentRequest {
+  carrier?: string
+  trackingNo?: string
+  lines: OrderShipmentLineRequest[]
+}
+
+export interface OrderReviewRequest {
+  skuId?: number
+  rating: number
+  content?: string
+  imageUrls: string[]
+  anonymous: boolean
+}
+
+export interface OrderReview {
+  id: number
+  orderId: number
+  userId: number
+  skuId: number
+  rating: number
+  content?: string
+  imageUrls: string[]
+  anonymous: boolean
+  createTime: string
+}
+
 export interface Stats {
   totalGmv: string
   totalOrders: number

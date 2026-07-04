@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 
 import com.example.monkey.order.application.dto.OrderResponseDto;
 import com.example.monkey.order.application.observability.BusinessMetricsService;
+import com.example.monkey.order.domain.OrderFulfillmentStore;
 import com.example.monkey.order.domain.OrderIdempotencyKeyStore;
 import com.example.monkey.order.domain.OrderIdempotencyStore;
 import com.example.monkey.order.domain.OrderIdempotencyStore.IdempotencyReservationRecord;
@@ -120,7 +121,10 @@ class OrderConcurrencyTest {
                 immediateTransactions(),
                 new NoopImageReferenceService(),
                 new BusinessMetricsService(new SimpleMeterRegistry(), () -> orderStore.savedOrderCount()),
-                mock(AuditService.class));
+                mock(AuditService.class),
+                mock(OrderFulfillmentStore.class),
+                new AtomicLong(50_000L)::getAndIncrement,
+                Duration.ofDays(7));
     }
 
     private static List<Attempt> runConcurrently(int concurrency, IntFunction<Attempt> operation)

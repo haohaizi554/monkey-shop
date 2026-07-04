@@ -49,12 +49,17 @@ public class AuditService {
     public static final String REFRESH_TOKEN_REPLAY = "REFRESH_TOKEN_REPLAY";
     public static final String ORDER_CREATED = "ORDER_CREATED";
     public static final String ORDER_CREATE_FAILURE = "ORDER_CREATE_FAILURE";
+    public static final String ORDER_PARTIALLY_SHIPPED = "ORDER_PARTIALLY_SHIPPED";
     public static final String ORDER_SHIPPED = "ORDER_SHIPPED";
+    public static final String ORDER_PARTIALLY_RECEIVED = "ORDER_PARTIALLY_RECEIVED";
     public static final String ORDER_RECEIVED = "ORDER_RECEIVED";
+    public static final String ORDER_SHIPMENT_CREATED = "ORDER_SHIPMENT_CREATED";
+    public static final String ORDER_SHIPMENT_RECEIVED = "ORDER_SHIPMENT_RECEIVED";
     public static final String ORDER_RETURN_REQUESTED = "ORDER_RETURN_REQUESTED";
     public static final String ORDER_RETURN_APPROVED = "ORDER_RETURN_APPROVED";
     public static final String ORDER_RETURN_SHIPPED = "ORDER_RETURN_SHIPPED";
     public static final String ORDER_REFUNDED = "ORDER_REFUNDED";
+    public static final String ORDER_REVIEWED = "ORDER_REVIEWED";
     public static final String ORDER_HIDDEN = "ORDER_HIDDEN";
     public static final String PRODUCT_SPU_CREATED = "PRODUCT_SPU_CREATED";
     public static final String PRODUCT_STATUS_CHANGED = "PRODUCT_STATUS_CHANGED";

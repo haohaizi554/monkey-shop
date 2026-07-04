@@ -1,5 +1,11 @@
 import { request } from './http'
-import type { Order } from '@/types'
+import type {
+  Order,
+  OrderReview,
+  OrderReviewRequest,
+  OrderShipment,
+  OrderShipmentRequest,
+} from '@/types'
 
 export function myOrders(): Promise<Order[]> {
   return request<Order[]>({ url: '/orders/my' })
@@ -40,10 +46,30 @@ export function shipOrder(id: number): Promise<Order> {
   return request<Order>({ url: `/orders/ship/${id}`, method: 'POST' })
 }
 
+export function createShipment(id: number, payload: OrderShipmentRequest): Promise<OrderShipment> {
+  return request<OrderShipment>({ url: `/orders/shipments/${id}`, method: 'POST', data: payload })
+}
+
+export function orderShipments(id: number): Promise<OrderShipment[]> {
+  return request<OrderShipment[]>({ url: `/orders/${id}/shipments` })
+}
+
+export function receiveShipment(id: number): Promise<OrderShipment> {
+  return request<OrderShipment>({ url: `/orders/shipments/receive/${id}`, method: 'POST' })
+}
+
 export function approveReturn(id: number): Promise<Order> {
   return request<Order>({ url: `/orders/return/approve/${id}`, method: 'POST' })
 }
 
 export function confirmReturn(id: number): Promise<Order> {
   return request<Order>({ url: `/orders/return/confirm/${id}`, method: 'POST' })
+}
+
+export function reviewOrder(id: number, payload: OrderReviewRequest): Promise<OrderReview> {
+  return request<OrderReview>({ url: `/orders/review/${id}`, method: 'POST', data: payload })
+}
+
+export function orderReviews(id: number): Promise<OrderReview[]> {
+  return request<OrderReview[]>({ url: `/orders/review/${id}` })
 }

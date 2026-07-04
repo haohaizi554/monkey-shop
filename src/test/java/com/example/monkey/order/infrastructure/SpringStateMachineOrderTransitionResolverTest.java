@@ -18,6 +18,14 @@ class SpringStateMachineOrderTransitionResolverTest {
     void configuredGraphAllowsBusinessOrderFlow() {
         assertThat(transitionResolver.nextStatus(OrderStatus.PAID, OrderEvent.SHIP))
                 .isEqualTo(OrderStatus.SHIPPED);
+        assertThat(transitionResolver.nextStatus(OrderStatus.PAID, OrderEvent.SHIP_PARTIAL))
+                .isEqualTo(OrderStatus.PARTIALLY_SHIPPED);
+        assertThat(transitionResolver.nextStatus(OrderStatus.PARTIALLY_SHIPPED, OrderEvent.SHIP))
+                .isEqualTo(OrderStatus.SHIPPED);
+        assertThat(transitionResolver.nextStatus(OrderStatus.SHIPPED, OrderEvent.RECEIVE_PARTIAL))
+                .isEqualTo(OrderStatus.PARTIALLY_RECEIVED);
+        assertThat(transitionResolver.nextStatus(OrderStatus.PARTIALLY_RECEIVED, OrderEvent.RECEIVE))
+                .isEqualTo(OrderStatus.COMPLETED);
         assertThat(transitionResolver.nextStatus(OrderStatus.SHIPPED, OrderEvent.RECEIVE))
                 .isEqualTo(OrderStatus.COMPLETED);
         assertThat(transitionResolver.nextStatus(OrderStatus.COMPLETED, OrderEvent.REQUEST_RETURN))

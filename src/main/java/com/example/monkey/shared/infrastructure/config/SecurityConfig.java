@@ -235,7 +235,13 @@ public class SecurityConfig {
                                 "/api/orders/my",
                                 "/api/v1/orders/my",
                                 "/api/orders/receive/**",
-                                "/api/v1/orders/receive/**")
+                                "/api/v1/orders/receive/**",
+                                "/api/orders/*/shipments",
+                                "/api/v1/orders/*/shipments",
+                                "/api/orders/shipments/receive/**",
+                                "/api/v1/orders/shipments/receive/**",
+                                "/api/orders/review/**",
+                                "/api/v1/orders/review/**")
                         .hasAuthority("ORDER_READ_OWN")
                         .requestMatchers(HttpMethod.DELETE, "/api/orders/**", "/api/v1/orders/**")
                         .hasAuthority("ORDER_READ_OWN")
@@ -258,6 +264,8 @@ public class SecurityConfig {
                                 "/api/v1/orders/all",
                                 "/api/orders/ship/**",
                                 "/api/v1/orders/ship/**",
+                                "/api/orders/shipments/**",
+                                "/api/v1/orders/shipments/**",
                                 "/api/orders/return/approve/**",
                                 "/api/v1/orders/return/approve/**",
                                 "/api/orders/return/confirm/**",

@@ -70,6 +70,7 @@ import com.example.monkey.order.application.OrderService;
 import com.example.monkey.order.application.dto.OrderPageQuery;
 import com.example.monkey.order.application.dto.OrderResponseDto;
 import com.example.monkey.order.application.observability.BusinessMetricsService;
+import com.example.monkey.order.domain.OrderFulfillmentStore;
 import com.example.monkey.order.domain.OrderIdempotencyKeyStore;
 import com.example.monkey.order.domain.OrderIdempotencyStore;
 import com.example.monkey.order.domain.OrderLockManager;
@@ -80,10 +81,14 @@ import com.example.monkey.order.domain.OrderTransitionResolver;
 import com.example.monkey.order.domain.PendingOrderCounter;
 import com.example.monkey.order.infrastructure.IdempotencyRecord;
 import com.example.monkey.order.infrastructure.IdempotencyRecordRepository;
+import com.example.monkey.order.infrastructure.JpaOrderFulfillmentStore;
 import com.example.monkey.order.infrastructure.JpaOrderStore;
 import com.example.monkey.order.infrastructure.Order;
+import com.example.monkey.order.infrastructure.OrderFulfillmentItemEntity;
 import com.example.monkey.order.infrastructure.OrderImageReferenceSource;
 import com.example.monkey.order.infrastructure.OrderRepository;
+import com.example.monkey.order.infrastructure.OrderReviewEntity;
+import com.example.monkey.order.infrastructure.OrderShipmentBatchEntity;
 import com.example.monkey.order.infrastructure.StockLog;
 import com.example.monkey.order.infrastructure.StockLogRepository;
 import com.example.monkey.order.interfaces.OrderController;
@@ -1024,6 +1029,7 @@ class ArchitectureBoundaryTest {
     @Test
     void orderSliceUsesWs3BoundedContextLayers() {
         assertThat(OrderStore.class.getPackageName()).isEqualTo("com.example.monkey.order.domain");
+        assertThat(OrderFulfillmentStore.class.getPackageName()).isEqualTo("com.example.monkey.order.domain");
         assertThat(OrderService.class.getPackageName()).isEqualTo("com.example.monkey.order.application");
         assertThat(OrderApplicationService.class.getPackageName()).isEqualTo("com.example.monkey.order.application");
         assertThat(OrderPageQuery.class.getPackageName()).isEqualTo("com.example.monkey.order.application.dto");
@@ -1033,7 +1039,14 @@ class ArchitectureBoundaryTest {
         assertThat(BusinessMetricsService.class.getPackageName())
                 .isEqualTo("com.example.monkey.order.application.observability");
         assertThat(JpaOrderStore.class.getPackageName()).isEqualTo("com.example.monkey.order.infrastructure");
+        assertThat(JpaOrderFulfillmentStore.class.getPackageName())
+                .isEqualTo("com.example.monkey.order.infrastructure");
         assertThat(Order.class.getPackageName()).isEqualTo("com.example.monkey.order.infrastructure");
+        assertThat(OrderFulfillmentItemEntity.class.getPackageName())
+                .isEqualTo("com.example.monkey.order.infrastructure");
+        assertThat(OrderShipmentBatchEntity.class.getPackageName())
+                .isEqualTo("com.example.monkey.order.infrastructure");
+        assertThat(OrderReviewEntity.class.getPackageName()).isEqualTo("com.example.monkey.order.infrastructure");
         assertThat(OrderRepository.class.getPackageName()).isEqualTo("com.example.monkey.order.infrastructure");
         assertThat(IdempotencyRecord.class.getPackageName()).isEqualTo("com.example.monkey.order.infrastructure");
         assertThat(IdempotencyRecordRepository.class.getPackageName())
@@ -1160,6 +1173,15 @@ class ArchitectureBoundaryTest {
     static final ArchRule order_store_adapters_stay_out_of_service_package = classes()
             .that()
             .areAssignableTo(OrderStore.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule order_fulfillment_store_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(OrderFulfillmentStore.class)
             .and()
             .areNotInterfaces()
             .should()
