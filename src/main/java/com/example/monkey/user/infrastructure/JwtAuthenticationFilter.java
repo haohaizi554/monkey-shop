@@ -3,6 +3,7 @@ package com.example.monkey.user.infrastructure;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.interfaces.web.SessionTokenTransport;
 import com.example.monkey.user.domain.SessionTokenService;
+import com.example.monkey.user.domain.SessionTokenService.AuthenticatedAccessToken;
 import com.example.monkey.user.domain.UserAccountStore;
 import com.example.monkey.user.domain.UserAccountStore.UserAccount;
 import jakarta.servlet.FilterChain;
@@ -40,10 +41,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             tokenTransport
                     .resolveAccessToken(request)
                     .flatMap(tokenService::parseAccessToken)
-                    .flatMap(token -> currentAuthenticatedUser(token.userId()))
-                    .ifPresent(currentUser -> {
+                    .flatMap(token ->
+                            currentAuthenticatedUser(token.userId()).map(currentUser -> session(token, currentUser)))
+                    .ifPresent(session -> {
+                        UserAccount currentUser = session.user();
                         SessionUser user = new SessionUser(
-                                currentUser.id(), currentUser.role(), passwordChangeRequired(currentUser));
+                                currentUser.id(),
+                                currentUser.role(),
+                                passwordChangeRequired(currentUser),
+                                session.token().tenantId());
                         UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                                 user,
                                 null,
@@ -61,6 +67,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         return userAccountStore.findById(userId);
     }
 
+    private static AuthenticatedSession session(AuthenticatedAccessToken token, UserAccount user) {
+        return new AuthenticatedSession(token, user);
+    }
+
     private static boolean passwordChangeRequired(UserAccount user) {
         return user.passwordChangeRequired() || passwordExpired(user.passwordLastChangedAt());
     }
@@ -69,4 +79,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         return passwordLastChangedAt != null
                 && passwordLastChangedAt.isBefore(LocalDateTime.now().minusDays(90));
     }
+
+    private record AuthenticatedSession(AuthenticatedAccessToken token, UserAccount user) {}
 }

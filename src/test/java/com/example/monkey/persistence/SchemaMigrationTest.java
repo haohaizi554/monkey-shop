@@ -59,6 +59,9 @@ class SchemaMigrationTest {
         String v41 = read("src/main/resources/db/migration/V41__risk_audit_queue.sql");
         String v42 = read("src/main/resources/db/migration/V42__tracking_event.sql");
         String v43 = read("src/main/resources/db/migration/V43__user_profile_tag.sql");
+        String v44 = read("src/main/resources/db/migration/V44__tenant_isolation.sql");
+        String v45 = read("src/main/resources/db/migration/V45__tenant_management.sql");
+        String v46 = read("src/main/resources/db/migration/V46__tenant_billing.sql");
 
         assertThat(v1).contains("CREATE TABLE IF NOT EXISTS `orders`");
         assertThat(v1).contains("`price` DOUBLE");
@@ -175,6 +178,20 @@ class SchemaMigrationTest {
         assertThat(v43).contains("profile_summary_hmac");
         assertThat(v43).contains("CREATE TABLE product_profile");
         assertThat(v43).contains("tag_vector_json JSON");
+        assertThat(v44).contains("CREATE TABLE tenant");
+        assertThat(v44).contains("ALTER TABLE `orders` ADD COLUMN tenant_id");
+        assertThat(v44).contains("ALTER TABLE tracking_event ADD COLUMN tenant_id");
+        assertThat(v44).contains("fk_orders_tenant");
+        assertThat(v44).contains("idx_tracking_event_tenant_type_time");
+        assertThat(v45).contains("CREATE TABLE tenant_config");
+        assertThat(v45).contains("CREATE TABLE tenant_config_history");
+        assertThat(v45).contains("CREATE TABLE tenant_rollout_policy");
+        assertThat(v45).contains("TENANT_READ");
+        assertThat(v45).contains("TENANT_ADMIN");
+        assertThat(v46).contains("CREATE TABLE tenant_billing_account");
+        assertThat(v46).contains("CREATE TABLE tenant_bill");
+        assertThat(v46).contains("CREATE TABLE tenant_data_export_job");
+        assertThat(v46).contains("tenant_billing_reconciliation");
     }
 
     private static String read(String path) throws IOException {

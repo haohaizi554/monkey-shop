@@ -264,6 +264,25 @@ import com.example.monkey.shared.interfaces.storage.dto.PresignedUploadRequestDt
 import com.example.monkey.shared.interfaces.storage.dto.UploadFileRequestDto;
 import com.example.monkey.shared.interfaces.storage.dto.UploadRequestDto;
 import com.example.monkey.shared.interfaces.web.ErrorHttpStatuses;
+import com.example.monkey.tenant.application.TenantApplicationService;
+import com.example.monkey.tenant.application.dto.TenantBillDto;
+import com.example.monkey.tenant.application.dto.TenantConfigDto;
+import com.example.monkey.tenant.application.dto.TenantCreateRequestDto;
+import com.example.monkey.tenant.application.dto.TenantDashboardDto;
+import com.example.monkey.tenant.application.dto.TenantExportJobDto;
+import com.example.monkey.tenant.application.dto.TenantResponseDto;
+import com.example.monkey.tenant.domain.Tenant;
+import com.example.monkey.tenant.domain.TenantBill;
+import com.example.monkey.tenant.domain.TenantConfig;
+import com.example.monkey.tenant.domain.TenantDashboard;
+import com.example.monkey.tenant.domain.TenantDataExportJob;
+import com.example.monkey.tenant.domain.TenantStore;
+import com.example.monkey.tenant.infrastructure.JpaTenantStore;
+import com.example.monkey.tenant.infrastructure.TenantBillEntity;
+import com.example.monkey.tenant.infrastructure.TenantConfigEntity;
+import com.example.monkey.tenant.infrastructure.TenantDataExportJobEntity;
+import com.example.monkey.tenant.infrastructure.TenantEntity;
+import com.example.monkey.tenant.interfaces.TenantAdminController;
 import com.example.monkey.tracking.application.TrackingApplicationService;
 import com.example.monkey.tracking.application.dto.FunnelStepDto;
 import com.example.monkey.tracking.application.dto.ProductProfileDto;
@@ -721,6 +740,7 @@ class ArchitectureBoundaryTest {
                     "com.example.monkey.order..",
                     "com.example.monkey.payment..",
                     "com.example.monkey.product..",
+                    "com.example.monkey.tenant..",
                     "com.example.monkey.tracking..",
                     "com.example.monkey.shared..",
                     "com.example.monkey.user..")
@@ -754,6 +774,10 @@ class ArchitectureBoundaryTest {
                     "com.example.monkey.product.application..",
                     "com.example.monkey.product.infrastructure..",
                     "com.example.monkey.product.interfaces..",
+                    "com.example.monkey.tenant.domain..",
+                    "com.example.monkey.tenant.application..",
+                    "com.example.monkey.tenant.infrastructure..",
+                    "com.example.monkey.tenant.interfaces..",
                     "com.example.monkey.tracking.domain..",
                     "com.example.monkey.tracking.application..",
                     "com.example.monkey.tracking.infrastructure..",
@@ -1065,6 +1089,31 @@ class ArchitectureBoundaryTest {
         assertThat(UserProfileTagEntity.class.getPackageName()).isEqualTo("com.example.monkey.tracking.infrastructure");
         assertThat(ProductProfileEntity.class.getPackageName()).isEqualTo("com.example.monkey.tracking.infrastructure");
         assertThat(TrackingController.class.getPackageName()).isEqualTo("com.example.monkey.tracking.interfaces");
+    }
+
+    @Test
+    void tenantSliceUsesWs12BoundedContextLayers() {
+        assertThat(TenantStore.class.getPackageName()).isEqualTo("com.example.monkey.tenant.domain");
+        assertThat(Tenant.class.getPackageName()).isEqualTo("com.example.monkey.tenant.domain");
+        assertThat(TenantConfig.class.getPackageName()).isEqualTo("com.example.monkey.tenant.domain");
+        assertThat(TenantBill.class.getPackageName()).isEqualTo("com.example.monkey.tenant.domain");
+        assertThat(TenantDataExportJob.class.getPackageName()).isEqualTo("com.example.monkey.tenant.domain");
+        assertThat(TenantDashboard.class.getPackageName()).isEqualTo("com.example.monkey.tenant.domain");
+        assertThat(TenantApplicationService.class.getPackageName()).isEqualTo("com.example.monkey.tenant.application");
+        assertThat(TenantCreateRequestDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.tenant.application.dto");
+        assertThat(TenantResponseDto.class.getPackageName()).isEqualTo("com.example.monkey.tenant.application.dto");
+        assertThat(TenantConfigDto.class.getPackageName()).isEqualTo("com.example.monkey.tenant.application.dto");
+        assertThat(TenantBillDto.class.getPackageName()).isEqualTo("com.example.monkey.tenant.application.dto");
+        assertThat(TenantDashboardDto.class.getPackageName()).isEqualTo("com.example.monkey.tenant.application.dto");
+        assertThat(TenantExportJobDto.class.getPackageName()).isEqualTo("com.example.monkey.tenant.application.dto");
+        assertThat(JpaTenantStore.class.getPackageName()).isEqualTo("com.example.monkey.tenant.infrastructure");
+        assertThat(TenantEntity.class.getPackageName()).isEqualTo("com.example.monkey.tenant.infrastructure");
+        assertThat(TenantConfigEntity.class.getPackageName()).isEqualTo("com.example.monkey.tenant.infrastructure");
+        assertThat(TenantBillEntity.class.getPackageName()).isEqualTo("com.example.monkey.tenant.infrastructure");
+        assertThat(TenantDataExportJobEntity.class.getPackageName())
+                .isEqualTo("com.example.monkey.tenant.infrastructure");
+        assertThat(TenantAdminController.class.getPackageName()).isEqualTo("com.example.monkey.tenant.interfaces");
     }
 
     @Test
@@ -1391,6 +1440,7 @@ class ArchitectureBoundaryTest {
                     "com.example.monkey.order.domain..",
                     "com.example.monkey.product.domain..",
                     "com.example.monkey.risk.domain..",
+                    "com.example.monkey.tenant.domain..",
                     "com.example.monkey.tracking.domain..",
                     "com.example.monkey.user.domain..");
 
@@ -1403,6 +1453,7 @@ class ArchitectureBoundaryTest {
                     "com.example.monkey.order.interfaces..",
                     "com.example.monkey.product.interfaces..",
                     "com.example.monkey.risk.interfaces..",
+                    "com.example.monkey.tenant.interfaces..",
                     "com.example.monkey.tracking.interfaces..",
                     "com.example.monkey.shared.interfaces..")
             .should()
@@ -1785,6 +1836,23 @@ class ArchitectureBoundaryTest {
             .should()
             .dependOnClassesThat()
             .resideInAPackage("com.example.monkey.tracking.domain..");
+
+    @ArchTest
+    static final ArchRule tenant_store_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(TenantStore.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule tenant_interfaces_do_not_depend_on_tenant_domain = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.tenant.interfaces..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("com.example.monkey.tenant.domain..");
 
     @ArchTest
     static final ArchRule address_book_adapters_stay_out_of_service_package = classes()

@@ -53,6 +53,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @WebMvcTest(controllers = SecurityConfigTest.TestApiController.class)
@@ -458,6 +459,17 @@ class SecurityConfigTest {
                 adminRoute(HttpMethod.GET, "/api/tracking/funnel"),
                 adminRoute(HttpMethod.GET, "/api/tracking/profile/7"),
                 adminRoute(HttpMethod.GET, "/api/tracking/products/42"),
+                authenticatedRoute(HttpMethod.GET, "/api/tenants"),
+                adminRoute(HttpMethod.GET, "/api/tenants/dashboard"),
+                adminRoute(HttpMethod.POST, "/api/tenants"),
+                adminRoute(HttpMethod.POST, "/api/tenants/200/renew"),
+                adminRoute(HttpMethod.POST, "/api/tenants/200/downgrade"),
+                authenticatedRoute(HttpMethod.GET, "/api/tenants/200/configs"),
+                adminRoute(HttpMethod.PUT, "/api/tenants/200/configs"),
+                adminRoute(HttpMethod.POST, "/api/tenants/200/bills"),
+                authenticatedRoute(HttpMethod.GET, "/api/tenants/200/bills"),
+                adminRoute(HttpMethod.POST, "/api/tenants/200/exports"),
+                authenticatedRoute(HttpMethod.GET, "/api/tenants/200/exports"),
                 authenticatedRoute(HttpMethod.POST, "/api/orders/create"),
                 authenticatedRoute(HttpMethod.GET, "/api/orders/my"),
                 authenticatedRoute(HttpMethod.POST, "/api/orders/receive/1"),
@@ -515,6 +527,17 @@ class SecurityConfigTest {
                 adminRoute(HttpMethod.GET, "/api/v1/tracking/funnel"),
                 adminRoute(HttpMethod.GET, "/api/v1/tracking/profile/7"),
                 adminRoute(HttpMethod.GET, "/api/v1/tracking/products/42"),
+                authenticatedRoute(HttpMethod.GET, "/api/v1/tenants"),
+                adminRoute(HttpMethod.GET, "/api/v1/tenants/dashboard"),
+                adminRoute(HttpMethod.POST, "/api/v1/tenants"),
+                adminRoute(HttpMethod.POST, "/api/v1/tenants/200/renew"),
+                adminRoute(HttpMethod.POST, "/api/v1/tenants/200/downgrade"),
+                authenticatedRoute(HttpMethod.GET, "/api/v1/tenants/200/configs"),
+                adminRoute(HttpMethod.PUT, "/api/v1/tenants/200/configs"),
+                adminRoute(HttpMethod.POST, "/api/v1/tenants/200/bills"),
+                authenticatedRoute(HttpMethod.GET, "/api/v1/tenants/200/bills"),
+                adminRoute(HttpMethod.POST, "/api/v1/tenants/200/exports"),
+                authenticatedRoute(HttpMethod.GET, "/api/v1/tenants/200/exports"),
                 authenticatedRoute(HttpMethod.POST, "/api/v1/orders/create"),
                 authenticatedRoute(HttpMethod.GET, "/api/v1/orders/my"),
                 authenticatedRoute(HttpMethod.POST, "/api/v1/orders/receive/1"),
@@ -746,6 +769,61 @@ class SecurityConfigTest {
             return "ok";
         }
 
+        @GetMapping({"/api/tenants", "/api/v1/tenants"})
+        String tenants() {
+            return "ok";
+        }
+
+        @GetMapping({"/api/tenants/dashboard", "/api/v1/tenants/dashboard"})
+        String tenantDashboard() {
+            return "ok";
+        }
+
+        @PostMapping({"/api/tenants", "/api/v1/tenants"})
+        String createTenant() {
+            return "ok";
+        }
+
+        @PostMapping({"/api/tenants/{id}/renew", "/api/v1/tenants/{id}/renew"})
+        String renewTenant() {
+            return "ok";
+        }
+
+        @PostMapping({"/api/tenants/{id}/downgrade", "/api/v1/tenants/{id}/downgrade"})
+        String downgradeTenant() {
+            return "ok";
+        }
+
+        @GetMapping({"/api/tenants/{id}/configs", "/api/v1/tenants/{id}/configs"})
+        String tenantConfigs() {
+            return "ok";
+        }
+
+        @PutMapping({"/api/tenants/{id}/configs", "/api/v1/tenants/{id}/configs"})
+        String upsertTenantConfig() {
+            return "ok";
+        }
+
+        @PostMapping({"/api/tenants/{id}/bills", "/api/v1/tenants/{id}/bills"})
+        String generateTenantBill() {
+            return "ok";
+        }
+
+        @GetMapping({"/api/tenants/{id}/bills", "/api/v1/tenants/{id}/bills"})
+        String tenantBills() {
+            return "ok";
+        }
+
+        @PostMapping({"/api/tenants/{id}/exports", "/api/v1/tenants/{id}/exports"})
+        String requestTenantExport() {
+            return "ok";
+        }
+
+        @GetMapping({"/api/tenants/{id}/exports", "/api/v1/tenants/{id}/exports"})
+        String tenantExports() {
+            return "ok";
+        }
+
         @PostMapping({"/api/orders/create", "/api/v1/orders/create"})
         String createOrder() {
             return "ok";
@@ -926,6 +1004,9 @@ class SecurityConfigTest {
                     new SimpleGrantedAuthority("TRACKING_READ"),
                     new SimpleGrantedAuthority("TRACKING_WRITE"),
                     new SimpleGrantedAuthority("TRACKING_ADMIN"),
+                    new SimpleGrantedAuthority("TENANT_READ"),
+                    new SimpleGrantedAuthority("TENANT_WRITE"),
+                    new SimpleGrantedAuthority("TENANT_ADMIN"),
                     new SimpleGrantedAuthority("UPLOAD_PRODUCT_IMAGE"));
         }
         return List.of(
@@ -944,6 +1025,7 @@ class SecurityConfigTest {
                 new SimpleGrantedAuthority("RISK_WRITE"),
                 new SimpleGrantedAuthority("TRACKING_READ"),
                 new SimpleGrantedAuthority("TRACKING_WRITE"),
+                new SimpleGrantedAuthority("TENANT_READ"),
                 new SimpleGrantedAuthority("UPLOAD_AVATAR"));
     }
 

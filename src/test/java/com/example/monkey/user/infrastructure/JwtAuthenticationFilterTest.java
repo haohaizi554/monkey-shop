@@ -33,7 +33,7 @@ class JwtAuthenticationFilterTest {
     @Test
     void restoresCurrentPermissionAuthoritiesForTokenSubject() throws Exception {
         JwtTokenService tokenService = new JwtTokenService(TEST_SECRET, 30, 60, 30, 60, false, null);
-        JwtTokenPair tokenPair = tokenService.issueTokenPair(7L, "USER", List.of("ROLE_USER", "ORDER_CREATE"));
+        JwtTokenPair tokenPair = tokenService.issueTokenPair(7L, "USER", List.of("ROLE_USER", "ORDER_CREATE"), 200L);
         UserAccountStore userAccountStore = mock(UserAccountStore.class);
         when(userAccountStore.findById(7L))
                 .thenReturn(Optional.of(account(7L, false, List.of("ROLE_USER", "ORDER_READ_OWN"))));
@@ -48,7 +48,7 @@ class JwtAuthenticationFilterTest {
         filter.doFilter(request, response, chain);
 
         assertThat(authentication.get()).isNotNull();
-        assertThat(authentication.get().getPrincipal()).isEqualTo(new SessionUser(7L, "USER"));
+        assertThat(authentication.get().getPrincipal()).isEqualTo(new SessionUser(7L, "USER", false, 200L));
         assertThat(authentication.get().getAuthorities())
                 .extracting("authority")
                 .containsExactly("ROLE_USER", "ORDER_READ_OWN");

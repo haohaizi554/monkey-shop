@@ -931,4 +931,104 @@ export interface RealtimeDashboard {
   generatedAt: string
   refreshIntervalSeconds: number
 }
+
+export type TenantStatus = 'TRIAL' | 'ACTIVE' | 'EXPIRED' | 'DOWNGRADED' | 'SUSPENDED'
+export type TenantPlan = 'STARTER' | 'GROWTH' | 'ENTERPRISE'
+export type TenantConfigType = 'PAYMENT' | 'LOGISTICS' | 'MARKETING' | 'ROLLOUT'
+export type TenantBillStatus = 'GENERATED' | 'RECONCILED' | 'SUSPENDED'
+export type TenantExportStatus = 'REQUESTED' | 'COMPLETED' | 'FAILED'
+
+export interface Tenant {
+  id: number
+  code: string
+  name: string
+  status: TenantStatus
+  plan: TenantPlan
+  contactName?: string
+  maskedContactPhone?: string
+  createdAt: string
+  expiresAt: string
+  version: number
+}
+
+export interface TenantDashboard {
+  activeTenants: number
+  expiredTenants: number
+  currentMonthOrders: number
+  currentMonthRevenue: string | number
+  tenants: Tenant[]
+}
+
+export interface TenantCreateRequest {
+  code: string
+  name: string
+  plan: TenantPlan
+  contactName?: string
+  contactPhone?: string
+  months?: number
+}
+
+export interface TenantRenewRequest {
+  months: number
+}
+
+export interface TenantDowngradeRequest {
+  plan: TenantPlan
+}
+
+export interface TenantConfig {
+  id: number
+  tenantId: number
+  configType: TenantConfigType
+  provider: string
+  settings: Record<string, string>
+  enabled: boolean
+  updatedAt: string
+  version: number
+}
+
+export interface TenantConfigRequest {
+  configType: TenantConfigType
+  provider?: string
+  settings: Record<string, string>
+  enabled: boolean
+}
+
+export interface TenantBill {
+  id: number
+  tenantId: number
+  billingMonth: string
+  plan: TenantPlan
+  orderCount: number
+  monthlyFee: string | number
+  usageFee: string | number
+  totalAmount: string | number
+  paymentAmount: string | number
+  status: TenantBillStatus
+  generatedAt: string
+  reconciledAt?: string
+  version: number
+}
+
+export interface TenantBillGenerateRequest {
+  billingMonth?: string
+}
+
+export interface TenantExportJob {
+  id: number
+  tenantId: number
+  exportType: string
+  status: TenantExportStatus
+  encryptedArchivePath?: string
+  requestedBy: number
+  requestedAt: string
+  completedAt?: string
+  auditTraceId?: string
+  errorMessage?: string
+  version: number
+}
+
+export interface TenantExportRequest {
+  exportType?: string
+}
 export type ToastKind = 'success' | 'warning' | 'error' | 'info'

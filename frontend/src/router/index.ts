@@ -91,6 +91,11 @@ export const router = createRouter({
       component: () => import('@/views/DashboardView.vue'),
       meta: { requiresAuth: true, requiresAdmin: true },
     },
+    {
+      path: '/tenants',
+      component: () => import('@/views/TenantAdminView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
   ],
   scrollBehavior: () => ({ top: 0 }),
 })

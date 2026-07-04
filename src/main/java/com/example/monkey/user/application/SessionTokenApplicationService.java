@@ -46,7 +46,8 @@ public class SessionTokenApplicationService {
                 refreshToken.role(),
                 refreshToken.authorities(),
                 refreshToken.tokenId(),
-                refreshToken.expiration());
+                refreshToken.expiration(),
+                refreshToken.tenantId());
     }
 
     private static SessionTokenPair fromDomain(JwtTokenPair pair) {
@@ -65,13 +66,20 @@ public class SessionTokenApplicationService {
                 refreshToken.role(),
                 refreshToken.authorities(),
                 refreshToken.tokenId(),
-                refreshToken.expiration());
+                refreshToken.expiration(),
+                refreshToken.tenantId());
     }
 
     public record AuthenticatedRefreshToken(
-            Long userId, String role, List<String> authorities, String tokenId, Instant expiration) {
+            Long userId, String role, List<String> authorities, String tokenId, Instant expiration, Long tenantId) {
+        public AuthenticatedRefreshToken(
+                Long userId, String role, List<String> authorities, String tokenId, Instant expiration) {
+            this(userId, role, authorities, tokenId, expiration, 1L);
+        }
+
         public AuthenticatedRefreshToken {
             authorities = authorities == null ? List.of() : List.copyOf(authorities);
+            tenantId = tenantId == null || tenantId <= 0 ? 1L : tenantId;
         }
     }
 }

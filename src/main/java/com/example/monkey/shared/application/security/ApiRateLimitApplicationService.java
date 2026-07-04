@@ -44,6 +44,7 @@ public class ApiRateLimitApplicationService {
             case SEARCH -> RateLimitPolicy.SEARCH;
             case RISK -> RateLimitPolicy.RISK;
             case TRACKING -> RateLimitPolicy.TRACKING;
+            case TENANT -> RateLimitPolicy.TENANT;
             case UPLOAD -> RateLimitPolicy.UPLOAD;
             case DEFAULT -> RateLimitPolicy.DEFAULT;
         };

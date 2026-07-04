@@ -11,6 +11,7 @@ import com.example.monkey.shared.interfaces.web.CsrfCookieFilter;
 import com.example.monkey.shared.interfaces.web.ErrorHttpStatuses;
 import com.example.monkey.shared.interfaces.web.ProblemDetails;
 import com.example.monkey.shared.interfaces.web.SessionTokenTransport;
+import com.example.monkey.shared.interfaces.web.TenantContextFilter;
 import com.example.monkey.shared.interfaces.web.UserMdcFilter;
 import com.example.monkey.user.domain.SessionTokenService;
 import com.example.monkey.user.domain.UserAccountStore;
@@ -121,6 +122,7 @@ public class SecurityConfig {
             throws Exception {
         http.csrf(csrf -> csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse()))
                 .addFilterBefore(jwtAuthenticationFilter, LogoutFilter.class)
+                .addFilterAfter(new TenantContextFilter(), JwtAuthenticationFilter.class)
                 .addFilterAfter(new UserMdcFilter(), JwtAuthenticationFilter.class)
                 .addFilterAfter(apiRateLimitFilter, UserMdcFilter.class)
                 .addFilterAfter(new PasswordChangeRequiredFilter(objectMapper), JwtAuthenticationFilter.class)
@@ -138,6 +140,7 @@ public class SecurityConfig {
                                 "/recommendations",
                                 "/risk",
                                 "/dashboard",
+                                "/tenants",
                                 "/profile",
                                 "/index.html",
                                 "/shop.html",
@@ -298,6 +301,21 @@ public class SecurityConfig {
                         .hasAuthority("TRACKING_READ")
                         .requestMatchers("/api/tracking/**", "/api/v1/tracking/**")
                         .hasAuthority("TRACKING_ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/tenants", "/api/v1/tenants")
+                        .hasAuthority("TENANT_READ")
+                        .requestMatchers(HttpMethod.GET, "/api/tenants/dashboard", "/api/v1/tenants/dashboard")
+                        .hasAuthority("TENANT_ADMIN")
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/tenants/*/configs",
+                                "/api/v1/tenants/*/configs",
+                                "/api/tenants/*/bills",
+                                "/api/v1/tenants/*/bills",
+                                "/api/tenants/*/exports",
+                                "/api/v1/tenants/*/exports")
+                        .hasAuthority("TENANT_READ")
+                        .requestMatchers("/api/tenants/**", "/api/v1/tenants/**")
+                        .hasAuthority("TENANT_ADMIN")
                         .requestMatchers(
                                 "/api/orders/my",
                                 "/api/v1/orders/my",

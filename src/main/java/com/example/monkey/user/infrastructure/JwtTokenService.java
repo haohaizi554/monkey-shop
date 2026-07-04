@@ -43,9 +43,11 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
     private static final Logger log = LoggerFactory.getLogger(JwtTokenService.class);
     private static final String CLAIM_ROLE = "role";
     private static final String CLAIM_AUTHORITIES = "auth";
+    private static final String CLAIM_TENANT_ID = "tenant_id";
     private static final String CLAIM_TOKEN_TYPE = "typ";
     private static final String TOKEN_TYPE_ACCESS = "access";
     private static final String TOKEN_TYPE_REFRESH = "refresh";
+    private static final long DEFAULT_TENANT_ID = 1L;
     private static final String COOKIE_ACCESS_TOKEN = "access_token";
     private static final String COOKIE_REFRESH_TOKEN = "refresh_token";
     private static final String SECURITY_PREFIX = "Bearer ";
@@ -156,15 +158,34 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
     }
 
     public JwtTokenPair issueTokenPair(Long userId, String role, Collection<String> authorities) {
+        return issueTokenPair(userId, role, authorities, DEFAULT_TENANT_ID);
+    }
+
+    public JwtTokenPair issueTokenPair(Long userId, String role, Collection<String> authorities, Long tenantId) {
         Instant now = Instant.now();
         String accessJti = UUID.randomUUID().toString().replace("-", "");
         String refreshJti = UUID.randomUUID().toString().replace("-", "");
         List<String> normalizedAuthorities = normalizeAuthorities(role, authorities);
+        Long normalizedTenantId = normalizeTenantId(tenantId);
 
         String accessToken = buildToken(
-                userId, role, normalizedAuthorities, TOKEN_TYPE_ACCESS, accessTokenTtlSeconds, accessJti, now);
+                userId,
+                role,
+                normalizedAuthorities,
+                normalizedTenantId,
+                TOKEN_TYPE_ACCESS,
+                accessTokenTtlSeconds,
+                accessJti,
+                now);
         String refreshToken = buildToken(
-                userId, role, normalizedAuthorities, TOKEN_TYPE_REFRESH, refreshTokenTtlSeconds, refreshJti, now);
+                userId,
+                role,
+                normalizedAuthorities,
+                normalizedTenantId,
+                TOKEN_TYPE_REFRESH,
+                refreshTokenTtlSeconds,
+                refreshJti,
+                now);
         storeRefreshToken(refreshJti, Instant.now().plusSeconds(refreshTokenTtlSeconds));
         return new JwtTokenPair(
                 accessToken, refreshToken, accessJti, refreshJti, accessTokenTtlSeconds, refreshTokenTtlSeconds);
@@ -185,7 +206,12 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
                 .filter(token -> TOKEN_TYPE_ACCESS.equals(token.tokenType()))
                 .filter(token -> !isAccessTokenRevoked(token.tokenId()))
                 .map(token -> new AuthenticatedAccessToken(
-                        token.userId(), token.role(), token.authorities(), token.tokenId(), token.expiration()));
+                        token.userId(),
+                        token.role(),
+                        token.authorities(),
+                        token.tokenId(),
+                        token.expiration(),
+                        token.tenantId()));
     }
 
     public Optional<AuthenticatedRefreshToken> parseRefreshToken(String rawToken) {
@@ -193,7 +219,12 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
                 .filter(token -> TOKEN_TYPE_REFRESH.equals(token.tokenType()))
                 .filter(token -> isRefreshTokenValid(token.tokenId()))
                 .map(token -> new AuthenticatedRefreshToken(
-                        token.userId(), token.role(), token.authorities(), token.tokenId(), token.expiration()));
+                        token.userId(),
+                        token.role(),
+                        token.authorities(),
+                        token.tokenId(),
+                        token.expiration(),
+                        token.tenantId()));
     }
 
     public Optional<JwtTokenPair> rotateRefreshToken(String refreshToken) {
@@ -205,7 +236,7 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
     public JwtTokenPair rotateRefreshToken(
             AuthenticatedRefreshToken refreshToken, String currentRole, Collection<String> currentAuthorities) {
         revokeRefreshTokenById(refreshToken.tokenId());
-        return issueTokenPair(refreshToken.userId(), currentRole, currentAuthorities);
+        return issueTokenPair(refreshToken.userId(), currentRole, currentAuthorities, refreshToken.tenantId());
     }
 
     public void revokeRefreshToken(AuthenticatedRefreshToken refreshToken) {
@@ -286,6 +317,7 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
             Long userId = Long.valueOf(claims.getSubject());
             String role = claims.getStringClaim(CLAIM_ROLE);
             List<String> authorities = normalizeAuthorities(role, claims.getStringListClaim(CLAIM_AUTHORITIES));
+            Long tenantId = normalizeTenantId(claims.getLongClaim(CLAIM_TENANT_ID));
             String tokenType = claims.getStringClaim(CLAIM_TOKEN_TYPE);
             Date issuedAtDate = claims.getIssueTime();
             Date expirationDate = claims.getExpirationTime();
@@ -303,7 +335,8 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
                     || (enforceRevocationState && isUserTokenRevoked(userId, issuedAt))) {
                 return Optional.empty();
             }
-            return Optional.of(new AuthenticatedToken(userId, role, authorities, tokenType, tokenId, expiresAt));
+            return Optional.of(
+                    new AuthenticatedToken(userId, role, authorities, tenantId, tokenType, tokenId, expiresAt));
         } catch (Exception e) {
             return Optional.empty();
         }
@@ -347,6 +380,7 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
             Long userId,
             String role,
             List<String> authorities,
+            Long tenantId,
             String tokenType,
             long ttlSeconds,
             String jti,
@@ -356,6 +390,7 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
                 .subject(userId.toString())
                 .claim(CLAIM_ROLE, role)
                 .claim(CLAIM_AUTHORITIES, authorities)
+                .claim(CLAIM_TENANT_ID, normalizeTenantId(tenantId))
                 .claim(CLAIM_TOKEN_TYPE, tokenType)
                 .jwtID(jti)
                 .issueTime(Date.from(now))
@@ -629,6 +664,16 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
         return List.copyOf(normalized);
     }
 
+    private static Long normalizeTenantId(Long tenantId) {
+        return tenantId == null || tenantId <= 0 ? DEFAULT_TENANT_ID : tenantId;
+    }
+
     private static final record AuthenticatedToken(
-            Long userId, String role, List<String> authorities, String tokenType, String tokenId, Instant expiration) {}
+            Long userId,
+            String role,
+            List<String> authorities,
+            Long tenantId,
+            String tokenType,
+            String tokenId,
+            Instant expiration) {}
 }

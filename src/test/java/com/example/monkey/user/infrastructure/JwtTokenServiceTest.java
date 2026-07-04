@@ -79,6 +79,25 @@ class JwtTokenServiceTest {
     }
 
     @Test
+    void tenantClaimIsParsedAndPreservedOnRefreshRotation() {
+        JwtTokenService tokenService = new JwtTokenService(TEST_SECRET, 30, 60, 30, 60, false, null);
+
+        JwtTokenPair tokenPair = tokenService.issueTokenPair(1L, "USER", List.of("ROLE_USER"), 200L);
+        JwtTokenPair refreshedPair = tokenService
+                .rotateRefreshToken(tokenPair.refreshToken())
+                .orElseThrow(() -> new AssertionError("Refresh token rotation should succeed"));
+
+        assertThat(tokenService.parseAccessToken(tokenPair.accessToken()))
+                .get()
+                .extracting(AuthenticatedAccessToken::tenantId)
+                .isEqualTo(200L);
+        assertThat(tokenService.parseAccessToken(refreshedPair.accessToken()))
+                .get()
+                .extracting(AuthenticatedAccessToken::tenantId)
+                .isEqualTo(200L);
+    }
+
+    @Test
     void tokenTypeMustMatchParser() {
         JwtTokenService tokenService = new JwtTokenService(TEST_SECRET, 30, 60, 30, 60, false, null);
 

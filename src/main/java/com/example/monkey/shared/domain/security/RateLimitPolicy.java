@@ -14,6 +14,7 @@ public enum RateLimitPolicy {
     SEARCH("search", 30, Duration.ofMinutes(1)),
     RISK("risk", 20, Duration.ofSeconds(1)),
     TRACKING("tracking", 60, Duration.ofSeconds(1)),
+    TENANT("tenant", 30, Duration.ofSeconds(1)),
     UPLOAD("upload", 10, Duration.ofMinutes(1)),
     DEFAULT("default", 120, Duration.ofMinutes(1));
 

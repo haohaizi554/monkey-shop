@@ -98,7 +98,8 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
                 || "/api/seckill/internal/active".equals(path)
                 || "/api/search/internal/hot".equals(path)
                 || "/api/risk/internal/probe".equals(path)
-                || "/api/tracking/internal/pixel".equals(path);
+                || "/api/tracking/internal/pixel".equals(path)
+                || "/api/tenants/internal/probe".equals(path);
     }
 
     private static ApiRateLimitOperation operationFor(HttpServletRequest request) {
@@ -138,6 +139,9 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
         }
         if (isTrackingPath(path)) {
             return ApiRateLimitOperation.TRACKING;
+        }
+        if (isTenantPath(path)) {
+            return ApiRateLimitOperation.TENANT;
         }
         if (HttpMethod.GET.matches(method)
                 && ("/api/monkeys".equals(path)
@@ -186,6 +190,10 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
         return path != null && (path.startsWith("/api/tracking") || path.startsWith("/api/v1/tracking"));
     }
 
+    private static boolean isTenantPath(String path) {
+        return path != null && (path.startsWith("/api/tenants") || path.startsWith("/api/v1/tenants"));
+    }
+
     private static String authenticatedUserKey() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !authentication.isAuthenticated()) {
@@ -193,7 +201,7 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
         }
         Object principal = authentication.getPrincipal();
         if (principal instanceof SessionUser user && user.id() != null) {
-            return "user:" + user.id();
+            return "tenant:" + user.tenantId() + ":user:" + user.id();
         }
         return authentication.getName() == null
                 ? "anonymous"

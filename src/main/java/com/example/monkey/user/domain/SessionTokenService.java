@@ -26,8 +26,20 @@ public interface SessionTokenService {
     void revokeAccessToken(String rawAccessToken);
 
     record AuthenticatedAccessToken(
-            Long userId, String role, List<String> authorities, String tokenId, Instant expiration) {}
+            Long userId, String role, List<String> authorities, String tokenId, Instant expiration, Long tenantId) {
+
+        public AuthenticatedAccessToken(
+                Long userId, String role, List<String> authorities, String tokenId, Instant expiration) {
+            this(userId, role, authorities, tokenId, expiration, 1L);
+        }
+    }
 
     record AuthenticatedRefreshToken(
-            Long userId, String role, List<String> authorities, String tokenId, Instant expiration) {}
+            Long userId, String role, List<String> authorities, String tokenId, Instant expiration, Long tenantId) {
+
+        public AuthenticatedRefreshToken(
+                Long userId, String role, List<String> authorities, String tokenId, Instant expiration) {
+            this(userId, role, authorities, tokenId, expiration, 1L);
+        }
+    }
 }

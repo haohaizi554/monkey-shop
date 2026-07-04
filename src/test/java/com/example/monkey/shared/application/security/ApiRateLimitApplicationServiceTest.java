@@ -63,6 +63,7 @@ class ApiRateLimitApplicationServiceTest {
                 Arguments.of(ApiRateLimitOperation.SEARCH, RateLimitPolicy.SEARCH),
                 Arguments.of(ApiRateLimitOperation.RISK, RateLimitPolicy.RISK),
                 Arguments.of(ApiRateLimitOperation.TRACKING, RateLimitPolicy.TRACKING),
+                Arguments.of(ApiRateLimitOperation.TENANT, RateLimitPolicy.TENANT),
                 Arguments.of(ApiRateLimitOperation.UPLOAD, RateLimitPolicy.UPLOAD),
                 Arguments.of(ApiRateLimitOperation.DEFAULT, RateLimitPolicy.DEFAULT));
     }

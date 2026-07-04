@@ -33,7 +33,7 @@ class ApiRateLimitFilterTest {
 
     @Test
     void mapsOrderCreateToUserScopedOrderPolicy() throws Exception {
-        when(rateLimitService.consume(ApiRateLimitOperation.ORDER, "203.0.113.10", "user:42"))
+        when(rateLimitService.consume(ApiRateLimitOperation.ORDER, "203.0.113.10", "tenant:1:user:42"))
                 .thenReturn(new ApiRateLimitResult(true, 0));
         SecurityContextHolder.getContext()
                 .setAuthentication(new UsernamePasswordAuthenticationToken(
@@ -46,7 +46,7 @@ class ApiRateLimitFilterTest {
         filter.doFilter(request, response, chain);
 
         verify(chain).doFilter(request, response);
-        verify(rateLimitService).consume(ApiRateLimitOperation.ORDER, "203.0.113.10", "user:42");
+        verify(rateLimitService).consume(ApiRateLimitOperation.ORDER, "203.0.113.10", "tenant:1:user:42");
     }
 
     @Test
@@ -237,6 +237,18 @@ class ApiRateLimitFilterTest {
 
         verify(searchChain).doFilter(searchRequest, searchResponse);
         verify(rateLimitService).consume(ApiRateLimitOperation.SEARCH, "127.0.0.1", "anonymous");
+
+        when(rateLimitService.consume(ApiRateLimitOperation.TENANT, "127.0.0.1", "anonymous"))
+                .thenReturn(new ApiRateLimitResult(true, 0));
+        MockHttpServletRequest tenantRequest = new MockHttpServletRequest("GET", "/api/v1/tenants/dashboard");
+        tenantRequest.setRemoteAddr("127.0.0.1");
+        MockHttpServletResponse tenantResponse = new MockHttpServletResponse();
+        FilterChain tenantChain = mock(FilterChain.class);
+
+        filter.doFilter(tenantRequest, tenantResponse, tenantChain);
+
+        verify(tenantChain).doFilter(tenantRequest, tenantResponse);
+        verify(rateLimitService).consume(ApiRateLimitOperation.TENANT, "127.0.0.1", "anonymous");
     }
 
     @Test
