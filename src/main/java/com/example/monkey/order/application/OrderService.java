@@ -311,6 +311,11 @@ public class OrderService {
             name = "order-auto-receive-shipments",
             lockAtMostFor = "${app.order.auto-receive-lock-at-most-for:PT10M}")
     @Transactional
+    public void autoReceiveOverdueShipmentsScheduled() {
+        autoReceiveOverdueShipments();
+    }
+
+    @Transactional
     public int autoReceiveOverdueShipments() {
         LocalDateTime cutoff = now().minus(autoReceiveAfter);
         int received = 0;

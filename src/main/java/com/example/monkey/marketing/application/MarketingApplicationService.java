@@ -199,6 +199,11 @@ public class MarketingApplicationService {
             name = "marketing-expire-group-buy-teams",
             lockAtMostFor = "${app.marketing.group-buy-expire-lock-at-most-for:PT10M}")
     @Transactional
+    public void expireGroupBuyTeamsScheduled() {
+        expireGroupBuyTeams();
+    }
+
+    @Transactional
     public int expireGroupBuyTeams() {
         int expired = 0;
         LocalDateTime now = now();

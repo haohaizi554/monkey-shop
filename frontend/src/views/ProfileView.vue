@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { Refresh, Upload } from '@element-plus/icons-vue'
+import { Check, Lock, Location, Refresh, Upload } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { uploadImage } from '@/api/catalog'
 import { captchaConfig as loadCaptchaConfig, captchaUrl } from '@/api/auth'
 import * as userApi from '@/api/user'
 import AppShell from '@/components/AppShell.vue'
 import HumanVerification from '@/components/HumanVerification.vue'
+import { useAuthStore } from '@/stores/auth'
 import type { Address, CaptchaConfig, UserProfile } from '@/types'
 
 const profile = ref<UserProfile>({})
@@ -20,12 +22,23 @@ const turnstileEnabled = computed(() => captchaConfig.value.provider === 'turnst
 const addressForm = reactive({ receiverName: '', phone: '', detailAddress: '' })
 const passwordForm = reactive({ phone: '', newPassword: '', captcha: '' })
 const { t } = useI18n()
+const router = useRouter()
+const auth = useAuthStore()
+
+const profileMeta = computed(() => {
+  const meta = [profile.value.identity, profile.value.maskedPhone].filter(Boolean)
+  return meta.length ? meta.join(' / ') : t('profile.accountPending')
+})
+
+const passwordButtonLabel = computed(() =>
+  profile.value.passwordChangeRequired ? t('auth.completePasswordUpdate') : t('auth.updatePassword'),
+)
 
 async function loadProfile() {
   loading.value = true
   try {
     profile.value = await userApi.profile()
-    addresses.value = await userApi.addresses()
+    addresses.value = profile.value.passwordChangeRequired ? [] : await userApi.addresses()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t('auth.unableToLoadProfile'))
   } finally {
@@ -66,7 +79,10 @@ async function changePassword() {
   }
   await userApi.updatePassword(passwordForm)
   ElMessage.success(t('auth.passwordChanged'))
+  Object.assign(passwordForm, { phone: '', newPassword: '', captcha: '' })
   userCaptchaUrl.value = captchaUrl('user')
+  auth.clearLocalSession()
+  await router.push('/login')
 }
 
 onMounted(() => {
@@ -86,61 +102,49 @@ onMounted(() => {
     <section v-loading="loading" class="profile-layout">
       <div class="profile-summary">
         <img :src="profile.avatar || defaultAvatar" :alt="$t('auth.avatar')" />
-        <div>
-          <h1>{{ profile.username }}</h1>
-          <p>{{ profile.identity }} 路 {{ profile.maskedPhone }}</p>
-          <el-tag v-if="profile.passwordChangeRequired" type="warning" disable-transitions>
+        <div class="profile-copy">
+          <p class="profile-kicker">{{ $t('profile.accountOverview') }}</p>
+          <h1>{{ profile.username || $t('nav.profile') }}</h1>
+          <p class="profile-meta">{{ profileMeta }}</p>
+          <el-tag
+            v-if="profile.passwordChangeRequired"
+            class="profile-required-tag"
+            type="warning"
+            disable-transitions
+          >
             {{ $t('common.passwordChangeRequired') }}
           </el-tag>
         </div>
-        <label class="file-picker" for="profile-avatar-input">
-          <el-icon><Upload /></el-icon>
-          <span>{{ $t('common.upload') }}</span>
-          <input
-            id="profile-avatar-input"
-            type="file"
-            accept="image/png,image/jpeg"
-            @change="changeAvatar"
-          />
-        </label>
-        <RouterLink class="secondary-button" to="/membership">Membership</RouterLink>
+        <div class="profile-actions">
+          <label class="file-picker" for="profile-avatar-input">
+            <el-icon><Upload /></el-icon>
+            <span>{{ $t('common.upload') }}</span>
+            <input
+              id="profile-avatar-input"
+              type="file"
+              accept="image/png,image/jpeg"
+              @change="changeAvatar"
+            />
+          </label>
+          <RouterLink class="secondary-button" to="/membership">
+            {{ $t('nav.membership') }}
+          </RouterLink>
+        </div>
       </div>
 
       <section class="section-band">
-        <h2>{{ $t('common.address') }}</h2>
-        <div class="inline-form">
-          <el-input v-model="addressForm.receiverName" :placeholder="$t('common.receiver')" />
-          <el-input v-model="addressForm.phone" :placeholder="$t('auth.phone')" />
-          <el-input v-model="addressForm.detailAddress" :placeholder="$t('common.address')" />
-          <el-button type="primary" @click="saveAddress">
-            {{ $t('common.save') }}
-          </el-button>
+        <h2 class="section-heading">
+          <el-icon><Lock /></el-icon>
+          <span>{{ $t('common.security') }}</span>
+        </h2>
+        <div v-if="profile.passwordChangeRequired" class="security-alert" role="alert">
+          <el-icon class="security-alert-icon"><Lock /></el-icon>
+          <div>
+            <strong>{{ $t('auth.passwordUpdateRequiredTitle') }}</strong>
+            <p>{{ $t('auth.passwordUpdateRequiredDescription') }}</p>
+          </div>
         </div>
-        <el-table :data="addresses" class="data-table">
-          <el-table-column prop="receiverName" :label="$t('common.receiver')" />
-          <el-table-column prop="phone" :label="$t('auth.phone')" />
-          <el-table-column prop="detailAddress" :label="$t('common.address')" />
-          <el-table-column :label="$t('common.default')" width="120">
-            <template #default="{ row }">
-              <el-switch
-                :model-value="row.isDefault === 1"
-                @change="userApi.setDefaultAddress(row.id).then(loadProfile)"
-              />
-            </template>
-          </el-table-column>
-          <el-table-column width="120">
-            <template #default="{ row }">
-              <el-button type="danger" plain @click="removeAddress(row.id)">
-                {{ $t('common.delete') }}
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </section>
-
-      <section class="section-band">
-        <h2>{{ $t('common.security') }}</h2>
-        <div class="inline-form">
+        <form class="inline-form" @submit.prevent="changePassword">
           <el-input v-model="passwordForm.phone" :placeholder="$t('auth.phone')" />
           <el-input
             v-model="passwordForm.newPassword"
@@ -165,13 +169,54 @@ onMounted(() => {
               >
                 <img :src="userCaptchaUrl" alt="Captcha" />
               </button>
-              <el-button :icon="Refresh" circle @click="userCaptchaUrl = captchaUrl('user')" />
+              <el-button
+                :icon="Refresh"
+                circle
+                native-type="button"
+                @click="userCaptchaUrl = captchaUrl('user')"
+              />
             </template>
           </div>
-          <el-button type="primary" @click="changePassword">
+          <el-button type="primary" native-type="submit" :icon="Lock">
+            {{ passwordButtonLabel }}
+          </el-button>
+        </form>
+      </section>
+
+      <section v-if="!profile.passwordChangeRequired" class="section-band">
+        <h2 class="section-heading">
+          <el-icon><Location /></el-icon>
+          <span>{{ $t('common.address') }}</span>
+        </h2>
+        <form class="inline-form" @submit.prevent="saveAddress">
+          <el-input v-model="addressForm.receiverName" :placeholder="$t('common.receiver')" />
+          <el-input v-model="addressForm.phone" :placeholder="$t('auth.phone')" />
+          <el-input v-model="addressForm.detailAddress" :placeholder="$t('common.address')" />
+          <el-button type="primary" native-type="submit" :icon="Check">
             {{ $t('common.save') }}
           </el-button>
-        </div>
+        </form>
+        <el-table :data="addresses" class="data-table">
+          <el-table-column prop="receiverName" :label="$t('common.receiver')" />
+          <el-table-column prop="phone" :label="$t('auth.phone')" />
+          <el-table-column prop="detailAddress" :label="$t('common.address')" />
+          <el-table-column :label="$t('common.default')" width="120">
+            <template #default="{ row }">
+              <el-switch
+                :model-value="row.isDefault === 1"
+                @change="userApi.setDefaultAddress(row.id).then(loadProfile)"
+              />
+            </template>
+          </el-table-column>
+          <el-table-column width="120">
+            <template #default="{ row }">
+              <el-button type="danger" plain @click="removeAddress(row.id)">
+                {{ $t('common.delete') }}
+              </el-button>
+            </template>
+          </el-table-column>
+          <template #empty>{{ $t('profile.noAddresses') }}</template>
+        </el-table>
       </section>
     </section>
   </AppShell>

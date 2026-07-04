@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Search } from '@element-plus/icons-vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { listMonkeys } from '@/api/catalog'
@@ -60,8 +61,22 @@ const filteredMonkeys = computed(() =>
     )
   }),
 )
+const hasActiveFilters = computed(
+  () =>
+    filters.keyword.trim().length > 0 ||
+    filters.minPrice.trim().length > 0 ||
+    filters.maxPrice.trim().length > 0 ||
+    filters.inStockOnly,
+)
 const productListStructuredData = computed(() => productListJsonLd(filteredMonkeys.value))
 useJsonLd('monkeyshop-product-list-jsonld', productListStructuredData)
+
+function clearFilters() {
+  filters.keyword = ''
+  filters.minPrice = ''
+  filters.maxPrice = ''
+  filters.inStockOnly = false
+}
 
 async function loadMonkeys() {
   loading.value = true
@@ -128,6 +143,15 @@ onMounted(() => {
     <div v-if="loading" class="skeleton-grid" aria-busy="true">
       <div v-for="item in 6" :key="item" class="skeleton-card" />
     </div>
+
+    <section v-else-if="filteredMonkeys.length === 0" class="empty-state" aria-live="polite">
+      <Search class="empty-state-icon" aria-hidden="true" />
+      <h2>{{ $t('shop.emptyTitle') }}</h2>
+      <p>{{ $t('shop.emptyDescription') }}</p>
+      <button v-if="hasActiveFilters" class="secondary-button" type="button" @click="clearFilters">
+        {{ $t('common.clearFilters') }}
+      </button>
+    </section>
 
     <div v-else class="product-grid">
       <article v-for="monkey in filteredMonkeys" :key="monkey.id" class="product-card">

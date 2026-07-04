@@ -102,12 +102,12 @@ export function useCheckout(options: CheckoutOptions = {}) {
 
   function riskDecisionMessage(decision: RiskDecision) {
     if (decision === 'RATE_LIMIT') {
-      return 'Too many checkout attempts'
+      return '操作太频繁了，请稍后再试。'
     }
     if (decision === 'TOTP_REQUIRED') {
-      return 'Extra verification is required'
+      return '需要额外验证后才能继续。'
     }
-    return 'Checkout needs review'
+    return '订单需要审核后才能继续。'
   }
 
   function submitOrder() {

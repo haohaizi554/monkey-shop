@@ -185,6 +185,11 @@ public class InventoryApplicationService {
             name = "inventory-release-expired-reservations",
             lockAtMostFor = "${app.inventory.release-lock-at-most-for:PT10M}")
     @Transactional
+    public void releaseExpiredReservationsScheduled() {
+        releaseExpiredReservations();
+    }
+
+    @Transactional
     public int releaseExpiredReservations() {
         LocalDateTime now = LocalDateTime.now(clock);
         int released = 0;

@@ -121,7 +121,8 @@ public class SecurityConfig {
             ObjectMapper objectMapper,
             @Value("${app.security.csp.upgrade-insecure-requests:true}") boolean cspUpgradeInsecureRequests)
             throws Exception {
-        http.csrf(csrf -> csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse()))
+        http.csrf(csrf -> csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                        .ignoringRequestMatchers(SecurityConfig::isCsrfIgnoredPublicPost))
                 .addFilterBefore(jwtAuthenticationFilter, LogoutFilter.class)
                 .addFilterAfter(new TenantContextFilter(), JwtAuthenticationFilter.class)
                 .addFilterAfter(new UserMdcFilter(), JwtAuthenticationFilter.class)
@@ -132,13 +133,21 @@ public class SecurityConfig {
                                 "/",
                                 "/login",
                                 "/shop",
-                                "/admin",
-                                "/orders",
-                                "/payment",
-                                "/logistics",
-                                "/membership",
+                                "/shop/*",
                                 "/search",
                                 "/recommendations",
+                                "/cart",
+                                "/checkout",
+                                "/admin",
+                                "/inventory",
+                                "/marketing",
+                                "/orders",
+                                "/orders/*/review",
+                                "/payment",
+                                "/payment/*",
+                                "/logistics",
+                                "/logistics/*",
+                                "/membership",
                                 "/risk",
                                 "/dashboard",
                                 "/tenants",
@@ -404,6 +413,24 @@ public class SecurityConfig {
         return http.build();
     }
 
+    private static boolean isCsrfIgnoredPublicPost(HttpServletRequest request) {
+        if (!HttpMethod.POST.matches(request.getMethod())) {
+            return false;
+        }
+        String path = ApiPaths.canonicalize(request.getRequestURI());
+        return switch (path) {
+            case "/api/auth/login",
+                    "/api/auth/register",
+                    "/api/auth/refresh",
+                    "/api/auth/reset-password",
+                    "/api/auth/reset-password/request",
+                    "/api/payments/callback",
+                    "/api/logistics/webhook",
+                    "/api/tracking/events" -> true;
+            default -> false;
+        };
+    }
+
     private static void writeProblem(
             HttpServletResponse response, ObjectMapper objectMapper, ErrorCode errorCode, HttpServletRequest request)
             throws IOException {
@@ -484,6 +511,7 @@ public class SecurityConfig {
                 || (HttpMethod.GET.matches(method) && "/api/user/me".equals(path))
                 || (HttpMethod.GET.matches(method) && "/api/user/profile".equals(path))
                 || (HttpMethod.GET.matches(method) && "/api/user/captcha".equals(path))
+                || (HttpMethod.POST.matches(method) && "/api/tracking/events".equals(path))
                 || (HttpMethod.POST.matches(method) && "/api/user/update-password".equals(path))
                 || (HttpMethod.POST.matches(method) && "/api/user/logout".equals(path));
     }

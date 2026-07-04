@@ -11,6 +11,7 @@ export interface ProblemDetail {
   title?: string
   detail?: string
   status?: number
+  code?: string
   traceId?: string
 }
 

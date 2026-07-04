@@ -62,6 +62,22 @@ function selectAvatar(event: Event) {
   avatarPreview.value = file ? URL.createObjectURL(file) : ''
 }
 
+function loginErrorMessage(message: string): string {
+  if (message === 'admin mfa required') {
+    return t('auth.adminMfaRequired')
+  }
+  if (message === 'admin mfa invalid') {
+    return t('auth.adminMfaInvalid')
+  }
+  if (message === 'captcha required') {
+    return t('auth.captchaRequired')
+  }
+  if (message === 'captcha incorrect') {
+    return t('auth.captchaIncorrect')
+  }
+  return message
+}
+
 async function submitLogin() {
   if (turnstileEnabled.value && !loginForm.captcha) {
     ElMessage.error(t('auth.captchaRequired'))
@@ -79,7 +95,7 @@ async function submitLogin() {
     if (showLoginCaptcha.value && !turnstileEnabled.value) {
       refreshCaptcha('login')
     }
-    ElMessage.error(message)
+    ElMessage.error(loginErrorMessage(message))
   } finally {
     submitting.value = false
   }

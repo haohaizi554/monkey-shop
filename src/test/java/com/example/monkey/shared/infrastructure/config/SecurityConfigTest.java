@@ -18,6 +18,7 @@ import com.example.monkey.shared.application.security.ApiRateLimitResult;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.interfaces.security.ApiRateLimitFilter;
 import com.example.monkey.shared.interfaces.web.SessionTokenTransport;
+import com.example.monkey.shared.interfaces.web.SpaForwardController;
 import com.example.monkey.user.domain.SessionTokenService;
 import com.example.monkey.user.domain.UserAccountStore;
 import com.example.monkey.user.domain.UserAccountStore.UserAccount;
@@ -57,7 +58,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-@WebMvcTest(controllers = SecurityConfigTest.TestApiController.class)
+@WebMvcTest(controllers = {SecurityConfigTest.TestApiController.class, SpaForwardController.class})
 @Import({SecurityConfig.class, ApiRateLimitFilter.class, SecurityConfigTest.TestApiController.class})
 @TestPropertySource(properties = "app.security.csp.upgrade-insecure-requests=false")
 class SecurityConfigTest {
@@ -268,6 +269,38 @@ class SecurityConfigTest {
     }
 
     @Test
+    void publicAuthCallbacksAndTrackingPostsDoNotRequireCsrfToken() throws Exception {
+        for (String path : List.of(
+                "/api/auth/login",
+                "/api/v1/auth/login",
+                "/api/auth/register",
+                "/api/v1/auth/register",
+                "/api/auth/refresh",
+                "/api/v1/auth/refresh",
+                "/api/auth/reset-password",
+                "/api/v1/auth/reset-password",
+                "/api/auth/reset-password/request",
+                "/api/v1/auth/reset-password/request",
+                "/api/tracking/events",
+                "/api/v1/tracking/events")) {
+            mockMvc.perform(post(path).secure(true)).andExpect(status().isOk());
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("spaRoutes")
+    void spaRoutesForwardToIndexWithoutAuthentication(String path) throws Exception {
+        mockMvc.perform(get(path).secure(true)).andExpect(status().isOk());
+    }
+
+    @Test
+    void legacyFaviconRedirectsToSvgAsset() throws Exception {
+        mockMvc.perform(get("/favicon.ico").secure(true))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(header().string("Location", "/favicon.svg"));
+    }
+
+    @Test
     void unsafeAdminEndpointRequiresProductManageAuthority() throws Exception {
         mockMvc.perform(post("/api/monkeys/add").with(csrf()).with(authenticatedUser(7L, "USER")))
                 .andExpect(status().isForbidden())
@@ -396,6 +429,13 @@ class SecurityConfigTest {
                 .andExpect(status().isOk())
                 .andExpect(content().string("7:USER"));
 
+        mockMvc.perform(post("/api/tracking/events").with(csrf()).with(passwordChangeRequiredUser(7L, "USER")))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/address").with(passwordChangeRequiredUser(7L, "USER")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.detail").value(SecurityConfig.PASSWORD_CHANGE_REQUIRED));
+
         mockMvc.perform(post("/api/v1/orders/create").with(csrf()).with(passwordChangeRequiredUser(7L, "USER")))
                 .andExpect(status().isForbidden())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
@@ -411,6 +451,13 @@ class SecurityConfigTest {
         mockMvc.perform(get("/api/v1/users/me").with(passwordChangeRequiredUser(7L, "USER")))
                 .andExpect(status().isOk())
                 .andExpect(content().string("7:USER"));
+
+        mockMvc.perform(post("/api/v1/tracking/events").with(csrf()).with(passwordChangeRequiredUser(7L, "USER")))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/addresses").with(passwordChangeRequiredUser(7L, "USER")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.detail").value(SecurityConfig.PASSWORD_CHANGE_REQUIRED));
     }
 
     @ParameterizedTest(name = "{0} {1} anonymous={2}, user={3}, admin={4}")
@@ -424,6 +471,32 @@ class SecurityConfigTest {
 
     private static Stream<Arguments> rbacRoutes() {
         return Stream.concat(legacyRbacRoutes(), versionedRbacRoutes());
+    }
+
+    private static Stream<String> spaRoutes() {
+        return Stream.of(
+                "/",
+                "/login",
+                "/shop",
+                "/shop/1",
+                "/search",
+                "/recommendations",
+                "/cart",
+                "/checkout",
+                "/orders",
+                "/orders/1/review",
+                "/payment",
+                "/payment/1",
+                "/logistics",
+                "/logistics/1",
+                "/membership",
+                "/profile",
+                "/admin",
+                "/inventory",
+                "/marketing",
+                "/risk",
+                "/dashboard",
+                "/tenants");
     }
 
     private static Stream<Arguments> legacyRbacRoutes() {

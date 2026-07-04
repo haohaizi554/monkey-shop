@@ -221,6 +221,11 @@ public class PaymentApplicationService {
     @Scheduled(fixedDelayString = "${app.payment.query-delay:PT1M}")
     @SchedulerLock(name = "payment-query-timeout-orders", lockAtMostFor = "${app.payment.query-lock-at-most-for:PT10M}")
     @Transactional
+    public void queryTimedOutPaymentsScheduled() {
+        queryTimedOutPayments();
+    }
+
+    @Transactional
     public int queryTimedOutPayments() {
         int handled = 0;
         LocalDateTime cutoff = now().minus(queryAfter);

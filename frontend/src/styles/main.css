@@ -8,6 +8,10 @@
   --brand: #1f6feb;
   --danger: #c2410c;
   --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  --surface-color: var(--panel);
+  --border-color: var(--line);
+  --text-color: var(--text);
+  --text-muted: var(--muted);
   --el-color-primary: #0f5fc7;
   --el-color-primary-light-3: #2b73d2;
   --el-color-primary-dark-2: #0a428b;
@@ -92,7 +96,8 @@ h2 {
   z-index: 20;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 20px;
+  column-gap: 18px;
+  row-gap: 8px;
   align-items: center;
   height: 72px;
   padding: 0 clamp(16px, 4vw, 56px);
@@ -113,11 +118,19 @@ h2 {
   gap: 8px;
   font-weight: 800;
   color: var(--brand);
+  white-space: nowrap;
 }
 
 .primary-nav {
   justify-content: center;
   gap: 8px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.primary-nav::-webkit-scrollbar {
+  display: none;
 }
 
 .primary-nav a {
@@ -126,6 +139,15 @@ h2 {
   padding: 0 12px;
   border-radius: 8px;
   color: var(--muted);
+  white-space: nowrap;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease;
+}
+
+.primary-nav a:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--brand) 7%, transparent);
 }
 
 .primary-nav a.router-link-active {
@@ -136,6 +158,7 @@ h2 {
 .header-actions {
   justify-content: flex-end;
   gap: 8px;
+  min-width: max-content;
 }
 
 .app-main {
@@ -215,6 +238,30 @@ h2 {
 
 .description {
   min-height: 42px;
+}
+
+.empty-state {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  min-height: 320px;
+  border: 1px dashed color-mix(in srgb, var(--line) 82%, var(--brand));
+  border-radius: 8px;
+  padding: clamp(28px, 8vw, 64px) 20px;
+  text-align: center;
+  background: color-mix(in srgb, var(--panel) 84%, var(--page));
+}
+
+.empty-state p {
+  max-width: 420px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.empty-state-icon {
+  width: 34px;
+  height: 34px;
+  color: var(--brand);
 }
 
 .product-actions,
@@ -442,8 +489,87 @@ h2 {
   object-fit: cover;
 }
 
+.profile-copy {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.profile-copy h1 {
+  overflow-wrap: anywhere;
+}
+
+.profile-kicker {
+  color: var(--brand);
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.profile-meta {
+  overflow-wrap: anywhere;
+}
+
+.profile-required-tag {
+  width: fit-content;
+}
+
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 .section-band {
   padding: 18px;
+}
+
+.section-heading {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.section-heading .el-icon {
+  color: var(--brand);
+}
+
+.security-alert {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 12px;
+  align-items: flex-start;
+  margin-top: 14px;
+  border: 1px solid color-mix(in srgb, #d97706 28%, var(--line));
+  border-left: 4px solid #d97706;
+  border-radius: 8px;
+  padding: 14px;
+  background: color-mix(in srgb, #fffbeb 72%, var(--panel));
+}
+
+.security-alert strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.security-alert p {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.security-alert-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  color: #92400e;
+  background: color-mix(in srgb, #f59e0b 18%, transparent);
+}
+
+html.dark .security-alert {
+  background: color-mix(in srgb, #451a03 42%, var(--panel));
 }
 
 .inline-form {
@@ -528,13 +654,32 @@ html.dark .el-button--primary {
   .app-header {
     grid-template-columns: 1fr auto;
     height: auto;
-    padding-block: 12px;
+    padding: 10px 12px;
+  }
+
+  .brand {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .header-actions {
+    grid-column: 2;
+    grid-row: 1;
+    gap: 6px;
   }
 
   .primary-nav {
     grid-column: 1 / -1;
+    grid-row: 2;
     justify-content: flex-start;
-    overflow-x: auto;
+    gap: 6px;
+    padding-bottom: 2px;
+  }
+
+  .primary-nav a {
+    min-height: 36px;
+    padding: 0 10px;
+    font-size: 0.9rem;
   }
 
   .toolbar-band,
@@ -565,6 +710,20 @@ html.dark .el-button--primary {
   .row-actions {
     flex-wrap: wrap;
   }
+
+  .profile-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 520px) {
+  .brand > span:last-child {
+    display: none;
+  }
+
+  .primary-nav a {
+    padding: 0 9px;
+  }
 }
 
 .brand-mark,
@@ -591,6 +750,17 @@ html.dark .el-button--primary {
   background: color-mix(in srgb, var(--brand) 12%, transparent);
 }
 
+.brand-mark svg {
+  width: 18px;
+  height: 18px;
+}
+
+.nav-mark svg,
+.action-icon {
+  width: 16px;
+  height: 16px;
+}
+
 .primary-button,
 .secondary-button,
 .text-button,
@@ -598,6 +768,7 @@ html.dark .el-button--primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   min-height: 40px;
   border: 1px solid transparent;
   border-radius: 8px;
@@ -624,6 +795,7 @@ html.dark .el-button--primary {
 }
 
 .icon-button {
+  gap: 0;
   width: 40px;
   padding: 0;
   border-color: var(--line);
@@ -753,6 +925,71 @@ html.dark .primary-button {
 
 .notice-warning {
   border-color: #facc15;
+}
+
+.el-message {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  z-index: 3000;
+  display: flex;
+  gap: 10px;
+  width: min(420px, calc(100vw - 32px));
+  min-height: 48px;
+  transform: translateX(-50%);
+  align-items: flex-start;
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--panel) 96%, #ffffff);
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.14);
+}
+
+.el-message .el-message__icon {
+  margin-top: 2px;
+}
+
+.el-message .el-message__content {
+  color: var(--text);
+  font-size: 0.95rem;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.el-message--error {
+  border-color: color-mix(in srgb, #c2410c 34%, var(--line));
+  border-left-color: #c2410c;
+  background: color-mix(in srgb, #fff7ed 72%, var(--panel));
+}
+
+.el-message--warning {
+  border-color: color-mix(in srgb, #d97706 34%, var(--line));
+  border-left-color: #d97706;
+  background: color-mix(in srgb, #fffbeb 72%, var(--panel));
+}
+
+.el-message--success {
+  border-color: color-mix(in srgb, #1f7a36 34%, var(--line));
+  border-left-color: #1f7a36;
+  background: color-mix(in srgb, #f0fdf4 72%, var(--panel));
+}
+
+html.dark .el-message {
+  background: color-mix(in srgb, var(--panel) 94%, #020617);
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.34);
+}
+
+html.dark .el-message--error {
+  background: color-mix(in srgb, #431407 42%, var(--panel));
+}
+
+html.dark .el-message--warning {
+  background: color-mix(in srgb, #451a03 42%, var(--panel));
+}
+
+html.dark .el-message--success {
+  background: color-mix(in srgb, #052e16 42%, var(--panel));
 }
 
 .address-option {

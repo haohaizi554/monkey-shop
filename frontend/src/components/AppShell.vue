@@ -1,5 +1,25 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import {
+  Avatar,
+  Box,
+  CreditCard,
+  DataAnalysis,
+  Discount,
+  Document,
+  Goods,
+  House,
+  Moon,
+  OfficeBuilding,
+  Search,
+  Setting,
+  Star,
+  Sunny,
+  SwitchButton,
+  User,
+  Van,
+  Warning,
+} from '@element-plus/icons-vue'
+import { computed, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
@@ -9,6 +29,42 @@ const theme = useThemeStore()
 const { locale, t } = useI18n()
 
 const languageLabel = computed(() => (locale.value === 'zh' ? 'EN' : 'ZH'))
+const themeIcon = computed(() => (theme.isDark ? Sunny : Moon))
+
+interface NavLink {
+  to: string
+  label: string
+  icon: Component
+}
+
+const navLinks = computed<NavLink[]>(() => {
+  const links: NavLink[] = [
+    { to: '/shop', label: t('nav.shop'), icon: House },
+    { to: '/search', label: t('nav.search'), icon: Search },
+  ]
+  if (auth.isLoggedIn) {
+    links.push(
+      { to: '/recommendations', label: t('nav.recommend'), icon: Star },
+      { to: '/orders', label: t('nav.orders'), icon: Document },
+      { to: '/cart', label: t('nav.cart'), icon: Goods },
+      { to: '/payment', label: t('nav.payment'), icon: CreditCard },
+      { to: '/logistics', label: t('nav.logistics'), icon: Van },
+      { to: '/membership', label: t('nav.membership'), icon: Avatar },
+      { to: '/profile', label: t('nav.profile'), icon: User },
+    )
+  }
+  if (auth.isAdmin) {
+    links.push(
+      { to: '/admin', label: t('nav.admin'), icon: Setting },
+      { to: '/inventory', label: t('nav.inventory'), icon: Box },
+      { to: '/marketing', label: t('nav.marketing'), icon: Discount },
+      { to: '/risk', label: t('nav.risk'), icon: Warning },
+      { to: '/dashboard', label: t('nav.dashboard'), icon: DataAnalysis },
+      { to: '/tenants', label: t('nav.tenants'), icon: OfficeBuilding },
+    )
+  }
+  return links
+})
 
 function toggleLocale() {
   locale.value = locale.value === 'zh' ? 'en' : 'zh'
@@ -20,70 +76,18 @@ function toggleLocale() {
   <div class="app-shell">
     <header class="app-header">
       <RouterLink class="brand" to="/shop" aria-label="MonkeyShop">
-        <span class="brand-mark" aria-hidden="true">MS</span>
+        <span class="brand-mark" aria-hidden="true">
+          <Goods />
+        </span>
         <span>MonkeyShop</span>
       </RouterLink>
 
       <nav class="primary-nav" aria-label="Primary">
-        <RouterLink to="/shop">
-          <span class="nav-mark" aria-hidden="true">S</span>
-          <span>{{ t('nav.shop') }}</span>
-        </RouterLink>
-        <RouterLink to="/search">
-          <span class="nav-mark" aria-hidden="true">F</span>
-          <span>{{ t('nav.search') }}</span>
-        </RouterLink>
-        <RouterLink v-if="auth.isLoggedIn" to="/recommendations">
-          <span class="nav-mark" aria-hidden="true">R</span>
-          <span>{{ t('nav.recommend') }}</span>
-        </RouterLink>
-        <RouterLink v-if="auth.isLoggedIn" to="/orders">
-          <span class="nav-mark" aria-hidden="true">O</span>
-          <span>{{ t('nav.orders') }}</span>
-        </RouterLink>
-        <RouterLink v-if="auth.isLoggedIn" to="/cart">
-          <span class="nav-mark" aria-hidden="true">C</span>
-          <span>{{ t('nav.cart') }}</span>
-        </RouterLink>
-        <RouterLink v-if="auth.isLoggedIn" to="/payment">
-          <span class="nav-mark" aria-hidden="true">Y</span>
-          <span>{{ t('nav.payment') }}</span>
-        </RouterLink>
-        <RouterLink v-if="auth.isLoggedIn" to="/logistics">
-          <span class="nav-mark" aria-hidden="true">L</span>
-          <span>{{ t('nav.logistics') }}</span>
-        </RouterLink>
-        <RouterLink v-if="auth.isLoggedIn" to="/membership">
-          <span class="nav-mark" aria-hidden="true">V</span>
-          <span>{{ t('nav.membership') }}</span>
-        </RouterLink>
-        <RouterLink v-if="auth.isLoggedIn" to="/profile">
-          <span class="nav-mark" aria-hidden="true">P</span>
-          <span>{{ t('nav.profile') }}</span>
-        </RouterLink>
-        <RouterLink v-if="auth.isAdmin" to="/admin">
-          <span class="nav-mark" aria-hidden="true">A</span>
-          <span>{{ t('nav.admin') }}</span>
-        </RouterLink>
-        <RouterLink v-if="auth.isAdmin" to="/inventory">
-          <span class="nav-mark" aria-hidden="true">I</span>
-          <span>{{ t('nav.inventory') }}</span>
-        </RouterLink>
-        <RouterLink v-if="auth.isAdmin" to="/marketing">
-          <span class="nav-mark" aria-hidden="true">M</span>
-          <span>{{ t('nav.marketing') }}</span>
-        </RouterLink>
-        <RouterLink v-if="auth.isAdmin" to="/risk">
-          <span class="nav-mark" aria-hidden="true">K</span>
-          <span>{{ t('nav.risk') }}</span>
-        </RouterLink>
-        <RouterLink v-if="auth.isAdmin" to="/dashboard">
-          <span class="nav-mark" aria-hidden="true">D</span>
-          <span>{{ t('nav.dashboard') }}</span>
-        </RouterLink>
-        <RouterLink v-if="auth.isAdmin" to="/tenants">
-          <span class="nav-mark" aria-hidden="true">T</span>
-          <span>{{ t('nav.tenants') }}</span>
+        <RouterLink v-for="link in navLinks" :key="link.to" :to="link.to" :aria-label="link.label">
+          <span class="nav-mark" aria-hidden="true">
+            <component :is="link.icon" />
+          </span>
+          <span class="nav-label">{{ link.label }}</span>
         </RouterLink>
       </nav>
 
@@ -94,7 +98,7 @@ function toggleLocale() {
           :aria-label="theme.isDark ? 'Light theme' : 'Dark theme'"
           @click="theme.toggle()"
         >
-          <span aria-hidden="true">{{ theme.isDark ? 'L' : 'D' }}</span>
+          <component :is="themeIcon" class="action-icon" aria-hidden="true" />
         </button>
         <button
           class="text-button"
@@ -110,10 +114,12 @@ function toggleLocale() {
           type="button"
           @click="auth.logout()"
         >
-          {{ t('nav.logout') }}
+          <SwitchButton class="action-icon" aria-hidden="true" />
+          <span>{{ t('nav.logout') }}</span>
         </button>
         <RouterLink v-else class="primary-button" to="/login">
-          {{ t('nav.login') }}
+          <User class="action-icon" aria-hidden="true" />
+          <span>{{ t('nav.login') }}</span>
         </RouterLink>
       </div>
     </header>

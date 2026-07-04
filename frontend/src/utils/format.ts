@@ -25,15 +25,15 @@ export function dateTime(value?: string): string {
 
 export function orderStatusKey(status: string): string {
   const aliases: Record<string, string> = {
-    已支付: 'PAID',
-    部分发货: 'PARTIALLY_SHIPPED',
-    已发货: 'SHIPPED',
-    部分签收: 'PARTIALLY_RECEIVED',
-    已完成: 'COMPLETED',
-    申请退货: 'RETURN_REQUESTED',
-    待退货发货: 'WAITING_RETURN_SHIPMENT',
-    退货中: 'RETURN_SHIPPING',
-    已退款: 'REFUNDED',
+    '\u5df2\u652f\u4ed8': 'PAID',
+    '\u90e8\u5206\u53d1\u8d27': 'PARTIALLY_SHIPPED',
+    '\u5df2\u53d1\u8d27': 'SHIPPED',
+    '\u90e8\u5206\u7b7e\u6536': 'PARTIALLY_RECEIVED',
+    '\u5df2\u5b8c\u6210': 'COMPLETED',
+    '\u7533\u8bf7\u9000\u8d27': 'RETURN_REQUESTED',
+    '\u5f85\u9000\u8d27\u53d1\u8d27': 'WAITING_RETURN_SHIPMENT',
+    '\u9000\u8d27\u4e2d': 'RETURN_SHIPPING',
+    '\u5df2\u9000\u6b3e': 'REFUNDED',
   }
   return aliases[status] ?? status
 }

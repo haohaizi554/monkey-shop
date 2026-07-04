@@ -6,9 +6,38 @@ import org.springframework.web.bind.annotation.GetMapping;
 @Controller
 public class SpaForwardController {
 
-    @GetMapping({"/", "/login", "/shop", "/orders", "/profile", "/admin"})
+    @GetMapping({
+        "/",
+        "/login",
+        "/shop",
+        "/search",
+        "/recommendations",
+        "/cart",
+        "/checkout",
+        "/orders",
+        "/payment",
+        "/logistics",
+        "/membership",
+        "/profile",
+        "/admin",
+        "/inventory",
+        "/marketing",
+        "/risk",
+        "/dashboard",
+        "/tenants"
+    })
     public String forwardSpaRoute() {
         return "forward:/index.html";
+    }
+
+    @GetMapping({"/shop/{productId}", "/payment/{orderId}", "/logistics/{orderId}", "/orders/{orderId}/review"})
+    public String forwardSpaDetailRoute() {
+        return "forward:/index.html";
+    }
+
+    @GetMapping("/favicon.ico")
+    public String legacyFavicon() {
+        return "redirect:/favicon.svg";
     }
 
     @GetMapping("/shop.html")

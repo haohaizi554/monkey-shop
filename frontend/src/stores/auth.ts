@@ -44,6 +44,11 @@ export const useAuthStore = defineStore('auth', () => {
     await router.push('/login')
   }
 
+  function clearLocalSession(): void {
+    user.value = {}
+    loaded.value = true
+  }
+
   return {
     user,
     loaded,
@@ -54,5 +59,6 @@ export const useAuthStore = defineStore('auth', () => {
     login,
     register,
     logout,
+    clearLocalSession,
   }
 })
