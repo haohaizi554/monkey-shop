@@ -8,6 +8,7 @@ public enum RateLimitPolicy {
     ORDER("order", 10, Duration.ofMinutes(1)),
     SECKILL("seckill", 60, Duration.ofMinutes(1)),
     CART("cart", 10, Duration.ofSeconds(1)),
+    PAYMENT("payment", 5, Duration.ofSeconds(1)),
     SEARCH("search", 30, Duration.ofMinutes(1)),
     UPLOAD("upload", 10, Duration.ofMinutes(1)),
     DEFAULT("default", 120, Duration.ofMinutes(1));

@@ -31,6 +31,11 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/payment/:orderId?',
+      component: () => import('@/views/PaymentView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/cart',
       component: () => import('@/views/CartView.vue'),
       meta: { requiresAuth: true },

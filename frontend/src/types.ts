@@ -176,6 +176,75 @@ export interface OrderReview {
   createTime: string
 }
 
+export type PaymentMethod = 'WECHAT' | 'ALIPAY' | 'BANK_CARD'
+
+export type PaymentStatus =
+  'PENDING' | 'PAID' | 'PARTIALLY_REFUNDED' | 'REFUNDED' | 'SUSPENDED' | 'FAILED'
+
+export interface PaymentCreateRequest {
+  orderId: number
+  method: PaymentMethod
+  bankCardNo?: string
+  totpCode?: string
+}
+
+export interface PaymentResponse {
+  id: number
+  paymentNo: string
+  orderId: number
+  userId: number
+  method: PaymentMethod
+  amount: string | number
+  paidAmount: string | number
+  refundedAmount: string | number
+  status: PaymentStatus
+  providerTradeNo?: string
+  bankCardLast4?: string
+  paymentUrl?: string
+  paidAt?: string
+  createTime: string
+}
+
+export interface PaymentRefundRequest {
+  paymentNo: string
+  amount: string | number
+  reason?: string
+}
+
+export interface PaymentRefundResponse {
+  ledgerId: number
+  paymentNo: string
+  amount: string | number
+  refundedAmount: string | number
+  paymentStatus: PaymentStatus
+  ledgerStatus: 'SUCCESS' | 'ACCEPTED' | 'FAILED'
+  createTime: string
+}
+
+export interface ReconciliationLine {
+  paymentNo: string
+  providerTradeNo?: string
+  amount: string | number
+}
+
+export interface PaymentReconciliationRequest {
+  provider: PaymentMethod
+  reportDate: string
+  lines: ReconciliationLine[]
+}
+
+export interface PaymentReconciliationResponse {
+  id: number
+  provider: PaymentMethod
+  reportDate: string
+  platformAmount: string | number
+  providerAmount: string | number
+  diffAmount: string | number
+  issueCount: number
+  status: 'BALANCED' | 'DIFF' | 'SUSPENDED'
+  createTime: string
+}
+
 export interface Stats {
   totalGmv: string
   totalOrders: number

@@ -94,6 +94,28 @@ import com.example.monkey.order.infrastructure.StockLogRepository;
 import com.example.monkey.order.interfaces.OrderController;
 import com.example.monkey.order.interfaces.OrderOwnership;
 import com.example.monkey.order.interfaces.dto.CreateOrderRequestDto;
+import com.example.monkey.payment.application.PaymentApplicationService;
+import com.example.monkey.payment.application.dto.PaymentCallbackRequestDto;
+import com.example.monkey.payment.application.dto.PaymentCreateRequestDto;
+import com.example.monkey.payment.application.dto.PaymentReconciliationRequestDto;
+import com.example.monkey.payment.application.dto.PaymentRefundRequestDto;
+import com.example.monkey.payment.application.dto.PaymentResponseDto;
+import com.example.monkey.payment.domain.PaymentCallbackReplayGuard;
+import com.example.monkey.payment.domain.PaymentGateway;
+import com.example.monkey.payment.domain.PaymentLedgerEntry;
+import com.example.monkey.payment.domain.PaymentOrder;
+import com.example.monkey.payment.domain.PaymentReconciliationReport;
+import com.example.monkey.payment.domain.PaymentStore;
+import com.example.monkey.payment.domain.PaymentTransitionResolver;
+import com.example.monkey.payment.infrastructure.JpaPaymentStore;
+import com.example.monkey.payment.infrastructure.PaymentCallbackLogEntity;
+import com.example.monkey.payment.infrastructure.PaymentLedgerEntity;
+import com.example.monkey.payment.infrastructure.PaymentOrderEntity;
+import com.example.monkey.payment.infrastructure.PaymentReconciliationReportEntity;
+import com.example.monkey.payment.infrastructure.RedisPaymentCallbackReplayGuard;
+import com.example.monkey.payment.infrastructure.SandboxPaymentGateway;
+import com.example.monkey.payment.infrastructure.SpringStateMachinePaymentTransitionResolver;
+import com.example.monkey.payment.interfaces.PaymentController;
 import com.example.monkey.product.application.MonkeyService;
 import com.example.monkey.product.application.dto.MonkeyRequestDto;
 import com.example.monkey.product.application.dto.MonkeyResponseDto;
@@ -606,6 +628,7 @@ class ArchitectureBoundaryTest {
                     "com.example.monkey.inventory..",
                     "com.example.monkey.marketing..",
                     "com.example.monkey.order..",
+                    "com.example.monkey.payment..",
                     "com.example.monkey.product..",
                     "com.example.monkey.shared..",
                     "com.example.monkey.user..")
@@ -631,6 +654,10 @@ class ArchitectureBoundaryTest {
                     "com.example.monkey.order.application..",
                     "com.example.monkey.order.infrastructure..",
                     "com.example.monkey.order.interfaces..",
+                    "com.example.monkey.payment.domain..",
+                    "com.example.monkey.payment.application..",
+                    "com.example.monkey.payment.infrastructure..",
+                    "com.example.monkey.payment.interfaces..",
                     "com.example.monkey.product.domain..",
                     "com.example.monkey.product.application..",
                     "com.example.monkey.product.infrastructure..",
@@ -762,6 +789,41 @@ class ArchitectureBoundaryTest {
         assertThat(MarketingCouponRepository.class.getPackageName())
                 .isEqualTo("com.example.monkey.marketing.infrastructure");
         assertThat(MarketingController.class.getPackageName()).isEqualTo("com.example.monkey.marketing.interfaces");
+    }
+
+    @Test
+    void paymentSliceUsesWs6BoundedContextLayers() {
+        assertThat(PaymentStore.class.getPackageName()).isEqualTo("com.example.monkey.payment.domain");
+        assertThat(PaymentGateway.class.getPackageName()).isEqualTo("com.example.monkey.payment.domain");
+        assertThat(PaymentCallbackReplayGuard.class.getPackageName()).isEqualTo("com.example.monkey.payment.domain");
+        assertThat(PaymentTransitionResolver.class.getPackageName()).isEqualTo("com.example.monkey.payment.domain");
+        assertThat(PaymentOrder.class.getPackageName()).isEqualTo("com.example.monkey.payment.domain");
+        assertThat(PaymentLedgerEntry.class.getPackageName()).isEqualTo("com.example.monkey.payment.domain");
+        assertThat(PaymentReconciliationReport.class.getPackageName()).isEqualTo("com.example.monkey.payment.domain");
+        assertThat(PaymentApplicationService.class.getPackageName())
+                .isEqualTo("com.example.monkey.payment.application");
+        assertThat(PaymentCreateRequestDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.payment.application.dto");
+        assertThat(PaymentCallbackRequestDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.payment.application.dto");
+        assertThat(PaymentRefundRequestDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.payment.application.dto");
+        assertThat(PaymentReconciliationRequestDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.payment.application.dto");
+        assertThat(PaymentResponseDto.class.getPackageName()).isEqualTo("com.example.monkey.payment.application.dto");
+        assertThat(JpaPaymentStore.class.getPackageName()).isEqualTo("com.example.monkey.payment.infrastructure");
+        assertThat(SandboxPaymentGateway.class.getPackageName()).isEqualTo("com.example.monkey.payment.infrastructure");
+        assertThat(RedisPaymentCallbackReplayGuard.class.getPackageName())
+                .isEqualTo("com.example.monkey.payment.infrastructure");
+        assertThat(SpringStateMachinePaymentTransitionResolver.class.getPackageName())
+                .isEqualTo("com.example.monkey.payment.infrastructure");
+        assertThat(PaymentOrderEntity.class.getPackageName()).isEqualTo("com.example.monkey.payment.infrastructure");
+        assertThat(PaymentLedgerEntity.class.getPackageName()).isEqualTo("com.example.monkey.payment.infrastructure");
+        assertThat(PaymentCallbackLogEntity.class.getPackageName())
+                .isEqualTo("com.example.monkey.payment.infrastructure");
+        assertThat(PaymentReconciliationReportEntity.class.getPackageName())
+                .isEqualTo("com.example.monkey.payment.infrastructure");
+        assertThat(PaymentController.class.getPackageName()).isEqualTo("com.example.monkey.payment.interfaces");
     }
 
     @Test
@@ -1220,6 +1282,14 @@ class ArchitectureBoundaryTest {
             .resideInAPackage("com.example.monkey.cart.domain..");
 
     @ArchTest
+    static final ArchRule payment_interfaces_do_not_depend_on_payment_domain = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.payment.interfaces..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("com.example.monkey.payment.domain..");
+
+    @ArchTest
     static final ArchRule address_controller_does_not_depend_on_user_domain = noClasses()
             .that()
             .haveSimpleName("AddressController")
@@ -1316,6 +1386,42 @@ class ArchitectureBoundaryTest {
     static final ArchRule marketing_idempotency_adapters_stay_out_of_service_package = classes()
             .that()
             .areAssignableTo(MarketingIdempotencyStore.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule payment_store_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(PaymentStore.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule payment_gateway_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(PaymentGateway.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule payment_callback_guard_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(PaymentCallbackReplayGuard.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule payment_transition_resolver_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(PaymentTransitionResolver.class)
             .and()
             .areNotInterfaces()
             .should()

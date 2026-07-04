@@ -131,6 +131,7 @@ public class SecurityConfig {
                                 "/shop",
                                 "/admin",
                                 "/orders",
+                                "/payment",
                                 "/profile",
                                 "/index.html",
                                 "/shop.html",
@@ -170,6 +171,8 @@ public class SecurityConfig {
                                 "/api/v1/auth/reset-password",
                                 "/api/auth/reset-password/request",
                                 "/api/v1/auth/reset-password/request")
+                        .permitAll()
+                        .requestMatchers("/api/payments/callback", "/api/v1/payments/callback")
                         .permitAll()
                         .requestMatchers(
                                 HttpMethod.GET, "/api/monkeys", "/api/v1/monkeys", "/api/user/me", "/api/v1/users/me")
@@ -231,6 +234,14 @@ public class SecurityConfig {
                         .hasAuthority("ORDER_MANAGE")
                         .requestMatchers("/api/cart/**", "/api/v1/cart/**")
                         .hasAuthority("ORDER_CREATE")
+                        .requestMatchers("/api/payments/pay", "/api/v1/payments/pay")
+                        .hasAuthority("ORDER_CREATE")
+                        .requestMatchers(
+                                "/api/payments/orders/**",
+                                "/api/v1/payments/orders/**",
+                                "/api/payments/refund",
+                                "/api/v1/payments/refund")
+                        .hasAuthority("ORDER_READ_OWN")
                         .requestMatchers(
                                 "/api/orders/my",
                                 "/api/v1/orders/my",
@@ -269,7 +280,9 @@ public class SecurityConfig {
                                 "/api/orders/return/approve/**",
                                 "/api/v1/orders/return/approve/**",
                                 "/api/orders/return/confirm/**",
-                                "/api/v1/orders/return/confirm/**")
+                                "/api/v1/orders/return/confirm/**",
+                                "/api/payments/reconciliation",
+                                "/api/v1/payments/reconciliation")
                         .hasAuthority("ORDER_MANAGE")
                         .requestMatchers(HttpMethod.DELETE, "/api/monkeys/**", "/api/v1/monkeys/**")
                         .hasAuthority("PRODUCT_MANAGE")

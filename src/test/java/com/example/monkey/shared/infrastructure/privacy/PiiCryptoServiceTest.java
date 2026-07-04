@@ -132,6 +132,14 @@ class PiiCryptoServiceTest {
     }
 
     @Test
+    void genericBlindIndexNormalizesBankCardsAndPlainStrings() {
+        PiiCryptoService service = enabledService();
+
+        assertThat(service.blindIndex("6222 0260 0670 5354 210")).isEqualTo(service.blindIndex("6222026006705354210"));
+        assertThat(service.blindIndex(" Buyer-A ")).isEqualTo(service.blindIndex("buyer-a"));
+    }
+
+    @Test
     void blindIndexReturnsNullWithoutHmacKey() {
         PiiCryptoService service = new PiiCryptoService(true, new SecretKeySpec(new byte[32], "AES"), null, "v1", true);
 

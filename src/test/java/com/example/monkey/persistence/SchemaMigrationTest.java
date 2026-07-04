@@ -45,6 +45,8 @@ class SchemaMigrationTest {
         String v16 = read("src/main/resources/db/migration/V16__pii_encryption_columns.sql");
         String v17 = read("src/main/resources/db/migration/V17__order_pii_anonymized_flag.sql");
         String v18 = read("src/main/resources/db/migration/V18__user_email_pii_encryption.sql");
+        String v30 = read("src/main/resources/db/migration/V30__payment_order.sql");
+        String v31 = read("src/main/resources/db/migration/V31__payment_reconciliation.sql");
 
         assertThat(v1).contains("CREATE TABLE IF NOT EXISTS `orders`");
         assertThat(v1).contains("`price` DOUBLE");
@@ -105,6 +107,14 @@ class SchemaMigrationTest {
         assertThat(v17).contains("idx_orders_retention_pii_batch");
         assertThat(v18).contains("DROP INDEX `idx_user_email`");
         assertThat(v18).contains("MODIFY COLUMN `email` VARCHAR(1024)");
+        assertThat(v30).contains("CREATE TABLE payment_order");
+        assertThat(v30).contains("CREATE TABLE payment_ledger");
+        assertThat(v30).contains("CREATE TABLE payment_callback_log");
+        assertThat(v30).contains("bank_card_hmac");
+        assertThat(v30).contains("version BIGINT NOT NULL DEFAULT 0");
+        assertThat(v31).contains("CREATE TABLE payment_reconciliation_report");
+        assertThat(v31).contains("encrypted_report_payload");
+        assertThat(v31).contains("uk_payment_reconciliation_provider_date");
     }
 
     private static String read(String path) throws IOException {

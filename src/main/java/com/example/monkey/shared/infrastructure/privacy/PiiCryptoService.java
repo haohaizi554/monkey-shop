@@ -142,10 +142,14 @@ public class PiiCryptoService {
     }
 
     public String blindIndexPhone(String phone) {
-        if (!StringUtils.hasText(phone) || hmacKey == null) {
+        return blindIndex(phone);
+    }
+
+    public String blindIndex(String value) {
+        if (!StringUtils.hasText(value) || hmacKey == null) {
             return null;
         }
-        return hmacHex(normalizePhone(phone));
+        return hmacHex(normalizeBlindIndexValue(value));
     }
 
     public boolean encryptionEnabled() {
@@ -174,9 +178,9 @@ public class PiiCryptoService {
         }
     }
 
-    private static String normalizePhone(String phone) {
-        String digits = phone.replaceAll("\\D", "");
-        return StringUtils.hasText(digits) ? digits : phone.trim().toLowerCase(Locale.ROOT);
+    private static String normalizeBlindIndexValue(String value) {
+        String digits = value.replaceAll("\\D", "");
+        return StringUtils.hasText(digits) ? digits : value.trim().toLowerCase(Locale.ROOT);
     }
 
     private static Map<String, Aead> createAeadsByVersion(

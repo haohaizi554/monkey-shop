@@ -121,6 +121,11 @@ onMounted(() => {
               {{ $t('common.review') }}
             </el-button>
           </RouterLink>
+          <RouterLink :to="`/payment/${order.id}`">
+            <el-button plain>
+              {{ $t('common.payment') }}
+            </el-button>
+          </RouterLink>
           <el-button
             v-if="orderStatusKey(order.status) === 'WAITING_RETURN_SHIPMENT'"
             plain

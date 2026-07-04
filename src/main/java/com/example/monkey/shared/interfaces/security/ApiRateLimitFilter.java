@@ -116,6 +116,9 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
                 && isCartPath(path)) {
             return ApiRateLimitOperation.CART;
         }
+        if (HttpMethod.POST.matches(method) && isPaymentPath(path)) {
+            return ApiRateLimitOperation.PAYMENT;
+        }
         if (HttpMethod.GET.matches(method)
                 && ("/api/monkeys".equals(path)
                         || (path != null
@@ -133,6 +136,14 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
 
     private static boolean isCartPath(String path) {
         return "/api/cart".equals(path) || (path != null && path.startsWith("/api/cart/"));
+    }
+
+    private static boolean isPaymentPath(String path) {
+        return path != null
+                && (path.startsWith("/api/payments/pay")
+                        || path.startsWith("/api/v1/payments/pay")
+                        || path.startsWith("/api/payments/refund")
+                        || path.startsWith("/api/v1/payments/refund"));
     }
 
     private static String authenticatedUserKey() {

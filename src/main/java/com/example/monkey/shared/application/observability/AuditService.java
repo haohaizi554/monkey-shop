@@ -77,6 +77,13 @@ public class AuditService {
     public static final String MARKETING_GROUP_CANCELLED = "MARKETING_GROUP_CANCELLED";
     public static final String CART_ITEM_CHANGED = "CART_ITEM_CHANGED";
     public static final String CART_CHECKOUT_CREATED = "CART_CHECKOUT_CREATED";
+    public static final String PAYMENT_CREATED = "PAYMENT_CREATED";
+    public static final String PAYMENT_PAID = "PAYMENT_PAID";
+    public static final String PAYMENT_FAILED = "PAYMENT_FAILED";
+    public static final String PAYMENT_CALLBACK_ACCEPTED = "PAYMENT_CALLBACK_ACCEPTED";
+    public static final String PAYMENT_REFUNDED = "PAYMENT_REFUNDED";
+    public static final String PAYMENT_RECONCILED = "PAYMENT_RECONCILED";
+    public static final String PAYMENT_HIGH_VALUE_DENIED = "PAYMENT_HIGH_VALUE_DENIED";
 
     private static final Logger log = LoggerFactory.getLogger(AuditService.class);
     private static final int DEFAULT_RETENTION_DAYS = 180;
