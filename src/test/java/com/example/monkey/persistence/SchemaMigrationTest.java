@@ -52,6 +52,8 @@ class SchemaMigrationTest {
         String v34 = read("src/main/resources/db/migration/V34__membership_level.sql");
         String v35 = read("src/main/resources/db/migration/V35__membership_points_wallet.sql");
         String v36 = read("src/main/resources/db/migration/V36__membership_collection.sql");
+        String v37 = read("src/main/resources/db/migration/V37__search_history.sql");
+        String v38 = read("src/main/resources/db/migration/V38__user_search_profile.sql");
 
         assertThat(v1).contains("CREATE TABLE IF NOT EXISTS `orders`");
         assertThat(v1).contains("`price` DOUBLE");
@@ -141,6 +143,14 @@ class SchemaMigrationTest {
         assertThat(v36).contains("CREATE TABLE membership_collection");
         assertThat(v36).contains("CREATE TABLE membership_price_drop_event");
         assertThat(v36).contains("CREATE TABLE membership_browse_history");
+        assertThat(v37).contains("CREATE TABLE search_history");
+        assertThat(v37).contains("idx_search_history_keyword_created");
+        assertThat(v37).contains("clicked_product_id");
+        assertThat(v38).contains("CREATE TABLE user_search_profile");
+        assertThat(v38).contains("encrypted_interest_profile");
+        assertThat(v38).contains("interest_profile_hmac");
+        assertThat(v38).contains("SEARCH_READ");
+        assertThat(v38).contains("SEARCH_WRITE");
     }
 
     private static String read(String path) throws IOException {

@@ -728,4 +728,77 @@ export interface PriceDropScanResult {
   scanned: number
   reminders: number
 }
+
+export type SearchSort = 'RELEVANCE' | 'PRICE_ASC' | 'PRICE_DESC' | 'NEWEST' | 'HOT'
+
+export interface SearchQuery {
+  keyword?: string
+  categoryId?: number
+  attributeKey?: string
+  attributeValue?: string
+  sort?: SearchSort
+  page?: number
+  size?: number
+}
+
+export interface SearchProduct {
+  productId: number
+  categoryId?: number | null
+  name: string
+  title?: string
+  imageUrl?: string
+  originalPrice: string | number
+  memberPrice?: string | number
+  attributes: Record<string, unknown>
+  score: number
+}
+
+export interface SearchPage {
+  content: SearchProduct[]
+  page: number
+  size: number
+  totalElements: number
+  totalPages: number
+  first: boolean
+  last: boolean
+}
+
+export interface SearchSuggestion {
+  keyword: string
+  source: string
+  score: number
+}
+
+export interface HotKeyword {
+  keyword: string
+  score: number
+}
+
+export interface Recommendation {
+  productId: number
+  name: string
+  title?: string
+  imageUrl?: string
+  reason: string
+  score: number
+}
+
+export interface SearchProfileRequest {
+  interestProfile: string
+  tags: string[]
+}
+
+export interface SearchProfile {
+  userId: number
+  maskedInterestProfile: string
+  tags: string[]
+  updatedAt: string
+  version: number
+}
+
+export interface SearchConversionRequest {
+  keyword?: string
+  productId: number
+  source?: string
+}
 export type ToastKind = 'success' | 'warning' | 'error' | 'info'

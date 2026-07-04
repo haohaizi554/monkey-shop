@@ -14,6 +14,7 @@ public class BusinessMetricsService {
     private final Timer orderCreateTimer;
     private final Counter orderCreatedCounter;
     private final Counter stockDeductFailureCounter;
+    private final Counter searchConversionCounter;
 
     public BusinessMetricsService(MeterRegistry meterRegistry, PendingOrderCounter pendingOrderCounter) {
         this.orderCreateTimer = Timer.builder("order.create")
@@ -24,6 +25,9 @@ public class BusinessMetricsService {
                 .register(meterRegistry);
         this.stockDeductFailureCounter = Counter.builder("stock.deduct.fail")
                 .description("Failed stock deduction attempts")
+                .register(meterRegistry);
+        this.searchConversionCounter = Counter.builder("search.conversion")
+                .description("Search result conversion events")
                 .register(meterRegistry);
         Gauge.builder("order.pending", pendingOrderCounter, counter -> counter.countPendingOrders())
                 .description("Orders paid but not shipped")
@@ -46,5 +50,9 @@ public class BusinessMetricsService {
 
     public void recordStockDeductFailure() {
         stockDeductFailureCounter.increment();
+    }
+
+    public void recordSearchConversion() {
+        searchConversionCounter.increment();
     }
 }

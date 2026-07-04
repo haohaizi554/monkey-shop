@@ -170,6 +170,20 @@ import com.example.monkey.product.infrastructure.Monkey;
 import com.example.monkey.product.infrastructure.MonkeyRepository;
 import com.example.monkey.product.infrastructure.ProductImageReferenceSource;
 import com.example.monkey.product.interfaces.MonkeyController;
+import com.example.monkey.search.application.SearchApplicationService;
+import com.example.monkey.search.application.dto.SearchPageDto;
+import com.example.monkey.search.application.dto.SearchProductQueryDto;
+import com.example.monkey.search.application.dto.UserSearchProfileRequestDto;
+import com.example.monkey.search.domain.RecommendationEngine;
+import com.example.monkey.search.domain.SearchActivityStore;
+import com.example.monkey.search.domain.SearchProduct;
+import com.example.monkey.search.domain.SearchStore;
+import com.example.monkey.search.domain.UserSearchProfile;
+import com.example.monkey.search.infrastructure.JpaSearchStore;
+import com.example.monkey.search.infrastructure.RedisSearchActivityStore;
+import com.example.monkey.search.infrastructure.SearchHistoryEntity;
+import com.example.monkey.search.infrastructure.UserSearchProfileEntity;
+import com.example.monkey.search.interfaces.SearchController;
 import com.example.monkey.shared.application.dto.PageResponseDto;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.observability.VisitMetricsService;
@@ -947,6 +961,27 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
+    void searchSliceUsesWs9BoundedContextLayers() {
+        assertThat(SearchStore.class.getPackageName()).isEqualTo("com.example.monkey.search.domain");
+        assertThat(SearchActivityStore.class.getPackageName()).isEqualTo("com.example.monkey.search.domain");
+        assertThat(SearchProduct.class.getPackageName()).isEqualTo("com.example.monkey.search.domain");
+        assertThat(UserSearchProfile.class.getPackageName()).isEqualTo("com.example.monkey.search.domain");
+        assertThat(RecommendationEngine.class.getPackageName()).isEqualTo("com.example.monkey.search.domain");
+        assertThat(SearchApplicationService.class.getPackageName()).isEqualTo("com.example.monkey.search.application");
+        assertThat(SearchPageDto.class.getPackageName()).isEqualTo("com.example.monkey.search.application.dto");
+        assertThat(SearchProductQueryDto.class.getPackageName()).isEqualTo("com.example.monkey.search.application.dto");
+        assertThat(UserSearchProfileRequestDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.search.application.dto");
+        assertThat(JpaSearchStore.class.getPackageName()).isEqualTo("com.example.monkey.search.infrastructure");
+        assertThat(RedisSearchActivityStore.class.getPackageName())
+                .isEqualTo("com.example.monkey.search.infrastructure");
+        assertThat(SearchHistoryEntity.class.getPackageName()).isEqualTo("com.example.monkey.search.infrastructure");
+        assertThat(UserSearchProfileEntity.class.getPackageName())
+                .isEqualTo("com.example.monkey.search.infrastructure");
+        assertThat(SearchController.class.getPackageName()).isEqualTo("com.example.monkey.search.interfaces");
+    }
+
+    @Test
     void cartSliceUsesWs4BoundedContextLayers() {
         assertThat(CartStore.class.getPackageName()).isEqualTo("com.example.monkey.cart.domain");
         assertThat(CartCheckoutStore.class.getPackageName()).isEqualTo("com.example.monkey.cart.domain");
@@ -1582,6 +1617,32 @@ class ArchitectureBoundaryTest {
             .areNotInterfaces()
             .should()
             .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule search_store_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(SearchStore.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule search_activity_store_adapters_stay_out_of_service_package = classes()
+            .that()
+            .areAssignableTo(SearchActivityStore.class)
+            .and()
+            .areNotInterfaces()
+            .should()
+            .resideOutsideOfPackage("..service..");
+
+    @ArchTest
+    static final ArchRule search_interfaces_do_not_depend_on_search_domain = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.search.interfaces..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("com.example.monkey.search.domain..");
 
     @ArchTest
     static final ArchRule address_book_adapters_stay_out_of_service_package = classes()

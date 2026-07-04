@@ -134,6 +134,8 @@ public class SecurityConfig {
                                 "/payment",
                                 "/logistics",
                                 "/membership",
+                                "/search",
+                                "/recommendations",
                                 "/profile",
                                 "/index.html",
                                 "/shop.html",
@@ -266,6 +268,22 @@ public class SecurityConfig {
                         .hasAuthority("MEMBERSHIP_ADMIN")
                         .requestMatchers("/api/membership/**", "/api/v1/membership/**")
                         .hasAuthority("MEMBERSHIP_WRITE")
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/search/products",
+                                "/api/v1/search/products",
+                                "/api/search/suggestions",
+                                "/api/v1/search/suggestions",
+                                "/api/search/hot",
+                                "/api/v1/search/hot")
+                        .permitAll()
+                        .requestMatchers(
+                                HttpMethod.GET, "/api/search/recommendations", "/api/v1/search/recommendations")
+                        .hasAuthority("SEARCH_READ")
+                        .requestMatchers("/api/search/profile", "/api/v1/search/profile")
+                        .hasAuthority("SEARCH_WRITE")
+                        .requestMatchers("/api/search/conversions", "/api/v1/search/conversions")
+                        .hasAuthority("SEARCH_WRITE")
                         .requestMatchers(
                                 "/api/orders/my",
                                 "/api/v1/orders/my",

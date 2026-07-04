@@ -98,6 +98,9 @@ public class AuditService {
     public static final String MEMBERSHIP_COLLECTION_ADDED = "MEMBERSHIP_COLLECTION_ADDED";
     public static final String MEMBERSHIP_COLLECTION_REMOVED = "MEMBERSHIP_COLLECTION_REMOVED";
     public static final String MEMBERSHIP_PRICE_DROP_NOTIFIED = "MEMBERSHIP_PRICE_DROP_NOTIFIED";
+    public static final String SEARCH_QUERY_RECORDED = "SEARCH_QUERY_RECORDED";
+    public static final String SEARCH_PROFILE_UPDATED = "SEARCH_PROFILE_UPDATED";
+    public static final String SEARCH_CONVERSION_RECORDED = "SEARCH_CONVERSION_RECORDED";
 
     private static final Logger log = LoggerFactory.getLogger(AuditService.class);
     private static final int DEFAULT_RETENTION_DAYS = 180;

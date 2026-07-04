@@ -201,6 +201,18 @@ class ApiRateLimitFilterTest {
 
         verify(membershipChain).doFilter(membershipRequest, membershipResponse);
         verify(rateLimitService).consume(ApiRateLimitOperation.MEMBERSHIP, "127.0.0.1", "anonymous");
+
+        when(rateLimitService.consume(ApiRateLimitOperation.SEARCH, "127.0.0.1", "anonymous"))
+                .thenReturn(new ApiRateLimitResult(true, 0));
+        MockHttpServletRequest searchRequest = new MockHttpServletRequest("GET", "/api/v1/search/products");
+        searchRequest.setRemoteAddr("127.0.0.1");
+        MockHttpServletResponse searchResponse = new MockHttpServletResponse();
+        FilterChain searchChain = mock(FilterChain.class);
+
+        filter.doFilter(searchRequest, searchResponse, searchChain);
+
+        verify(searchChain).doFilter(searchRequest, searchResponse);
+        verify(rateLimitService).consume(ApiRateLimitOperation.SEARCH, "127.0.0.1", "anonymous");
     }
 
     @Test
@@ -329,5 +341,16 @@ class ApiRateLimitFilterTest {
         assertThat(response.getStatus()).isEqualTo(403);
         verify(rateLimitService).blockForHoneypot("198.51.100.24");
         verify(chain, never()).doFilter(request, response);
+
+        MockHttpServletRequest searchTrap = new MockHttpServletRequest("GET", "/api/v1/search/internal/hot");
+        searchTrap.setRemoteAddr("198.51.100.25");
+        MockHttpServletResponse trapResponse = new MockHttpServletResponse();
+        FilterChain trapChain = mock(FilterChain.class);
+
+        filter.doFilter(searchTrap, trapResponse, trapChain);
+
+        assertThat(trapResponse.getStatus()).isEqualTo(403);
+        verify(rateLimitService).blockForHoneypot("198.51.100.25");
+        verify(trapChain, never()).doFilter(searchTrap, trapResponse);
     }
 }

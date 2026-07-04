@@ -20,6 +20,12 @@ export const router = createRouter({
     },
     { path: '/shop', component: () => import('@/views/ShopView.vue') },
     { path: '/shop/:productId', component: () => import('@/views/ProductDetailView.vue') },
+    { path: '/search', component: () => import('@/views/SearchView.vue') },
+    {
+      path: '/recommendations',
+      component: () => import('@/views/RecommendView.vue'),
+      meta: { requiresAuth: true },
+    },
     {
       path: '/orders',
       component: () => import('@/views/OrdersView.vue'),

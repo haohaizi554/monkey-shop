@@ -93,7 +93,10 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
 
     private static boolean isHoneypot(HttpServletRequest request) {
         String path = ApiPaths.canonicalize(request.getRequestURI());
-        return "/api/.env".equals(path) || "/admin/secret".equals(path) || "/api/seckill/internal/active".equals(path);
+        return "/api/.env".equals(path)
+                || "/admin/secret".equals(path)
+                || "/api/seckill/internal/active".equals(path)
+                || "/api/search/internal/hot".equals(path);
     }
 
     private static ApiRateLimitOperation operationFor(HttpServletRequest request) {
@@ -124,6 +127,9 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
         }
         if (isMembershipPath(path)) {
             return ApiRateLimitOperation.MEMBERSHIP;
+        }
+        if (isSearchPath(path)) {
+            return ApiRateLimitOperation.SEARCH;
         }
         if (HttpMethod.GET.matches(method)
                 && ("/api/monkeys".equals(path)
@@ -158,6 +164,10 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
 
     private static boolean isMembershipPath(String path) {
         return path != null && (path.startsWith("/api/membership") || path.startsWith("/api/v1/membership"));
+    }
+
+    private static boolean isSearchPath(String path) {
+        return path != null && (path.startsWith("/api/search") || path.startsWith("/api/v1/search"));
     }
 
     private static String authenticatedUserKey() {

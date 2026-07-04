@@ -443,6 +443,12 @@ class SecurityConfigTest {
                 authenticatedRoute(HttpMethod.POST, "/api/user/forget-me"),
                 authenticatedRoute(HttpMethod.GET, "/api/membership/dashboard"),
                 authenticatedRoute(HttpMethod.POST, "/api/membership/check-in"),
+                publicRoute(HttpMethod.GET, "/api/search/products"),
+                publicRoute(HttpMethod.GET, "/api/search/suggestions"),
+                publicRoute(HttpMethod.GET, "/api/search/hot"),
+                authenticatedRoute(HttpMethod.GET, "/api/search/recommendations"),
+                authenticatedRoute(HttpMethod.POST, "/api/search/profile"),
+                authenticatedRoute(HttpMethod.POST, "/api/search/conversions"),
                 authenticatedRoute(HttpMethod.POST, "/api/orders/create"),
                 authenticatedRoute(HttpMethod.GET, "/api/orders/my"),
                 authenticatedRoute(HttpMethod.POST, "/api/orders/receive/1"),
@@ -485,6 +491,12 @@ class SecurityConfigTest {
                 authenticatedRoute(HttpMethod.POST, "/api/v1/users/forget-me"),
                 authenticatedRoute(HttpMethod.GET, "/api/v1/membership/dashboard"),
                 authenticatedRoute(HttpMethod.POST, "/api/v1/membership/check-in"),
+                publicRoute(HttpMethod.GET, "/api/v1/search/products"),
+                publicRoute(HttpMethod.GET, "/api/v1/search/suggestions"),
+                publicRoute(HttpMethod.GET, "/api/v1/search/hot"),
+                authenticatedRoute(HttpMethod.GET, "/api/v1/search/recommendations"),
+                authenticatedRoute(HttpMethod.POST, "/api/v1/search/profile"),
+                authenticatedRoute(HttpMethod.POST, "/api/v1/search/conversions"),
                 authenticatedRoute(HttpMethod.POST, "/api/v1/orders/create"),
                 authenticatedRoute(HttpMethod.GET, "/api/v1/orders/my"),
                 authenticatedRoute(HttpMethod.POST, "/api/v1/orders/receive/1"),
@@ -638,6 +650,36 @@ class SecurityConfigTest {
 
         @PostMapping({"/api/membership/price-drops/scan", "/api/v1/membership/price-drops/scan"})
         String membershipPriceDropScan() {
+            return "ok";
+        }
+
+        @GetMapping({"/api/search/products", "/api/v1/search/products"})
+        String searchProducts() {
+            return "ok";
+        }
+
+        @GetMapping({"/api/search/suggestions", "/api/v1/search/suggestions"})
+        String searchSuggestions() {
+            return "ok";
+        }
+
+        @GetMapping({"/api/search/hot", "/api/v1/search/hot"})
+        String searchHot() {
+            return "ok";
+        }
+
+        @GetMapping({"/api/search/recommendations", "/api/v1/search/recommendations"})
+        String searchRecommendations() {
+            return "ok";
+        }
+
+        @PostMapping({"/api/search/profile", "/api/v1/search/profile"})
+        String searchProfile() {
+            return "ok";
+        }
+
+        @PostMapping({"/api/search/conversions", "/api/v1/search/conversions"})
+        String searchConversions() {
             return "ok";
         }
 
@@ -812,6 +854,9 @@ class SecurityConfigTest {
                     new SimpleGrantedAuthority("MEMBERSHIP_READ"),
                     new SimpleGrantedAuthority("MEMBERSHIP_WRITE"),
                     new SimpleGrantedAuthority("MEMBERSHIP_ADMIN"),
+                    new SimpleGrantedAuthority("SEARCH_READ"),
+                    new SimpleGrantedAuthority("SEARCH_WRITE"),
+                    new SimpleGrantedAuthority("SEARCH_ADMIN"),
                     new SimpleGrantedAuthority("UPLOAD_PRODUCT_IMAGE"));
         }
         return List.of(
@@ -824,6 +869,8 @@ class SecurityConfigTest {
                 new SimpleGrantedAuthority("ORDER_RETURN_REQUEST"),
                 new SimpleGrantedAuthority("MEMBERSHIP_READ"),
                 new SimpleGrantedAuthority("MEMBERSHIP_WRITE"),
+                new SimpleGrantedAuthority("SEARCH_READ"),
+                new SimpleGrantedAuthority("SEARCH_WRITE"),
                 new SimpleGrantedAuthority("UPLOAD_AVATAR"));
     }
 

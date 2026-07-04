@@ -6,6 +6,8 @@ const messages = {
   en: {
     nav: {
       shop: 'Shop',
+      search: 'Search',
+      recommend: 'Recommend',
       orders: 'Orders',
       cart: 'Cart',
       payment: 'Payment',
@@ -138,6 +140,8 @@ const messages = {
   zh: {
     nav: {
       shop: '\u5546\u57ce',
+      search: '\u641c\u7d22',
+      recommend: '\u63a8\u8350',
       orders: '\u8ba2\u5355',
       cart: '\u8d2d\u7269\u8f66',
       payment: '\u652f\u4ed8',

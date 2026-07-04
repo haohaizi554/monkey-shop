@@ -211,9 +211,9 @@ onMounted(() => {
           <el-table-column prop="priceDropNotified" label="Notified" width="120" />
           <el-table-column width="120">
             <template #default="{ row }">
-              <el-button type="danger" plain @click="removeCollection(row.productId)"
-                >Remove</el-button
-              >
+              <el-button type="danger" plain @click="removeCollection(row.productId)">
+                Remove
+              </el-button>
             </template>
           </el-table-column>
         </el-table>
