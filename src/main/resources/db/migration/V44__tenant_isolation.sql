@@ -1,4 +1,4 @@
-﻿CREATE TABLE tenant (
+CREATE TABLE tenant (
     id BIGINT NOT NULL,
     code VARCHAR(64) NOT NULL,
     name VARCHAR(128) NOT NULL,

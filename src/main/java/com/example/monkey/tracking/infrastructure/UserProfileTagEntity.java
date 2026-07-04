@@ -18,7 +18,7 @@ public class UserProfileTagEntity extends TenantScopedJpaEntity {
     @Column(length = 2048)
     private String encryptedProfileSummary;
 
-    @Column(length = 64)
+    @Column(columnDefinition = "CHAR(64)")
     private String profileSummaryHmac;
 
     @Column(columnDefinition = "json")

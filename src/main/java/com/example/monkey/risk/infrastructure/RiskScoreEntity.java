@@ -21,10 +21,10 @@ public class RiskScoreEntity extends TenantScopedJpaEntity {
     @Column(nullable = false)
     private Long userId;
 
-    @Column(nullable = false, length = 64)
+    @Column(nullable = false, columnDefinition = "CHAR(64)")
     private String deviceFingerprintHash;
 
-    @Column(length = 64)
+    @Column(columnDefinition = "CHAR(64)")
     private String phoneHmac;
 
     @Column(nullable = false)
