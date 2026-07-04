@@ -1855,6 +1855,105 @@ class ArchitectureBoundaryTest {
             .resideInAPackage("com.example.monkey.tenant.domain..");
 
     @ArchTest
+    static final ArchRule tenant_application_does_not_depend_on_tenant_infrastructure = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.tenant.application..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("com.example.monkey.tenant.infrastructure..");
+
+    @ArchTest
+    static final ArchRule tenant_application_does_not_depend_on_tenant_interfaces = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.tenant.application..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("com.example.monkey.tenant.interfaces..");
+
+    @ArchTest
+    static final ArchRule tenant_infrastructure_does_not_depend_on_tenant_interfaces = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.tenant.infrastructure..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("com.example.monkey.tenant.interfaces..");
+
+    @ArchTest
+    static final ArchRule tenant_interfaces_do_not_depend_on_tenant_infrastructure = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.tenant.interfaces..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("com.example.monkey.tenant.infrastructure..");
+
+    @ArchTest
+    static final ArchRule tenant_domain_does_not_depend_on_tenant_application = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.tenant.domain..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("com.example.monkey.tenant.application..");
+
+    @ArchTest
+    static final ArchRule tenant_domain_does_not_depend_on_tenant_infrastructure = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.tenant.domain..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("com.example.monkey.tenant.infrastructure..");
+
+    @ArchTest
+    static final ArchRule tenant_domain_does_not_depend_on_tenant_interfaces = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.tenant.domain..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("com.example.monkey.tenant.interfaces..");
+
+    @ArchTest
+    static final ArchRule tenant_domain_does_not_depend_on_spring = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.tenant.domain..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("org.springframework..");
+
+    @ArchTest
+    static final ArchRule tenant_domain_does_not_depend_on_jakarta_persistence = noClasses()
+            .that()
+            .resideInAPackage("com.example.monkey.tenant.domain..")
+            .should()
+            .dependOnClassesThat()
+            .resideInAPackage("jakarta.persistence..");
+
+    @ArchTest
+    static final ArchRule tenant_repositories_stay_in_tenant_infrastructure = classes()
+            .that()
+            .resideInAPackage("com.example.monkey.tenant..")
+            .and()
+            .haveSimpleNameEndingWith("Repository")
+            .should()
+            .resideInAPackage("com.example.monkey.tenant.infrastructure..");
+
+    @ArchTest
+    static final ArchRule tenant_entities_stay_in_tenant_infrastructure = classes()
+            .that()
+            .resideInAPackage("com.example.monkey.tenant..")
+            .and()
+            .haveSimpleNameEndingWith("Entity")
+            .should()
+            .resideInAPackage("com.example.monkey.tenant.infrastructure..");
+
+    @ArchTest
+    static final ArchRule tenant_dtos_stay_in_tenant_application_dto = classes()
+            .that()
+            .resideInAPackage("com.example.monkey.tenant..")
+            .and()
+            .haveSimpleNameEndingWith("Dto")
+            .should()
+            .resideInAPackage("com.example.monkey.tenant.application.dto..");
+
+    @ArchTest
     static final ArchRule address_book_adapters_stay_out_of_service_package = classes()
             .that()
             .areAssignableTo(AddressBook.class)
