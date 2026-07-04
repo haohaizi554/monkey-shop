@@ -3,9 +3,9 @@ package com.example.monkey.tenant.domain;
 import java.math.BigDecimal;
 
 public enum TenantPlan {
-    STARTER(new BigDecimal("99.00"), 1000L, new BigDecimal("0.0800")),
-    GROWTH(new BigDecimal("399.00"), 10000L, new BigDecimal("0.0300")),
-    ENTERPRISE(new BigDecimal("1999.00"), 100000L, new BigDecimal("0.0100"));
+    STARTER(BigDecimal.valueOf(9900, 2), 1000L, BigDecimal.valueOf(800, 4)),
+    GROWTH(BigDecimal.valueOf(39900, 2), 10000L, BigDecimal.valueOf(300, 4)),
+    ENTERPRISE(BigDecimal.valueOf(199900, 2), 100000L, BigDecimal.valueOf(100, 4));
 
     private final BigDecimal monthlyFee;
     private final long includedOrderCount;
