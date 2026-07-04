@@ -245,6 +245,95 @@ export interface PaymentReconciliationResponse {
   createTime: string
 }
 
+export type LogisticsCarrier = 'SF' | 'ZTO' | 'YTO'
+export type TrackingStatus = 'ORDERED' | 'PICKED_UP' | 'IN_TRANSIT' | 'OUT_FOR_DELIVERY' | 'SIGNED'
+export type TrackingEvent = 'PICKUP' | 'TRANSIT' | 'DISPATCH' | 'SIGN'
+export type FreightChargeMode = 'WEIGHT' | 'ITEM' | 'REGION'
+
+export interface ShipmentCreateRequest {
+  orderId: number
+  carrier: LogisticsCarrier
+  recipientPhone?: string
+  addressText?: string
+  province?: string
+  city?: string
+  district?: string
+  detail?: string
+  weightKg: string | number
+  itemCount: number
+}
+
+export interface FreightQuoteRequest {
+  carrier: LogisticsCarrier
+  province?: string
+  weightKg: string | number
+  itemCount: number
+}
+
+export interface FreightQuoteResponse {
+  carrier: LogisticsCarrier
+  province?: string
+  weightKg: string | number
+  itemCount: number
+  amount: string | number
+  etaHours: number
+  appliedModes: FreightChargeMode[]
+}
+
+export interface ParsedAddress {
+  province: string
+  city: string
+  district: string
+  detail: string
+}
+
+export interface AddressParseRequest {
+  text: string
+}
+
+export interface TrackingWebhookRequest {
+  carrier: LogisticsCarrier
+  trackingNo: string
+  eventId: string
+  event: TrackingEvent
+  eventTime?: string
+  location?: string
+  remark?: string
+}
+
+export interface TrackingEventRecord {
+  id: number
+  eventType: TrackingEvent
+  fromStatus: TrackingStatus
+  toStatus: TrackingStatus
+  eventId: string
+  eventTime: string
+  location?: string
+  remark?: string
+}
+
+export interface LogisticsTracking {
+  id: number
+  trackingNo: string
+  orderId: number
+  userId: number
+  carrier: LogisticsCarrier
+  status: TrackingStatus
+  province?: string
+  city?: string
+  district?: string
+  detailSummary?: string
+  freightAmount: string | number
+  etaHours: number
+  pickedUpAt?: string
+  inTransitAt?: string
+  outForDeliveryAt?: string
+  signedAt?: string
+  createTime: string
+  updateTime: string
+  events: TrackingEventRecord[]
+}
+
 export interface Stats {
   totalGmv: string
   totalOrders: number

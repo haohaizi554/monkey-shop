@@ -47,6 +47,29 @@ import com.example.monkey.inventory.infrastructure.InventoryWarehouseRepository;
 import com.example.monkey.inventory.infrastructure.JpaInventoryStore;
 import com.example.monkey.inventory.infrastructure.RedissonInventoryLockManager;
 import com.example.monkey.inventory.interfaces.InventoryController;
+import com.example.monkey.logistics.application.LogisticsApplicationService;
+import com.example.monkey.logistics.application.dto.FreightQuoteRequestDto;
+import com.example.monkey.logistics.application.dto.LogisticsTrackingResponseDto;
+import com.example.monkey.logistics.application.dto.ShipmentCreateRequestDto;
+import com.example.monkey.logistics.application.dto.TrackingWebhookRequestDto;
+import com.example.monkey.logistics.domain.AddressParser;
+import com.example.monkey.logistics.domain.FreightTemplate;
+import com.example.monkey.logistics.domain.LogisticsGateway;
+import com.example.monkey.logistics.domain.LogisticsStore;
+import com.example.monkey.logistics.domain.LogisticsTracking;
+import com.example.monkey.logistics.domain.LogisticsTransitionResolver;
+import com.example.monkey.logistics.domain.LogisticsWebhookReplayGuard;
+import com.example.monkey.logistics.domain.TrackingEventRecord;
+import com.example.monkey.logistics.infrastructure.FreightTemplateEntity;
+import com.example.monkey.logistics.infrastructure.JpaLogisticsStore;
+import com.example.monkey.logistics.infrastructure.LogisticsTrackingEntity;
+import com.example.monkey.logistics.infrastructure.LogisticsTrackingEventEntity;
+import com.example.monkey.logistics.infrastructure.LogisticsWebhookLogEntity;
+import com.example.monkey.logistics.infrastructure.RedisLogisticsWebhookReplayGuard;
+import com.example.monkey.logistics.infrastructure.RuleBasedAddressParser;
+import com.example.monkey.logistics.infrastructure.SandboxLogisticsGateway;
+import com.example.monkey.logistics.infrastructure.SpringStateMachineLogisticsTransitionResolver;
+import com.example.monkey.logistics.interfaces.LogisticsController;
 import com.example.monkey.marketing.application.MarketingApplicationService;
 import com.example.monkey.marketing.application.dto.CouponClaimRequestDto;
 import com.example.monkey.marketing.application.dto.GroupBuyJoinRequestDto;
@@ -824,6 +847,46 @@ class ArchitectureBoundaryTest {
         assertThat(PaymentReconciliationReportEntity.class.getPackageName())
                 .isEqualTo("com.example.monkey.payment.infrastructure");
         assertThat(PaymentController.class.getPackageName()).isEqualTo("com.example.monkey.payment.interfaces");
+    }
+
+    @Test
+    void logisticsSliceUsesWs7BoundedContextLayers() {
+        assertThat(LogisticsStore.class.getPackageName()).isEqualTo("com.example.monkey.logistics.domain");
+        assertThat(LogisticsGateway.class.getPackageName()).isEqualTo("com.example.monkey.logistics.domain");
+        assertThat(LogisticsWebhookReplayGuard.class.getPackageName()).isEqualTo("com.example.monkey.logistics.domain");
+        assertThat(LogisticsTransitionResolver.class.getPackageName()).isEqualTo("com.example.monkey.logistics.domain");
+        assertThat(AddressParser.class.getPackageName()).isEqualTo("com.example.monkey.logistics.domain");
+        assertThat(LogisticsTracking.class.getPackageName()).isEqualTo("com.example.monkey.logistics.domain");
+        assertThat(TrackingEventRecord.class.getPackageName()).isEqualTo("com.example.monkey.logistics.domain");
+        assertThat(FreightTemplate.class.getPackageName()).isEqualTo("com.example.monkey.logistics.domain");
+        assertThat(LogisticsApplicationService.class.getPackageName())
+                .isEqualTo("com.example.monkey.logistics.application");
+        assertThat(ShipmentCreateRequestDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.logistics.application.dto");
+        assertThat(FreightQuoteRequestDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.logistics.application.dto");
+        assertThat(TrackingWebhookRequestDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.logistics.application.dto");
+        assertThat(LogisticsTrackingResponseDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.logistics.application.dto");
+        assertThat(JpaLogisticsStore.class.getPackageName()).isEqualTo("com.example.monkey.logistics.infrastructure");
+        assertThat(SandboxLogisticsGateway.class.getPackageName())
+                .isEqualTo("com.example.monkey.logistics.infrastructure");
+        assertThat(RedisLogisticsWebhookReplayGuard.class.getPackageName())
+                .isEqualTo("com.example.monkey.logistics.infrastructure");
+        assertThat(SpringStateMachineLogisticsTransitionResolver.class.getPackageName())
+                .isEqualTo("com.example.monkey.logistics.infrastructure");
+        assertThat(RuleBasedAddressParser.class.getPackageName())
+                .isEqualTo("com.example.monkey.logistics.infrastructure");
+        assertThat(LogisticsTrackingEntity.class.getPackageName())
+                .isEqualTo("com.example.monkey.logistics.infrastructure");
+        assertThat(LogisticsTrackingEventEntity.class.getPackageName())
+                .isEqualTo("com.example.monkey.logistics.infrastructure");
+        assertThat(LogisticsWebhookLogEntity.class.getPackageName())
+                .isEqualTo("com.example.monkey.logistics.infrastructure");
+        assertThat(FreightTemplateEntity.class.getPackageName())
+                .isEqualTo("com.example.monkey.logistics.infrastructure");
+        assertThat(LogisticsController.class.getPackageName()).isEqualTo("com.example.monkey.logistics.interfaces");
     }
 
     @Test

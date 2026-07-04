@@ -132,6 +132,7 @@ public class SecurityConfig {
                                 "/admin",
                                 "/orders",
                                 "/payment",
+                                "/logistics",
                                 "/profile",
                                 "/index.html",
                                 "/shop.html",
@@ -173,6 +174,8 @@ public class SecurityConfig {
                                 "/api/v1/auth/reset-password/request")
                         .permitAll()
                         .requestMatchers("/api/payments/callback", "/api/v1/payments/callback")
+                        .permitAll()
+                        .requestMatchers("/api/logistics/webhook", "/api/v1/logistics/webhook")
                         .permitAll()
                         .requestMatchers(
                                 HttpMethod.GET, "/api/monkeys", "/api/v1/monkeys", "/api/user/me", "/api/v1/users/me")
@@ -242,6 +245,20 @@ public class SecurityConfig {
                                 "/api/payments/refund",
                                 "/api/v1/payments/refund")
                         .hasAuthority("ORDER_READ_OWN")
+                        .requestMatchers(
+                                "/api/logistics/shipments",
+                                "/api/v1/logistics/shipments",
+                                "/api/logistics/orders/**",
+                                "/api/v1/logistics/orders/**",
+                                "/api/logistics/tracking/**",
+                                "/api/v1/logistics/tracking/**")
+                        .hasAuthority("ORDER_READ_OWN")
+                        .requestMatchers(
+                                "/api/logistics/freight/quote",
+                                "/api/v1/logistics/freight/quote",
+                                "/api/logistics/address/parse",
+                                "/api/v1/logistics/address/parse")
+                        .hasAuthority("ORDER_CREATE")
                         .requestMatchers(
                                 "/api/orders/my",
                                 "/api/v1/orders/my",

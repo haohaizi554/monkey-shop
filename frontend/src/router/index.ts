@@ -36,6 +36,11 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/logistics/:orderId?',
+      component: () => import('@/views/LogisticsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/cart',
       component: () => import('@/views/CartView.vue'),
       meta: { requiresAuth: true },

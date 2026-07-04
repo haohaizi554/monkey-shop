@@ -84,6 +84,11 @@ public class AuditService {
     public static final String PAYMENT_REFUNDED = "PAYMENT_REFUNDED";
     public static final String PAYMENT_RECONCILED = "PAYMENT_RECONCILED";
     public static final String PAYMENT_HIGH_VALUE_DENIED = "PAYMENT_HIGH_VALUE_DENIED";
+    public static final String LOGISTICS_SHIPMENT_CREATED = "LOGISTICS_SHIPMENT_CREATED";
+    public static final String LOGISTICS_WEBHOOK_ACCEPTED = "LOGISTICS_WEBHOOK_ACCEPTED";
+    public static final String LOGISTICS_SIGNED = "LOGISTICS_SIGNED";
+    public static final String LOGISTICS_FREIGHT_QUOTED = "LOGISTICS_FREIGHT_QUOTED";
+    public static final String LOGISTICS_ADDRESS_PARSED = "LOGISTICS_ADDRESS_PARSED";
 
     private static final Logger log = LoggerFactory.getLogger(AuditService.class);
     private static final int DEFAULT_RETENTION_DAYS = 180;

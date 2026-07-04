@@ -152,6 +152,46 @@ class ApiRateLimitFilterTest {
     }
 
     @Test
+    void logisticsPaymentAndSeckillPathsUseDedicatedPolicies() throws Exception {
+        when(rateLimitService.consume(ApiRateLimitOperation.LOGISTICS, "127.0.0.1", "anonymous"))
+                .thenReturn(new ApiRateLimitResult(true, 0));
+        MockHttpServletRequest logisticsRequest =
+                new MockHttpServletRequest("GET", "/api/v1/logistics/tracking/SF7000");
+        logisticsRequest.setRemoteAddr("127.0.0.1");
+        MockHttpServletResponse logisticsResponse = new MockHttpServletResponse();
+        FilterChain logisticsChain = mock(FilterChain.class);
+
+        filter.doFilter(logisticsRequest, logisticsResponse, logisticsChain);
+
+        verify(logisticsChain).doFilter(logisticsRequest, logisticsResponse);
+        verify(rateLimitService).consume(ApiRateLimitOperation.LOGISTICS, "127.0.0.1", "anonymous");
+
+        when(rateLimitService.consume(ApiRateLimitOperation.PAYMENT, "127.0.0.1", "anonymous"))
+                .thenReturn(new ApiRateLimitResult(true, 0));
+        MockHttpServletRequest paymentRequest = new MockHttpServletRequest("POST", "/api/v1/payments/refund");
+        paymentRequest.setRemoteAddr("127.0.0.1");
+        MockHttpServletResponse paymentResponse = new MockHttpServletResponse();
+        FilterChain paymentChain = mock(FilterChain.class);
+
+        filter.doFilter(paymentRequest, paymentResponse, paymentChain);
+
+        verify(paymentChain).doFilter(paymentRequest, paymentResponse);
+        verify(rateLimitService).consume(ApiRateLimitOperation.PAYMENT, "127.0.0.1", "anonymous");
+
+        when(rateLimitService.consume(ApiRateLimitOperation.SECKILL, "127.0.0.1", "anonymous"))
+                .thenReturn(new ApiRateLimitResult(true, 0));
+        MockHttpServletRequest seckillRequest = new MockHttpServletRequest("POST", "/api/marketing/seckill-orders");
+        seckillRequest.setRemoteAddr("127.0.0.1");
+        MockHttpServletResponse seckillResponse = new MockHttpServletResponse();
+        FilterChain seckillChain = mock(FilterChain.class);
+
+        filter.doFilter(seckillRequest, seckillResponse, seckillChain);
+
+        verify(seckillChain).doFilter(seckillRequest, seckillResponse);
+        verify(rateLimitService).consume(ApiRateLimitOperation.SECKILL, "127.0.0.1", "anonymous");
+    }
+
+    @Test
     void skipsNonApiAndOptionsRequests() throws Exception {
         MockHttpServletResponse pageResponse = new MockHttpServletResponse();
         MockHttpServletRequest pageRequest = new MockHttpServletRequest("GET", "/");

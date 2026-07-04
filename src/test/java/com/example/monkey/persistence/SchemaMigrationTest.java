@@ -47,6 +47,8 @@ class SchemaMigrationTest {
         String v18 = read("src/main/resources/db/migration/V18__user_email_pii_encryption.sql");
         String v30 = read("src/main/resources/db/migration/V30__payment_order.sql");
         String v31 = read("src/main/resources/db/migration/V31__payment_reconciliation.sql");
+        String v32 = read("src/main/resources/db/migration/V32__logistics_tracking.sql");
+        String v33 = read("src/main/resources/db/migration/V33__logistics_freight_template.sql");
 
         assertThat(v1).contains("CREATE TABLE IF NOT EXISTS `orders`");
         assertThat(v1).contains("`price` DOUBLE");
@@ -115,6 +117,16 @@ class SchemaMigrationTest {
         assertThat(v31).contains("CREATE TABLE payment_reconciliation_report");
         assertThat(v31).contains("encrypted_report_payload");
         assertThat(v31).contains("uk_payment_reconciliation_provider_date");
+        assertThat(v32).contains("CREATE TABLE logistics_tracking");
+        assertThat(v32).contains("CREATE TABLE logistics_tracking_event");
+        assertThat(v32).contains("CREATE TABLE logistics_webhook_log");
+        assertThat(v32).contains("recipient_phone_hmac");
+        assertThat(v32).contains("version BIGINT NOT NULL DEFAULT 0");
+        assertThat(v33).contains("CREATE TABLE logistics_freight_template");
+        assertThat(v33).contains("uk_logistics_freight_template");
+        assertThat(v33).contains("'SF'");
+        assertThat(v33).contains("'ZTO'");
+        assertThat(v33).contains("'YTO'");
     }
 
     private static String read(String path) throws IOException {
