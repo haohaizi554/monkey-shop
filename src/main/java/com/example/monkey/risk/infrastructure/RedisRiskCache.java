@@ -10,6 +10,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -28,6 +29,7 @@ public class RedisRiskCache implements RiskCache {
     private final Map<String, Set<String>> fallbackSeckillUsers = new ConcurrentHashMap<>();
     private final Map<Long, RiskScore> fallbackScores = new ConcurrentHashMap<>();
 
+    @Autowired
     public RedisRiskCache(ObjectProvider<StringRedisTemplate> redisTemplateProvider, ObjectMapper objectMapper) {
         this.redisTemplate = redisTemplateProvider.getIfAvailable();
         this.objectMapper = objectMapper;

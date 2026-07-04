@@ -24,7 +24,7 @@ public class TenantBillEntity implements TenantScoped {
 
     private Long tenantId;
 
-    @Column(nullable = false, length = 7)
+    @Column(nullable = false, columnDefinition = "CHAR(7)")
     private String billingMonth;
 
     @Enumerated(EnumType.STRING)

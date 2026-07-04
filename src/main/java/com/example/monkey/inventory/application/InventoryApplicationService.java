@@ -25,6 +25,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -45,6 +46,7 @@ public class InventoryApplicationService {
     private final Clock clock;
     private final Duration reservationTtl;
 
+    @Autowired
     public InventoryApplicationService(
             InventoryStore inventoryStore,
             InventoryLockManager lockManager,
