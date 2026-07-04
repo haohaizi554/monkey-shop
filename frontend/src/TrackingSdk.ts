@@ -46,7 +46,10 @@ function inferProductId(path: string): number | undefined {
   return match ? Number(match[1]) : undefined
 }
 
-export function trackEvent(eventType: TrackingEventType, payload: Partial<TrackingEventRequest> = {}) {
+export function trackEvent(
+  eventType: TrackingEventType,
+  payload: Partial<TrackingEventRequest> = {},
+) {
   send(eventType, payload)
 }
 

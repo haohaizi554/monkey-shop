@@ -7,9 +7,7 @@ import type {
   UserProfileTag,
 } from '@/types'
 
-export function recordTrackingEvent(
-  payload: TrackingEventRequest,
-): Promise<TrackingEventResponse> {
+export function recordTrackingEvent(payload: TrackingEventRequest): Promise<TrackingEventResponse> {
   return request<TrackingEventResponse>({
     url: '/tracking/events',
     method: 'POST',

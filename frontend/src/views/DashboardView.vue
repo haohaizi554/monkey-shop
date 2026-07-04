@@ -2,11 +2,7 @@
 import { DataLine, Refresh, TrendCharts, User } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import {
-  currentTrackingProfile,
-  trackingDashboard,
-  trackingProductProfile,
-} from '@/api/tracking'
+import { currentTrackingProfile, trackingDashboard, trackingProductProfile } from '@/api/tracking'
 import AppShell from '@/components/AppShell.vue'
 import type { ProductProfile, RealtimeDashboard, UserProfileTag } from '@/types'
 
@@ -135,9 +131,17 @@ onBeforeUnmount(() => {
         <div class="profile-panel">
           <div class="section-heading">
             <h2>Product Profile</h2>
-            <el-input-number v-model="productId" :min="1" size="small" @change="loadProductProfile" />
+            <el-input-number
+              v-model="productId"
+              :min="1"
+              size="small"
+              @change="loadProductProfile"
+            />
           </div>
-          <p>Sales {{ productProfile?.salesCount ?? 0 }} / Review {{ productProfile?.reviewScore ?? 0 }}</p>
+          <p>
+            Sales {{ productProfile?.salesCount ?? 0 }} / Review
+            {{ productProfile?.reviewScore ?? 0 }}
+          </p>
           <div class="tag-row">
             <el-tag v-for="tag in productProfile?.tagVector ?? []" :key="tag">
               {{ tag }}
