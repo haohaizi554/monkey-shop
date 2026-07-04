@@ -89,6 +89,15 @@ public class AuditService {
     public static final String LOGISTICS_SIGNED = "LOGISTICS_SIGNED";
     public static final String LOGISTICS_FREIGHT_QUOTED = "LOGISTICS_FREIGHT_QUOTED";
     public static final String LOGISTICS_ADDRESS_PARSED = "LOGISTICS_ADDRESS_PARSED";
+    public static final String MEMBERSHIP_IDENTITY_VERIFIED = "MEMBERSHIP_IDENTITY_VERIFIED";
+    public static final String MEMBERSHIP_CHECKED_IN = "MEMBERSHIP_CHECKED_IN";
+    public static final String MEMBERSHIP_POINTS_EARNED = "MEMBERSHIP_POINTS_EARNED";
+    public static final String MEMBERSHIP_POINTS_REDEEMED = "MEMBERSHIP_POINTS_REDEEMED";
+    public static final String MEMBERSHIP_LEVEL_CHANGED = "MEMBERSHIP_LEVEL_CHANGED";
+    public static final String MEMBERSHIP_LEVEL_DENIED = "MEMBERSHIP_LEVEL_DENIED";
+    public static final String MEMBERSHIP_COLLECTION_ADDED = "MEMBERSHIP_COLLECTION_ADDED";
+    public static final String MEMBERSHIP_COLLECTION_REMOVED = "MEMBERSHIP_COLLECTION_REMOVED";
+    public static final String MEMBERSHIP_PRICE_DROP_NOTIFIED = "MEMBERSHIP_PRICE_DROP_NOTIFIED";
 
     private static final Logger log = LoggerFactory.getLogger(AuditService.class);
     private static final int DEFAULT_RETENTION_DAYS = 180;

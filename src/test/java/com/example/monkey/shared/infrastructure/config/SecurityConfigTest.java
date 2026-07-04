@@ -441,6 +441,8 @@ class SecurityConfigTest {
                 authenticatedRoute(HttpMethod.GET, "/api/user/profile"),
                 authenticatedRoute(HttpMethod.POST, "/api/user/update-password"),
                 authenticatedRoute(HttpMethod.POST, "/api/user/forget-me"),
+                authenticatedRoute(HttpMethod.GET, "/api/membership/dashboard"),
+                authenticatedRoute(HttpMethod.POST, "/api/membership/check-in"),
                 authenticatedRoute(HttpMethod.POST, "/api/orders/create"),
                 authenticatedRoute(HttpMethod.GET, "/api/orders/my"),
                 authenticatedRoute(HttpMethod.POST, "/api/orders/receive/1"),
@@ -456,6 +458,7 @@ class SecurityConfigTest {
                 adminRoute(HttpMethod.POST, "/api/orders/ship/1"),
                 adminRoute(HttpMethod.POST, "/api/orders/return/approve/1"),
                 adminRoute(HttpMethod.POST, "/api/orders/return/confirm/1"),
+                adminRoute(HttpMethod.POST, "/api/membership/price-drops/scan"),
                 adminRoute(HttpMethod.DELETE, "/api/monkeys/1"),
                 authenticatedRoute(HttpMethod.DELETE, "/api/orders/1"));
     }
@@ -480,6 +483,8 @@ class SecurityConfigTest {
                 authenticatedRoute(HttpMethod.GET, "/api/v1/users/profile"),
                 authenticatedRoute(HttpMethod.POST, "/api/v1/users/update-password"),
                 authenticatedRoute(HttpMethod.POST, "/api/v1/users/forget-me"),
+                authenticatedRoute(HttpMethod.GET, "/api/v1/membership/dashboard"),
+                authenticatedRoute(HttpMethod.POST, "/api/v1/membership/check-in"),
                 authenticatedRoute(HttpMethod.POST, "/api/v1/orders/create"),
                 authenticatedRoute(HttpMethod.GET, "/api/v1/orders/my"),
                 authenticatedRoute(HttpMethod.POST, "/api/v1/orders/receive/1"),
@@ -495,6 +500,7 @@ class SecurityConfigTest {
                 adminRoute(HttpMethod.POST, "/api/v1/orders/ship/1"),
                 adminRoute(HttpMethod.POST, "/api/v1/orders/return/approve/1"),
                 adminRoute(HttpMethod.POST, "/api/v1/orders/return/confirm/1"),
+                adminRoute(HttpMethod.POST, "/api/v1/membership/price-drops/scan"),
                 adminRoute(HttpMethod.DELETE, "/api/v1/monkeys/1"),
                 authenticatedRoute(HttpMethod.DELETE, "/api/v1/orders/1"));
     }
@@ -617,6 +623,21 @@ class SecurityConfigTest {
 
         @PostMapping({"/api/user/forget-me", "/api/v1/users/forget-me"})
         String forgetMe() {
+            return "ok";
+        }
+
+        @GetMapping({"/api/membership/dashboard", "/api/v1/membership/dashboard"})
+        String membershipDashboard() {
+            return "ok";
+        }
+
+        @PostMapping({"/api/membership/check-in", "/api/v1/membership/check-in"})
+        String membershipCheckIn() {
+            return "ok";
+        }
+
+        @PostMapping({"/api/membership/price-drops/scan", "/api/v1/membership/price-drops/scan"})
+        String membershipPriceDropScan() {
             return "ok";
         }
 
@@ -788,6 +809,9 @@ class SecurityConfigTest {
                     new SimpleGrantedAuthority("ADMIN_DASHBOARD_READ"),
                     new SimpleGrantedAuthority("PRODUCT_MANAGE"),
                     new SimpleGrantedAuthority("ORDER_MANAGE"),
+                    new SimpleGrantedAuthority("MEMBERSHIP_READ"),
+                    new SimpleGrantedAuthority("MEMBERSHIP_WRITE"),
+                    new SimpleGrantedAuthority("MEMBERSHIP_ADMIN"),
                     new SimpleGrantedAuthority("UPLOAD_PRODUCT_IMAGE"));
         }
         return List.of(
@@ -798,6 +822,8 @@ class SecurityConfigTest {
                 new SimpleGrantedAuthority("ORDER_CREATE"),
                 new SimpleGrantedAuthority("ORDER_READ_OWN"),
                 new SimpleGrantedAuthority("ORDER_RETURN_REQUEST"),
+                new SimpleGrantedAuthority("MEMBERSHIP_READ"),
+                new SimpleGrantedAuthority("MEMBERSHIP_WRITE"),
                 new SimpleGrantedAuthority("UPLOAD_AVATAR"));
     }
 

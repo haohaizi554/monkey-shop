@@ -103,6 +103,7 @@ onMounted(() => {
             @change="changeAvatar"
           />
         </label>
+        <RouterLink class="secondary-button" to="/membership">Membership</RouterLink>
       </div>
 
       <section class="section-band">

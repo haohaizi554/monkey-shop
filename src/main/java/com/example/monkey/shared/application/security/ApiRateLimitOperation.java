@@ -8,6 +8,7 @@ public enum ApiRateLimitOperation {
     CART,
     PAYMENT,
     LOGISTICS,
+    MEMBERSHIP,
     SEARCH,
     UPLOAD,
     DEFAULT

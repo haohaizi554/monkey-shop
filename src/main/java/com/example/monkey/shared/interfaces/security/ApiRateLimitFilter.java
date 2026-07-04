@@ -122,6 +122,9 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
         if (isLogisticsPath(path)) {
             return ApiRateLimitOperation.LOGISTICS;
         }
+        if (isMembershipPath(path)) {
+            return ApiRateLimitOperation.MEMBERSHIP;
+        }
         if (HttpMethod.GET.matches(method)
                 && ("/api/monkeys".equals(path)
                         || (path != null
@@ -151,6 +154,10 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
 
     private static boolean isLogisticsPath(String path) {
         return path != null && (path.startsWith("/api/logistics") || path.startsWith("/api/v1/logistics"));
+    }
+
+    private static boolean isMembershipPath(String path) {
+        return path != null && (path.startsWith("/api/membership") || path.startsWith("/api/v1/membership"));
     }
 
     private static String authenticatedUserKey() {

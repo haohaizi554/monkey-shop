@@ -152,7 +152,7 @@ class ApiRateLimitFilterTest {
     }
 
     @Test
-    void logisticsPaymentAndSeckillPathsUseDedicatedPolicies() throws Exception {
+    void logisticsPaymentSeckillAndMembershipPathsUseDedicatedPolicies() throws Exception {
         when(rateLimitService.consume(ApiRateLimitOperation.LOGISTICS, "127.0.0.1", "anonymous"))
                 .thenReturn(new ApiRateLimitResult(true, 0));
         MockHttpServletRequest logisticsRequest =
@@ -189,6 +189,18 @@ class ApiRateLimitFilterTest {
 
         verify(seckillChain).doFilter(seckillRequest, seckillResponse);
         verify(rateLimitService).consume(ApiRateLimitOperation.SECKILL, "127.0.0.1", "anonymous");
+
+        when(rateLimitService.consume(ApiRateLimitOperation.MEMBERSHIP, "127.0.0.1", "anonymous"))
+                .thenReturn(new ApiRateLimitResult(true, 0));
+        MockHttpServletRequest membershipRequest = new MockHttpServletRequest("GET", "/api/v1/membership/dashboard");
+        membershipRequest.setRemoteAddr("127.0.0.1");
+        MockHttpServletResponse membershipResponse = new MockHttpServletResponse();
+        FilterChain membershipChain = mock(FilterChain.class);
+
+        filter.doFilter(membershipRequest, membershipResponse, membershipChain);
+
+        verify(membershipChain).doFilter(membershipRequest, membershipResponse);
+        verify(rateLimitService).consume(ApiRateLimitOperation.MEMBERSHIP, "127.0.0.1", "anonymous");
     }
 
     @Test

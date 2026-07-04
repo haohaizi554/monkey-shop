@@ -49,6 +49,9 @@ class SchemaMigrationTest {
         String v31 = read("src/main/resources/db/migration/V31__payment_reconciliation.sql");
         String v32 = read("src/main/resources/db/migration/V32__logistics_tracking.sql");
         String v33 = read("src/main/resources/db/migration/V33__logistics_freight_template.sql");
+        String v34 = read("src/main/resources/db/migration/V34__membership_level.sql");
+        String v35 = read("src/main/resources/db/migration/V35__membership_points_wallet.sql");
+        String v36 = read("src/main/resources/db/migration/V36__membership_collection.sql");
 
         assertThat(v1).contains("CREATE TABLE IF NOT EXISTS `orders`");
         assertThat(v1).contains("`price` DOUBLE");
@@ -127,6 +130,17 @@ class SchemaMigrationTest {
         assertThat(v33).contains("'SF'");
         assertThat(v33).contains("'ZTO'");
         assertThat(v33).contains("'YTO'");
+        assertThat(v34).contains("CREATE TABLE membership_profile");
+        assertThat(v34).contains("real_name_hmac");
+        assertThat(v34).contains("id_card_hmac");
+        assertThat(v34).contains("MEMBERSHIP_READ");
+        assertThat(v34).contains("MEMBERSHIP_WRITE");
+        assertThat(v35).contains("CREATE TABLE membership_points_wallet");
+        assertThat(v35).contains("CREATE TABLE membership_points_ledger");
+        assertThat(v35).contains("uk_membership_check_in_user_date");
+        assertThat(v36).contains("CREATE TABLE membership_collection");
+        assertThat(v36).contains("CREATE TABLE membership_price_drop_event");
+        assertThat(v36).contains("CREATE TABLE membership_browse_history");
     }
 
     private static String read(String path) throws IOException {

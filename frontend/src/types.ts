@@ -615,4 +615,117 @@ export interface CartCheckout {
   createdAt: string
   subOrders: CartSubOrder[]
 }
+
+export type MembershipLevel = 'BASIC' | 'SILVER' | 'GOLD' | 'DIAMOND'
+
+export interface MemberProfile {
+  userId: number
+  level: MembershipLevel
+  growthValue: number
+  verified: boolean
+  maskedRealName?: string
+  maskedIdCardNo?: string
+  version: number
+  benefits: string[]
+}
+
+export interface PointsWallet {
+  userId: number
+  balance: number
+  totalEarned: number
+  totalSpent: number
+  moneyEquivalent: string | number
+  version: number
+}
+
+export interface MembershipCouponWalletEntry {
+  id: number
+  couponId: number
+  couponCode: string
+  status: 'CLAIMED' | 'USED' | 'RETURNED' | 'EXPIRED'
+  orderId?: number
+  claimedAt: string
+  usedAt?: string
+}
+
+export interface MemberCollection {
+  id: number
+  productId: number
+  productName: string
+  productImage?: string
+  lastPrice: string | number
+  targetPrice?: string | number
+  priceDropNotified: boolean
+  createTime: string
+  updateTime: string
+}
+
+export interface BrowseHistoryEntry {
+  productId: number
+  productName: string
+  productImage?: string
+  viewedAt: string
+  expiresAt: string
+}
+
+export interface MembershipDashboard {
+  profile: MemberProfile
+  wallet: PointsWallet
+  coupons: MembershipCouponWalletEntry[]
+  collections: MemberCollection[]
+  browseHistory: BrowseHistoryEntry[]
+}
+
+export interface RealNameVerifyRequest {
+  realName: string
+  idCardNo: string
+}
+
+export interface PointsEarnRequest {
+  orderId?: number
+  amount: string | number
+  referenceKey?: string
+}
+
+export interface PointsRedeemRequest {
+  points: number
+  referenceKey?: string
+}
+
+export interface LevelChangeRequest {
+  level: MembershipLevel
+  reason?: string
+  totpCode?: string
+}
+
+export interface CollectionRequest {
+  productId: number
+  targetPrice?: string | number
+}
+
+export interface BrowseRecordRequest {
+  productId: number
+}
+
+export interface CheckInResponse {
+  checkInDate: string
+  streakDays: number
+  rewardPoints: number
+  wallet: PointsWallet
+}
+
+export interface PointsLedgerEntry {
+  id: number
+  type: 'CHECK_IN' | 'PURCHASE' | 'ACTIVITY' | 'REDEEM' | 'ADJUST'
+  points: number
+  moneyEquivalent: string | number
+  orderId?: number
+  referenceKey?: string
+  createdAt: string
+}
+
+export interface PriceDropScanResult {
+  scanned: number
+  reminders: number
+}
 export type ToastKind = 'success' | 'warning' | 'error' | 'info'

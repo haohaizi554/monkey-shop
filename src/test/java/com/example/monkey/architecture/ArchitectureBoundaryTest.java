@@ -86,6 +86,27 @@ import com.example.monkey.marketing.infrastructure.MarketingSeckillActivityEntit
 import com.example.monkey.marketing.infrastructure.RedisMarketingIdempotencyStore;
 import com.example.monkey.marketing.infrastructure.RedissonMarketingLockManager;
 import com.example.monkey.marketing.interfaces.MarketingController;
+import com.example.monkey.membership.application.MembershipApplicationService;
+import com.example.monkey.membership.application.dto.CollectionRequestDto;
+import com.example.monkey.membership.application.dto.LevelChangeRequestDto;
+import com.example.monkey.membership.application.dto.MembershipDashboardDto;
+import com.example.monkey.membership.application.dto.PointsEarnRequestDto;
+import com.example.monkey.membership.application.dto.RealNameVerifyRequestDto;
+import com.example.monkey.membership.domain.MemberCollection;
+import com.example.monkey.membership.domain.MemberProfile;
+import com.example.monkey.membership.domain.MembershipActivityStore;
+import com.example.monkey.membership.domain.MembershipLevelTransitionResolver;
+import com.example.monkey.membership.domain.MembershipStore;
+import com.example.monkey.membership.domain.PointsLedgerEntry;
+import com.example.monkey.membership.domain.PointsWallet;
+import com.example.monkey.membership.infrastructure.JpaMembershipStore;
+import com.example.monkey.membership.infrastructure.MemberCollectionEntity;
+import com.example.monkey.membership.infrastructure.MembershipProfileEntity;
+import com.example.monkey.membership.infrastructure.PointsLedgerEntity;
+import com.example.monkey.membership.infrastructure.PointsWalletEntity;
+import com.example.monkey.membership.infrastructure.RedisMembershipActivityStore;
+import com.example.monkey.membership.infrastructure.SpringStateMachineMembershipLevelTransitionResolver;
+import com.example.monkey.membership.interfaces.MembershipController;
 import com.example.monkey.order.application.OrderApplicationService;
 import com.example.monkey.order.application.OrderIdempotencyService;
 import com.example.monkey.order.application.OrderOwnershipService;
@@ -887,6 +908,42 @@ class ArchitectureBoundaryTest {
         assertThat(FreightTemplateEntity.class.getPackageName())
                 .isEqualTo("com.example.monkey.logistics.infrastructure");
         assertThat(LogisticsController.class.getPackageName()).isEqualTo("com.example.monkey.logistics.interfaces");
+    }
+
+    @Test
+    void membershipSliceUsesWs8BoundedContextLayers() {
+        assertThat(MembershipStore.class.getPackageName()).isEqualTo("com.example.monkey.membership.domain");
+        assertThat(MembershipActivityStore.class.getPackageName()).isEqualTo("com.example.monkey.membership.domain");
+        assertThat(MembershipLevelTransitionResolver.class.getPackageName())
+                .isEqualTo("com.example.monkey.membership.domain");
+        assertThat(MemberProfile.class.getPackageName()).isEqualTo("com.example.monkey.membership.domain");
+        assertThat(PointsWallet.class.getPackageName()).isEqualTo("com.example.monkey.membership.domain");
+        assertThat(PointsLedgerEntry.class.getPackageName()).isEqualTo("com.example.monkey.membership.domain");
+        assertThat(MemberCollection.class.getPackageName()).isEqualTo("com.example.monkey.membership.domain");
+        assertThat(MembershipApplicationService.class.getPackageName())
+                .isEqualTo("com.example.monkey.membership.application");
+        assertThat(MembershipDashboardDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.membership.application.dto");
+        assertThat(RealNameVerifyRequestDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.membership.application.dto");
+        assertThat(PointsEarnRequestDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.membership.application.dto");
+        assertThat(LevelChangeRequestDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.membership.application.dto");
+        assertThat(CollectionRequestDto.class.getPackageName())
+                .isEqualTo("com.example.monkey.membership.application.dto");
+        assertThat(JpaMembershipStore.class.getPackageName()).isEqualTo("com.example.monkey.membership.infrastructure");
+        assertThat(RedisMembershipActivityStore.class.getPackageName())
+                .isEqualTo("com.example.monkey.membership.infrastructure");
+        assertThat(SpringStateMachineMembershipLevelTransitionResolver.class.getPackageName())
+                .isEqualTo("com.example.monkey.membership.infrastructure");
+        assertThat(MembershipProfileEntity.class.getPackageName())
+                .isEqualTo("com.example.monkey.membership.infrastructure");
+        assertThat(PointsWalletEntity.class.getPackageName()).isEqualTo("com.example.monkey.membership.infrastructure");
+        assertThat(PointsLedgerEntity.class.getPackageName()).isEqualTo("com.example.monkey.membership.infrastructure");
+        assertThat(MemberCollectionEntity.class.getPackageName())
+                .isEqualTo("com.example.monkey.membership.infrastructure");
+        assertThat(MembershipController.class.getPackageName()).isEqualTo("com.example.monkey.membership.interfaces");
     }
 
     @Test

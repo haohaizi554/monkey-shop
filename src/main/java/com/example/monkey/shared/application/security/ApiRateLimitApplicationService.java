@@ -40,6 +40,7 @@ public class ApiRateLimitApplicationService {
             case CART -> RateLimitPolicy.CART;
             case PAYMENT -> RateLimitPolicy.PAYMENT;
             case LOGISTICS -> RateLimitPolicy.LOGISTICS;
+            case MEMBERSHIP -> RateLimitPolicy.MEMBERSHIP;
             case SEARCH -> RateLimitPolicy.SEARCH;
             case UPLOAD -> RateLimitPolicy.UPLOAD;
             case DEFAULT -> RateLimitPolicy.DEFAULT;

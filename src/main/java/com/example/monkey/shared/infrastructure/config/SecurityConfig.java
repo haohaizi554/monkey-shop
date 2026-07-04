@@ -133,6 +133,7 @@ public class SecurityConfig {
                                 "/orders",
                                 "/payment",
                                 "/logistics",
+                                "/membership",
                                 "/profile",
                                 "/index.html",
                                 "/shop.html",
@@ -259,6 +260,12 @@ public class SecurityConfig {
                                 "/api/logistics/address/parse",
                                 "/api/v1/logistics/address/parse")
                         .hasAuthority("ORDER_CREATE")
+                        .requestMatchers(HttpMethod.GET, "/api/membership/dashboard", "/api/v1/membership/dashboard")
+                        .hasAuthority("MEMBERSHIP_READ")
+                        .requestMatchers("/api/membership/price-drops/scan", "/api/v1/membership/price-drops/scan")
+                        .hasAuthority("MEMBERSHIP_ADMIN")
+                        .requestMatchers("/api/membership/**", "/api/v1/membership/**")
+                        .hasAuthority("MEMBERSHIP_WRITE")
                         .requestMatchers(
                                 "/api/orders/my",
                                 "/api/v1/orders/my",

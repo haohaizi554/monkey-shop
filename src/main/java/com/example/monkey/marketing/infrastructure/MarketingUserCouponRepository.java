@@ -1,5 +1,6 @@
 package com.example.monkey.marketing.infrastructure;
 
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -8,4 +9,6 @@ public interface MarketingUserCouponRepository extends JpaRepository<MarketingUs
     Optional<MarketingUserCouponEntity> findByUserIdAndCouponId(Long userId, Long couponId);
 
     Optional<MarketingUserCouponEntity> findByCouponCode(String couponCode);
+
+    List<MarketingUserCouponEntity> findTop20ByUserIdOrderByClaimedAtDesc(Long userId);
 }
