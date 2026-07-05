@@ -33,7 +33,7 @@ async function loadCart() {
   try {
     cart.value = await getCart()
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to load cart')
+    ElMessage.error(error instanceof Error ? error.message : '无法加载购物车')
   } finally {
     loading.value = false
   }
@@ -48,7 +48,7 @@ async function runPreview() {
   try {
     preview.value = await previewCartCheckout(body)
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to preview checkout')
+    ElMessage.error(error instanceof Error ? error.message : '无法预览结算')
   } finally {
     loading.value = false
   }
@@ -67,9 +67,9 @@ async function submitCheckout() {
         : `checkout-${Date.now()}`
     preview.value = await checkoutCart(body, key)
     await loadCart()
-    ElMessage.success('Checkout submitted')
+    ElMessage.success('结算已提交')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to checkout')
+    ElMessage.error(error instanceof Error ? error.message : '无法提交结算')
   } finally {
     submitting.value = false
   }
@@ -81,36 +81,41 @@ onMounted(loadCart)
 <template>
   <AppShell>
     <section class="checkout-layout">
+      <section class="page-heading">
+        <h1>{{ $t('shop.checkout') }}</h1>
+        <p>选择地址、核对优惠和应付金额后再提交。</p>
+      </section>
+
       <div class="checkout-toolbar">
         <el-input-number
           v-model="addressId"
           :min="1"
           controls-position="right"
-          placeholder="Address"
+          placeholder="地址 ID"
         />
-        <el-input v-model="province" placeholder="Province" />
-        <el-input v-model="couponText" placeholder="Coupons: PLATFORM-20,SHOP-10" />
-        <el-button :icon="Refresh" :loading="loading" @click="runPreview">Preview</el-button>
+        <el-input v-model="province" placeholder="省份" />
+        <el-input v-model="couponText" placeholder="优惠券：PLATFORM-20,SHOP-10" />
+        <el-button :icon="Refresh" :loading="loading" @click="runPreview">预览</el-button>
         <el-button type="primary" :icon="Check" :loading="submitting" @click="submitCheckout">
-          Submit
+          提交
         </el-button>
       </div>
 
       <div class="checkout-summary">
         <div>
-          <span>Cart selected</span>
+          <span>已选商品</span>
           <strong>{{ cart?.selectedQuantity ?? 0 }}</strong>
         </div>
         <div>
-          <span>Original</span>
+          <span>原价</span>
           <strong>{{ preview?.originalAmount ?? cart?.selectedAmount ?? '0.00' }}</strong>
         </div>
         <div>
-          <span>Discount</span>
+          <span>优惠</span>
           <strong>{{ preview?.discountAmount ?? '0.00' }}</strong>
         </div>
         <div>
-          <span>Payable</span>
+          <span>应付</span>
           <strong>{{ preview?.payableAmount ?? cart?.selectedAmount ?? '0.00' }}</strong>
         </div>
       </div>
@@ -118,20 +123,20 @@ onMounted(loadCart)
       <div v-if="preview" class="suborder-list">
         <section v-for="subOrder in preview.subOrders" :key="subOrder.id" class="suborder-section">
           <div class="suborder-head">
-            <span>Shop {{ subOrder.shopId }}</span>
+            <span>店铺 {{ subOrder.shopId }}</span>
             <strong>{{ subOrder.payableAmount }}</strong>
           </div>
           <el-table :data="subOrder.lines" class="checkout-table">
-            <el-table-column prop="productName" label="Product" min-width="180" />
+            <el-table-column prop="productName" label="商品" min-width="180" />
             <el-table-column prop="skuId" label="SKU" min-width="100" />
-            <el-table-column prop="quantity" label="Qty" min-width="80" />
-            <el-table-column prop="originalAmount" label="Original" min-width="110" />
-            <el-table-column prop="discountAmount" label="Discount" min-width="110" />
-            <el-table-column prop="payableAmount" label="Payable" min-width="110" />
-            <el-table-column label="Reservation" min-width="180">
+            <el-table-column prop="quantity" label="数量" min-width="80" />
+            <el-table-column prop="originalAmount" label="原价" min-width="110" />
+            <el-table-column prop="discountAmount" label="优惠" min-width="110" />
+            <el-table-column prop="payableAmount" label="应付" min-width="110" />
+            <el-table-column label="库存预占" min-width="180">
               <template #default="{ row }">
                 <el-tag :type="row.warehouseId ? 'success' : 'info'" disable-transitions>
-                  {{ row.warehouseId ? row.reservationKey : 'Preview' }}
+                  {{ row.warehouseId ? row.reservationKey : '预览中' }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -144,6 +149,7 @@ onMounted(loadCart)
           <span class="checkout-empty-icon">
             <el-icon><Tickets /></el-icon>
           </span>
+          <p>填写地址后可预览拆单、优惠和应付金额。</p>
         </template>
       </el-empty>
     </section>

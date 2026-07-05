@@ -10,7 +10,7 @@ import * as ordersApi from '@/api/orders'
 import AppShell from '@/components/AppShell.vue'
 import ProductImage from '@/components/ProductImage.vue'
 import type { Monkey, MonkeyRequest, Order, Stats } from '@/types'
-import { dateTime, money, orderStatusKey, statusType } from '@/utils/format'
+import { dateTime, money, orderStatusKey, orderStatusLabel, statusType } from '@/utils/format'
 
 const loading = ref(false)
 const savingProduct = ref(false)
@@ -248,7 +248,7 @@ onMounted(() => {
           <el-table-column :label="$t('common.status')">
             <template #default="{ row }">
               <el-tag :type="statusType(row.status)" disable-transitions>
-                {{ row.status }}
+                {{ orderStatusLabel(row.status) }}
               </el-tag>
             </template>
           </el-table-column>

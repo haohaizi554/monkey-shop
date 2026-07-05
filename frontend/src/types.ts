@@ -222,6 +222,9 @@ export interface PaymentRefundResponse {
   createTime: string
 }
 
+export type PaymentReconciliationStatus =
+  'BALANCED' | 'DIFF' | 'PENDING_PROVIDER_DATA' | 'SUSPENDED'
+
 export interface ReconciliationLine {
   paymentNo: string
   providerTradeNo?: string
@@ -242,7 +245,7 @@ export interface PaymentReconciliationResponse {
   providerAmount: string | number
   diffAmount: string | number
   issueCount: number
-  status: 'BALANCED' | 'DIFF' | 'SUSPENDED'
+  status: PaymentReconciliationStatus
   createTime: string
 }
 

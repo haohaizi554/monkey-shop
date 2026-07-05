@@ -130,7 +130,7 @@ class OrderControllerApiContractTest {
                 .andExpect(header().string("X-Trace-Id", "trace-validation-1"))
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(422))
-                .andExpect(jsonPath("$.title").value("Validation failed"))
+                .andExpect(jsonPath("$.title").value(ErrorCode.VALIDATION_ERROR.defaultMessage()))
                 .andExpect(jsonPath("$.detail")
                         .value(org.hamcrest.Matchers.anyOf(
                                 org.hamcrest.Matchers.equalTo("monkeyId: monkey id must be positive"),

@@ -11,23 +11,29 @@ import type {
   LogisticsTracking,
   TrackingEvent,
 } from '@/types'
-import { dateTime, money } from '@/utils/format'
+import {
+  dateTime,
+  money,
+  trackingEventLabel,
+  trackingStatusLabel,
+  trackingStatusType,
+} from '@/utils/format'
 
 const route = useRoute()
 const busy = ref(false)
 const tracking = ref<LogisticsTracking | null>(null)
 const quote = ref<FreightQuoteResponse | null>(null)
 const trackingNo = ref('')
-const addressText = ref('Zhejiang Hangzou Xihu Wenyi Road 100')
+const addressText = ref('浙江省杭州市西湖区文一路 100 号')
 
 const form = reactive({
   orderId: Number(route.params.orderId ?? route.query.orderId ?? 0),
   carrier: 'SF' as LogisticsCarrier,
   recipientPhone: '13800138000',
-  province: 'Zhejiang',
-  city: 'Hangzhou',
-  district: 'Xihu',
-  detail: 'Wenyi Road 100',
+  province: '浙江',
+  city: '杭州',
+  district: '西湖',
+  detail: '文一路 100 号',
   weightKg: 1.2,
   itemCount: 1,
 })
@@ -35,8 +41,8 @@ const form = reactive({
 const webhook = reactive({
   event: 'PICKUP' as TrackingEvent,
   eventId: '',
-  location: 'Hangzhou hub',
-  remark: 'Sandbox logistics push',
+  location: '杭州分拨中心',
+  remark: '本地物流轨迹推送',
   signature: '',
 })
 
@@ -65,7 +71,7 @@ async function loadByTrackingNo() {
   try {
     tracking.value = await logisticsApi.logisticsByTrackingNo(trackingNo.value)
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to load tracking')
+    ElMessage.error(error instanceof Error ? error.message : '无法加载物流轨迹')
   } finally {
     busy.value = false
   }
@@ -81,7 +87,7 @@ async function submitQuote() {
       itemCount: form.itemCount,
     })
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to quote freight')
+    ElMessage.error(error instanceof Error ? error.message : '无法试算运费')
   } finally {
     busy.value = false
   }
@@ -95,9 +101,9 @@ async function submitAddressParse() {
     form.city = parsed.city
     form.district = parsed.district
     form.detail = parsed.detail
-    ElMessage.success('Address parsed')
+    ElMessage.success('地址已解析')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to parse address')
+    ElMessage.error(error instanceof Error ? error.message : '无法解析地址')
   } finally {
     busy.value = false
   }
@@ -122,9 +128,9 @@ async function submitShipment() {
       itemCount: form.itemCount,
     })
     trackingNo.value = tracking.value.trackingNo
-    ElMessage.success('Shipment created')
+    ElMessage.success('物流单已创建')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to create shipment')
+    ElMessage.error(error instanceof Error ? error.message : '无法创建物流单')
   } finally {
     busy.value = false
   }
@@ -146,9 +152,9 @@ async function submitWebhook() {
       signature: webhook.signature,
     })
     webhook.eventId = ''
-    ElMessage.success('Webhook accepted')
+    ElMessage.success('轨迹已推送')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to push webhook')
+    ElMessage.error(error instanceof Error ? error.message : '无法推送轨迹')
   } finally {
     busy.value = false
   }
@@ -163,16 +169,19 @@ onMounted(() => {
   <AppShell>
     <section class="page-heading">
       <h1>{{ $t('nav.logistics') }}</h1>
-      <el-button :icon="RefreshRight" @click="loadByOrder">
-        {{ $t('common.reset') }}
-      </el-button>
+      <el-button :icon="RefreshRight" @click="loadByOrder"> 刷新 </el-button>
     </section>
 
     <section class="logistics-layout">
       <form class="logistics-panel" @submit.prevent="submitShipment">
-        <h2>{{ $t('common.logistics') }}</h2>
+        <h2>创建物流</h2>
         <div class="field-grid">
-          <el-input-number v-model="form.orderId" :min="1" controls-position="right" />
+          <el-input-number
+            v-model="form.orderId"
+            :min="1"
+            controls-position="right"
+            placeholder="订单 ID"
+          />
           <el-segmented
             v-model="form.carrier"
             :options="[
@@ -182,22 +191,33 @@ onMounted(() => {
             ]"
           />
         </div>
-        <el-input v-model="form.recipientPhone" autocomplete="off" inputmode="tel" />
-        <el-input v-model="addressText" type="textarea" :rows="2" />
+        <el-input
+          v-model="form.recipientPhone"
+          autocomplete="off"
+          inputmode="tel"
+          placeholder="收件手机号"
+        />
+        <el-input v-model="addressText" type="textarea" :rows="2" placeholder="完整地址" />
         <div class="field-grid">
-          <el-input v-model="form.province" />
-          <el-input v-model="form.city" />
-          <el-input v-model="form.district" />
+          <el-input v-model="form.province" placeholder="省份" />
+          <el-input v-model="form.city" placeholder="城市" />
+          <el-input v-model="form.district" placeholder="区县" />
         </div>
-        <el-input v-model="form.detail" />
+        <el-input v-model="form.detail" placeholder="详细地址" />
         <div class="field-grid">
           <el-input-number
             v-model="form.weightKg"
             :min="0.01"
             :precision="2"
             controls-position="right"
+            placeholder="重量 kg"
           />
-          <el-input-number v-model="form.itemCount" :min="1" controls-position="right" />
+          <el-input-number
+            v-model="form.itemCount"
+            :min="1"
+            controls-position="right"
+            placeholder="件数"
+          />
         </div>
         <div class="inline-actions">
           <el-button plain :loading="busy" @click="submitAddressParse">
@@ -215,7 +235,7 @@ onMounted(() => {
       <section class="logistics-panel">
         <h2>{{ $t('common.tracking') }}</h2>
         <form class="tracking-search" @submit.prevent="loadByTrackingNo">
-          <el-input v-model="trackingNo" />
+          <el-input v-model="trackingNo" placeholder="物流单号" />
           <el-button type="primary" native-type="submit" :loading="busy">
             {{ $t('common.search') }}
           </el-button>
@@ -229,7 +249,9 @@ onMounted(() => {
         <div v-if="tracking" class="tracking-card">
           <div class="tracking-title">
             <strong>{{ tracking.trackingNo }}</strong>
-            <el-tag>{{ tracking.status }}</el-tag>
+            <el-tag :type="trackingStatusType(tracking.status)" disable-transitions>
+              {{ trackingStatusLabel(tracking.status) }}
+            </el-tag>
           </div>
           <p>{{ tracking.province }} / {{ tracking.city }} / {{ tracking.district }}</p>
           <p>{{ money(tracking.freightAmount) }} / {{ tracking.etaHours }}h</p>
@@ -239,24 +261,28 @@ onMounted(() => {
               :key="event.id"
               :timestamp="dateTime(event.eventTime)"
             >
-              {{ event.fromStatus }} -> {{ event.toStatus }} / {{ event.location }}
+              {{ trackingEventLabel(event.eventType) }}：{{
+                trackingStatusLabel(event.fromStatus)
+              }}
+              → {{ trackingStatusLabel(event.toStatus) }} / {{ event.location || '未知位置' }}
             </el-timeline-item>
           </el-timeline>
         </div>
+        <el-empty v-else description="暂无物流轨迹" :image-size="80" />
         <form class="webhook-form" @submit.prevent="submitWebhook">
           <el-segmented
             v-model="webhook.event"
             :options="[
-              { label: 'Pickup', value: 'PICKUP' },
-              { label: 'Transit', value: 'TRANSIT' },
-              { label: 'Dispatch', value: 'DISPATCH' },
-              { label: 'Sign', value: 'SIGN' },
+              { label: '揽收', value: 'PICKUP' },
+              { label: '运输', value: 'TRANSIT' },
+              { label: '派送', value: 'DISPATCH' },
+              { label: '签收', value: 'SIGN' },
             ]"
           />
-          <el-input v-model="webhook.eventId" placeholder="event id" />
-          <el-input v-model="webhook.location" />
-          <el-input v-model="webhook.remark" />
-          <el-input v-model="webhook.signature" placeholder="signature" show-password />
+          <el-input v-model="webhook.eventId" placeholder="事件 ID" />
+          <el-input v-model="webhook.location" placeholder="位置" />
+          <el-input v-model="webhook.remark" placeholder="备注" />
+          <el-input v-model="webhook.signature" placeholder="签名" show-password />
           <el-button type="warning" native-type="submit" :loading="busy">
             {{ $t('common.pushWebhook') }}
           </el-button>

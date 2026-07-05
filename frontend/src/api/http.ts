@@ -65,7 +65,10 @@ function currentLocale(): 'en' | 'zh' {
 }
 
 function normalizeCode(code?: string): string {
-  return (code || '').trim().toUpperCase().replace(/[\s-]+/g, '_')
+  return (code || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_')
 }
 
 function localized(en: string, zh: string): string {
@@ -100,11 +103,7 @@ function friendlyMessage(message: string | undefined, status?: number, code?: st
       '\u64cd\u4f5c\u592a\u9891\u7e41\u4e86\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5\u3002',
     )
   }
-  if (
-    errorCode === 'FORBIDDEN' ||
-    status === 403 ||
-    normalized === 'operation is not permitted'
-  ) {
+  if (errorCode === 'FORBIDDEN' || status === 403 || normalized === 'operation is not permitted') {
     return localized(
       'You do not have permission to perform this action.',
       '\u5f53\u524d\u8d26\u53f7\u6ca1\u6709\u6743\u9650\u6267\u884c\u8fd9\u4e2a\u64cd\u4f5c\u3002',

@@ -81,7 +81,10 @@ onMounted(loadRecommendations)
       </header>
 
       <form class="profile-panel" @submit.prevent="saveProfile">
-        <el-input v-model="form.interestProfile" :placeholder="$t('recommend.profilePlaceholder')" />
+        <el-input
+          v-model="form.interestProfile"
+          :placeholder="$t('recommend.profilePlaceholder')"
+        />
         <el-input v-model="form.tags" :placeholder="$t('recommend.tagsPlaceholder')" />
         <el-button type="primary" native-type="submit" :loading="saving" :icon="Star">
           {{ $t('common.save') }}

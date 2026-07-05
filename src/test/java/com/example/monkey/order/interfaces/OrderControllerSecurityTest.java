@@ -24,6 +24,7 @@ import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.infrastructure.config.SecurityConfig;
+import com.example.monkey.shared.interfaces.web.VisitInterceptor;
 import com.example.monkey.user.domain.UserAccountStore;
 import java.util.List;
 import java.util.stream.Stream;
@@ -33,44 +34,48 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 @WebMvcTest(controllers = OrderController.class)
 @Import({SecurityConfig.class, OrderOwnership.class})
+@MockitoBean(
+        types = {
+            RiskApplicationService.class,
+            UserAccountStore.class,
+            VisitInterceptor.class,
+            AuditService.class,
+            OrderOwnershipService.class,
+            OrderApplicationService.class,
+            OrderService.class,
+            ApiRateLimitApplicationService.class
+        })
 class OrderControllerSecurityTest {
 
+    private final MockMvc mockMvc;
+    private final OrderOwnershipService orderOwnershipService;
+    private final OrderApplicationService orderApplicationService;
+    private final OrderService orderService;
+    private final ApiRateLimitApplicationService apiRateLimitService;
+
     @Autowired
-    private MockMvc mockMvc;
-
-    @MockBean
-    private OrderOwnershipService orderOwnershipService;
-
-    @MockBean
-    private OrderApplicationService orderApplicationService;
-
-    @MockBean
-    private OrderService orderService;
-
-    @MockBean
-    private RiskApplicationService riskApplicationService;
-
-    @MockBean
-    private UserAccountStore userAccountStore;
-
-    @MockBean
-    private com.example.monkey.shared.interfaces.web.VisitInterceptor visitInterceptor;
-
-    @MockBean
-    private AuditService auditService;
-
-    @MockBean
-    private ApiRateLimitApplicationService apiRateLimitService;
+    OrderControllerSecurityTest(
+            MockMvc mockMvc,
+            OrderOwnershipService orderOwnershipService,
+            OrderApplicationService orderApplicationService,
+            OrderService orderService,
+            ApiRateLimitApplicationService apiRateLimitService) {
+        this.mockMvc = mockMvc;
+        this.orderOwnershipService = orderOwnershipService;
+        this.orderApplicationService = orderApplicationService;
+        this.orderService = orderService;
+        this.apiRateLimitService = apiRateLimitService;
+    }
 
     @BeforeEach
     void allowRateLimitedTraffic() {
@@ -170,7 +175,7 @@ class OrderControllerSecurityTest {
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(422))
-                .andExpect(jsonPath("$.title").value("Validation failed"))
+                .andExpect(jsonPath("$.title").value(ErrorCode.VALIDATION_ERROR.defaultMessage()))
                 .andExpect(jsonPath("$.detail").value("Idempotency-Key header is required"))
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
@@ -191,8 +196,8 @@ class OrderControllerSecurityTest {
                     .contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
                     .match(result);
             jsonPath("$.status").value(403).match(result);
-            jsonPath("$.title").value("Operation is not permitted").match(result);
-            jsonPath("$.detail").value("Operation is not permitted").match(result);
+            jsonPath("$.title").value(ErrorCode.FORBIDDEN.defaultMessage()).match(result);
+            jsonPath("$.detail").value(ErrorCode.FORBIDDEN.defaultMessage()).match(result);
             jsonPath("$.instance").value(path).match(result);
             jsonPath("$.code").value("FORBIDDEN").match(result);
             jsonPath("$.traceId").isNotEmpty().match(result);

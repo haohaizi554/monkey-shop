@@ -12,6 +12,7 @@ import {
 } from '@/api/marketing'
 import AppShell from '@/components/AppShell.vue'
 import type { CouponWalletEntry, GroupBuyTeam, MarketingPriceQuote, SeckillOrder } from '@/types'
+import { couponStatusLabel, groupBuyStatusLabel } from '@/utils/format'
 
 const userId = ref(1)
 const couponId = ref(2400000000001)
@@ -47,9 +48,9 @@ async function runClaimCoupon() {
       idempotencyKey: `coupon-${userId.value}-${couponId.value}`,
     })
     couponCode.value = latestCoupon.value.couponCode
-    ElMessage.success('Coupon claimed')
+    ElMessage.success('优惠券已领取')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to claim coupon')
+    ElMessage.error(error instanceof Error ? error.message : '优惠券领取失败')
   } finally {
     busy.value = false
   }
@@ -65,9 +66,9 @@ async function runRedeemCoupon() {
       couponCode: couponCode.value,
       orderId: couponOrderId.value,
     })
-    ElMessage.success('Coupon redeemed')
+    ElMessage.success('优惠券已核销')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to redeem coupon')
+    ElMessage.error(error instanceof Error ? error.message : '优惠券核销失败')
   } finally {
     busy.value = false
   }
@@ -83,9 +84,9 @@ async function runReturnCoupon() {
       couponCode: couponCode.value,
       orderId: couponOrderId.value,
     })
-    ElMessage.success('Coupon returned')
+    ElMessage.success('优惠券已退回')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to return coupon')
+    ElMessage.error(error instanceof Error ? error.message : '优惠券退回失败')
   } finally {
     busy.value = false
   }
@@ -101,7 +102,7 @@ async function runQuote() {
       couponCodes: parsedCouponCodes.value,
     })
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to quote price')
+    ElMessage.error(error instanceof Error ? error.message : '价格试算失败')
   } finally {
     busy.value = false
   }
@@ -116,9 +117,9 @@ async function runSeckill() {
       quantity: seckillQuantity.value,
       idempotencyKey: seckillOrderKey.value,
     })
-    ElMessage.success('Seckill order accepted')
+    ElMessage.success('秒杀请求已受理')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to create seckill order')
+    ElMessage.error(error instanceof Error ? error.message : '秒杀下单失败')
   } finally {
     busy.value = false
   }
@@ -134,9 +135,9 @@ async function runJoinGroup() {
       idempotencyKey: groupKey.value,
     })
     groupTeamId.value = latestGroup.value.id
-    ElMessage.success('Group-buy updated')
+    ElMessage.success('拼团状态已更新')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to join group-buy')
+    ElMessage.error(error instanceof Error ? error.message : '拼团加入失败')
   } finally {
     busy.value = false
   }
@@ -148,93 +149,93 @@ async function runJoinGroup() {
     <section class="marketing-layout">
       <div class="marketing-toolbar">
         <el-input-number v-model="userId" :min="1" controls-position="right" />
-        <el-tag type="info">User</el-tag>
+        <el-tag type="info">用户编号</el-tag>
       </div>
 
       <div class="marketing-grid">
         <section class="marketing-panel">
           <h2>
             <el-icon><PriceTag /></el-icon>
-            Coupons
+            优惠券
           </h2>
           <div class="field-row">
             <el-input-number v-model="couponId" :min="1" controls-position="right" />
-            <el-button type="primary" :loading="busy" @click="runClaimCoupon">Claim</el-button>
+            <el-button type="primary" :loading="busy" @click="runClaimCoupon">领取</el-button>
           </div>
           <div class="field-row">
-            <el-input v-model="couponCode" placeholder="Coupon code" />
+            <el-input v-model="couponCode" placeholder="优惠券码" />
             <el-input-number v-model="couponOrderId" :min="1" controls-position="right" />
           </div>
           <div class="field-row">
-            <el-button :loading="busy" @click="runRedeemCoupon">Redeem</el-button>
+            <el-button :loading="busy" @click="runRedeemCoupon">核销</el-button>
             <el-button :icon="RefreshRight" :loading="busy" @click="runReturnCoupon">
-              Return
+              退回
             </el-button>
           </div>
           <el-alert
             v-if="latestCoupon"
             :closable="false"
             type="success"
-            :title="`${latestCoupon.couponCode} ${latestCoupon.status}`"
+            :title="`${latestCoupon.couponCode}：${couponStatusLabel(latestCoupon.status)}`"
           />
         </section>
 
         <section class="marketing-panel">
           <h2>
             <el-icon><PriceTag /></el-icon>
-            Price
+            价格试算
           </h2>
           <div class="field-row">
             <el-input-number v-model="quoteAmount" :min="1" controls-position="right" />
-            <el-input v-model="quoteCouponCodes" placeholder="Coupon codes" />
-            <el-button type="primary" :loading="busy" @click="runQuote">Quote</el-button>
+            <el-input v-model="quoteCouponCodes" placeholder="优惠券码，逗号分隔" />
+            <el-button type="primary" :loading="busy" @click="runQuote">试算</el-button>
           </div>
           <div v-if="latestQuote" class="metric-strip">
-            <span>Original {{ latestQuote.originalAmount }}</span>
-            <span>Discount {{ latestQuote.discountAmount }}</span>
-            <strong>Payable {{ latestQuote.payableAmount }}</strong>
+            <span>原价 {{ latestQuote.originalAmount }}</span>
+            <span>优惠 {{ latestQuote.discountAmount }}</span>
+            <strong>应付 {{ latestQuote.payableAmount }}</strong>
           </div>
         </section>
 
         <section class="marketing-panel">
           <h2>
             <el-icon><Lightning /></el-icon>
-            Seckill
+            秒杀
           </h2>
           <div class="field-row">
             <el-input-number v-model="seckillActivityId" :min="1" controls-position="right" />
             <el-input-number v-model="seckillQuantity" :min="1" controls-position="right" />
           </div>
           <div class="field-row">
-            <el-input v-model="seckillOrderKey" placeholder="Idempotency key" />
-            <el-button type="danger" :loading="busy" @click="runSeckill">Order</el-button>
+            <el-input v-model="seckillOrderKey" placeholder="幂等键" />
+            <el-button type="danger" :loading="busy" @click="runSeckill">下单</el-button>
           </div>
           <el-alert
             v-if="latestSeckill"
             :closable="false"
             type="success"
-            :title="`Seckill order ${latestSeckill.id}`"
+            :title="`秒杀订单 ${latestSeckill.id}`"
           />
         </section>
 
         <section class="marketing-panel">
           <h2>
             <el-icon><UserFilled /></el-icon>
-            Group Buy
+            拼团
           </h2>
           <div class="field-row">
             <el-input-number v-model="groupActivityId" :min="1" controls-position="right" />
             <el-input-number v-model="groupTeamId" :min="1" controls-position="right" />
           </div>
           <div class="field-row">
-            <el-input v-model="groupKey" placeholder="Idempotency key" />
-            <el-button type="primary" :loading="busy" @click="runJoinGroup">Join</el-button>
+            <el-input v-model="groupKey" placeholder="幂等键" />
+            <el-button type="primary" :loading="busy" @click="runJoinGroup">加入</el-button>
           </div>
           <el-alert
             v-if="latestGroup"
             :closable="false"
             :type="latestGroup.status === 'SUCCEEDED' ? 'success' : 'info'"
-            :title="`Team ${latestGroup.id}: ${latestGroup.joinedCount}/${latestGroup.targetSize} ${latestGroup.status}`"
+            :title="`团 ${latestGroup.id}：${latestGroup.joinedCount}/${latestGroup.targetSize}，${groupBuyStatusLabel(latestGroup.status)}`"
           />
         </section>
       </div>

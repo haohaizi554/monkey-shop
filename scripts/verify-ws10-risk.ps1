@@ -86,7 +86,7 @@ Assert-Matches "domain test" $domainTest "priceAnomalyCreatesManualReviewSignal"
 Assert-Matches "jpa test" $jpaTest "saveRiskScoreSerializesSignalsAndFindsLatestScore"
 Assert-Matches "redis test" $redisTest "fallbackTracksDeviceUsersPhonesSeckillAndScores"
 Assert-Matches "frontend api" $frontendApi "assessRisk"
-Assert-Matches "risk view" $riskView "Review Queue"
+Assert-Matches "risk view" $riskView "复核队列"
 
 if (-not $SkipMaven) {
     Write-Host "==> Maven WS10 risk tests"

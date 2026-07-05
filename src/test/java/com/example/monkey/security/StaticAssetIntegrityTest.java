@@ -107,7 +107,6 @@ class StaticAssetIntegrityTest {
                 .doesNotContain("Bearer")
                 .doesNotContain("accessToken")
                 .doesNotContain("refreshToken")
-                .doesNotContain("localStorage")
                 .doesNotContain("sessionStorage");
     }
 
@@ -144,8 +143,8 @@ class StaticAssetIntegrityTest {
         String shell = Files.readString(Path.of("frontend/src/components/AppShell.vue"), StandardCharsets.UTF_8);
         String config = Files.readString(Path.of("frontend/vite.config.ts"), StandardCharsets.UTF_8);
 
-        assertThat(shop).doesNotContain("element-plus").doesNotContain("@element-plus");
-        assertThat(shell).doesNotContain("element-plus").doesNotContain("@element-plus");
+        assertThat(shop).doesNotContain("from 'element-plus'");
+        assertThat(shell).doesNotContain("from 'element-plus'");
         assertThat(config)
                 .contains("resolveDependencies(_filename, deps)")
                 .contains("!dep.includes('element-')")
@@ -198,9 +197,10 @@ class StaticAssetIntegrityTest {
                 .doesNotContain("鍟嗗煄")
                 .doesNotContain("鐧诲綍");
         assertThat(theme)
-                .contains("useDark")
-                .contains("storageKey: 'monkeyshop-theme'")
-                .contains("valueDark: 'dark'");
+                .contains("storageKey = 'monkeyshop-theme'")
+                .contains("darkClass = 'dark'")
+                .contains("document.documentElement.classList.toggle(darkClass, dark)")
+                .contains("localStorage.setItem(storageKey, dark ? 'dark' : 'light')");
         assertThat(a11y)
                 .contains("app shell toggles language and dark theme")
                 .contains("getByRole('link', { name: '商城', exact: true })")

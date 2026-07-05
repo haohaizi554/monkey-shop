@@ -295,7 +295,8 @@ const messages = {
       addAddress: '\u65b0\u589e\u5730\u5740',
       placeOrder: '\u63d0\u4ea4\u8ba2\u5355',
       emptyTitle: '\u6682\u65e0\u5339\u914d\u5546\u54c1',
-      emptyDescription: '\u53ef\u4ee5\u8c03\u6574\u641c\u7d22\u6761\u4ef6\uff0c\u6216\u6e05\u7a7a\u5f53\u524d\u7b5b\u9009\u3002',
+      emptyDescription:
+        '\u53ef\u4ee5\u8c03\u6574\u641c\u7d22\u6761\u4ef6\uff0c\u6216\u6e05\u7a7a\u5f53\u524d\u7b5b\u9009\u3002',
     },
     search: {
       discovery: '\u53d1\u73b0',
@@ -314,7 +315,8 @@ const messages = {
       matched: '\u5339\u914d {total} \u4e2a\u5546\u54c1',
       noTitle: '\u5546\u54c1\u4fe1\u606f\u5f85\u5b8c\u5584',
       emptyTitle: '\u6ca1\u6709\u627e\u5230\u5546\u54c1',
-      emptyDescription: '\u53ef\u4ee5\u6362\u4e2a\u5173\u952e\u8bcd\uff0c\u6216\u6e05\u7a7a\u5f53\u524d\u7b5b\u9009\u3002',
+      emptyDescription:
+        '\u53ef\u4ee5\u6362\u4e2a\u5173\u952e\u8bcd\uff0c\u6216\u6e05\u7a7a\u5f53\u524d\u7b5b\u9009\u3002',
       unableToSearch: '\u641c\u7d22\u5931\u8d25',
     },
     recommend: {
@@ -348,8 +350,7 @@ const messages = {
       captchaRequired: '\u8bf7\u5b8c\u6210\u9a8c\u8bc1\u7801',
       captchaIncorrect: '\u9a8c\u8bc1\u7801\u4e0d\u6b63\u786e',
       adminMfaRequired: '\u8bf7\u8f93\u5165\u7ba1\u7406\u5458\u52a8\u6001\u7801',
-      adminMfaInvalid:
-        '\u7ba1\u7406\u5458\u52a8\u6001\u7801\u65e0\u6548\u6216\u5df2\u8fc7\u671f',
+      adminMfaInvalid: '\u7ba1\u7406\u5458\u52a8\u6001\u7801\u65e0\u6548\u6216\u5df2\u8fc7\u671f',
       passwordChanged: '\u5bc6\u7801\u5df2\u4fee\u6539\uff0c\u8bf7\u91cd\u65b0\u767b\u5f55',
       passwordUpdateRequiredTitle:
         '\u7ee7\u7eed\u64cd\u4f5c\u524d\u9700\u5148\u66f4\u65b0\u5bc6\u7801',

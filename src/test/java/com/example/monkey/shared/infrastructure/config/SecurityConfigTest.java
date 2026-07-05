@@ -16,9 +16,11 @@ import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.ApiRateLimitApplicationService;
 import com.example.monkey.shared.application.security.ApiRateLimitResult;
 import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.interfaces.security.ApiRateLimitFilter;
 import com.example.monkey.shared.interfaces.web.SessionTokenTransport;
 import com.example.monkey.shared.interfaces.web.SpaForwardController;
+import com.example.monkey.shared.interfaces.web.VisitInterceptor;
 import com.example.monkey.user.domain.SessionTokenService;
 import com.example.monkey.user.domain.UserAccountStore;
 import com.example.monkey.user.domain.UserAccountStore.UserAccount;
@@ -35,7 +37,6 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -47,6 +48,7 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
@@ -61,25 +63,34 @@ import org.springframework.web.bind.annotation.RestController;
 @WebMvcTest(controllers = {SecurityConfigTest.TestApiController.class, SpaForwardController.class})
 @Import({SecurityConfig.class, ApiRateLimitFilter.class, SecurityConfigTest.TestApiController.class})
 @TestPropertySource(properties = "app.security.csp.upgrade-insecure-requests=false")
+@MockitoBean(
+        types = {
+            VisitInterceptor.class,
+            UserAccountStore.class,
+            AuditService.class,
+            ApiRateLimitApplicationService.class
+        })
 class SecurityConfigTest {
 
     private static final Pattern CSP_SCRIPT_NONCE = Pattern.compile("script-src [^;]*'nonce-([^']+)'");
     private static final Pattern CSP_STYLE_NONCE = Pattern.compile("style-src [^;]*'nonce-([^']+)'");
 
+    private final MockMvc mockMvc;
+    private final UserAccountStore userAccountStore;
+    private final AuditService auditService;
+    private final ApiRateLimitApplicationService apiRateLimitService;
+
     @Autowired
-    private MockMvc mockMvc;
-
-    @MockBean
-    private com.example.monkey.shared.interfaces.web.VisitInterceptor visitInterceptor;
-
-    @MockBean
-    private UserAccountStore userAccountStore;
-
-    @MockBean
-    private AuditService auditService;
-
-    @MockBean
-    private ApiRateLimitApplicationService apiRateLimitService;
+    SecurityConfigTest(
+            MockMvc mockMvc,
+            UserAccountStore userAccountStore,
+            AuditService auditService,
+            ApiRateLimitApplicationService apiRateLimitService) {
+        this.mockMvc = mockMvc;
+        this.userAccountStore = userAccountStore;
+        this.auditService = auditService;
+        this.apiRateLimitService = apiRateLimitService;
+    }
 
     @BeforeEach
     void allowRateLimitedTraffic() {
@@ -137,6 +148,7 @@ class SecurityConfigTest {
     @Test
     void jwtBeansAreCreatedFromConfiguredCollaborators() {
         SecurityConfig config = new SecurityConfig();
+        @SuppressWarnings("unchecked")
         org.springframework.beans.factory.ObjectProvider<org.springframework.data.redis.core.StringRedisTemplate>
                 redisProvider = org.mockito.Mockito.mock(org.springframework.beans.factory.ObjectProvider.class);
 
@@ -254,7 +266,7 @@ class SecurityConfigTest {
                 mockMvc.perform(post("/api/monkeys/add").with(authenticatedUser(1L, "ADMIN"))),
                 403,
                 "FORBIDDEN",
-                "Operation is not permitted",
+                ErrorCode.FORBIDDEN.defaultMessage(),
                 "/api/monkeys/add");
     }
 
@@ -264,7 +276,7 @@ class SecurityConfigTest {
                 mockMvc.perform(post("/api/orders/create")),
                 403,
                 "FORBIDDEN",
-                "Operation is not permitted",
+                ErrorCode.FORBIDDEN.defaultMessage(),
                 "/api/orders/create");
     }
 
@@ -317,7 +329,7 @@ class SecurityConfigTest {
                 mockMvc.perform(post("/api/upload").with(csrf())),
                 401,
                 "UNAUTHORIZED",
-                "Authentication is required",
+                ErrorCode.UNAUTHORIZED.defaultMessage(),
                 "/api/upload");
 
         mockMvc.perform(post("/api/upload").with(csrf()).with(authenticatedUser(7L, "USER")))
@@ -348,13 +360,13 @@ class SecurityConfigTest {
                 mockMvc.perform(get("/api/unknown").with(authenticatedUser(1L, "ADMIN"))),
                 403,
                 "FORBIDDEN",
-                "Operation is not permitted",
+                ErrorCode.FORBIDDEN.defaultMessage(),
                 "/api/unknown");
         expectProblem(
                 mockMvc.perform(get("/api/v1/unknown").with(authenticatedUser(1L, "ADMIN"))),
                 403,
                 "FORBIDDEN",
-                "Operation is not permitted",
+                ErrorCode.FORBIDDEN.defaultMessage(),
                 "/api/v1/unknown");
     }
 
@@ -381,8 +393,8 @@ class SecurityConfigTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(401))
-                .andExpect(jsonPath("$.title").value("Authentication is required"))
-                .andExpect(jsonPath("$.detail").value("Authentication is required"))
+                .andExpect(jsonPath("$.title").value(ErrorCode.UNAUTHORIZED.defaultMessage()))
+                .andExpect(jsonPath("$.detail").value(ErrorCode.UNAUTHORIZED.defaultMessage()))
                 .andExpect(jsonPath("$.instance").value("/api/user/logout"))
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
                 .andExpect(jsonPath("$.traceId").isNotEmpty());
@@ -413,7 +425,7 @@ class SecurityConfigTest {
                 .andExpect(status().isForbidden())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(403))
-                .andExpect(jsonPath("$.title").value("Operation is not permitted"))
+                .andExpect(jsonPath("$.title").value(ErrorCode.FORBIDDEN.defaultMessage()))
                 .andExpect(jsonPath("$.detail").value(SecurityConfig.PASSWORD_CHANGE_REQUIRED))
                 .andExpect(jsonPath("$.instance").value("/api/orders/create"))
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"))
@@ -647,6 +659,7 @@ class SecurityConfigTest {
     }
 
     @RestController
+    @SuppressWarnings("unused")
     public static class TestApiController {
 
         @GetMapping({"/api/monkeys", "/api/v1/monkeys"})
@@ -989,9 +1002,9 @@ class SecurityConfigTest {
         }
         ResultActions result = mockMvc.perform(builder).andExpect(status().is(expectedStatus));
         if (expectedStatus == 401) {
-            expectProblemBody(result, 401, "UNAUTHORIZED", "Authentication is required", path);
+            expectProblemBody(result, 401, "UNAUTHORIZED", ErrorCode.UNAUTHORIZED.defaultMessage(), path);
         } else if (expectedStatus == 403) {
-            expectProblemBody(result, 403, "FORBIDDEN", "Operation is not permitted", path);
+            expectProblemBody(result, 403, "FORBIDDEN", ErrorCode.FORBIDDEN.defaultMessage(), path);
         }
     }
 

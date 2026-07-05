@@ -52,7 +52,7 @@ class Ws10RiskWorkflowTest {
         assertThat(metrics).contains("risk.high_score", "recordRiskDecision");
         assertThat(prometheusRule).contains("MonkeyShopRiskHighScoreSpike", "risk_price_anomaly_total");
         assertThat(frontendApi).contains("assessRisk", "riskReviews", "resolveRiskReview");
-        assertThat(riskView).contains("riskApi.assessRisk", "RiskReviewView", "Review Queue");
+        assertThat(riskView).contains("riskApi.assessRisk", "RiskReviewView", "复核队列");
         assertThat(script).contains("RiskPolicyTest", "WS10 risk verification completed successfully");
     }
 

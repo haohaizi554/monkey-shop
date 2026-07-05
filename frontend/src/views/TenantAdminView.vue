@@ -7,11 +7,15 @@ import type {
   Tenant,
   TenantBill,
   TenantConfig,
-  TenantConfigType,
   TenantDashboard,
   TenantExportJob,
   TenantPlan,
+  TenantConfigType,
 } from '@/types'
+
+type TenantStatus = Tenant['status']
+type BillStatus = TenantBill['status']
+type ExportStatus = TenantExportJob['status']
 
 const loading = ref(false)
 const dashboard = ref<TenantDashboard>()
@@ -49,6 +53,66 @@ const selectedTenant = computed(() =>
   tenantList.value.find((tenant) => tenant.id === selectedTenantId.value),
 )
 
+const planLabels: Record<TenantPlan, string> = {
+  STARTER: '基础版',
+  GROWTH: '增长版',
+  ENTERPRISE: '企业版',
+}
+
+const tenantStatusLabels: Record<TenantStatus, string> = {
+  TRIAL: '试用中',
+  ACTIVE: '生效中',
+  EXPIRED: '已过期',
+  DOWNGRADED: '已降级',
+  SUSPENDED: '已暂停',
+}
+
+const configTypeLabels: Record<TenantConfigType, string> = {
+  PAYMENT: '支付',
+  LOGISTICS: '物流',
+  MARKETING: '营销',
+  ROLLOUT: '发布',
+}
+
+const billStatusLabels: Record<BillStatus, string> = {
+  GENERATED: '已生成',
+  RECONCILED: '已对账',
+  SUSPENDED: '已挂起',
+}
+
+const exportStatusLabels: Record<ExportStatus, string> = {
+  REQUESTED: '处理中',
+  COMPLETED: '已完成',
+  FAILED: '失败',
+}
+
+function planLabel(plan: TenantPlan): string {
+  return planLabels[plan] ?? plan
+}
+
+function tenantStatusLabel(status: TenantStatus): string {
+  return tenantStatusLabels[status] ?? status
+}
+
+function configTypeLabel(type: TenantConfigType): string {
+  return configTypeLabels[type] ?? type
+}
+
+function billStatusLabel(status: BillStatus): string {
+  return billStatusLabels[status] ?? status
+}
+
+function exportStatusLabel(status: ExportStatus): string {
+  return exportStatusLabels[status] ?? status
+}
+
+function tenantDisplayName(name?: string): string {
+  if (!name) {
+    return '租户详情'
+  }
+  return name === 'MonkeyShop Platform Tenant' ? 'MonkeyShop 平台租户' : name
+}
+
 async function loadAll() {
   loading.value = true
   try {
@@ -61,7 +125,7 @@ async function loadAll() {
     }
     await loadTenantDetails()
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to load tenants')
+    ElMessage.error(error instanceof Error ? error.message : '租户数据加载失败')
   } finally {
     loading.value = false
   }
@@ -93,7 +157,7 @@ async function selectTenant(row: Tenant) {
 async function createTenant() {
   const tenant = await tenantApi.createTenant({ ...createForm })
   selectedTenantId.value = tenant.id
-  ElMessage.success('Tenant created')
+  ElMessage.success('租户已创建')
   createForm.code = ''
   createForm.name = ''
   createForm.contactName = ''
@@ -104,14 +168,14 @@ async function createTenant() {
 async function renewSelected() {
   if (!selectedTenantId.value) return
   await tenantApi.renewTenant(selectedTenantId.value, { months: 12 })
-  ElMessage.success('Tenant renewed')
+  ElMessage.success('租户已续费')
   await loadAll()
 }
 
 async function downgradeSelected() {
   if (!selectedTenantId.value) return
   await tenantApi.downgradeTenant(selectedTenantId.value, { plan: 'STARTER' })
-  ElMessage.success('Tenant downgraded')
+  ElMessage.success('租户已降级')
   await loadAll()
 }
 
@@ -121,7 +185,7 @@ async function saveConfig() {
   try {
     settings = JSON.parse(configForm.settingsText) as Record<string, string>
   } catch {
-    ElMessage.error('Settings must be valid JSON')
+    ElMessage.error('配置内容必须是合法 JSON')
     return
   }
   await tenantApi.upsertTenantConfig(selectedTenantId.value, {
@@ -130,7 +194,7 @@ async function saveConfig() {
     enabled: configForm.enabled,
     settings,
   })
-  ElMessage.success('Config saved')
+  ElMessage.success('租户配置已保存')
   await loadTenantDetails()
 }
 
@@ -139,14 +203,14 @@ async function generateBill() {
   await tenantApi.generateTenantBill(selectedTenantId.value, {
     billingMonth: billForm.billingMonth,
   })
-  ElMessage.success('Bill generated')
+  ElMessage.success('账单已生成')
   await loadTenantDetails()
 }
 
 async function requestExport() {
   if (!selectedTenantId.value) return
   await tenantApi.requestTenantExport(selectedTenantId.value, { exportType: exportForm.exportType })
-  ElMessage.success('Export requested')
+  ElMessage.success('导出任务已提交')
   await loadTenantDetails()
 }
 
@@ -158,27 +222,27 @@ onMounted(loadAll)
     <section v-loading="loading" class="tenant-page">
       <header class="tenant-header">
         <div>
-          <p class="eyebrow">SaaS Ops</p>
-          <h1>Tenant Command Center</h1>
+          <p class="eyebrow">租户运营</p>
+          <h1>租户指挥台</h1>
         </div>
-        <el-button type="primary" @click="loadAll">Refresh</el-button>
+        <el-button type="primary" @click="loadAll">刷新</el-button>
       </header>
 
       <div class="tenant-metrics">
         <div>
-          <span>Active tenants</span>
+          <span>有效租户</span>
           <strong>{{ dashboard?.activeTenants ?? 0 }}</strong>
         </div>
         <div>
-          <span>Expired tenants</span>
+          <span>过期租户</span>
           <strong>{{ dashboard?.expiredTenants ?? 0 }}</strong>
         </div>
         <div>
-          <span>Monthly orders</span>
+          <span>本月订单</span>
           <strong>{{ dashboard?.currentMonthOrders ?? 0 }}</strong>
         </div>
         <div>
-          <span>Revenue</span>
+          <span>本月收入</span>
           <strong>{{ dashboard?.currentMonthRevenue ?? 0 }}</strong>
         </div>
       </div>
@@ -186,100 +250,112 @@ onMounted(loadAll)
       <div class="tenant-workspace">
         <section class="tenant-panel">
           <div class="panel-title">
-            <h2>Tenants</h2>
+            <h2>租户列表</h2>
             <div class="tenant-actions">
-              <el-button size="small" @click="renewSelected">Renew</el-button>
-              <el-button size="small" type="warning" @click="downgradeSelected">
-                Downgrade
-              </el-button>
+              <el-button size="small" @click="renewSelected">续费</el-button>
+              <el-button size="small" type="warning" @click="downgradeSelected"> 降级 </el-button>
             </div>
           </div>
 
           <el-table :data="tenantList" highlight-current-row @row-click="selectTenant">
-            <el-table-column prop="code" label="Code" min-width="120" />
-            <el-table-column prop="name" label="Name" min-width="160" />
-            <el-table-column prop="plan" label="Plan" width="120" />
-            <el-table-column prop="status" label="Status" width="130" />
-            <el-table-column prop="maskedContactPhone" label="Phone" width="140" />
+            <el-table-column prop="code" label="编码" min-width="120" />
+            <el-table-column label="名称" min-width="160">
+              <template #default="{ row }">{{ tenantDisplayName(row.name) }}</template>
+            </el-table-column>
+            <el-table-column label="版本" width="120">
+              <template #default="{ row }">{{ planLabel(row.plan) }}</template>
+            </el-table-column>
+            <el-table-column label="状态" width="130">
+              <template #default="{ row }">{{ tenantStatusLabel(row.status) }}</template>
+            </el-table-column>
+            <el-table-column prop="maskedContactPhone" label="电话" width="140" />
           </el-table>
 
           <div class="compact-form">
             <el-input v-model="createForm.code" placeholder="merchant-code" />
-            <el-input v-model="createForm.name" placeholder="Merchant name" />
+            <el-input v-model="createForm.name" placeholder="商户名称" />
             <el-select v-model="createForm.plan">
-              <el-option label="Starter" value="STARTER" />
-              <el-option label="Growth" value="GROWTH" />
-              <el-option label="Enterprise" value="ENTERPRISE" />
+              <el-option label="基础版" value="STARTER" />
+              <el-option label="增长版" value="GROWTH" />
+              <el-option label="企业版" value="ENTERPRISE" />
             </el-select>
-            <el-input v-model="createForm.contactName" placeholder="Contact" />
-            <el-input v-model="createForm.contactPhone" placeholder="Phone" />
+            <el-input v-model="createForm.contactName" placeholder="联系人" />
+            <el-input v-model="createForm.contactPhone" placeholder="联系电话" />
             <el-input-number v-model="createForm.months" :min="1" :max="36" />
-            <el-button type="primary" @click="createTenant">Create</el-button>
+            <el-button type="primary" @click="createTenant">创建</el-button>
           </div>
         </section>
 
         <section class="tenant-panel">
           <div class="panel-title">
-            <h2>{{ selectedTenant?.name || 'Tenant detail' }}</h2>
-            <el-tag v-if="selectedTenant">{{ selectedTenant.status }}</el-tag>
+            <h2>{{ tenantDisplayName(selectedTenant?.name) }}</h2>
+            <el-tag v-if="selectedTenant">{{ tenantStatusLabel(selectedTenant.status) }}</el-tag>
           </div>
 
           <div class="tenant-forms">
             <div class="tenant-form-block">
-              <h3>Config</h3>
+              <h3>配置</h3>
               <el-select v-model="configForm.configType">
-                <el-option label="Payment" value="PAYMENT" />
-                <el-option label="Logistics" value="LOGISTICS" />
-                <el-option label="Marketing" value="MARKETING" />
-                <el-option label="Rollout" value="ROLLOUT" />
+                <el-option label="支付" value="PAYMENT" />
+                <el-option label="物流" value="LOGISTICS" />
+                <el-option label="营销" value="MARKETING" />
+                <el-option label="发布" value="ROLLOUT" />
               </el-select>
               <el-input v-model="configForm.provider" placeholder="provider" />
               <el-input v-model="configForm.settingsText" type="textarea" :rows="4" resize="none" />
-              <el-switch v-model="configForm.enabled" active-text="Enabled" />
-              <el-button type="primary" @click="saveConfig">Save config</el-button>
+              <el-switch v-model="configForm.enabled" active-text="已启用" inactive-text="已停用" />
+              <el-button type="primary" @click="saveConfig">保存配置</el-button>
             </div>
 
             <div class="tenant-form-block">
-              <h3>Billing</h3>
+              <h3>账单</h3>
               <el-input v-model="billForm.billingMonth" placeholder="yyyy-MM" />
-              <el-button type="primary" @click="generateBill">Generate bill</el-button>
+              <el-button type="primary" @click="generateBill">生成账单</el-button>
             </div>
 
             <div class="tenant-form-block">
-              <h3>Export</h3>
+              <h3>导出</h3>
               <el-select v-model="exportForm.exportType">
-                <el-option label="Full" value="FULL" />
-                <el-option label="Orders" value="ORDERS" />
-                <el-option label="Users" value="USERS" />
+                <el-option label="全量" value="FULL" />
+                <el-option label="订单" value="ORDERS" />
+                <el-option label="用户" value="USERS" />
               </el-select>
-              <el-button type="primary" @click="requestExport">Request export</el-button>
+              <el-button type="primary" @click="requestExport">提交导出</el-button>
             </div>
           </div>
 
           <el-tabs class="tenant-tabs">
-            <el-tab-pane label="Configs">
+            <el-tab-pane label="配置">
               <el-table :data="configs">
-                <el-table-column prop="configType" label="Type" width="120" />
-                <el-table-column prop="provider" label="Provider" width="140" />
-                <el-table-column prop="enabled" label="Enabled" width="100" />
-                <el-table-column prop="updatedAt" label="Updated" min-width="180" />
+                <el-table-column label="类型" width="120">
+                  <template #default="{ row }">{{ configTypeLabel(row.configType) }}</template>
+                </el-table-column>
+                <el-table-column prop="provider" label="服务商" width="140" />
+                <el-table-column label="启用" width="100">
+                  <template #default="{ row }">{{ row.enabled ? '是' : '否' }}</template>
+                </el-table-column>
+                <el-table-column prop="updatedAt" label="更新时间" min-width="180" />
               </el-table>
             </el-tab-pane>
-            <el-tab-pane label="Bills">
+            <el-tab-pane label="账单">
               <el-table :data="bills">
-                <el-table-column prop="billingMonth" label="Month" width="110" />
-                <el-table-column prop="orderCount" label="Orders" width="100" />
-                <el-table-column prop="totalAmount" label="Total" width="120" />
-                <el-table-column prop="paymentAmount" label="Payment" width="120" />
-                <el-table-column prop="status" label="Status" width="130" />
+                <el-table-column prop="billingMonth" label="月份" width="110" />
+                <el-table-column prop="orderCount" label="订单数" width="100" />
+                <el-table-column prop="totalAmount" label="合计" width="120" />
+                <el-table-column prop="paymentAmount" label="支付额" width="120" />
+                <el-table-column label="状态" width="130">
+                  <template #default="{ row }">{{ billStatusLabel(row.status) }}</template>
+                </el-table-column>
               </el-table>
             </el-tab-pane>
-            <el-tab-pane label="Exports">
+            <el-tab-pane label="导出">
               <el-table :data="exports">
-                <el-table-column prop="exportType" label="Type" width="110" />
-                <el-table-column prop="status" label="Status" width="130" />
-                <el-table-column prop="encryptedArchivePath" label="Archive" min-width="240" />
-                <el-table-column prop="requestedAt" label="Requested" min-width="180" />
+                <el-table-column prop="exportType" label="类型" width="110" />
+                <el-table-column label="状态" width="130">
+                  <template #default="{ row }">{{ exportStatusLabel(row.status) }}</template>
+                </el-table-column>
+                <el-table-column prop="encryptedArchivePath" label="归档路径" min-width="240" />
+                <el-table-column prop="requestedAt" label="提交时间" min-width="180" />
               </el-table>
             </el-tab-pane>
           </el-tabs>

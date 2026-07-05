@@ -26,12 +26,22 @@ const router = useRouter()
 const auth = useAuthStore()
 
 const profileMeta = computed(() => {
-  const meta = [profile.value.identity, profile.value.maskedPhone].filter(Boolean)
+  const identityLabel =
+    profile.value.identity === 'ADMIN'
+      ? t('nav.admin')
+      : profile.value.identity === 'USER'
+        ? t('nav.profile')
+        : profile.value.identity
+  const phoneLabel =
+    profile.value.maskedPhone === 'not bound' ? '未绑定手机号' : profile.value.maskedPhone
+  const meta = [identityLabel, phoneLabel].filter(Boolean)
   return meta.length ? meta.join(' / ') : t('profile.accountPending')
 })
 
 const passwordButtonLabel = computed(() =>
-  profile.value.passwordChangeRequired ? t('auth.completePasswordUpdate') : t('auth.updatePassword'),
+  profile.value.passwordChangeRequired
+    ? t('auth.completePasswordUpdate')
+    : t('auth.updatePassword'),
 )
 
 async function loadProfile() {

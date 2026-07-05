@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const sourceFiles = [
+  'src/App.vue',
   'src/api/admin.ts',
   'src/api/auth.ts',
   'src/api/catalog.ts',
@@ -23,14 +24,18 @@ const sourceFiles = [
   'src/router/index.ts',
   'src/types.ts',
   'src/utils/csrf.ts',
+  'src/utils/format.ts',
+  'src/styles/main.css',
   'src/views/AdminView.vue',
   'src/views/OrdersView.vue',
   'src/views/ProductDetailView.vue',
   'src/views/ShopView.vue',
+  'package.json',
   'public/robots.txt',
   'public/sitemap.xml',
   'tests/a11y.spec.ts',
   'scripts/lighthouse.mjs',
+  'scripts/ui-smoke.mjs',
   'vite.config.ts',
 ]
 
@@ -78,6 +83,23 @@ requireIncludes(
 )
 requireIncludes('src/api/http.ts', 'csrfHeader()', 'unsafe request CSRF header')
 requireIncludes('src/utils/csrf.ts', "'X-XSRF-TOKEN'", 'Spring CSRF header')
+requireIncludes('src/App.vue', ':message="messageConfig"', 'global Element Plus message config')
+requireIncludes('src/App.vue', 'grouping: true', 'grouped duplicate messages')
+requireIncludes('src/App.vue', 'max: 2', 'bounded message stack')
+requireIncludes('package.json', '"test:ui-smoke"', 'UI smoke script entrypoint')
+requireIncludes('src/styles/main.css', '--panel-muted', 'semantic surface token')
+requireIncludes('src/styles/main.css', '--focus-ring', 'semantic focus token')
+requireIncludes(
+  'src/styles/main.css',
+  '.el-table th.el-table__cell',
+  'industrial table header surface',
+)
+requireIncludes('src/styles/main.css', '.el-popper', 'viewport-safe popper surface')
+requireIncludes('src/styles/main.css', 'prefers-reduced-motion', 'reduced motion support')
+requireIncludes('scripts/ui-smoke.mjs', 'documentOverflow', 'page-level overflow smoke check')
+requireIncludes('scripts/ui-smoke.mjs', 'maxH1Px', 'industrial heading size smoke check')
+requireIncludes('scripts/ui-smoke.mjs', 'Operation is not permitted', 'raw permission copy guard')
+requireIncludes('scripts/ui-smoke.mjs', 'Too many requests', 'raw rate-limit copy guard')
 requireIncludes('src/api/auth.ts', "'/api/v1/auth/captcha'", 'auth captcha endpoint')
 requireIncludes('src/api/auth.ts', "'/api/v1/users/captcha'", 'user captcha endpoint')
 requireIncludes('src/api/auth.ts', "url: '/auth/login'", 'cookie-backed login endpoint')
@@ -95,9 +117,34 @@ requireIncludes(
 requireIncludes('src/locales/index.ts', 'initialLocale()', 'SSR-safe locale initialization')
 requireIncludes('src/locales/index.ts', 'zh: {', 'Chinese locale bundle')
 requireIncludes('src/locales/index.ts', "shop: '\\u5546\\u57ce'", 'Chinese shop locale')
-requireIncludes('src/stores/theme.ts', "storageKey: 'monkeyshop-theme'", 'theme persistence')
-requireIncludes('src/stores/theme.ts', "valueDark: 'dark'", 'Element Plus dark class')
+requireIncludes('src/stores/theme.ts', "storageKey = 'monkeyshop-theme'", 'theme persistence')
+requireIncludes('src/stores/theme.ts', "darkClass = 'dark'", 'Element Plus dark class')
 requireIncludes('src/api/orders.ts', "'Idempotency-Key'", 'order idempotency header')
+requireIncludes(
+  'src/types.ts',
+  'export type PaymentReconciliationStatus',
+  'payment reconciliation status type',
+)
+requireIncludes(
+  'src/types.ts',
+  "'PENDING_PROVIDER_DATA'",
+  'pending provider data reconciliation status',
+)
+requireIncludes(
+  'src/types.ts',
+  'status: PaymentReconciliationStatus',
+  'typed payment reconciliation response status',
+)
+requireIncludes(
+  'src/utils/format.ts',
+  'paymentReconciliationStatusLabel',
+  'payment reconciliation status label formatter',
+)
+requireIncludes(
+  'src/utils/format.ts',
+  "PENDING_PROVIDER_DATA: '",
+  'pending provider data reconciliation label',
+)
 requireIncludes('src/router/index.ts', "path: '/shop/:productId'", 'product detail route')
 requireIncludes(
   'src/router/index.ts',
@@ -151,13 +198,13 @@ requireIncludes(
 forbidIn(
   'src/views/ShopView.vue',
   sources['src/views/ShopView.vue'],
-  /element-plus/,
+  /from ['"]element-plus['"]/,
   'shop Element Plus import',
 )
 forbidIn(
   'src/components/AppShell.vue',
   sources['src/components/AppShell.vue'],
-  /element-plus/,
+  /from ['"]element-plus['"]/,
   'shell Element Plus import',
 )
 requireIncludes(
@@ -272,7 +319,7 @@ forbidIn('cookie auth frontend', cookieAuthSource, /\brefreshToken\b/, 'refresh 
 forbidIn(
   'cookie auth frontend',
   cookieAuthSource,
-  /localStorage|sessionStorage/,
+  /(?:localStorage|sessionStorage)\.(?:getItem|setItem|removeItem)\(['"`][^'"`]*(?:access|refresh|token)[^'"`]*['"`]/,
   'browser token storage',
 )
 

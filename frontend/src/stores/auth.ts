@@ -12,7 +12,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isLoggedIn = computed(() => user.value.isLogin === true)
   const isAdmin = computed(() => user.value.identity === 'ADMIN')
-  const displayName = computed(() => user.value.username || 'Guest')
+  const displayName = computed(() => user.value.username || '访客')
 
   async function loadCurrentUser(): Promise<void> {
     try {

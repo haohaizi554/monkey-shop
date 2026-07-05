@@ -2,6 +2,7 @@ package com.example.monkey.tracking.infrastructure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 @ExtendWith(MockitoExtension.class)
 class JpaTrackingStoreTest {
@@ -36,6 +38,9 @@ class JpaTrackingStoreTest {
     private ProductProfileRepository productProfileRepository;
 
     @Mock
+    private JdbcTemplate jdbcTemplate;
+
+    @Mock
     private PiiCryptoService piiCryptoService;
 
     private JpaTrackingStore store;
@@ -46,6 +51,7 @@ class JpaTrackingStoreTest {
                 eventRepository,
                 userProfileTagRepository,
                 productProfileRepository,
+                jdbcTemplate,
                 piiCryptoService,
                 new ObjectMapper().findAndRegisterModules());
     }
@@ -53,6 +59,11 @@ class JpaTrackingStoreTest {
     @Test
     void saveEventSerializesAttributesAndDelegatesDashboardAggregates() {
         when(eventRepository.save(any(TrackingEventEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(jdbcTemplate.queryForObject(
+                        eq("SELECT COUNT(1) FROM product_spu WHERE id = ?"), eq(Integer.class), eq(42L)))
+                .thenReturn(1);
+        when(jdbcTemplate.queryForObject(eq("SELECT COUNT(1) FROM orders WHERE id = ?"), eq(Integer.class), eq(900L)))
+                .thenReturn(1);
         LocalDateTime occurredAt = LocalDateTime.parse("2026-07-04T10:00:00");
 
         TrackingEvent saved = store.saveEvent(new TrackingEvent(
@@ -73,6 +84,8 @@ class JpaTrackingStoreTest {
         TrackingEventEntity entity = captureEvent();
         assertThat(entity.getAttributesJson()).contains("keyword", "phone");
         assertThat(entity.getAmount()).isEqualByComparingTo("99.90");
+        assertThat(entity.getProductId()).isEqualTo(42L);
+        assertThat(entity.getOrderId()).isEqualTo(900L);
         assertThat(saved.attributes()).containsEntry("keyword", "phone");
         assertThat(saved.eventType()).isEqualTo(TrackingEventType.PAYMENT_SUCCESS);
 
@@ -85,6 +98,37 @@ class JpaTrackingStoreTest {
         assertThat(store.countEvents(TrackingEventType.PAGE_VIEW, occurredAt)).isEqualTo(12L);
         assertThat(store.countDistinctVisitors(occurredAt)).isEqualTo(8L);
         assertThat(store.sumPaymentAmount(occurredAt)).isEqualByComparingTo("321.00");
+    }
+
+    @Test
+    void saveEventDropsMissingOptionalReferencesBeforeDatabaseWrite() {
+        when(eventRepository.save(any(TrackingEventEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(jdbcTemplate.queryForObject(
+                        eq("SELECT COUNT(1) FROM product_spu WHERE id = ?"), eq(Integer.class), eq(404L)))
+                .thenReturn(0);
+        when(jdbcTemplate.queryForObject(eq("SELECT COUNT(1) FROM orders WHERE id = ?"), eq(Integer.class), eq(905L)))
+                .thenReturn(0);
+
+        TrackingEvent saved = store.saveEvent(new TrackingEvent(
+                102L,
+                null,
+                "session-b",
+                "trace-b",
+                TrackingEventType.PRODUCT_VIEW,
+                "/shop/404",
+                "web",
+                404L,
+                5L,
+                905L,
+                null,
+                Map.of(),
+                LocalDateTime.parse("2026-07-04T10:05:00")));
+
+        TrackingEventEntity entity = captureEvent();
+        assertThat(entity.getProductId()).isNull();
+        assertThat(entity.getOrderId()).isNull();
+        assertThat(saved.productId()).isNull();
+        assertThat(saved.orderId()).isNull();
     }
 
     @Test

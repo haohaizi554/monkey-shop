@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.Optional;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -29,6 +30,7 @@ public class JpaTrackingStore implements TrackingStore {
     private final TrackingEventRepository eventRepository;
     private final UserProfileTagRepository userProfileTagRepository;
     private final ProductProfileRepository productProfileRepository;
+    private final JdbcTemplate jdbcTemplate;
     private final PiiCryptoService piiCryptoService;
     private final ObjectMapper objectMapper;
 
@@ -36,11 +38,13 @@ public class JpaTrackingStore implements TrackingStore {
             TrackingEventRepository eventRepository,
             UserProfileTagRepository userProfileTagRepository,
             ProductProfileRepository productProfileRepository,
+            JdbcTemplate jdbcTemplate,
             PiiCryptoService piiCryptoService,
             ObjectMapper objectMapper) {
         this.eventRepository = eventRepository;
         this.userProfileTagRepository = userProfileTagRepository;
         this.productProfileRepository = productProfileRepository;
+        this.jdbcTemplate = jdbcTemplate;
         this.piiCryptoService = piiCryptoService;
         this.objectMapper = objectMapper;
     }
@@ -119,14 +123,23 @@ public class JpaTrackingStore implements TrackingStore {
         entity.setEventType(event.eventType());
         entity.setPage(event.page());
         entity.setSource(event.source());
-        entity.setProductId(event.productId());
+        entity.setProductId(existingReferenceId("product_spu", event.productId()));
         entity.setCategoryId(event.categoryId());
-        entity.setOrderId(event.orderId());
+        entity.setOrderId(existingReferenceId("orders", event.orderId()));
         entity.setAmount(event.amount());
         entity.setAttributesJson(write(event.attributes()));
         entity.setOccurredAt(event.occurredAt());
         entity.setCreateTime(LocalDateTime.now());
         return entity;
+    }
+
+    private Long existingReferenceId(String tableName, Long id) {
+        if (id == null) {
+            return null;
+        }
+        Integer count =
+                jdbcTemplate.queryForObject("SELECT COUNT(1) FROM " + tableName + " WHERE id = ?", Integer.class, id);
+        return count != null && count > 0 ? id : null;
     }
 
     private TrackingEvent toDomain(TrackingEventEntity entity) {

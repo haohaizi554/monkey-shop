@@ -11,6 +11,8 @@ import {
 import AppShell from '@/components/AppShell.vue'
 import type { InventoryReconciliation, InventoryReservation, WarehouseStock } from '@/types'
 
+type ReservationStatus = InventoryReservation['status']
+
 const skuId = ref<number | null>(null)
 const reservationKey = ref('')
 const reserveQuantity = ref(1)
@@ -29,6 +31,17 @@ const totalLocked = computed(() =>
   stocks.value.reduce((sum, stock) => sum + stock.lockedQuantity, 0),
 )
 
+const reservationStatusLabels: Record<ReservationStatus, string> = {
+  RESERVED: '已锁定',
+  RELEASED: '已释放',
+  DEDUCTED: '已扣减',
+  EXPIRED: '已过期',
+}
+
+function reservationStatusLabel(status: ReservationStatus): string {
+  return reservationStatusLabels[status] ?? status
+}
+
 async function loadStocks() {
   if (!skuId.value) {
     return
@@ -37,7 +50,7 @@ async function loadStocks() {
   try {
     stocks.value = await inventoryStocks(skuId.value)
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to load inventory')
+    ElMessage.error(error instanceof Error ? error.message : '库存加载失败')
   } finally {
     loadingStocks.value = false
   }
@@ -56,9 +69,9 @@ async function reserveCurrentSku() {
       reservationKey: reservationKey.value,
     })
     await loadStocks()
-    ElMessage.success('Inventory reserved')
+    ElMessage.success('库存已锁定')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to reserve inventory')
+    ElMessage.error(error instanceof Error ? error.message : '库存锁定失败')
   } finally {
     movingStock.value = false
   }
@@ -72,9 +85,9 @@ async function releaseLatestReservation() {
   try {
     latestReservation.value = await releaseInventory(latestReservation.value.reservationKey)
     await loadStocks()
-    ElMessage.success('Inventory released')
+    ElMessage.success('库存已释放')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to release inventory')
+    ElMessage.error(error instanceof Error ? error.message : '库存释放失败')
   } finally {
     movingStock.value = false
   }
@@ -85,7 +98,7 @@ async function runReconciliation() {
   try {
     reconciliation.value = await reconcileInventory()
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to reconcile inventory')
+    ElMessage.error(error instanceof Error ? error.message : '库存对账失败')
   } finally {
     reconciling.value = false
   }
@@ -96,38 +109,43 @@ async function runReconciliation() {
   <AppShell>
     <section class="inventory-layout">
       <div class="inventory-toolbar">
-        <el-input-number v-model="skuId" :min="1" controls-position="right" placeholder="SKU ID" />
+        <el-input-number
+          v-model="skuId"
+          :min="1"
+          controls-position="right"
+          placeholder="SKU 编号"
+        />
         <el-button type="primary" :icon="Search" :loading="loadingStocks" @click="loadStocks">
-          Search
+          查询
         </el-button>
         <el-button :icon="Refresh" :loading="reconciling" @click="runReconciliation">
-          Reconcile
+          对账
         </el-button>
       </div>
 
       <div class="inventory-summary">
         <div>
-          <span>Available</span>
+          <span>可售库存</span>
           <strong>{{ totalAvailable }}</strong>
         </div>
         <div>
-          <span>Locked</span>
+          <span>锁定库存</span>
           <strong>{{ totalLocked }}</strong>
         </div>
         <div>
-          <span>Reconciliation</span>
-          <strong>{{ reconciliation?.balanced === false ? 'Drift' : 'Balanced' }}</strong>
+          <span>对账状态</span>
+          <strong>{{ reconciliation?.balanced === false ? '存在差异' : '平衡' }}</strong>
         </div>
       </div>
 
       <el-table v-loading="loadingStocks" :data="stocks" class="inventory-table">
-        <el-table-column prop="warehouseCode" label="Warehouse" min-width="140" />
-        <el-table-column prop="province" label="Region" min-width="120" />
-        <el-table-column prop="availableQuantity" label="Available" min-width="110" />
-        <el-table-column prop="lockedQuantity" label="Locked" min-width="100" />
-        <el-table-column prop="deductedQuantity" label="Deducted" min-width="110" />
-        <el-table-column prop="totalQuantity" label="Total" min-width="100" />
-        <el-table-column label="Safety" min-width="100">
+        <el-table-column prop="warehouseCode" label="仓库" min-width="140" />
+        <el-table-column prop="province" label="区域" min-width="120" />
+        <el-table-column prop="availableQuantity" label="可售" min-width="110" />
+        <el-table-column prop="lockedQuantity" label="锁定" min-width="100" />
+        <el-table-column prop="deductedQuantity" label="已扣减" min-width="110" />
+        <el-table-column prop="totalQuantity" label="总库存" min-width="100" />
+        <el-table-column label="安全线" min-width="100">
           <template #default="{ row }">
             <el-tag :type="row.belowSafetyStock ? 'warning' : 'success'" disable-transitions>
               {{ row.safetyStock }}
@@ -137,18 +155,18 @@ async function runReconciliation() {
       </el-table>
 
       <div class="inventory-actions">
-        <el-input v-model="reservationKey" placeholder="Reservation key" />
-        <el-input v-model="reserveProvince" placeholder="Region, e.g. CN-BJ" />
+        <el-input v-model="reservationKey" placeholder="锁定单号" />
+        <el-input v-model="reserveProvince" placeholder="区域，例如 CN-BJ" />
         <el-input-number v-model="reserveQuantity" :min="1" controls-position="right" />
         <el-button type="primary" :loading="movingStock" @click="reserveCurrentSku">
-          Reserve
+          锁定库存
         </el-button>
         <el-button
           :disabled="!latestReservation"
           :loading="movingStock"
           @click="releaseLatestReservation"
         >
-          Release
+          释放库存
         </el-button>
       </div>
 
@@ -156,7 +174,7 @@ async function runReconciliation() {
         v-if="latestReservation"
         type="success"
         :closable="false"
-        :title="`${latestReservation.status} ${latestReservation.reservationKey}`"
+        :title="`锁定单 ${latestReservation.reservationKey}：${reservationStatusLabel(latestReservation.status)}`"
       />
 
       <el-table
@@ -165,11 +183,11 @@ async function runReconciliation() {
         class="inventory-table"
       >
         <el-table-column prop="skuId" label="SKU" min-width="100" />
-        <el-table-column prop="warehouseId" label="Warehouse" min-width="120" />
-        <el-table-column prop="actualLocked" label="Locked" min-width="100" />
-        <el-table-column prop="expectedLocked" label="Expected locked" min-width="150" />
-        <el-table-column prop="actualDeducted" label="Deducted" min-width="110" />
-        <el-table-column prop="expectedDeducted" label="Expected deducted" min-width="170" />
+        <el-table-column prop="warehouseId" label="仓库" min-width="120" />
+        <el-table-column prop="actualLocked" label="实际锁定" min-width="110" />
+        <el-table-column prop="expectedLocked" label="应锁定" min-width="120" />
+        <el-table-column prop="actualDeducted" label="实际扣减" min-width="110" />
+        <el-table-column prop="expectedDeducted" label="应扣减" min-width="120" />
       </el-table>
     </section>
   </AppShell>

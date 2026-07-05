@@ -7,7 +7,7 @@ import * as ordersApi from '@/api/orders'
 import AppShell from '@/components/AppShell.vue'
 import ProductImage from '@/components/ProductImage.vue'
 import type { Order } from '@/types'
-import { dateTime, money, orderStatusKey, statusType } from '@/utils/format'
+import { dateTime, money, orderStatusKey, orderStatusLabel, statusType } from '@/utils/format'
 
 const loading = ref(false)
 const actionInProgress = ref<string | null>(null)
@@ -80,7 +80,7 @@ onMounted(() => {
               <p>{{ order.orderNo }} / {{ dateTime(order.createTime) }}</p>
             </div>
             <el-tag :type="statusType(order.status)" disable-transitions>
-              {{ order.status }}
+              {{ orderStatusLabel(order.status) }}
             </el-tag>
           </div>
           <p>{{ order.receiverName }} / {{ order.receiverPhone }} / {{ order.addressSnapshot }}</p>

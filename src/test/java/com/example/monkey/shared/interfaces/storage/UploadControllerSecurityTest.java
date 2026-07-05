@@ -25,6 +25,7 @@ import com.example.monkey.shared.application.storage.dto.UploadResponseDto;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.infrastructure.config.SecurityConfig;
+import com.example.monkey.shared.interfaces.web.VisitInterceptor;
 import com.example.monkey.user.domain.UserAccountStore;
 import java.time.Instant;
 import java.util.List;
@@ -33,34 +34,36 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 @WebMvcTest(controllers = UploadController.class)
 @Import(SecurityConfig.class)
+@MockitoBean(
+        types = {
+            FileService.class,
+            VisitInterceptor.class,
+            UserAccountStore.class,
+            AuditService.class,
+            ApiRateLimitApplicationService.class
+        })
 class UploadControllerSecurityTest {
 
+    private final MockMvc mockMvc;
+    private final FileService fileService;
+    private final ApiRateLimitApplicationService apiRateLimitService;
+
     @Autowired
-    private MockMvc mockMvc;
-
-    @MockBean
-    private FileService fileService;
-
-    @MockBean
-    private com.example.monkey.shared.interfaces.web.VisitInterceptor visitInterceptor;
-
-    @MockBean
-    private UserAccountStore userAccountStore;
-
-    @MockBean
-    private AuditService auditService;
-
-    @MockBean
-    private ApiRateLimitApplicationService apiRateLimitService;
+    UploadControllerSecurityTest(
+            MockMvc mockMvc, FileService fileService, ApiRateLimitApplicationService apiRateLimitService) {
+        this.mockMvc = mockMvc;
+        this.fileService = fileService;
+        this.apiRateLimitService = apiRateLimitService;
+    }
 
     @BeforeEach
     void allowRateLimitedTraffic() {
@@ -97,7 +100,7 @@ class UploadControllerSecurityTest {
                 .andExpect(status().isForbidden())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(403))
-                .andExpect(jsonPath("$.detail").value("Operation is not permitted"))
+                .andExpect(jsonPath("$.detail").value(ErrorCode.FORBIDDEN.defaultMessage()))
                 .andExpect(jsonPath("$.instance").value("/api/upload"))
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"))
                 .andExpect(jsonPath("$.traceId").isNotEmpty());

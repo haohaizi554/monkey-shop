@@ -19,7 +19,7 @@ async function loadCart() {
   try {
     cart.value = await getCart()
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to load cart')
+    ElMessage.error(error instanceof Error ? error.message : '无法加载购物车')
   } finally {
     loading.value = false
   }
@@ -37,9 +37,9 @@ async function addCurrentItem() {
       quantity: quantity.value,
       selected: selected.value,
     })
-    ElMessage.success('Cart updated')
+    ElMessage.success('购物车已更新')
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to update cart')
+    ElMessage.error(error instanceof Error ? error.message : '无法更新购物车')
   } finally {
     saving.value = false
   }
@@ -50,7 +50,7 @@ async function updateQuantity(rowSkuId: number, nextQuantity: number) {
   try {
     cart.value = await updateCartItem(rowSkuId, { quantity: nextQuantity })
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to update quantity')
+    ElMessage.error(error instanceof Error ? error.message : '无法更新数量')
   } finally {
     saving.value = false
   }
@@ -61,7 +61,7 @@ async function updateSelection(rowSkuId: number, nextSelected: boolean) {
   try {
     cart.value = await selectCartItem(rowSkuId, { selected: nextSelected })
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to update selection')
+    ElMessage.error(error instanceof Error ? error.message : '无法更新选中状态')
   } finally {
     saving.value = false
   }
@@ -72,7 +72,7 @@ async function removeItem(rowSkuId: number) {
   try {
     cart.value = await removeCartItem(rowSkuId)
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : 'Unable to remove item')
+    ElMessage.error(error instanceof Error ? error.message : '无法移除商品')
   } finally {
     saving.value = false
   }
@@ -84,31 +84,35 @@ onMounted(loadCart)
 <template>
   <AppShell>
     <section class="cart-layout">
+      <section class="page-heading">
+        <h1>{{ $t('nav.cart') }}</h1>
+        <el-button :icon="Refresh" :loading="loading" @click="loadCart">刷新</el-button>
+      </section>
+
       <div class="cart-toolbar">
         <el-input-number v-model="skuId" :min="1" controls-position="right" placeholder="SKU" />
-        <el-input-number v-model="shopId" :min="1" controls-position="right" placeholder="Shop" />
+        <el-input-number v-model="shopId" :min="1" controls-position="right" placeholder="店铺" />
         <el-input-number v-model="quantity" :min="1" :max="999" controls-position="right" />
-        <el-switch v-model="selected" active-text="Selected" />
+        <el-switch v-model="selected" active-text="已选" />
         <el-button type="primary" :icon="ShoppingCart" :loading="saving" @click="addCurrentItem">
-          Add
+          加入购物车
         </el-button>
-        <el-button :icon="Refresh" :loading="loading" @click="loadCart">Refresh</el-button>
       </div>
 
       <div class="cart-summary">
         <div>
-          <span>Selected items</span>
+          <span>已选商品</span>
           <strong>{{ cart?.selectedQuantity ?? 0 }}</strong>
         </div>
         <div>
-          <span>Selected amount</span>
+          <span>已选金额</span>
           <strong>{{ cart?.selectedAmount ?? '0.00' }}</strong>
         </div>
-        <RouterLink class="checkout-link" to="/checkout">Checkout</RouterLink>
+        <RouterLink class="checkout-link" to="/checkout">去结算</RouterLink>
       </div>
 
       <el-table v-loading="loading" :data="cart?.items ?? []" class="cart-table">
-        <el-table-column label="Selected" width="110">
+        <el-table-column label="已选" width="110">
           <template #default="{ row }">
             <el-switch
               :model-value="row.selected"
@@ -116,11 +120,11 @@ onMounted(loadCart)
             />
           </template>
         </el-table-column>
-        <el-table-column prop="productName" label="Product" min-width="180" />
+        <el-table-column prop="productName" label="商品" min-width="180" />
         <el-table-column prop="skuId" label="SKU" min-width="100" />
-        <el-table-column prop="shopId" label="Shop" min-width="100" />
-        <el-table-column prop="unitPrice" label="Unit" min-width="100" />
-        <el-table-column label="Qty" min-width="130">
+        <el-table-column prop="shopId" label="店铺" min-width="100" />
+        <el-table-column prop="unitPrice" label="单价" min-width="100" />
+        <el-table-column label="数量" min-width="130">
           <template #default="{ row }">
             <el-input-number
               :model-value="row.quantity"
@@ -131,12 +135,25 @@ onMounted(loadCart)
             />
           </template>
         </el-table-column>
-        <el-table-column prop="lineAmount" label="Amount" min-width="120" />
+        <el-table-column prop="lineAmount" label="金额" min-width="120" />
         <el-table-column label="" width="76">
           <template #default="{ row }">
-            <el-button :icon="Delete" circle text type="danger" @click="removeItem(row.skuId)" />
+            <el-button
+              :aria-label="$t('common.delete')"
+              :icon="Delete"
+              circle
+              text
+              type="danger"
+              @click="removeItem(row.skuId)"
+            />
           </template>
         </el-table-column>
+        <template #empty>
+          <div class="cart-empty">
+            <strong>购物车还是空的</strong>
+            <span>先去商城选择商品，或用上方 SKU 快速加入。</span>
+          </div>
+        </template>
       </el-table>
     </section>
   </AppShell>
@@ -195,5 +212,17 @@ onMounted(loadCart)
 
 .cart-table {
   width: 100%;
+}
+
+.cart-empty {
+  display: grid;
+  gap: 6px;
+  padding: 28px 0;
+  color: var(--text-muted);
+}
+
+.cart-empty strong {
+  color: var(--text);
+  font-size: 1rem;
 }
 </style>

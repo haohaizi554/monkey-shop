@@ -161,7 +161,7 @@ watch(product, () => {
             <div v-if="skuOptions.length" class="sku-selector">
               <span class="sku-title">SKU</span>
               <el-radio-group v-model="selectedSkuId" class="sku-options">
-                <el-radio-button v-for="sku in skuOptions" :key="sku.id" :label="sku.id">
+                <el-radio-button v-for="sku in skuOptions" :key="sku.id" :value="sku.id">
                   {{ skuLabel(sku) }}
                 </el-radio-button>
               </el-radio-group>
@@ -196,7 +196,7 @@ watch(product, () => {
       </div>
 
       <el-radio-group v-model="selectedAddressId" class="address-list">
-        <el-radio v-for="address in addresses" :key="address.id" :label="address.id" border>
+        <el-radio v-for="address in addresses" :key="address.id" :value="address.id" border>
           {{ address.receiverName }} - {{ address.phone }} - {{ address.detailAddress }}
         </el-radio>
       </el-radio-group>

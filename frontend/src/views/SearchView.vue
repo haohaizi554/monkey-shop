@@ -186,7 +186,12 @@ onMounted(async () => {
           <DataAnalysis class="empty-state-icon" />
           <h2>{{ $t('search.emptyTitle') }}</h2>
           <p>{{ $t('search.emptyDescription') }}</p>
-          <button v-if="hasActiveFilters" class="secondary-button" type="button" @click="clearFilters">
+          <button
+            v-if="hasActiveFilters"
+            class="secondary-button"
+            type="button"
+            @click="clearFilters"
+          >
             {{ $t('common.clearFilters') }}
           </button>
         </div>

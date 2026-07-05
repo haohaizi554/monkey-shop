@@ -50,7 +50,7 @@ export function useCheckout(options: CheckoutOptions = {}) {
         addresses.value.find((item) => item.isDefault === 1)?.id ?? addresses.value[0]?.id ?? null
       checkoutOpen.value = true
     } catch (error) {
-      notify('error', error instanceof Error ? error.message : 'Unable to open checkout')
+      notify('error', error instanceof Error ? error.message : '无法打开结算')
     } finally {
       openingCheckoutId.value = null
     }
@@ -63,7 +63,7 @@ export function useCheckout(options: CheckoutOptions = {}) {
       selectedAddressId.value = saved.id
       Object.assign(newAddress, { receiverName: '', phone: '', detailAddress: '' })
     } catch (error) {
-      notify('error', error instanceof Error ? error.message : 'Unable to save address')
+      notify('error', error instanceof Error ? error.message : '无法保存地址')
     }
   }
 
@@ -72,19 +72,19 @@ export function useCheckout(options: CheckoutOptions = {}) {
       return
     }
     if (!selectedMonkey.value || !selectedAddressId.value) {
-      notify('warning', 'Choose an address first')
+      notify('warning', '请先选择收货地址')
       return
     }
     submittingOrder.value = true
     try {
       await ensureRiskAllowed(selectedMonkey.value)
       await createOrder(selectedMonkey.value.id, selectedAddressId.value)
-      notify('success', 'Order created')
+      notify('success', '订单已创建')
       checkoutOpen.value = false
       await options.afterOrderCreated?.()
       await router.push('/orders')
     } catch (error) {
-      notify('error', error instanceof Error ? error.message : 'Unable to create order')
+      notify('error', error instanceof Error ? error.message : '无法创建订单')
     } finally {
       submittingOrder.value = false
     }
