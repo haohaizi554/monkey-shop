@@ -57,7 +57,7 @@ public class JpaOrderStore implements OrderStore {
     public OrderRecord savePlacedOrder(OrderRecord order) {
         Order entity = toEntity(order);
         Order saved = orderRepository.save(entity);
-        return toRecord(saved == null ? entity : saved);
+        return toRecord(saved);
     }
 
     @Override

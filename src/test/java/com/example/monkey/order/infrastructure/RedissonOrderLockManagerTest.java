@@ -72,7 +72,7 @@ class RedissonOrderLockManagerTest {
                     });
             assertThat(Thread.currentThread().isInterrupted()).isTrue();
         } finally {
-            Thread.interrupted();
+            assertThat(Thread.interrupted()).isTrue();
         }
     }
 

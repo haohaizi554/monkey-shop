@@ -35,6 +35,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.AuthenticationTrustResolver;
 import org.springframework.security.authentication.AuthenticationTrustResolverImpl;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -609,7 +610,9 @@ public class SecurityConfig {
 
         @Override
         protected void doFilterInternal(
-                HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+                @NonNull HttpServletRequest request,
+                @NonNull HttpServletResponse response,
+                @NonNull FilterChain filterChain)
                 throws ServletException, IOException {
             Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
             SessionUser user = sessionUser(authentication);

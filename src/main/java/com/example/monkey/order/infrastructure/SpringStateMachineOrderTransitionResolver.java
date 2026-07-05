@@ -8,11 +8,14 @@ import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import java.util.EnumSet;
 import java.util.UUID;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.statemachine.StateMachine;
+import org.springframework.statemachine.StateMachineEventResult;
 import org.springframework.statemachine.config.StateMachineBuilder;
 import org.springframework.statemachine.config.StateMachineFactory;
 import org.springframework.statemachine.support.DefaultStateMachineContext;
 import org.springframework.stereotype.Component;
+import reactor.core.publisher.Mono;
 
 @Component
 public class SpringStateMachineOrderTransitionResolver implements OrderTransitionResolver {
@@ -32,17 +35,21 @@ public class SpringStateMachineOrderTransitionResolver implements OrderTransitio
         try {
             stateMachine
                     .getStateMachineAccessor()
-                    .doWithAllRegions(access -> access.resetStateMachine(
-                            new DefaultStateMachineContext<>(currentStatus, null, null, null)));
-            stateMachine.start();
-            boolean accepted = stateMachine.sendEvent(event);
+                    .doWithAllRegions(access -> access.resetStateMachineReactively(
+                                    new DefaultStateMachineContext<>(currentStatus, null, null, null))
+                            .block());
+            stateMachine.startReactively().block();
+            boolean accepted = Boolean.TRUE.equals(stateMachine
+                    .sendEvent(Mono.just(MessageBuilder.withPayload(event).build()))
+                    .any(result -> result.getResultType() == StateMachineEventResult.ResultType.ACCEPTED)
+                    .block());
             OrderStatus nextStatus = stateMachine.getState().getId();
             if (!accepted || nextStatus != expectedNextStatus) {
                 throw new BusinessException(ErrorCode.CONFLICT, OrderTransitionPolicy.STATUS_TRANSITION_NOT_ALLOWED);
             }
             return nextStatus;
         } finally {
-            stateMachine.stop();
+            stateMachine.stopReactively().block();
         }
     }
 

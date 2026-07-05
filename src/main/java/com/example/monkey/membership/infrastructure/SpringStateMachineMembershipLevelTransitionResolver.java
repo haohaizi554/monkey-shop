@@ -9,11 +9,14 @@ import com.example.monkey.shared.domain.exception.ErrorCode;
 import java.util.EnumSet;
 import java.util.UUID;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.statemachine.StateMachine;
+import org.springframework.statemachine.StateMachineEventResult;
 import org.springframework.statemachine.config.StateMachineBuilder;
 import org.springframework.statemachine.config.StateMachineFactory;
 import org.springframework.statemachine.support.DefaultStateMachineContext;
 import org.springframework.stereotype.Component;
+import reactor.core.publisher.Mono;
 
 @Component
 @ConditionalOnProperty(name = "app.membership.level-transition-resolver", havingValue = "spring", matchIfMissing = true)
@@ -38,16 +41,20 @@ public class SpringStateMachineMembershipLevelTransitionResolver implements Memb
         try {
             stateMachine
                     .getStateMachineAccessor()
-                    .doWithAllRegions(access ->
-                            access.resetStateMachine(new DefaultStateMachineContext<>(currentLevel, null, null, null)));
-            stateMachine.start();
-            boolean accepted = stateMachine.sendEvent(transition);
+                    .doWithAllRegions(access -> access.resetStateMachineReactively(
+                                    new DefaultStateMachineContext<>(currentLevel, null, null, null))
+                            .block());
+            stateMachine.startReactively().block();
+            boolean accepted = Boolean.TRUE.equals(stateMachine
+                    .sendEvent(Mono.just(MessageBuilder.withPayload(transition).build()))
+                    .any(result -> result.getResultType() == StateMachineEventResult.ResultType.ACCEPTED)
+                    .block());
             if (!accepted || stateMachine.getState().getId() != nextLevel) {
                 throw new BusinessException(
                         ErrorCode.CONFLICT, MembershipLevelTransitionPolicy.LEVEL_TRANSITION_NOT_ALLOWED);
             }
         } finally {
-            stateMachine.stop();
+            stateMachine.stopReactively().block();
         }
     }
 

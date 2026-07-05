@@ -40,7 +40,7 @@ public class RedisImageReferenceService implements ImageReferenceService {
         }
         try {
             Long count = redisTemplate.opsForHash().increment(REFCOUNT_HASH, imagePath, -1L);
-            if (count == null || count <= 0L) {
+            if (count <= 0L) {
                 redisTemplate.opsForHash().delete(REFCOUNT_HASH, imagePath);
             }
         } catch (RuntimeException e) {

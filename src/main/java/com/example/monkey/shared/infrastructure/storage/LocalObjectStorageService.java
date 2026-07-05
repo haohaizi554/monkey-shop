@@ -98,7 +98,6 @@ public class LocalObjectStorageService implements ObjectStorageService {
         while (stripped.endsWith("/")) {
             stripped = stripped.substring(0, stripped.length() - 1);
         }
-        URI.create(stripped);
-        return stripped;
+        return URI.create(stripped).toString();
     }
 }

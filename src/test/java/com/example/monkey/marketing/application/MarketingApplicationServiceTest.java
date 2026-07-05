@@ -83,7 +83,9 @@ class MarketingApplicationServiceTest {
             for (int i = 0; i < attempts; i++) {
                 long userId = i + 1L;
                 futures.add(executor.submit(() -> {
-                    start.await(5, TimeUnit.SECONDS);
+                    if (!start.await(5, TimeUnit.SECONDS)) {
+                        return false;
+                    }
                     try {
                         service.createSeckillOrder(
                                 new SeckillRequestDto(10L, userId, null, 1, "flash-" + userId, null), "127.0.0.1");

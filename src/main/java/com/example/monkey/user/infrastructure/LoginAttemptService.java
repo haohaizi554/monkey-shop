@@ -5,7 +5,6 @@ import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.user.domain.LoginAttemptPolicy;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
-import io.github.bucket4j.Refill;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -195,8 +194,10 @@ public class LoginAttemptService implements LoginAttemptPolicy {
     }
 
     private Bucket newWindowBucket() {
-        Bandwidth limit =
-                Bandwidth.classic(maxAttemptsPerWindow, Refill.intervally(maxAttemptsPerWindow, windowDuration));
+        Bandwidth limit = Bandwidth.builder()
+                .capacity(maxAttemptsPerWindow)
+                .refillIntervally(maxAttemptsPerWindow, windowDuration)
+                .build();
         return Bucket.builder().addLimit(limit).build();
     }
 

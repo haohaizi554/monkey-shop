@@ -24,13 +24,14 @@ public class RedissonConfig {
 
     static Config singleServerConfig(String host, int port, String username, String password, boolean sslEnabled) {
         Config config = new Config();
-        SingleServerConfig server = config.useSingleServer().setAddress(redisAddress(host, port, sslEnabled));
         if (StringUtils.hasText(username)) {
-            server.setUsername(username);
+            config.setUsername(username);
         }
         if (StringUtils.hasText(password)) {
-            server.setPassword(password);
+            config.setPassword(password);
         }
+        SingleServerConfig server = config.useSingleServer();
+        server.setAddress(redisAddress(host, port, sslEnabled));
         return config;
     }
 

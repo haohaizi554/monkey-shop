@@ -8,7 +8,6 @@ import com.example.monkey.shared.domain.security.RateLimitPolicy;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.ConsumptionProbe;
-import io.github.bucket4j.Refill;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -201,7 +200,10 @@ public class ApiRateLimitService implements ApiRateLimiter {
     }
 
     private static Bucket newBucket(RateLimitPolicy policy) {
-        Bandwidth limit = Bandwidth.classic(policy.capacity(), Refill.intervally(policy.capacity(), policy.window()));
+        Bandwidth limit = Bandwidth.builder()
+                .capacity(policy.capacity())
+                .refillIntervally(policy.capacity(), policy.window())
+                .build();
         return Bucket.builder().addLimit(limit).build();
     }
 

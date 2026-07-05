@@ -13,7 +13,7 @@ public record SearchQuery(
         attributes = attributes == null ? Map.of() : Map.copyOf(attributes);
         sort = sort == null ? SearchSort.RELEVANCE : sort;
         page = Math.max(0, page);
-        size = Math.max(1, Math.min(MAX_PAGE_SIZE, size <= 0 ? 20 : size));
+        size = size <= 0 ? 20 : Math.min(MAX_PAGE_SIZE, size);
     }
 
     public String normalizedKeyword() {

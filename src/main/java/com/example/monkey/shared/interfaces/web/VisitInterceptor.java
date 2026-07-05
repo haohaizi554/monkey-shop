@@ -3,6 +3,7 @@ package com.example.monkey.shared.interfaces.web;
 import com.example.monkey.shared.application.observability.VisitMetricsService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
@@ -16,7 +17,8 @@ public class VisitInterceptor implements HandlerInterceptor {
     }
 
     @Override
-    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+    public boolean preHandle(
+            @NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull Object handler) {
         visitMetricsService.recordPageVisit(request.getMethod(), request.getRequestURI(), ClientIps.resolve(request));
         return true;
     }

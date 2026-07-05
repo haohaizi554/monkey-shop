@@ -46,7 +46,7 @@ public class JpaUserAccountStore implements UserAccountStore {
     @Override
     public UserAccount save(UserAccount account) {
         User savedUser = userRepository.save(toEntity(account));
-        return toRecord(savedUser != null ? savedUser : toEntity(account));
+        return toRecord(savedUser);
     }
 
     @Override
@@ -91,7 +91,7 @@ public class JpaUserAccountStore implements UserAccountStore {
         }
         Role role = roleSnapshot(roleName);
         Role savedRole = roleRepository.save(role);
-        return savedRole != null ? savedRole : role;
+        return savedRole;
     }
 
     private static Role roleSnapshot(String roleName) {
