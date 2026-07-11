@@ -12,92 +12,133 @@ function requiresAdmin(route: RouteLocationNormalized): boolean {
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: '/shop' },
+    { path: '/', redirect: '/shop', meta: { area: 'consumer', titleKey: 'nav.shop' } },
     {
       path: '/login',
       component: () => import('@/views/LoginView.vue'),
-      meta: { publicOnly: true },
+      meta: { area: 'auth', titleKey: 'nav.login', publicOnly: true },
     },
-    { path: '/shop', component: () => import('@/views/ShopView.vue') },
-    { path: '/shop/:productId', component: () => import('@/views/ProductDetailView.vue') },
-    { path: '/search', component: () => import('@/views/SearchView.vue') },
+    {
+      path: '/shop',
+      component: () => import('@/views/ShopView.vue'),
+      meta: { area: 'consumer', titleKey: 'nav.shop' },
+    },
+    {
+      path: '/shop/:productId',
+      component: () => import('@/views/ProductDetailView.vue'),
+      meta: { area: 'consumer', titleKey: 'common.product' },
+    },
+    {
+      path: '/search',
+      component: () => import('@/views/SearchView.vue'),
+      meta: { area: 'consumer', titleKey: 'nav.search' },
+    },
     {
       path: '/recommendations',
       component: () => import('@/views/RecommendView.vue'),
-      meta: { requiresAuth: true },
+      meta: { area: 'consumer', titleKey: 'nav.recommend', requiresAuth: true },
     },
     {
       path: '/orders',
       component: () => import('@/views/OrdersView.vue'),
-      meta: { requiresAuth: true },
+      meta: { area: 'consumer', titleKey: 'nav.orders', requiresAuth: true },
     },
     {
       path: '/orders/:id/review',
       component: () => import('@/views/ReviewView.vue'),
-      meta: { requiresAuth: true },
+      meta: { area: 'consumer', titleKey: 'common.review', requiresAuth: true },
     },
     {
       path: '/payment/:orderId?',
       component: () => import('@/views/PaymentView.vue'),
-      meta: { requiresAuth: true },
+      meta: { area: 'consumer', titleKey: 'nav.payment', requiresAuth: true },
     },
     {
       path: '/logistics/:orderId?',
       component: () => import('@/views/LogisticsView.vue'),
-      meta: { requiresAuth: true },
+      meta: { area: 'consumer', titleKey: 'nav.logistics', requiresAuth: true },
     },
     {
       path: '/membership',
       component: () => import('@/views/MembershipView.vue'),
-      meta: { requiresAuth: true },
+      meta: { area: 'consumer', titleKey: 'nav.membership', requiresAuth: true },
     },
     {
       path: '/cart',
       component: () => import('@/views/CartView.vue'),
-      meta: { requiresAuth: true },
+      meta: { area: 'consumer', titleKey: 'nav.cart', requiresAuth: true },
     },
     {
       path: '/checkout',
       component: () => import('@/views/CheckoutView.vue'),
-      meta: { requiresAuth: true },
+      meta: { area: 'consumer', titleKey: 'shop.checkout', requiresAuth: true },
     },
     {
       path: '/profile',
       component: () => import('@/views/ProfileView.vue'),
-      meta: { requiresAuth: true },
+      meta: { area: 'consumer', titleKey: 'nav.profile', requiresAuth: true },
     },
     {
       path: '/admin',
       component: () => import('@/views/AdminView.vue'),
-      meta: { requiresAuth: true, requiresAdmin: true },
+      meta: { area: 'admin', titleKey: 'nav.admin', requiresAuth: true, requiresAdmin: true },
     },
     {
       path: '/inventory',
       component: () => import('@/views/InventoryView.vue'),
-      meta: { requiresAuth: true, requiresAdmin: true },
+      meta: {
+        area: 'admin',
+        titleKey: 'nav.inventory',
+        requiresAuth: true,
+        requiresAdmin: true,
+      },
     },
     {
       path: '/marketing',
       component: () => import('@/views/MarketingView.vue'),
-      meta: { requiresAuth: true, requiresAdmin: true },
+      meta: {
+        area: 'admin',
+        titleKey: 'nav.marketing',
+        requiresAuth: true,
+        requiresAdmin: true,
+      },
     },
     {
       path: '/risk',
       component: () => import('@/views/RiskReviewView.vue'),
-      meta: { requiresAuth: true, requiresAdmin: true },
+      meta: { area: 'admin', titleKey: 'nav.risk', requiresAuth: true, requiresAdmin: true },
     },
     {
       path: '/dashboard',
       component: () => import('@/views/DashboardView.vue'),
-      meta: { requiresAuth: true, requiresAdmin: true },
+      meta: {
+        area: 'admin',
+        titleKey: 'nav.dashboard',
+        requiresAuth: true,
+        requiresAdmin: true,
+      },
     },
     {
       path: '/tenants',
       component: () => import('@/views/TenantAdminView.vue'),
-      meta: { requiresAuth: true, requiresAdmin: true },
+      meta: { area: 'admin', titleKey: 'nav.tenants', requiresAuth: true, requiresAdmin: true },
+    },
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: () => import('@/views/NotFoundView.vue'),
+      meta: { area: 'consumer', titleKey: 'common.notFound' },
     },
   ],
-  scrollBehavior: () => ({ top: 0 }),
+  scrollBehavior(to, _from, savedPosition) {
+    if (savedPosition) {
+      return savedPosition
+    }
+    if (to.hash) {
+      return { el: to.hash, behavior: 'smooth' }
+    }
+    return { top: 0 }
+  },
 })
 
 router.beforeEach(async (to) => {
@@ -116,8 +157,24 @@ router.beforeEach(async (to) => {
   if (requiresAdmin(to) && !auth.isAdmin) {
     return { path: '/shop' }
   }
+  if (
+    auth.isLoggedIn &&
+    auth.passwordChangeRequired &&
+    to.path !== '/profile' &&
+    to.path !== '/login' &&
+    !to.path.startsWith('/api/')
+  ) {
+    return { path: '/profile', query: { forcePasswordChange: '1' } }
+  }
   if (to.meta.publicOnly && auth.isLoggedIn) {
-    return { path: auth.isAdmin ? '/admin' : '/shop' }
+    const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : null
+    return redirect ? { path: redirect } : { path: auth.isAdmin ? '/admin' : '/shop' }
   }
   return true
 })
+
+router.onError((error) => {
+  console.error('[router] navigation error:', error)
+})
+
+export default router
