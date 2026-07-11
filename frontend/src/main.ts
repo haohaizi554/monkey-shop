@@ -1,3 +1,4 @@
+import '@fontsource-variable/noto-sans-sc/index.css'
 import { createPinia } from 'pinia'
 import { createApp } from 'vue'
 import App from './App.vue'
