@@ -34,7 +34,7 @@
 .order-row,
 .product-card {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: var(--panel);
   box-shadow: var(--shadow);
 }
@@ -94,7 +94,7 @@
   gap: 12px;
   min-height: 320px;
   border: 1px dashed color-mix(in srgb, var(--line) 82%, var(--brand));
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   padding: clamp(28px, 8vw, 64px) 20px;
   text-align: center;
   background: color-mix(in srgb, var(--panel) 84%, var(--page));
@@ -134,7 +134,7 @@
 
 .product-detail-layout > .product-image {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   box-shadow: var(--shadow);
 }
 
@@ -143,7 +143,7 @@
   gap: 22px;
   padding: 22px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: var(--panel);
   box-shadow: var(--shadow);
 }
@@ -216,7 +216,7 @@
 .auth-visual {
   min-height: 620px;
   overflow: hidden;
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background: var(--color-auth-visual);
 }
 
@@ -240,7 +240,7 @@
   min-height: 52px;
   border: 1px solid var(--line);
   border-left-width: 4px;
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   padding: 10px 8px 10px 12px;
   color: var(--text);
   background: color-mix(in srgb, var(--panel) 86%, var(--page));
@@ -298,7 +298,7 @@
   width: 120px;
   height: 40px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   object-fit: cover;
 }
 
@@ -308,7 +308,7 @@
   height: 40px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: transparent;
   cursor: pointer;
 }
@@ -370,7 +370,7 @@
 }
 
 .order-row .product-image {
-  border-radius: 6px;
+  border-radius: var(--radius-control);
 }
 
 .order-main {
@@ -447,7 +447,7 @@
   margin-top: 14px;
   border: 1px solid color-mix(in srgb, var(--color-warning) 28%, var(--line));
   border-left: 4px solid var(--color-warning);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   padding: 14px;
   background: color-mix(in srgb, var(--color-warning-soft) 72%, var(--panel));
 }
@@ -467,7 +467,7 @@
   place-items: center;
   width: 36px;
   height: 36px;
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   color: var(--color-warning);
   background: color-mix(in srgb, var(--color-warning) 18%, transparent);
 }
@@ -867,7 +867,7 @@ html.dark .el-button--primary {
   display: inline-grid;
   place-items: center;
   flex: 0 0 auto;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 0.72rem;
   font-weight: 800;
 }
@@ -996,7 +996,7 @@ html.dark .primary-button {
 .skeleton-card {
   min-height: 360px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   background:
     linear-gradient(
       90deg,
@@ -1045,7 +1045,7 @@ html.dark .primary-button {
   z-index: 50;
   max-width: min(420px, calc(100vw - 48px));
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   padding: 12px 14px;
   color: var(--text);
   background: var(--panel);
@@ -1180,7 +1180,7 @@ html.dark .el-message--success {
   max-height: min(760px, calc(100vh - 48px));
   overflow: auto;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   padding: 20px;
   background: var(--panel);
   box-shadow: var(--shadow);
