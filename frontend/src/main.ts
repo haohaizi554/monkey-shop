@@ -9,6 +9,10 @@ import './styles/main.css'
 
 const app = createApp(App).use(createPinia()).use(router).use(i18n)
 
+app.config.errorHandler = (error, _instance, info) => {
+  console.error('[ui] uncaught component error', { error, info })
+}
+
 installTracking(router)
 
 app.mount('#app')

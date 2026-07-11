@@ -71,6 +71,17 @@ test('route views never own the application shell', async () => {
   }
 })
 
+test('the production error boundary never renders exception internals', async () => {
+  const source = await readFile(
+    resolve(process.cwd(), 'src/components/AppErrorBoundary.vue'),
+    'utf8',
+  )
+
+  expect(source).not.toContain('error.stack')
+  expect(source).not.toContain('error.message')
+  expect(source).toContain('common.errorReference')
+})
+
 test('consumer routes own one consumer shell with unique home and shop names', async ({ page }) => {
   await installShellMocks(page, { isLogin: false })
   await page.goto('/shop')
@@ -116,6 +127,71 @@ test('consumer mobile routes expose bottom navigation', async ({ page }) => {
   await expect(page.locator('.consumer-header .primary-nav')).toBeHidden()
 })
 
+test('consumer chrome stays inside a 320px signed-in viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 })
+  await installShellMocks(page, { isLogin: true, identity: 'USER', username: 'member' })
+  await page.goto('/shop')
+
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  )
+  expect(overflow).toBeLessThanOrEqual(1)
+})
+
+test('failed logout stays recoverable without replacing the shell', async ({ page }) => {
+  await installShellMocks(page, { isLogin: true, identity: 'USER', username: 'member' })
+  await page.route('**/api/v1/users/logout', async (route) => {
+    await route.fulfill({
+      status: 500,
+      contentType: 'application/problem+json',
+      body: JSON.stringify({ title: 'Raw provider failure', status: 500 }),
+    })
+  })
+  await page.goto('/shop')
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click()
+
+  await expect(page.locator('.app-feedback-item')).toContainText(
+    'Could not sign out. Please try again.',
+  )
+  await expect(page.locator('.app-feedback-item')).not.toContainText('Raw provider failure')
+  await expectSingleShell(page, 'consumer')
+})
+
+test('shared page and table surfaces contain mobile overflow', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await installShellMocks(page, { isLogin: false })
+  await page.goto('/shop')
+  await page.locator('.app-main').evaluate((main) => {
+    main.innerHTML = `
+      <div class="route-view">
+        <header class="page-header">
+          <div class="page-header__main">
+            <h1>A deliberately long operational page heading</h1>
+          </div>
+        </header>
+        <section class="data-table-shell">
+          <div class="data-table-shell__scroller">
+            <table style="width: 1200px"><tbody><tr><td>Wide table content</td></tr></tbody></table>
+          </div>
+        </section>
+      </div>`
+  })
+
+  const geometry = await page.evaluate(() => {
+    const title = document.querySelector<HTMLElement>('.page-header h1')
+    const scroller = document.querySelector<HTMLElement>('.data-table-shell__scroller')
+    return {
+      titleSize: title ? Number.parseFloat(getComputedStyle(title).fontSize) : 0,
+      pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      tableOverflow: scroller ? scroller.scrollWidth - scroller.clientWidth : 0,
+    }
+  })
+
+  expect(geometry.titleSize).toBeLessThanOrEqual(32)
+  expect(geometry.pageOverflow).toBeLessThanOrEqual(1)
+  expect(geometry.tableOverflow).toBeGreaterThan(0)
+})
+
 test('admin mobile navigation opens, receives focus, and closes with Escape', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await installShellMocks(page, { isLogin: true, identity: 'ADMIN', username: 'admin' })
@@ -123,9 +199,15 @@ test('admin mobile navigation opens, receives focus, and closes with Escape', as
 
   const sidebar = page.locator('.admin-sidebar')
   await expect(sidebar).toBeHidden()
-  await page.getByRole('button', { name: 'Open navigation', exact: true }).click()
+  const navigationTrigger = page.getByRole('button', { name: 'Open navigation', exact: true })
+  await navigationTrigger.click()
+  await expect(navigationTrigger).toHaveAttribute('aria-expanded', 'true')
   await expect(sidebar).toBeVisible()
   await expect(sidebar.getByRole('link').first()).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(sidebar.getByRole('link').last()).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(sidebar).toBeHidden()
+  await expect(navigationTrigger).toHaveAttribute('aria-expanded', 'false')
+  await expect(navigationTrigger).toBeFocused()
 })

@@ -1,0 +1,108 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createApp, h, type App, type Component } from 'vue'
+import AsyncStateView from '@/components/ui/AsyncStateView.vue'
+import DataTableShell from '@/components/ui/DataTableShell.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import { i18n } from '@/locales'
+
+const mountedApps: Array<{ app: App; host: HTMLElement }> = []
+
+function mount(component: Component, props: Record<string, unknown> = {}, slots = {}) {
+  const host = document.createElement('div')
+  document.body.append(host)
+  const app = createApp({ render: () => h(component, props, slots) })
+  app.use(i18n)
+  app.mount(host)
+  mountedApps.push({ app, host })
+  return host
+}
+
+afterEach(() => {
+  for (const { app, host } of mountedApps.splice(0)) {
+    app.unmount()
+    host.remove()
+  }
+})
+
+describe('PageHeader', () => {
+  it('renders one unframed title surface with optional content', () => {
+    const host = mount(
+      PageHeader,
+      { title: 'Inventory', eyebrow: 'Operations', description: 'Warehouse stock' },
+      { actions: () => h('button', 'Refresh') },
+    )
+
+    expect(host.querySelectorAll('h1')).toHaveLength(1)
+    expect(host.querySelector('h1')?.textContent).toBe('Inventory')
+    expect(host.querySelector('.page-header__eyebrow')?.textContent).toBe('Operations')
+    expect(host.querySelector('.page-header__actions button')?.textContent).toBe('Refresh')
+    expect(host.querySelector('.page-header')?.classList.contains('card')).toBe(false)
+  })
+})
+
+describe('AsyncStateView', () => {
+  it('renders only the branch selected by status', () => {
+    const host = mount(AsyncStateView, {
+      status: 'empty',
+      error: 'This error must stay hidden',
+      emptyTitle: 'Nothing here',
+    })
+
+    expect(host.querySelector('.async-state-view__empty')).not.toBeNull()
+    expect(host.querySelector('.async-state-view__error')).toBeNull()
+    expect(host.textContent).not.toContain('This error must stay hidden')
+  })
+
+  it('offers recovery from the error branch', () => {
+    const retry = vi.fn()
+    const host = mount(AsyncStateView, {
+      status: 'error',
+      error: 'Unable to load inventory',
+      onRetry: retry,
+    })
+
+    const button = host.querySelector<HTMLButtonElement>('.async-state-view__retry')
+    expect(button).not.toBeNull()
+    button?.click()
+    expect(retry).toHaveBeenCalledOnce()
+  })
+
+  it('keeps content visible behind a compact updating indicator', () => {
+    const host = mount(
+      AsyncStateView,
+      { status: 'updating' },
+      { default: () => h('p', { class: 'valid-content' }, 'Previous valid result') },
+    )
+
+    expect(host.querySelector('.valid-content')?.textContent).toBe('Previous valid result')
+    expect(host.querySelector('.async-state-view__updating')).not.toBeNull()
+    expect(host.querySelector('.async-state-view__loading')).toBeNull()
+  })
+})
+
+describe('DataTableShell', () => {
+  it('owns the horizontal scroller when data is present', () => {
+    const host = mount(
+      DataTableShell,
+      { ariaLabel: 'Products' },
+      { default: () => h('table', { style: 'min-width: 1200px' }) },
+    )
+
+    expect(host.querySelector('.data-table-shell__scroller table')).not.toBeNull()
+    expect(host.querySelector('.data-table-shell')?.getAttribute('aria-label')).toBe('Products')
+  })
+
+  it('shows the empty slot instead of a stale table', () => {
+    const host = mount(
+      DataTableShell,
+      { empty: true },
+      {
+        default: () => h('table'),
+        empty: () => h('p', 'No products'),
+      },
+    )
+
+    expect(host.querySelector('.data-table-shell__empty')?.textContent).toContain('No products')
+    expect(host.querySelector('.data-table-shell__scroller')).toBeNull()
+  })
+})

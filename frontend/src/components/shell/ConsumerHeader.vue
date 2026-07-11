@@ -13,12 +13,14 @@ import {
 } from '@element-plus/icons-vue'
 import { computed, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useNotify } from '@/composables/useNotify'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
 
 const props = withDefaults(defineProps<{ compact?: boolean }>(), { compact: false })
 const auth = useAuthStore()
 const theme = useThemeStore()
+const notify = useNotify()
 const { locale, t } = useI18n()
 
 interface HeaderLink {
@@ -49,6 +51,14 @@ const themeLabel = computed(() => (theme.isDark ? t('nav.lightTheme') : t('nav.d
 function toggleLocale() {
   locale.value = locale.value === 'zh' ? 'en' : 'zh'
   localStorage.setItem('monkeyshop-locale', locale.value)
+}
+
+async function logout() {
+  try {
+    await auth.logout()
+  } catch (error) {
+    notify.fromApiError(error, 'common.logoutFailed')
+  }
 }
 </script>
 
@@ -114,7 +124,7 @@ function toggleLocale() {
         class="icon-button"
         type="button"
         :aria-label="$t('nav.logout')"
-        @click="auth.logout()"
+        @click="logout"
       >
         <SwitchButton aria-hidden="true" />
       </button>

@@ -7,15 +7,17 @@ import { useRoute } from 'vue-router'
 const { t } = useI18n()
 const route = useRoute()
 const error = ref<Error | null>(null)
+const errorReference = ref('')
 const retryKey = ref(0)
 
 onErrorCaptured((err) => {
   error.value = err instanceof Error ? err : new Error(String(err))
-  return false
+  errorReference.value = `UI-${Date.now().toString(36).toUpperCase()}`
 })
 
 function retry() {
   error.value = null
+  errorReference.value = ''
   retryKey.value += 1
 }
 
@@ -23,6 +25,7 @@ watch(
   () => route.fullPath,
   () => {
     error.value = null
+    errorReference.value = ''
   },
 )
 </script>
@@ -32,11 +35,10 @@ watch(
     <el-icon :size="40" color="var(--color-danger)"><Warning /></el-icon>
     <h2>{{ t('common.unexpectedError') }}</h2>
     <p>{{ t('common.recoveryHint') }}</p>
+    <p class="app-error-boundary__reference">
+      {{ t('common.errorReference', { reference: errorReference }) }}
+    </p>
     <el-button type="primary" @click="retry">{{ t('common.retry') }}</el-button>
-    <details>
-      <summary>{{ t('common.errorDetails') }}</summary>
-      <pre>{{ error.stack ?? error.message }}</pre>
-    </details>
   </div>
   <div v-else :key="retryKey" class="app-error-boundary-content">
     <slot />
@@ -61,19 +63,9 @@ watch(
   line-height: var(--leading-relaxed);
 }
 
-.app-error-boundary details {
-  width: 100%;
-  color: var(--color-text-muted);
+.app-error-boundary__reference {
+  font-family: ui-monospace, monospace;
   font-size: var(--text-sm);
-}
-
-.app-error-boundary pre {
-  max-height: 180px;
-  overflow: auto;
-  padding: var(--space-3);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-subtle);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
 }
 </style>

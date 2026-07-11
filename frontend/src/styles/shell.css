@@ -388,6 +388,17 @@
   }
 }
 
+@media (max-width: 340px) {
+  .consumer-header__search-shortcut {
+    display: none;
+  }
+
+  .consumer-header {
+    column-gap: var(--space-2);
+    padding-inline: var(--space-2);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .admin-sidebar {
     transition: none;

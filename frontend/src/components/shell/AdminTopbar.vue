@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import { Menu, Moon, Sunny, SwitchButton, User } from '@element-plus/icons-vue'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
+import { useNotify } from '@/composables/useNotify'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
 
+defineProps<{ navigationOpen: boolean }>()
 const emit = defineEmits<{ toggleNavigation: [] }>()
 const route = useRoute()
 const auth = useAuthStore()
 const theme = useThemeStore()
+const notify = useNotify()
 const { locale, t } = useI18n()
+const navigationTrigger = ref<HTMLButtonElement>()
 
 const pageTitle = computed(() => t(route.meta.titleKey || 'nav.admin'))
 const languageLabel = computed(() => (locale.value === 'zh' ? 'EN' : 'ZH'))
@@ -21,14 +25,31 @@ function toggleLocale() {
   locale.value = locale.value === 'zh' ? 'en' : 'zh'
   localStorage.setItem('monkeyshop-locale', locale.value)
 }
+
+async function logout() {
+  try {
+    await auth.logout()
+  } catch (error) {
+    notify.fromApiError(error, 'common.logoutFailed')
+  }
+}
+
+function focusNavigationTrigger() {
+  navigationTrigger.value?.focus()
+}
+
+defineExpose({ focusNavigationTrigger })
 </script>
 
 <template>
   <header class="app-header admin-topbar">
     <button
+      ref="navigationTrigger"
       class="icon-button admin-topbar__menu"
       type="button"
       :aria-label="$t('nav.openNavigation')"
+      :aria-expanded="navigationOpen"
+      aria-controls="admin-navigation"
       @click="emit('toggleNavigation')"
     >
       <Menu aria-hidden="true" />
@@ -57,12 +78,7 @@ function toggleLocale() {
         <User aria-hidden="true" />
         <span>{{ auth.displayName }}</span>
       </RouterLink>
-      <button
-        class="icon-button"
-        type="button"
-        :aria-label="$t('nav.logout')"
-        @click="auth.logout()"
-      >
+      <button class="icon-button" type="button" :aria-label="$t('nav.logout')" @click="logout">
         <SwitchButton aria-hidden="true" />
       </button>
     </div>

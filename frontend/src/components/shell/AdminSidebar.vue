@@ -64,6 +64,27 @@ function closeOnMobile() {
 function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape' && props.open && !isDesktop.value) {
     emit('close')
+    return
+  }
+  if (event.key !== 'Tab' || !props.open || isDesktop.value || !sidebar.value) {
+    return
+  }
+  const focusable = Array.from(
+    sidebar.value.querySelectorAll<HTMLElement>(
+      'a, button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ),
+  )
+  const first = focusable[0]
+  const last = focusable.at(-1)
+  if (!first || !last) {
+    return
+  }
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
   }
 }
 
@@ -80,9 +101,13 @@ useEventListener(window, 'keydown', onKeydown)
   />
   <aside
     v-show="visible"
+    id="admin-navigation"
     ref="sidebar"
     class="admin-sidebar"
     :class="{ 'is-open': props.open }"
+    :role="isDesktop ? undefined : 'dialog'"
+    :aria-modal="isDesktop ? undefined : 'true'"
+    :aria-label="$t('nav.adminNavigation')"
   >
     <RouterLink class="admin-brand" to="/admin" :aria-label="$t('nav.admin')">
       <span class="brand-mark" aria-hidden="true"><Goods /></span>
