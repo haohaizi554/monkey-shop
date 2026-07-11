@@ -2,6 +2,7 @@ import { computed, ref, type ComputedRef, type Ref } from 'vue'
 
 export const ASYNC_REQUEST_ERROR = 'common.requestFailed'
 export const ASYNC_TIMEOUT_ERROR = 'common.requestTimeout'
+export type AsyncErrorKey = typeof ASYNC_REQUEST_ERROR | typeof ASYNC_TIMEOUT_ERROR
 
 export type AsyncStatus = 'idle' | 'loading' | 'updating' | 'success' | 'empty' | 'error'
 
@@ -28,7 +29,7 @@ export interface AsyncState<T> {
   load: (loader: AsyncLoader<T>, options?: AsyncLoadOptions<T>) => Promise<T | null>
   cancel: () => void
   reset: () => void
-  setError: (message: string) => void
+  setError: (message: AsyncErrorKey) => void
 }
 
 class AsyncTimeoutError extends Error {}
@@ -146,10 +147,10 @@ export function useAsyncState<T>(defaults: AsyncLoadOptions<T> = {}): AsyncState
     error.value = null
   }
 
-  function setError(message: string) {
+  function setError(message: AsyncErrorKey) {
     invalidateActiveRequest()
     status.value = 'error'
-    error.value = message
+    error.value = message === ASYNC_TIMEOUT_ERROR ? ASYNC_TIMEOUT_ERROR : ASYNC_REQUEST_ERROR
   }
 
   return {

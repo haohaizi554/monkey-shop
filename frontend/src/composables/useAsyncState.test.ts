@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { useAsyncState } from './useAsyncState'
+import {
+  ASYNC_REQUEST_ERROR,
+  ASYNC_TIMEOUT_ERROR,
+  type AsyncErrorKey,
+  useAsyncState,
+} from './useAsyncState'
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
@@ -49,6 +54,20 @@ describe('useAsyncState', () => {
     expect(state.status.value).toBe('success')
   })
 
+  it('clears existing data when preservation is disabled', async () => {
+    const state = useAsyncState<string>()
+    await state.load(async () => 'first')
+    const request = deferred<string>()
+
+    const pending = state.load(() => request.promise, { preserveData: false })
+
+    expect(state.status.value).toBe('loading')
+    expect(state.data.value).toBeNull()
+    request.resolve('second')
+    await pending
+    expect(state.data.value).toBe('second')
+  })
+
   it('ignores an older request that resolves after the latest request', async () => {
     const state = useAsyncState<string>()
     const olderRequest = deferred<string>()
@@ -77,6 +96,19 @@ describe('useAsyncState', () => {
     olderRequest.resolve('old')
     await older
     expect(state.data.value).toBe('latest')
+  })
+
+  it('ignores a superseded request that rejects late', async () => {
+    const state = useAsyncState<string>()
+    const olderRequest = deferred<string>()
+    const older = state.load(() => olderRequest.promise)
+
+    await state.load(async () => 'latest')
+    olderRequest.reject(new Error('late failure'))
+
+    await expect(older).resolves.toBeNull()
+    expect(state.data.value).toBe('latest')
+    expect(state.error.value).toBeNull()
   })
 
   it('cancel prevents a late result from writing state', async () => {
@@ -110,6 +142,21 @@ describe('useAsyncState', () => {
     expect(signal?.aborted).toBe(true)
     expect(state.status.value).toBe('error')
     expect(state.error.value).toBe('common.requestTimeout')
+  })
+
+  it('consumes a loader rejection that arrives after timeout', async () => {
+    vi.useFakeTimers()
+    const state = useAsyncState<string>()
+    const request = deferred<string>()
+    const pending = state.load(() => request.promise, { timeoutMs: 10 })
+
+    await vi.advanceTimersByTimeAsync(10)
+    await expect(pending).resolves.toBeNull()
+    request.reject(new Error('late timeout failure'))
+    await Promise.resolve()
+
+    expect(state.status.value).toBe('error')
+    expect(state.error.value).toBe(ASYNC_TIMEOUT_ERROR)
   })
 
   it('does not expose an arbitrary loader error message', async () => {
@@ -154,5 +201,32 @@ describe('useAsyncState', () => {
     expect(signal?.aborted).toBe(true)
     expect(state.data.value).toBeNull()
     expect(state.status.value).toBe('idle')
+  })
+
+  it('setError aborts and invalidates the active request', async () => {
+    const state = useAsyncState<string>()
+    const request = deferred<string>()
+    let signal: AbortSignal | undefined
+    const pending = state.load(({ signal: requestSignal }) => {
+      signal = requestSignal
+      return request.promise
+    })
+
+    state.setError(ASYNC_TIMEOUT_ERROR)
+    request.resolve('late')
+    await pending
+
+    expect(signal?.aborted).toBe(true)
+    expect(state.data.value).toBeNull()
+    expect(state.status.value).toBe('error')
+    expect(state.error.value).toBe(ASYNC_TIMEOUT_ERROR)
+  })
+
+  it('normalizes an unsafe runtime value passed to setError', () => {
+    const state = useAsyncState<string>()
+
+    state.setError('Too many requests' as AsyncErrorKey)
+
+    expect(state.error.value).toBe(ASYNC_REQUEST_ERROR)
   })
 })
