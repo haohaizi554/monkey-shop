@@ -38,7 +38,47 @@ test.beforeEach(async ({ page }) => {
       }),
     })
   })
+  await page.route('**/api/v1/tracking/events', async (route) => {
+    expectTraceHeader(route)
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        code: 'OK',
+        message: 'ok',
+        data: { id: 1, eventType: 'PAGE_VIEW' },
+      }),
+    })
+  })
+  await page.route('**/api/v1/catalog/spus/1', async (route) => {
+    expectTraceHeader(route)
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        code: 'OK',
+        message: 'ok',
+        data: {
+          id: 1,
+          categoryId: 10,
+          name: 'Golden Snub-nosed',
+          title: 'Rhinopithecus roxellana',
+          status: 'LISTED',
+          originalPrice: '128.00',
+          memberPrice: '118.00',
+          strikePrice: '168.00',
+          imageUrl: '/images/monkey.png',
+          attributes: { description: 'Healthy and ready for browsing.' },
+          skus: [],
+        },
+      }),
+    })
+  })
   await page.route('**/images/default_product.png', async (route) => {
+    await route.fulfill({
+      contentType: 'image/svg+xml',
+      body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 3"><rect width="4" height="3" fill="#d9e2ec"/></svg>',
+    })
+  })
+  await page.route('**/images/monkey.png', async (route) => {
     await route.fulfill({
       contentType: 'image/svg+xml',
       body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 3"><rect width="4" height="3" fill="#d9e2ec"/></svg>',
@@ -55,18 +95,29 @@ test('shop route renders without serious accessibility violations', async ({ pag
 
 test('app shell toggles language and dark theme', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light' })
+  await page.addInitScript(() => localStorage.setItem('monkeyshop-locale', 'zh'))
   await page.goto('/shop')
-  await expect(page.getByRole('link', { name: '商城', exact: true })).toBeVisible()
+  await expect(
+    page
+      .getByRole('navigation', { name: 'Primary' })
+      .getByRole('link', { name: '商城', exact: true }),
+  ).toBeVisible()
 
-  await page.getByRole('button', { name: 'Switch language' }).click()
-  await expect(page.getByRole('link', { name: 'Shop', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '切换语言', exact: true }).click()
+  await expect(
+    page
+      .getByRole('navigation', { name: 'Primary' })
+      .getByRole('link', { name: 'Shop', exact: true }),
+  ).toBeVisible()
   await expect
     .poll(async () => page.evaluate(() => localStorage.getItem('monkeyshop-locale')))
     .toBe('en')
 
-  await page.getByRole('button', { name: 'Dark theme' }).click()
+  await page.getByRole('button', { name: 'Switch to dark theme', exact: true }).click()
   await expect(page.locator('html')).toHaveClass(/dark/)
-  await expect(page.getByRole('button', { name: 'Light theme' })).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Switch to light theme', exact: true }),
+  ).toBeVisible()
 })
 
 test('product detail route renders product JSON-LD without serious accessibility violations', async ({

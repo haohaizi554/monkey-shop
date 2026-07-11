@@ -975,10 +975,19 @@ async function checkRoute(browser, baseURL, route, viewport) {
 
   const failures = []
   try {
-    await page.goto(`${baseURL}${route.path}`, { waitUntil: 'domcontentloaded' })
-    await page.waitForSelector('.app-shell', { timeout: 10000 })
-    await page.waitForLoadState('networkidle', { timeout: 4000 }).catch(() => undefined)
-    await page.waitForTimeout(250)
+    await page.goto(`${baseURL}${route.path}`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000,
+    })
+    await page.waitForSelector('.app-shell', { state: 'visible', timeout: 10000 })
+    await page
+      .waitForFunction(
+        () => !document.querySelector('.el-loading-mask:not([style*="display: none"])'),
+        null,
+        { timeout: 5000 },
+      )
+      .catch(() => undefined)
+    await page.waitForTimeout(100)
     const currentPath = new URL(page.url()).pathname
     if (currentPath !== route.path) {
       failures.push(`${route.path} [${viewport.name}]: routed to ${currentPath}`)
@@ -1018,7 +1027,20 @@ const results = []
 try {
   for (const viewport of viewports) {
     for (const route of routes) {
-      results.push(await checkRoute(browser, baseURL, route, viewport))
+      console.log(`[ui-smoke] start ${route.path} [${viewport.name}]`)
+      try {
+        results.push(await checkRoute(browser, baseURL, route, viewport))
+      } catch (error) {
+        results.push({
+          route: route.path,
+          viewport: viewport.name,
+          apiRequests: 0,
+          status: 'fail',
+          failures: [
+            `${route.path} [${viewport.name}]: ${error instanceof Error ? error.message : String(error)}`,
+          ],
+        })
+      }
     }
   }
 } finally {
