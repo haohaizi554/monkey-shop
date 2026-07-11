@@ -869,5 +869,5 @@ Expected evidence:
 - each route contains one shell/main and no nested shell;
 - admin and consumer chrome are distinct;
 - no view imports `AppShell`;
-- raw colors occur only in `tokens.css`;
+- shared style files contain raw colors only in `tokens.css`; remaining page-scoped raw colors are explicitly deferred to the consumer and admin plans;
 - no direct `ElMessage` use exists in foundation files.

@@ -499,7 +499,7 @@ Expected: all commands pass.
 - [ ] **Step 4: Commit admin completion**
 
 ```powershell
-git add frontend/src/views frontend/scripts/ui-smoke.mjs frontend/tests/admin-flows.spec.ts
+git add frontend/src/views/AdminView.vue frontend/src/views/InventoryView.vue frontend/src/views/MarketingView.vue frontend/src/views/RiskReviewView.vue frontend/src/views/DashboardView.vue frontend/src/views/TenantAdminView.vue frontend/scripts/ui-smoke.mjs frontend/tests/admin-flows.spec.ts
 git commit -m "test(ui): complete admin route coverage"
 ```
 

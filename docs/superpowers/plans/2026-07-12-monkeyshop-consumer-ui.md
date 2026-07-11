@@ -608,7 +608,7 @@ Expected: all commands pass.
 - [ ] **Step 5: Commit consumer completion**
 
 ```powershell
-git add frontend/src/views frontend/scripts/ui-smoke.mjs frontend/tests/consumer-flows.spec.ts
+git add frontend/src/views/LoginView.vue frontend/src/views/ShopView.vue frontend/src/views/ProductDetailView.vue frontend/src/views/SearchView.vue frontend/src/views/RecommendView.vue frontend/src/views/CartView.vue frontend/src/views/CheckoutView.vue frontend/src/views/OrdersView.vue frontend/src/views/PaymentView.vue frontend/src/views/LogisticsView.vue frontend/src/views/ReviewView.vue frontend/src/views/MembershipView.vue frontend/src/views/ProfileView.vue frontend/scripts/ui-smoke.mjs frontend/tests/consumer-flows.spec.ts
 git commit -m "test(ui): complete consumer route coverage"
 ```
 
