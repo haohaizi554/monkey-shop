@@ -1,0 +1,87 @@
+.app-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: 18px;
+  row-gap: 8px;
+  align-items: center;
+  min-height: 64px;
+  padding: 0 clamp(16px, 4vw, 56px);
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.brand,
+.primary-nav,
+.header-actions,
+.primary-nav a {
+  display: flex;
+  align-items: center;
+}
+
+.brand {
+  gap: 8px;
+  font-weight: 800;
+  color: var(--brand);
+  white-space: nowrap;
+}
+
+.primary-nav {
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.primary-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.primary-nav a {
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: var(--radius-md);
+  color: var(--muted);
+  white-space: nowrap;
+  transition:
+    background-color var(--motion-fast),
+    color var(--motion-fast);
+}
+
+.primary-nav a:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--brand) 7%, transparent);
+}
+
+.primary-nav a.router-link-active {
+  color: var(--text);
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+}
+
+.header-actions {
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: max-content;
+}
+
+.app-main {
+  display: grid;
+  gap: 20px;
+  width: min(1360px, 100%);
+  margin: 0 auto;
+  padding: clamp(14px, 2.4vw, 28px);
+}
+
+.app-main > * {
+  min-width: 0;
+}

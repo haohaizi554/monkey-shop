@@ -1,0 +1,175 @@
+:root {
+  color-scheme: light;
+
+  --color-canvas: #f4f6f8;
+  --color-surface: #ffffff;
+  --color-surface-subtle: #f8fafb;
+  --color-surface-raised: #ffffff;
+  --color-text: #172033;
+  --color-text-muted: #667085;
+  --color-text-inverse: #ffffff;
+  --color-line: #d8dee8;
+  --color-line-strong: #aeb8c7;
+  --color-brand: #176b4d;
+  --color-brand-strong: #10523b;
+  --color-brand-soft: #e8f3ee;
+  --color-accent: #b7791f;
+  --color-accent-soft: #fff4dc;
+  --color-info: #2563a6;
+  --color-info-soft: #eaf2fb;
+  --color-success: #067647;
+  --color-success-soft: #e7f6ef;
+  --color-warning: #b54708;
+  --color-warning-soft: #fff3e6;
+  --color-danger: #b42318;
+  --color-danger-soft: #fdefed;
+  --color-auth-visual: #101412;
+  --color-shadow-ink: #000000;
+  --color-overlay: rgb(23 32 51 / 0.42);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.7;
+
+  --radius-control: 6px;
+  --radius-surface: 8px;
+  --radius-pill: 999px;
+  --radius-circle: 50%;
+  --control-height: 38px;
+
+  --shadow-card: 0 4px 14px rgb(23 32 51 / 0.06);
+  --shadow-overlay: 0 18px 48px rgb(23 32 51 / 0.18);
+  --shadow-control: 0 6px 14px rgb(23 32 51 / 0.14);
+
+  --motion-fast: 140ms cubic-bezier(0.2, 0, 0, 1);
+  --motion-structure: 220ms cubic-bezier(0.2, 0, 0, 1);
+  --easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
+
+  --font-sans: 'Noto Sans SC Variable', 'Noto Sans SC', system-ui, sans-serif;
+
+  /* Compatibility aliases used by existing views during the staged migration. */
+  --page: var(--color-canvas);
+  --panel: var(--color-surface);
+  --panel-muted: var(--color-surface-subtle);
+  --panel-raised: var(--color-surface-raised);
+  --text: var(--color-text);
+  --muted: var(--color-text-muted);
+  --line: var(--color-line);
+  --line-strong: var(--color-line-strong);
+  --brand: var(--color-brand);
+  --brand-strong: var(--color-brand-strong);
+  --brand-soft: var(--color-brand-soft);
+  --success: var(--color-success);
+  --success-soft: var(--color-success-soft);
+  --warning: var(--color-warning);
+  --warning-soft: var(--color-warning-soft);
+  --danger: var(--color-danger);
+  --danger-soft: var(--color-danger-soft);
+  --surface-color: var(--color-surface);
+  --border-color: var(--color-line);
+  --text-color: var(--color-text);
+  --text-muted: var(--color-text-muted);
+  --muted-color: var(--color-text-muted);
+  --color-text-primary: var(--color-text);
+  --color-text-secondary: var(--color-text-muted);
+  --color-surface-muted: var(--color-surface-subtle);
+  --color-page: var(--color-canvas);
+  --color-border: var(--color-line);
+  --color-border-strong: var(--color-line-strong);
+  --focus-ring: color-mix(in srgb, var(--color-brand) 45%, transparent);
+  --radius-sm: var(--radius-control);
+  --radius-md: var(--radius-surface);
+  --radius-lg: var(--radius-surface);
+  --radius-xl: var(--radius-surface);
+  --shadow-sm: var(--shadow-card);
+  --shadow: var(--shadow-card);
+  --shadow-popover: var(--shadow-overlay);
+  --motion-base: var(--motion-structure);
+  --motion-slow: var(--motion-structure);
+}
+
+html.dark {
+  color-scheme: dark;
+  --color-canvas: #101412;
+  --color-surface: #171c19;
+  --color-surface-subtle: #1c231f;
+  --color-surface-raised: #202823;
+  --color-text: #edf3ef;
+  --color-text-muted: #a5b0a9;
+  --color-text-inverse: #07111f;
+  --color-line: #303a34;
+  --color-line-strong: #4b5a51;
+  --color-brand: #62c69e;
+  --color-brand-strong: #84d7b5;
+  --color-brand-soft: #18362a;
+  --color-accent: #e0a94b;
+  --color-accent-soft: #3c2b10;
+  --color-info: #7fb1e6;
+  --color-info-soft: #172d45;
+  --color-success: #64c99a;
+  --color-success-soft: #143427;
+  --color-warning: #f4b35f;
+  --color-warning-soft: #422913;
+  --color-danger: #f38b82;
+  --color-danger-soft: #421d1b;
+  --color-auth-visual: #0b100d;
+  --color-overlay: rgb(0 0 0 / 0.58);
+  --shadow-card: 0 4px 14px rgb(0 0 0 / 0.2);
+  --shadow-overlay: 0 18px 48px rgb(0 0 0 / 0.38);
+  --shadow-control: 0 6px 14px rgb(0 0 0 / 0.28);
+  --focus-ring: color-mix(in srgb, var(--color-brand) 55%, transparent);
+}
+
+:root,
+html.dark {
+  --el-color-primary: var(--color-brand);
+  --el-color-primary-light-3: color-mix(in srgb, var(--color-brand) 70%, var(--color-surface));
+  --el-color-primary-light-8: var(--color-brand-soft);
+  --el-color-primary-light-9: var(--color-brand-soft);
+  --el-color-primary-dark-2: var(--color-brand-strong);
+  --el-color-success: var(--color-success);
+  --el-color-success-light-8: var(--color-success-soft);
+  --el-color-success-light-9: var(--color-success-soft);
+  --el-color-warning: var(--color-warning);
+  --el-color-warning-light-8: var(--color-warning-soft);
+  --el-color-warning-light-9: var(--color-warning-soft);
+  --el-color-danger: var(--color-danger);
+  --el-color-danger-light-8: var(--color-danger-soft);
+  --el-color-danger-light-9: var(--color-danger-soft);
+  --el-color-info: var(--color-info);
+  --el-color-info-light-8: var(--color-info-soft);
+  --el-color-info-light-9: var(--color-info-soft);
+  --el-text-color-primary: var(--color-text);
+  --el-text-color-regular: var(--color-text);
+  --el-text-color-secondary: var(--color-text-muted);
+  --el-text-color-placeholder: var(--color-text-muted);
+  --el-border-color: var(--color-line);
+  --el-border-color-light: var(--color-line);
+  --el-border-color-lighter: var(--color-line);
+  --el-fill-color: var(--color-surface-subtle);
+  --el-fill-color-light: var(--color-surface-subtle);
+  --el-fill-color-blank: var(--color-surface);
+  --el-bg-color: var(--color-surface);
+  --el-bg-color-page: var(--color-canvas);
+  --el-border-radius-base: var(--radius-control);
+  --el-mask-color: var(--color-overlay);
+}
