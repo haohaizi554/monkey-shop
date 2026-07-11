@@ -335,7 +335,7 @@
   min-height: 40px;
   padding: 0 14px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   cursor: pointer;
 }
 
@@ -571,7 +571,7 @@ html.dark .security-alert {
 .el-select__wrapper,
 .el-textarea__inner {
   min-height: var(--control-height);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   background: var(--panel);
   box-shadow: 0 0 0 1px var(--line) inset;
   transition:
@@ -595,7 +595,7 @@ html.dark .security-alert {
 
 .el-button {
   min-height: 36px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   font-weight: 750;
 }
 
@@ -907,7 +907,7 @@ html.dark .el-button--primary {
   gap: 8px;
   min-height: 40px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   padding: 0 14px;
   color: var(--text);
   background: transparent;
@@ -955,7 +955,7 @@ html.dark .primary-button {
   width: 100%;
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   padding: 0 12px;
   color: var(--text);
   background: var(--panel);
@@ -1024,7 +1024,7 @@ html.dark .primary-button {
   align-items: center;
   min-height: 32px;
   border: 1px solid color-mix(in srgb, var(--success) 35%, var(--line));
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-pill);
   padding: 0 10px;
   color: color-mix(in srgb, var(--success) 68%, var(--text));
   background: var(--success-soft);
