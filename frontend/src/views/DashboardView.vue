@@ -3,7 +3,6 @@ import { DataLine, Refresh, TrendCharts, User } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { currentTrackingProfile, trackingDashboard, trackingProductProfile } from '@/api/tracking'
-import AppShell from '@/components/AppShell.vue'
 import type { ProductProfile, RealtimeDashboard, TrackingEventType, UserProfileTag } from '@/types'
 
 defineOptions({ name: 'DashboardView' })
@@ -108,7 +107,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <AppShell>
+  <div class="route-view">
     <section class="dashboard-view">
       <div class="view-toolbar">
         <div>
@@ -200,7 +199,7 @@ onBeforeUnmount(() => {
         </div>
       </section>
     </section>
-  </AppShell>
+  </div>
 </template>
 
 <style scoped>

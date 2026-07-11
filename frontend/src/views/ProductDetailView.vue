@@ -5,7 +5,6 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { getCatalogSpu, listMonkeys } from '@/api/catalog'
-import AppShell from '@/components/AppShell.vue'
 import ProductImage from '@/components/ProductImage.vue'
 import { useCheckout } from '@/composables/useCheckout'
 import { productJsonLd } from '@/seo/product-json-ld'
@@ -124,7 +123,7 @@ watch(product, () => {
 </script>
 
 <template>
-  <AppShell>
+  <div class="route-view">
     <el-skeleton :loading="loading" animated>
       <template #default>
         <el-empty v-if="!product" :description="$t('shop.soldOut')">
@@ -225,7 +224,7 @@ watch(product, () => {
         </el-button>
       </template>
     </el-dialog>
-  </AppShell>
+  </div>
 </template>
 
 <style scoped>

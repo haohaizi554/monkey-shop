@@ -5,7 +5,6 @@ import { onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import * as searchApi from '@/api/search'
-import AppShell from '@/components/AppShell.vue'
 import ProductImage from '@/components/ProductImage.vue'
 import type { Recommendation } from '@/types'
 
@@ -67,7 +66,7 @@ onMounted(loadRecommendations)
 </script>
 
 <template>
-  <AppShell>
+  <div class="route-view">
     <section class="recommend-page">
       <header class="page-heading">
         <div>
@@ -111,7 +110,7 @@ onMounted(loadRecommendations)
         </div>
       </section>
     </section>
-  </AppShell>
+  </div>
 </template>
 
 <style scoped>

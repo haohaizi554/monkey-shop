@@ -11,7 +11,6 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import * as authApi from '@/api/auth'
-import AppShell from '@/components/AppShell.vue'
 import HumanVerification from '@/components/HumanVerification.vue'
 import { useAuthStore } from '@/stores/auth'
 import type { CaptchaConfig } from '@/types'
@@ -192,7 +191,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <AppShell>
+  <div class="route-view">
     <section class="auth-layout">
       <div class="auth-visual">
         <img :src="heroImage" :alt="$t('auth.storefrontAlt')" />
@@ -388,5 +387,5 @@ onMounted(() => {
 
       <el-button text @click="router.push('/shop')"> {{ $t('auth.continueBrowsing') }} </el-button>
     </section>
-  </AppShell>
+  </div>
 </template>

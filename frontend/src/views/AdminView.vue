@@ -7,7 +7,6 @@ import { useI18n } from 'vue-i18n'
 import { stats as fetchStats } from '@/api/admin'
 import { addMonkey, deleteMonkey, listMonkeys, updateMonkey, uploadImage } from '@/api/catalog'
 import * as ordersApi from '@/api/orders'
-import AppShell from '@/components/AppShell.vue'
 import ProductImage from '@/components/ProductImage.vue'
 import type { Monkey, MonkeyRequest, Order, Stats } from '@/types'
 import { dateTime, money, orderStatusKey, orderStatusLabel, statusType } from '@/utils/format'
@@ -167,7 +166,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <AppShell>
+  <div class="route-view">
     <section v-loading="loading" class="admin-layout">
       <div class="metric-grid">
         <div class="metric">
@@ -349,5 +348,5 @@ onMounted(() => {
         </el-button>
       </template>
     </el-dialog>
-  </AppShell>
+  </div>
 </template>

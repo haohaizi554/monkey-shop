@@ -6,7 +6,6 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { uploadImage } from '@/api/catalog'
 import { orderReviews, reviewOrder } from '@/api/orders'
-import AppShell from '@/components/AppShell.vue'
 import ProductImage from '@/components/ProductImage.vue'
 import type { OrderReview } from '@/types'
 import { dateTime } from '@/utils/format'
@@ -86,7 +85,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <AppShell>
+  <div class="route-view">
     <section class="page-heading">
       <h1>{{ $t('common.review') }}</h1>
       <el-button @click="$router.push('/orders')">
@@ -151,7 +150,7 @@ onMounted(() => {
         </el-empty>
       </section>
     </section>
-  </AppShell>
+  </div>
 </template>
 
 <style scoped>

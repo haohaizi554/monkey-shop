@@ -8,7 +8,6 @@ import {
   reserveInventory,
   releaseInventory,
 } from '@/api/inventory'
-import AppShell from '@/components/AppShell.vue'
 import type { InventoryReconciliation, InventoryReservation, WarehouseStock } from '@/types'
 
 type ReservationStatus = InventoryReservation['status']
@@ -106,7 +105,7 @@ async function runReconciliation() {
 </script>
 
 <template>
-  <AppShell>
+  <div class="route-view">
     <section class="inventory-layout">
       <div class="inventory-toolbar">
         <el-input-number
@@ -190,7 +189,7 @@ async function runReconciliation() {
         <el-table-column prop="expectedDeducted" label="应扣减" min-width="120" />
       </el-table>
     </section>
-  </AppShell>
+  </div>
 </template>
 
 <style scoped>

@@ -3,7 +3,6 @@ import { Search } from '@element-plus/icons-vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { listMonkeys } from '@/api/catalog'
-import AppShell from '@/components/AppShell.vue'
 import ProductImage from '@/components/ProductImage.vue'
 import { useCheckout } from '@/composables/useCheckout'
 import { productListJsonLd } from '@/seo/product-json-ld'
@@ -95,7 +94,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <AppShell>
+  <div class="route-view">
     <div v-if="notice" class="notice" :class="`notice-${notice.level}`" role="status">
       {{ notice.message }}
     </div>
@@ -262,5 +261,5 @@ onMounted(() => {
         </div>
       </section>
     </div>
-  </AppShell>
+  </div>
 </template>

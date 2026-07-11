@@ -3,7 +3,6 @@ import { CircleCheck, Lock, Refresh, Warning } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { computed, onMounted, reactive, ref } from 'vue'
 import * as riskApi from '@/api/risk'
-import AppShell from '@/components/AppShell.vue'
 import type {
   RiskAssessmentResponse,
   RiskDecision,
@@ -164,7 +163,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <AppShell>
+  <div class="route-view">
     <section v-loading="loading" class="risk-page">
       <header class="risk-header">
         <div>
@@ -294,7 +293,7 @@ onMounted(() => {
         </el-table>
       </section>
     </section>
-  </AppShell>
+  </div>
 </template>
 
 <style scoped>

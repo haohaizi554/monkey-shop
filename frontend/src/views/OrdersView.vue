@@ -4,7 +4,6 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as ordersApi from '@/api/orders'
-import AppShell from '@/components/AppShell.vue'
 import ProductImage from '@/components/ProductImage.vue'
 import type { Order } from '@/types'
 import { dateTime, money, orderStatusKey, orderStatusLabel, statusType } from '@/utils/format'
@@ -61,7 +60,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <AppShell>
+  <div class="route-view">
     <section class="page-heading">
       <h1>{{ $t('nav.orders') }}</h1>
       <el-button @click="loadOrders">
@@ -160,5 +159,5 @@ onMounted(() => {
         </div>
       </article>
     </div>
-  </AppShell>
+  </div>
 </template>

@@ -88,6 +88,11 @@
   min-width: 0;
 }
 
+.route-view {
+  width: 100%;
+  min-width: 0;
+}
+
 .consumer-header[data-compact='true'] {
   grid-template-columns: minmax(0, 1fr) auto;
 }

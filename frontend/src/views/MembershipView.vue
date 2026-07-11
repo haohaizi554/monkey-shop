@@ -3,7 +3,6 @@ import { Check, Refresh, Star, Tickets } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, reactive, ref } from 'vue'
 import * as membershipApi from '@/api/membership'
-import AppShell from '@/components/AppShell.vue'
 import type { MembershipDashboard, MembershipLevel } from '@/types'
 import { couponStatusLabel, dateTime, membershipLevelLabel } from '@/utils/format'
 
@@ -115,7 +114,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <AppShell>
+  <div class="route-view">
     <section v-loading="loading" class="membership-page">
       <header class="membership-header">
         <div>
@@ -256,7 +255,7 @@ onMounted(() => {
         </el-table>
       </section>
     </section>
-  </AppShell>
+  </div>
 </template>
 
 <style scoped>

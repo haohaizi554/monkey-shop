@@ -7,7 +7,6 @@ import { useRouter } from 'vue-router'
 import { uploadImage } from '@/api/catalog'
 import { captchaConfig as loadCaptchaConfig, captchaUrl } from '@/api/auth'
 import * as userApi from '@/api/user'
-import AppShell from '@/components/AppShell.vue'
 import HumanVerification from '@/components/HumanVerification.vue'
 import { useAuthStore } from '@/stores/auth'
 import type { Address, CaptchaConfig, UserProfile } from '@/types'
@@ -108,7 +107,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <AppShell>
+  <div class="route-view">
     <section v-loading="loading" class="profile-layout">
       <div class="profile-summary">
         <img :src="profile.avatar || defaultAvatar" :alt="$t('auth.avatar')" />
@@ -229,5 +228,5 @@ onMounted(() => {
         </el-table>
       </section>
     </section>
-  </AppShell>
+  </div>
 </template>

@@ -4,7 +4,6 @@ import { ElMessage } from 'element-plus'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import * as paymentsApi from '@/api/payments'
-import AppShell from '@/components/AppShell.vue'
 import type { PaymentMethod, PaymentResponse } from '@/types'
 import {
   dateTime,
@@ -94,7 +93,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <AppShell>
+  <div class="route-view">
     <section class="page-heading">
       <h1>{{ $t('nav.payment') }}</h1>
       <el-button :icon="RefreshRight" @click="loadPayment"> 刷新 </el-button>
@@ -181,7 +180,7 @@ onMounted(() => {
         <p>输入订单 ID 后可以查询或创建支付单。</p>
       </section>
     </section>
-  </AppShell>
+  </div>
 </template>
 
 <style scoped>

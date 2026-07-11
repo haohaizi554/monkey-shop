@@ -3,7 +3,6 @@ import { Delete, Refresh, ShoppingCart } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { onMounted, ref } from 'vue'
 import { addCartItem, getCart, removeCartItem, selectCartItem, updateCartItem } from '@/api/cart'
-import AppShell from '@/components/AppShell.vue'
 import type { Cart } from '@/types'
 
 const cart = ref<Cart | null>(null)
@@ -82,7 +81,7 @@ onMounted(loadCart)
 </script>
 
 <template>
-  <AppShell>
+  <div class="route-view">
     <section class="cart-layout">
       <section class="page-heading">
         <h1>{{ $t('nav.cart') }}</h1>
@@ -156,7 +155,7 @@ onMounted(loadCart)
         </template>
       </el-table>
     </section>
-  </AppShell>
+  </div>
 </template>
 
 <style scoped>

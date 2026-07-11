@@ -5,7 +5,6 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import * as searchApi from '@/api/search'
-import AppShell from '@/components/AppShell.vue'
 import ProductImage from '@/components/ProductImage.vue'
 import type { HotKeyword, SearchProduct, SearchSort, SearchSuggestion } from '@/types'
 import { money } from '@/utils/format'
@@ -100,7 +99,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <AppShell>
+  <div class="route-view">
     <section class="search-page">
       <header class="page-heading">
         <div>
@@ -197,7 +196,7 @@ onMounted(async () => {
         </div>
       </section>
     </section>
-  </AppShell>
+  </div>
 </template>
 
 <style scoped>

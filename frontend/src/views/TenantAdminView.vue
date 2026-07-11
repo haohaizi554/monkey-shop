@@ -2,7 +2,6 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as tenantApi from '@/api/tenant'
-import AppShell from '@/components/AppShell.vue'
 import type {
   Tenant,
   TenantBill,
@@ -218,7 +217,7 @@ onMounted(loadAll)
 </script>
 
 <template>
-  <AppShell>
+  <div class="route-view">
     <section v-loading="loading" class="tenant-page">
       <header class="tenant-header">
         <div>
@@ -362,7 +361,7 @@ onMounted(loadAll)
         </section>
       </div>
     </section>
-  </AppShell>
+  </div>
 </template>
 
 <style scoped>

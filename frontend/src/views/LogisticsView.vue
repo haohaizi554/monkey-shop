@@ -4,7 +4,6 @@ import { ElMessage } from 'element-plus'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import * as logisticsApi from '@/api/logistics'
-import AppShell from '@/components/AppShell.vue'
 import type {
   FreightQuoteResponse,
   LogisticsCarrier,
@@ -166,7 +165,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <AppShell>
+  <div class="route-view">
     <section class="page-heading">
       <h1>{{ $t('nav.logistics') }}</h1>
       <el-button :icon="RefreshRight" @click="loadByOrder"> 刷新 </el-button>
@@ -289,7 +288,7 @@ onMounted(() => {
         </form>
       </section>
     </section>
-  </AppShell>
+  </div>
 </template>
 
 <style scoped>

@@ -3,7 +3,6 @@ import { Check, Refresh, Tickets } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { onMounted, ref } from 'vue'
 import { checkoutCart, getCart, previewCartCheckout } from '@/api/cart'
-import AppShell from '@/components/AppShell.vue'
 import type { Cart, CartCheckout, CartCheckoutRequest } from '@/types'
 
 const cart = ref<Cart | null>(null)
@@ -79,7 +78,7 @@ onMounted(loadCart)
 </script>
 
 <template>
-  <AppShell>
+  <div class="route-view">
     <section class="checkout-layout">
       <section class="page-heading">
         <h1>{{ $t('shop.checkout') }}</h1>
@@ -153,7 +152,7 @@ onMounted(loadCart)
         </template>
       </el-empty>
     </section>
-  </AppShell>
+  </div>
 </template>
 
 <style scoped>

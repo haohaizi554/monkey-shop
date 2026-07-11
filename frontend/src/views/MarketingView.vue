@@ -10,7 +10,6 @@ import {
   redeemCoupon,
   returnCoupon,
 } from '@/api/marketing'
-import AppShell from '@/components/AppShell.vue'
 import type { CouponWalletEntry, GroupBuyTeam, MarketingPriceQuote, SeckillOrder } from '@/types'
 import { couponStatusLabel, groupBuyStatusLabel } from '@/utils/format'
 
@@ -145,7 +144,7 @@ async function runJoinGroup() {
 </script>
 
 <template>
-  <AppShell>
+  <div class="route-view">
     <section class="marketing-layout">
       <div class="marketing-toolbar">
         <el-input-number v-model="userId" :min="1" controls-position="right" />
@@ -240,7 +239,7 @@ async function runJoinGroup() {
         </section>
       </div>
     </section>
-  </AppShell>
+  </div>
 </template>
 
 <style scoped>

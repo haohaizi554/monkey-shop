@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
+import { readdir, readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 
 interface MockUser {
   isLogin: boolean
@@ -58,6 +60,16 @@ async function expectSingleShell(page: Page, area: 'consumer' | 'admin' | 'auth'
   await expect(page.locator('.app-shell .app-shell')).toHaveCount(0)
   await expect(page.locator('.app-shell')).toHaveAttribute('data-area', area)
 }
+
+test('route views never own the application shell', async () => {
+  const viewsDirectory = resolve(process.cwd(), 'src/views')
+  const viewFiles = (await readdir(viewsDirectory)).filter((file) => file.endsWith('.vue'))
+
+  for (const viewFile of viewFiles) {
+    const source = await readFile(resolve(viewsDirectory, viewFile), 'utf8')
+    expect(source, viewFile).not.toContain('AppShell')
+  }
+})
 
 test('consumer routes own one consumer shell with unique home and shop names', async ({ page }) => {
   await installShellMocks(page, { isLogin: false })
