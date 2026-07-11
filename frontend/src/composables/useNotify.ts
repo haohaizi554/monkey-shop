@@ -142,10 +142,8 @@ function apiMetadata(error: unknown): { status?: number; traceId?: string } {
   }
 }
 
-function safeFallback(fallback: string): string {
-  return /too many requests|operation is not permitted/i.test(fallback)
-    ? translate('feedback.requestFailed')
-    : fallback
+function safeFallback(fallbackKey: string): string {
+  return i18n.global.te(fallbackKey) ? translate(fallbackKey) : translate('feedback.requestFailed')
 }
 
 export function clearFeedback() {
@@ -177,7 +175,7 @@ export function useNotify() {
     return enqueue('error', message, input)
   }
 
-  function fromApiError(apiError: unknown, fallback: string): string {
+  function fromApiError(apiError: unknown, fallbackKey: string): string {
     const { status, traceId } = apiMetadata(apiError)
     if (status === 401) {
       return warning(translate('feedback.unauthorized'), {
@@ -197,8 +195,8 @@ export function useNotify() {
         traceId,
       })
     }
-    return error(safeFallback(fallback), {
-      key: `api:${status ?? 'unknown'}:${fallback}`,
+    return error(safeFallback(fallbackKey), {
+      key: `api:${status ?? 'unknown'}:${fallbackKey}`,
       traceId,
     })
   }

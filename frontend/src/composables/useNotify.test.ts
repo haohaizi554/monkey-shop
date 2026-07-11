@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ElMessageBox } from 'element-plus'
 import { ApiError } from '@/api/http'
 import { i18n } from '@/locales'
 import { clearFeedback, feedbackItems, useNotify } from './useNotify'
@@ -37,12 +38,26 @@ describe('useNotify', () => {
   })
 
   it('dismisses a selected item', () => {
+    vi.useFakeTimers()
     const notify = useNotify()
-    const id = notify.success('saved', { duration: 0 })
+    const id = notify.success('saved', { duration: 100 })
 
     notify.dismiss(id)
 
     expect(feedbackItems).toHaveLength(0)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('clearFeedback removes items and their dismissal timers', () => {
+    vi.useFakeTimers()
+    const notify = useNotify()
+    notify.info('queued', { duration: 100 })
+
+    expect(vi.getTimerCount()).toBe(1)
+    clearFeedback()
+
+    expect(feedbackItems).toHaveLength(0)
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('refreshes the dismissal timer when a grouped item repeats', async () => {
@@ -87,12 +102,42 @@ describe('useNotify', () => {
     expect(feedbackItems[0]?.message).not.toContain('Operation is not permitted')
   })
 
-  it('uses fallback copy for an unknown error without exposing its message', () => {
+  it('uses a registered fallback key for an unknown error', () => {
     const notify = useNotify()
 
-    notify.fromApiError(new Error('internal SQL detail'), '\u65e0\u6cd5\u52a0\u8f7d\u6570\u636e')
+    notify.fromApiError(new Error('internal SQL detail'), 'common.unableToLoadCatalog')
 
-    expect(feedbackItems[0]?.message).toBe('\u65e0\u6cd5\u52a0\u8f7d\u6570\u636e')
+    expect(feedbackItems[0]?.message).toBe('\u65e0\u6cd5\u52a0\u8f7d\u5546\u54c1\u5217\u8868')
     expect(feedbackItems[0]?.message).not.toContain('SQL')
+  })
+
+  it('rejects an unregistered fallback string', () => {
+    const notify = useNotify()
+
+    notify.fromApiError(new Error('internal SQL detail'), 'another backend detail')
+
+    expect(feedbackItems[0]?.message).toBe(
+      '\u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5\u3002',
+    )
+    expect(feedbackItems[0]?.message).not.toContain('backend')
+  })
+
+  it('keeps the compatibility notify entry point', () => {
+    const notify = useNotify()
+
+    notify.notify('info', 'compatible', { duration: 0 })
+
+    expect(feedbackItems[0]).toMatchObject({ level: 'info', message: 'compatible' })
+  })
+
+  it('returns true when confirmation succeeds and false when it is cancelled', async () => {
+    const confirm = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValueOnce({} as never)
+    const notify = useNotify()
+
+    await expect(notify.confirm({ content: 'continue?' })).resolves.toBe(true)
+    expect(confirm).toHaveBeenCalledOnce()
+
+    confirm.mockRejectedValueOnce(new Error('cancelled'))
+    await expect(notify.confirm({ content: 'continue?' })).resolves.toBe(false)
   })
 })
