@@ -137,6 +137,18 @@ class Ws8SecurityWorkflowTest {
     }
 
     @Test
+    void composePublishesLocalDependencyPortsForIdeAcceptance() throws IOException {
+        String compose = read("docker-compose.yml");
+        String readme = read("README.md");
+
+        assertThat(compose)
+                .contains("${MYSQL_PORT:-3307}:3306")
+                .contains("${REDIS_PORT:-6379}:6379")
+                .contains("${CLAMAV_PORT:-3310}:3310");
+        assertThat(readme).contains("$env:APP_PII_AES_KEY_BASE64").contains("$env:APP_PII_HMAC_KEY_BASE64");
+    }
+
+    @Test
     void runtimePiiBackfillWrapperDefaultsToDryRunAndRequiresExplicitApproval() throws IOException {
         String script = read("scripts/run-pii-backfill-compose.ps1");
         String readme = read("README.md");

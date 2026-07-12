@@ -2,8 +2,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: monkey-redis
-    expose:
-      - "6379"
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -32,8 +32,8 @@ services:
   clamav:
     image: clamav/clamav:1.4
     container_name: monkey-clamav
-    expose:
-      - "3310"
+    ports:
+      - "${CLAMAV_PORT:-3310}:3310"
 
   myshop:
     build: .
