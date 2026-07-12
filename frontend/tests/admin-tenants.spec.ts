@@ -1,0 +1,129 @@
+import { expect, test, type Page } from '@playwright/test'
+
+function ok(data: unknown) {
+  return { code: 'OK', message: 'ok', data, traceId: 'tenant-test' }
+}
+
+const tenants = [
+  {
+    id: 1,
+    code: 'alpha',
+    name: 'Tenant Alpha',
+    status: 'ACTIVE',
+    plan: 'GROWTH',
+    maskedContactPhone: '138****0001',
+    createdAt: '2026-01-01T00:00:00',
+    expiresAt: '2027-01-01T00:00:00',
+    version: 1,
+  },
+  {
+    id: 2,
+    code: 'beta',
+    name: 'Tenant Beta',
+    status: 'TRIAL',
+    plan: 'STARTER',
+    maskedContactPhone: '138****0002',
+    createdAt: '2026-02-01T00:00:00',
+    expiresAt: '2027-02-01T00:00:00',
+    version: 1,
+  },
+]
+
+async function installTenantMocks(page: Page, failTenantTwoDetails = false) {
+  await page.addInitScript(() => {
+    localStorage.setItem('monkeyshop-locale', 'en')
+    localStorage.setItem('monkeyshop-theme', 'light')
+  })
+  await page.route('**/api/v1/**', async (route) => {
+    const pathname = new URL(route.request().url()).pathname.replace('/api/v1', '')
+    let data: unknown = []
+    let delay = 0
+    if (pathname === '/users/me') {
+      data = { isLogin: true, identity: 'ADMIN', username: 'admin' }
+    } else if (pathname === '/tenants/dashboard') {
+      data = {
+        activeTenants: 1,
+        expiredTenants: 0,
+        currentMonthOrders: 18,
+        currentMonthRevenue: '16800.00',
+        tenants,
+      }
+    } else if (/\/tenants\/1\/(configs|bills|exports)$/.test(pathname)) {
+      delay = 450
+      data = pathname.endsWith('/configs')
+        ? [
+            {
+              id: 11,
+              tenantId: 1,
+              configType: 'PAYMENT',
+              provider: 'alpha-provider',
+              settings: {},
+              enabled: true,
+              updatedAt: '2026-07-12T08:00:00',
+              version: 1,
+            },
+          ]
+        : []
+    } else if (/\/tenants\/2\/(configs|bills|exports)$/.test(pathname)) {
+      delay = 60
+      if (failTenantTwoDetails) {
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/problem+json',
+          body: JSON.stringify({ title: 'Internal error', detail: 'database exploded' }),
+        })
+        return
+      }
+      data = pathname.endsWith('/configs')
+        ? [
+            {
+              id: 21,
+              tenantId: 2,
+              configType: 'PAYMENT',
+              provider: 'beta-provider',
+              settings: {},
+              enabled: true,
+              updatedAt: '2026-07-12T08:00:00',
+              version: 1,
+            },
+          ]
+        : []
+    } else if (pathname === '/tracking/events') {
+      data = { id: 1, eventType: 'PAGE_VIEW' }
+    }
+    if (delay) {
+      await new Promise((resolve) => setTimeout(resolve, delay))
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(ok(data)),
+    })
+  })
+}
+
+test('tenant selection is URL-backed and stale detail responses cannot overwrite it', async ({ page }) => {
+  await installTenantMocks(page)
+  await page.goto('/tenants?tenant=1')
+  await expect(page.getByRole('button', { name: 'Open Tenant Beta' })).toBeVisible()
+  await page.getByRole('button', { name: 'Open Tenant Beta' }).click()
+  await expect(page).toHaveURL(/tenant=2/)
+  await expect(page.getByRole('heading', { name: 'Tenant Beta' })).toBeVisible()
+  await expect(page.getByText('beta-provider')).toBeVisible()
+  await page.waitForTimeout(550)
+  await expect(page.getByText('alpha-provider')).toHaveCount(0)
+
+  await page.reload()
+  await expect(page).toHaveURL(/tenant=2/)
+  await expect(page.getByRole('heading', { name: 'Tenant Beta' })).toBeVisible()
+})
+
+test('a tenant detail failure leaves the tenant list usable and hides backend copy', async ({ page }) => {
+  await installTenantMocks(page, true)
+  await page.goto('/tenants?tenant=1')
+  await expect(page.getByRole('button', { name: 'Open Tenant Beta' })).toBeVisible()
+  await page.getByRole('button', { name: 'Open Tenant Beta' }).click()
+  await expect(page.getByRole('button', { name: 'Open Tenant Alpha' })).toBeEnabled()
+  await expect(page.getByText('The request failed. Please try again later.')).toBeVisible()
+  await expect(page.getByText('database exploded')).toHaveCount(0)
+})

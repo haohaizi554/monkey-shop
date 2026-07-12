@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Lightning, PriceTag, RefreshRight, UserFilled } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
-import { computed, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   claimCoupon,
   createSeckillOrder,
@@ -10,10 +10,17 @@ import {
   redeemCoupon,
   returnCoupon,
 } from '@/api/marketing'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import { useNotify } from '@/composables/useNotify'
 import type { CouponWalletEntry, GroupBuyTeam, MarketingPriceQuote, SeckillOrder } from '@/types'
-import { couponStatusLabel, groupBuyStatusLabel } from '@/utils/format'
+import { couponStatusLabel, groupBuyStatusLabel, money } from '@/utils/format'
 
-const userId = ref(1)
+defineOptions({ name: 'MarketingView' })
+
+type TaskKey = 'coupon' | 'quote' | 'seckill' | 'group'
+
+const { t } = useI18n()
+const notify = useNotify()
 const couponId = ref(2400000000001)
 const couponCode = ref('')
 const couponOrderId = ref<number | null>(null)
@@ -25,7 +32,13 @@ const seckillOrderKey = ref(`flash-${Date.now()}`)
 const groupActivityId = ref(2600000000001)
 const groupTeamId = ref<number | null>(null)
 const groupKey = ref(`group-${Date.now()}`)
-const busy = ref(false)
+const pendingKeys = ref(new Set<string>())
+const taskErrors = reactive<Record<TaskKey, string>>({
+  coupon: '',
+  quote: '',
+  seckill: '',
+  group: '',
+})
 const latestCoupon = ref<CouponWalletEntry | null>(null)
 const latestQuote = ref<MarketingPriceQuote | null>(null)
 const latestSeckill = ref<SeckillOrder | null>(null)
@@ -38,254 +51,442 @@ const parsedCouponCodes = computed(() =>
     .filter(Boolean),
 )
 
+function isPending(key: string): boolean {
+  return pendingKeys.value.has(key)
+}
+
+function setPending(key: string, value: boolean) {
+  const next = new Set(pendingKeys.value)
+  if (value) next.add(key)
+  else next.delete(key)
+  pendingKeys.value = next
+}
+
+function validate(task: TaskKey, condition: boolean, messageKey: string): boolean {
+  taskErrors[task] = condition ? '' : t(messageKey)
+  return condition
+}
+
 async function runClaimCoupon() {
-  busy.value = true
+  if (!validate('coupon', couponId.value > 0, 'marketing.positiveValueRequired')) return
+  const key = 'coupon:claim'
+  setPending(key, true)
   try {
     latestCoupon.value = await claimCoupon({
       couponId: couponId.value,
-      userId: userId.value,
-      idempotencyKey: `coupon-${userId.value}-${couponId.value}`,
+      idempotencyKey: `coupon-${couponId.value}-${Date.now()}`,
     })
     couponCode.value = latestCoupon.value.couponCode
-    ElMessage.success('优惠券已领取')
+    notify.success(t('marketing.couponClaimed'), { key: 'marketing:coupon:claim' })
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '优惠券领取失败')
+    taskErrors.coupon = t('marketing.couponClaimFailed')
+    notify.fromApiError(error, 'marketing.couponClaimFailed')
   } finally {
-    busy.value = false
+    setPending(key, false)
   }
 }
 
 async function runRedeemCoupon() {
-  if (!couponCode.value || !couponOrderId.value) {
+  if (
+    !validate(
+      'coupon',
+      Boolean(couponCode.value.trim() && couponOrderId.value && couponOrderId.value > 0),
+      'marketing.couponCodeAndOrderRequired',
+    )
+  )
     return
-  }
-  busy.value = true
+  const key = 'coupon:redeem'
+  setPending(key, true)
   try {
     latestCoupon.value = await redeemCoupon({
-      couponCode: couponCode.value,
-      orderId: couponOrderId.value,
+      couponCode: couponCode.value.trim(),
+      orderId: couponOrderId.value!,
     })
-    ElMessage.success('优惠券已核销')
+    notify.success(t('marketing.couponRedeemed'), { key: 'marketing:coupon:redeem' })
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '优惠券核销失败')
+    taskErrors.coupon = t('marketing.couponRedeemFailed')
+    notify.fromApiError(error, 'marketing.couponRedeemFailed')
   } finally {
-    busy.value = false
+    setPending(key, false)
   }
 }
 
 async function runReturnCoupon() {
-  if (!couponCode.value || !couponOrderId.value) {
+  if (
+    !validate(
+      'coupon',
+      Boolean(couponCode.value.trim() && couponOrderId.value && couponOrderId.value > 0),
+      'marketing.couponCodeAndOrderRequired',
+    )
+  )
     return
-  }
-  busy.value = true
+  const key = 'coupon:return'
+  setPending(key, true)
   try {
     latestCoupon.value = await returnCoupon({
-      couponCode: couponCode.value,
-      orderId: couponOrderId.value,
+      couponCode: couponCode.value.trim(),
+      orderId: couponOrderId.value!,
     })
-    ElMessage.success('优惠券已退回')
+    notify.success(t('marketing.couponReturned'), { key: 'marketing:coupon:return' })
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '优惠券退回失败')
+    taskErrors.coupon = t('marketing.couponReturnFailed')
+    notify.fromApiError(error, 'marketing.couponReturnFailed')
   } finally {
-    busy.value = false
+    setPending(key, false)
   }
 }
 
 async function runQuote() {
-  busy.value = true
+  if (!validate('quote', quoteAmount.value > 0, 'marketing.positiveValueRequired')) return
+  const key = 'quote'
+  setPending(key, true)
   try {
     latestQuote.value = await quoteMarketingPrice({
       orderAmount: quoteAmount.value,
-      userId: userId.value,
       shopId: 1,
       couponCodes: parsedCouponCodes.value,
     })
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '价格试算失败')
+    taskErrors.quote = t('marketing.quoteFailed')
+    notify.fromApiError(error, 'marketing.quoteFailed')
   } finally {
-    busy.value = false
+    setPending(key, false)
   }
 }
 
 async function runSeckill() {
-  busy.value = true
+  if (!validate('seckill', seckillActivityId.value > 0 && seckillQuantity.value > 0, 'marketing.positiveValueRequired')) return
+  if (!validate('seckill', Boolean(seckillOrderKey.value.trim()), 'marketing.idempotencyKeyRequired')) return
+  const key = 'seckill'
+  setPending(key, true)
   try {
     latestSeckill.value = await createSeckillOrder({
       activityId: seckillActivityId.value,
-      userId: userId.value,
       quantity: seckillQuantity.value,
-      idempotencyKey: seckillOrderKey.value,
+      idempotencyKey: seckillOrderKey.value.trim(),
     })
-    ElMessage.success('秒杀请求已受理')
+    notify.success(t('marketing.seckillAccepted'), { key: 'marketing:seckill' })
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '秒杀下单失败')
+    taskErrors.seckill = t('marketing.seckillFailed')
+    notify.fromApiError(error, 'marketing.seckillFailed')
   } finally {
-    busy.value = false
+    setPending(key, false)
   }
 }
 
 async function runJoinGroup() {
-  busy.value = true
+  if (!validate('group', groupActivityId.value > 0, 'marketing.positiveValueRequired')) return
+  if (!validate('group', Boolean(groupKey.value.trim()), 'marketing.idempotencyKeyRequired')) return
+  const key = 'group-buy'
+  setPending(key, true)
   try {
     latestGroup.value = await joinGroupBuy({
       activityId: groupActivityId.value,
-      userId: userId.value,
       teamId: groupTeamId.value || undefined,
-      idempotencyKey: groupKey.value,
+      idempotencyKey: groupKey.value.trim(),
     })
     groupTeamId.value = latestGroup.value.id
-    ElMessage.success('拼团状态已更新')
+    notify.success(t('marketing.groupUpdated'), { key: 'marketing:group' })
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '拼团加入失败')
+    taskErrors.group = t('marketing.groupFailed')
+    notify.fromApiError(error, 'marketing.groupFailed')
   } finally {
-    busy.value = false
+    setPending(key, false)
   }
 }
 </script>
 
 <template>
-  <div class="route-view">
-    <section class="marketing-layout">
-      <div class="marketing-toolbar">
-        <el-input-number v-model="userId" :min="1" controls-position="right" />
-        <el-tag type="info">用户编号</el-tag>
-      </div>
+  <div class="route-view marketing-page">
+    <PageHeader
+      :eyebrow="t('nav.admin')"
+      :title="t('marketing.title')"
+      :description="t('marketing.description')"
+    />
 
-      <div class="marketing-grid">
-        <section class="marketing-panel">
-          <h2>
-            <el-icon><PriceTag /></el-icon>
-            优惠券
-          </h2>
-          <div class="field-row">
-            <el-input-number v-model="couponId" :min="1" controls-position="right" />
-            <el-button type="primary" :loading="busy" @click="runClaimCoupon">领取</el-button>
+    <div class="marketing-task-grid">
+      <section class="marketing-tool" :aria-labelledby="'coupon-task-title'">
+        <h2 id="coupon-task-title"><el-icon aria-hidden="true"><PriceTag /></el-icon>{{ t('marketing.coupon') }}</h2>
+        <div class="task-form-grid">
+          <div class="field-control">
+            <span>{{ t('marketing.couponId') }}</span>
+            <el-input-number
+              v-model="couponId"
+              :min="1"
+              controls-position="right"
+              :aria-label="t('marketing.couponId')"
+            />
           </div>
-          <div class="field-row">
-            <el-input v-model="couponCode" placeholder="优惠券码" />
-            <el-input-number v-model="couponOrderId" :min="1" controls-position="right" />
+          <el-button type="primary" :loading="isPending('coupon:claim')" @click="runClaimCoupon">
+            {{ t('marketing.claim') }}
+          </el-button>
+          <div class="field-control">
+            <span>{{ t('marketing.couponCode') }}</span>
+            <el-input v-model="couponCode" :aria-label="t('marketing.couponCode')" />
           </div>
-          <div class="field-row">
-            <el-button :loading="busy" @click="runRedeemCoupon">核销</el-button>
-            <el-button :icon="RefreshRight" :loading="busy" @click="runReturnCoupon">
-              退回
+          <div class="field-control">
+            <span>{{ t('marketing.orderId') }}</span>
+            <el-input-number
+              v-model="couponOrderId"
+              :min="1"
+              controls-position="right"
+              :aria-label="t('marketing.orderId')"
+            />
+          </div>
+          <div class="task-actions">
+            <el-button :loading="isPending('coupon:redeem')" @click="runRedeemCoupon">
+              {{ t('marketing.redeem') }}
+            </el-button>
+            <el-button :icon="RefreshRight" :loading="isPending('coupon:return')" @click="runReturnCoupon">
+              {{ t('marketing.return') }}
             </el-button>
           </div>
-          <el-alert
-            v-if="latestCoupon"
-            :closable="false"
-            type="success"
-            :title="`${latestCoupon.couponCode}：${couponStatusLabel(latestCoupon.status)}`"
-          />
-        </section>
+        </div>
+        <p v-if="taskErrors.coupon" class="task-error" role="alert">{{ taskErrors.coupon }}</p>
+        <div v-if="latestCoupon" class="task-result" role="status">
+          <strong>{{ latestCoupon.couponCode }}</strong>
+          <span>{{ couponStatusLabel(latestCoupon.status) }}</span>
+        </div>
+      </section>
 
-        <section class="marketing-panel">
-          <h2>
-            <el-icon><PriceTag /></el-icon>
-            价格试算
-          </h2>
-          <div class="field-row">
-            <el-input-number v-model="quoteAmount" :min="1" controls-position="right" />
-            <el-input v-model="quoteCouponCodes" placeholder="优惠券码，逗号分隔" />
-            <el-button type="primary" :loading="busy" @click="runQuote">试算</el-button>
+      <section class="marketing-tool" :aria-labelledby="'quote-task-title'">
+        <h2 id="quote-task-title"><el-icon aria-hidden="true"><PriceTag /></el-icon>{{ t('marketing.priceQuote') }}</h2>
+        <div class="task-form-grid">
+          <div class="field-control">
+            <span>{{ t('marketing.orderAmount') }}</span>
+            <el-input-number
+              v-model="quoteAmount"
+              :min="1"
+              controls-position="right"
+              :aria-label="t('marketing.orderAmount')"
+            />
           </div>
-          <div v-if="latestQuote" class="metric-strip">
-            <span>原价 {{ latestQuote.originalAmount }}</span>
-            <span>优惠 {{ latestQuote.discountAmount }}</span>
-            <strong>应付 {{ latestQuote.payableAmount }}</strong>
+          <div class="field-control field-control--wide">
+            <span>{{ t('marketing.couponCodesHint') }}</span>
+            <el-input v-model="quoteCouponCodes" :aria-label="t('marketing.couponCodesHint')" />
           </div>
-        </section>
+          <el-button type="primary" :loading="isPending('quote')" @click="runQuote">
+            {{ t('marketing.quote') }}
+          </el-button>
+        </div>
+        <p v-if="taskErrors.quote" class="task-error" role="alert">{{ taskErrors.quote }}</p>
+        <div v-if="latestQuote" class="quote-result" role="status">
+          <span>{{ t('marketing.originalAmount', { amount: money(latestQuote.originalAmount) }) }}</span>
+          <span>{{ t('marketing.discountAmount', { amount: money(latestQuote.discountAmount) }) }}</span>
+          <strong>{{ t('marketing.payableAmount', { amount: money(latestQuote.payableAmount) }) }}</strong>
+          <div class="applied-coupons">
+            <span>{{ t('marketing.appliedCoupons') }}</span>
+            <el-tag v-for="code in latestQuote.appliedCoupons" :key="code" effect="plain">{{ code }}</el-tag>
+          </div>
+        </div>
+      </section>
 
-        <section class="marketing-panel">
-          <h2>
-            <el-icon><Lightning /></el-icon>
-            秒杀
-          </h2>
-          <div class="field-row">
-            <el-input-number v-model="seckillActivityId" :min="1" controls-position="right" />
-            <el-input-number v-model="seckillQuantity" :min="1" controls-position="right" />
+      <section class="marketing-tool" :aria-labelledby="'seckill-task-title'">
+        <h2 id="seckill-task-title"><el-icon aria-hidden="true"><Lightning /></el-icon>{{ t('marketing.seckill') }}</h2>
+        <div class="task-form-grid">
+          <div class="field-control">
+            <span>{{ t('marketing.activityId') }}</span>
+            <el-input-number
+              v-model="seckillActivityId"
+              :min="1"
+              controls-position="right"
+              :aria-label="t('marketing.activityId')"
+            />
           </div>
-          <div class="field-row">
-            <el-input v-model="seckillOrderKey" placeholder="幂等键" />
-            <el-button type="danger" :loading="busy" @click="runSeckill">下单</el-button>
+          <div class="field-control">
+            <span>{{ t('marketing.quantity') }}</span>
+            <el-input-number
+              v-model="seckillQuantity"
+              :min="1"
+              controls-position="right"
+              :aria-label="t('marketing.quantity')"
+            />
           </div>
-          <el-alert
-            v-if="latestSeckill"
-            :closable="false"
-            type="success"
-            :title="`秒杀订单 ${latestSeckill.id}`"
-          />
-        </section>
+          <div class="field-control field-control--wide">
+            <span>{{ t('marketing.idempotencyKey') }}</span>
+            <el-input v-model="seckillOrderKey" :aria-label="t('marketing.idempotencyKey')" />
+          </div>
+          <el-button
+            type="danger"
+            :aria-label="t('marketing.submitSeckill')"
+            :loading="isPending('seckill')"
+            @click="runSeckill"
+          >
+            {{ t('marketing.submitSeckill') }}
+          </el-button>
+        </div>
+        <p v-if="taskErrors.seckill" class="task-error" role="alert">{{ taskErrors.seckill }}</p>
+        <div v-if="latestSeckill" class="task-result" role="status">
+          {{ t('marketing.seckillOrder', { id: latestSeckill.id }) }}
+        </div>
+      </section>
 
-        <section class="marketing-panel">
-          <h2>
-            <el-icon><UserFilled /></el-icon>
-            拼团
-          </h2>
-          <div class="field-row">
-            <el-input-number v-model="groupActivityId" :min="1" controls-position="right" />
-            <el-input-number v-model="groupTeamId" :min="1" controls-position="right" />
+      <section class="marketing-tool" :aria-labelledby="'group-task-title'">
+        <h2 id="group-task-title"><el-icon aria-hidden="true"><UserFilled /></el-icon>{{ t('marketing.groupBuy') }}</h2>
+        <div class="task-form-grid">
+          <div class="field-control">
+            <span>{{ t('marketing.activityId') }}</span>
+            <el-input-number
+              v-model="groupActivityId"
+              :min="1"
+              controls-position="right"
+              :aria-label="t('marketing.activityId')"
+            />
           </div>
-          <div class="field-row">
-            <el-input v-model="groupKey" placeholder="幂等键" />
-            <el-button type="primary" :loading="busy" @click="runJoinGroup">加入</el-button>
+          <div class="field-control">
+            <span>{{ t('marketing.teamId') }}</span>
+            <el-input-number
+              v-model="groupTeamId"
+              :min="1"
+              controls-position="right"
+              :aria-label="t('marketing.teamId')"
+            />
           </div>
-          <el-alert
-            v-if="latestGroup"
-            :closable="false"
-            :type="latestGroup.status === 'SUCCEEDED' ? 'success' : 'info'"
-            :title="`团 ${latestGroup.id}：${latestGroup.joinedCount}/${latestGroup.targetSize}，${groupBuyStatusLabel(latestGroup.status)}`"
-          />
-        </section>
-      </div>
-    </section>
+          <div class="field-control field-control--wide">
+            <span>{{ t('marketing.idempotencyKey') }}</span>
+            <el-input v-model="groupKey" :aria-label="t('marketing.idempotencyKey')" />
+          </div>
+          <el-button
+            type="primary"
+            :aria-label="t('marketing.joinGroupBuy')"
+            :loading="isPending('group-buy')"
+            @click="runJoinGroup"
+          >
+            {{ t('marketing.joinGroupBuy') }}
+          </el-button>
+        </div>
+        <p v-if="taskErrors.group" class="task-error" role="alert">{{ taskErrors.group }}</p>
+        <div v-if="latestGroup" class="task-result" role="status">
+          {{
+            t('marketing.groupSummary', {
+              id: latestGroup.id,
+              joined: latestGroup.joinedCount,
+              target: latestGroup.targetSize,
+              status: groupBuyStatusLabel(latestGroup.status),
+            })
+          }}
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.marketing-layout {
+.marketing-page {
   display: grid;
-  gap: 16px;
+  gap: var(--space-5);
+  min-width: 0;
 }
 
-.marketing-toolbar,
-.field-row {
+.marketing-task-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.marketing-tool {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-surface);
+  background: var(--color-surface);
+}
+
+.marketing-tool h2 {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
   align-items: center;
-}
-
-.marketing-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
-}
-
-.marketing-panel {
-  border: 1px solid var(--el-border-color);
-  border-radius: 8px;
-  display: grid;
-  gap: 12px;
-  padding: 16px;
-}
-
-.marketing-panel h2 {
-  align-items: center;
-  display: flex;
-  font-size: 1rem;
-  gap: 8px;
+  gap: var(--space-2);
   margin: 0;
+  font-size: var(--text-lg);
 }
 
-.field-row .el-input,
-.field-row .el-input-number {
-  max-width: 220px;
+.task-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: var(--space-3);
 }
 
-.metric-strip {
+.field-control {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.field-control span,
+.applied-coupons > span {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.field-control--wide,
+.task-actions,
+.task-error,
+.task-result,
+.quote-result {
+  grid-column: 1 / -1;
+}
+
+.field-control :deep(.el-input-number),
+.field-control :deep(.el-input) {
+  width: 100%;
+}
+
+.task-actions,
+.applied-coupons {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--space-2);
+}
+
+.task-error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+}
+
+.task-result,
+.quote-result {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-line);
+}
+
+.task-result {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.quote-result {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.applied-coupons {
+  align-items: center;
+  margin-top: var(--space-1);
+}
+
+@media (max-width: 1000px) {
+  .marketing-task-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .task-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .field-control,
+  .field-control--wide,
+  .task-actions,
+  .task-form-grid > :deep(.el-button) {
+    grid-column: 1;
+    width: 100%;
+  }
 }
 </style>

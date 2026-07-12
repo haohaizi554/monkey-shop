@@ -1,173 +1,243 @@
 <script setup lang="ts">
-import { DataLine, Refresh, TrendCharts, User } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { Refresh, VideoPause, VideoPlay } from '@element-plus/icons-vue'
+import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { currentTrackingProfile, trackingDashboard, trackingProductProfile } from '@/api/tracking'
+import MetricStrip, { type MetricItem } from '@/components/admin/MetricStrip.vue'
+import AsyncStateView from '@/components/ui/AsyncStateView.vue'
+import DataTableShell from '@/components/ui/DataTableShell.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import { useAsyncState, type AsyncState, type AsyncStatus } from '@/composables/useAsyncState'
+import { usePageVisibility } from '@/composables/usePageVisibility'
 import type { ProductProfile, RealtimeDashboard, TrackingEventType, UserProfileTag } from '@/types'
+import { money } from '@/utils/format'
 
 defineOptions({ name: 'DashboardView' })
 
-const loading = ref(false)
-const dashboard = ref<RealtimeDashboard>()
-const myProfile = ref<UserProfileTag>()
-const productProfile = ref<ProductProfile>()
+const { locale, t } = useI18n()
+const dashboardState = useAsyncState<RealtimeDashboard>()
+const profileState = useAsyncState<UserProfileTag>()
+const productState = useAsyncState<ProductProfile>()
+const visibility = usePageVisibility()
+const polling = ref(true)
 const productId = ref(1)
-let timer: number | undefined
 
+const dashboard = computed(() => dashboardState.data.value)
+const myProfile = computed(() => profileState.data.value)
+const productProfile = computed(() => productState.data.value)
 const funnel = computed(() => dashboard.value?.funnel ?? [])
-const generatedAt = computed(() =>
-  dashboard.value?.generatedAt ? new Date(dashboard.value.generatedAt).toLocaleTimeString() : '-',
-)
-const profileSummary = computed(() => normalizeProfileText(myProfile.value?.profileSummary))
+const generatedAt = computed(() => {
+  if (!dashboard.value?.generatedAt) {
+    return '-'
+  }
+  return new Intl.DateTimeFormat(locale.value, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(new Date(dashboard.value.generatedAt))
+})
+const metrics = computed<MetricItem[]>(() => [
+  {
+    key: 'page-views',
+    label: t('dashboard.pageViews'),
+    value: dashboard.value?.pageViews ?? 0,
+    tone: 'info',
+  },
+  {
+    key: 'unique-visitors',
+    label: t('dashboard.uniqueVisitors'),
+    value: dashboard.value?.uniqueVisitors ?? 0,
+  },
+  {
+    key: 'orders',
+    label: t('dashboard.orders'),
+    value: dashboard.value?.orderCount ?? 0,
+    tone: 'success',
+  },
+  {
+    key: 'payment-amount',
+    label: t('dashboard.paymentAmount'),
+    value: money(dashboard.value?.paymentAmount),
+    tone: 'success',
+  },
+])
 
-const eventLabels: Record<TrackingEventType, string> = {
-  PAGE_VIEW: '页面访问',
-  CLICK: '点击',
-  SEARCH: '搜索',
-  PRODUCT_VIEW: '商品浏览',
-  ADD_TO_CART: '加入购物车',
-  ORDER_CREATED: '创建订单',
-  PAYMENT_SUCCESS: '支付成功',
-  UI_ERROR: '界面错误',
+const eventLabels = computed<Record<TrackingEventType, string>>(() => ({
+  PAGE_VIEW: t('dashboard.eventPageView'),
+  CLICK: t('dashboard.eventClick'),
+  SEARCH: t('dashboard.eventSearch'),
+  PRODUCT_VIEW: t('dashboard.eventProductView'),
+  ADD_TO_CART: t('dashboard.eventAddToCart'),
+  ORDER_CREATED: t('dashboard.eventOrderCreated'),
+  PAYMENT_SUCCESS: t('dashboard.eventPaymentSuccess'),
+  UI_ERROR: t('dashboard.eventUiError'),
+}))
+
+function displayStatus<T>(state: AsyncState<T>): AsyncStatus {
+  if (state.data.value !== null && state.status.value === 'error') {
+    return 'success'
+  }
+  return state.status.value
 }
 
+const dashboardDisplayStatus = computed(() => displayStatus(dashboardState))
+const profileDisplayStatus = computed(() => displayStatus(profileState))
+const productDisplayStatus = computed(() => displayStatus(productState))
+
 function eventLabel(eventType: TrackingEventType): string {
-  return eventLabels[eventType] ?? eventType
+  return eventLabels.value[eventType] ?? humanize(eventType)
+}
+
+function humanize(value: string): string {
+  const normalized = value.replace(/[_:-]+/g, ' ').trim().toLowerCase()
+  return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : value
 }
 
 function normalizeProfileText(text?: string): string {
   if (!text) {
-    return '暂无用户画像信号'
+    return t('dashboard.noProfileSignal')
   }
-  return text
-    .replaceAll('PAGE_VIEW', '页面访问')
-    .replaceAll('PRODUCT_VIEW', '商品浏览')
-    .replaceAll('CLICK', '点击')
-    .replaceAll('ADD_TO_CART', '加购')
-    .replaceAll('ORDER_CREATED', '下单')
-    .replaceAll('PAYMENT_SUCCESS', '支付')
-    .replaceAll('SEARCH', '搜索')
-    .replaceAll('last=', '最近事件=')
-    .replaceAll('page=', '页面=')
-    .replaceAll('previous=', '上一条=')
-    .replaceAll('source=web', '来源=网页')
-    .replaceAll('source:web', '来源=网页')
-    .replaceAll(',', '，')
+  let normalized = text
+  for (const eventType of Object.keys(eventLabels.value) as TrackingEventType[]) {
+    normalized = normalized.replaceAll(eventType, eventLabel(eventType))
+  }
+  return normalized
+    .replaceAll('last=', `${t('dashboard.latestEvent')}: `)
+    .replaceAll('previous=', `${t('dashboard.previousEvent')}: `)
+    .replaceAll('page=', `${t('dashboard.page')}: `)
+    .replaceAll('source=web', `${t('dashboard.source')}: ${t('dashboard.webSource')}`)
+    .replaceAll('source:web', `${t('dashboard.source')}: ${t('dashboard.webSource')}`)
+    .replaceAll(',', ' · ')
 }
 
 function tagLabel(tag: string): string {
-  return tag
-    .replace(/^event:/, '事件：')
-    .replace(/^page:-?/, '页面：/')
-    .replace(/^source:/, '来源：')
-    .replaceAll('web', '网页')
-    .replaceAll('page_view', '页面访问')
-    .replaceAll('product_view', '商品浏览')
-    .replaceAll('add_to_cart', '加购')
-    .replaceAll('order_created', '下单')
-    .replaceAll('payment_success', '支付')
+  const [prefix, rawValue = ''] = tag.split(':', 2)
+  if (prefix === 'event') {
+    const eventType = rawValue.toUpperCase() as TrackingEventType
+    return `${t('dashboard.latestEvent')}: ${eventLabels.value[eventType] ?? humanize(rawValue)}`
+  }
+  if (prefix === 'page') {
+    return `${t('dashboard.page')}: ${rawValue || '-'}`
+  }
+  if (prefix === 'source') {
+    return `${t('dashboard.source')}: ${rawValue === 'web' ? t('dashboard.webSource') : humanize(rawValue)}`
+  }
+  return humanize(tag)
 }
 
 async function loadDashboard() {
-  loading.value = true
-  try {
-    dashboard.value = await trackingDashboard(5)
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '数据看板加载失败')
-  } finally {
-    loading.value = false
-  }
+  await dashboardState.load(() => trackingDashboard(5), { preserveData: true })
 }
 
 async function loadProfile() {
-  try {
-    myProfile.value = await currentTrackingProfile()
-  } catch {
-    myProfile.value = undefined
-  }
+  await profileState.load(() => currentTrackingProfile(), { preserveData: true })
 }
 
 async function loadProductProfile() {
-  try {
-    productProfile.value = await trackingProductProfile(productId.value)
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '商品画像加载失败')
+  await productState.load(() => trackingProductProfile(productId.value), { preserveData: true })
+}
+
+function togglePolling() {
+  polling.value = !polling.value
+  if (!polling.value) {
+    visibility.stop()
+    return
   }
+  void loadDashboard()
+  visibility.start(loadDashboard, 5000)
 }
 
 onMounted(async () => {
   await Promise.all([loadDashboard(), loadProfile(), loadProductProfile()])
-  timer = window.setInterval(loadDashboard, 5000)
-})
-
-onBeforeUnmount(() => {
-  if (timer) {
-    window.clearInterval(timer)
+  if (polling.value) {
+    visibility.start(loadDashboard, 5000)
   }
 })
 </script>
 
 <template>
-  <div class="route-view">
-    <section class="dashboard-view">
-      <div class="view-toolbar">
-        <div>
-          <p class="eyebrow">数据中台</p>
-          <h1>实时看板</h1>
-        </div>
-        <el-button :icon="Refresh" :loading="loading" @click="loadDashboard">
-          {{ generatedAt }}
+  <div class="route-view dashboard-view">
+    <PageHeader
+      :eyebrow="t('dashboard.dataCenter')"
+      :title="t('dashboard.title')"
+      :description="t('dashboard.description')"
+    >
+      <template #actions>
+        <el-button
+          :icon="polling ? VideoPause : VideoPlay"
+          :aria-pressed="polling"
+          @click="togglePolling"
+        >
+          {{ polling ? t('dashboard.pausePolling') : t('dashboard.resumePolling') }}
         </el-button>
-      </div>
+        <el-button
+          :icon="Refresh"
+          :loading="dashboardState.isLoading.value"
+          :aria-label="t('dashboard.refreshNow')"
+          @click="loadDashboard"
+        >
+          {{ t('dashboard.lastUpdated', { time: generatedAt }) }}
+        </el-button>
+      </template>
+    </PageHeader>
 
-      <div class="metric-grid">
-        <div class="metric-tile">
-          <el-icon><DataLine /></el-icon>
-          <span>PV</span>
-          <strong>{{ dashboard?.pageViews ?? 0 }}</strong>
-        </div>
-        <div class="metric-tile">
-          <el-icon><User /></el-icon>
-          <span>UV</span>
-          <strong>{{ dashboard?.uniqueVisitors ?? 0 }}</strong>
-        </div>
-        <div class="metric-tile">
-          <el-icon><TrendCharts /></el-icon>
-          <span>订单</span>
-          <strong>{{ dashboard?.orderCount ?? 0 }}</strong>
-        </div>
-        <div class="metric-tile">
-          <el-icon><TrendCharts /></el-icon>
-          <span>GMV</span>
-          <strong>{{ dashboard?.paymentAmount ?? 0 }}</strong>
-        </div>
-      </div>
+    <el-alert
+      v-if="dashboardState.data.value && dashboardState.status.value === 'error'"
+      type="error"
+      :closable="false"
+      :title="t(dashboardState.error.value || 'common.requestFailed')"
+      show-icon
+    />
 
-      <section class="content-band">
+    <AsyncStateView
+      :status="dashboardDisplayStatus"
+      :error="dashboardState.error.value"
+      @retry="loadDashboard"
+    >
+      <MetricStrip :items="metrics" />
+
+      <section class="dashboard-section" :aria-labelledby="'dashboard-funnel-title'">
         <div class="section-heading">
-          <h2>转化漏斗</h2>
-          <span>从搜索到支付</span>
-        </div>
-        <el-table :data="funnel" size="small">
-          <el-table-column label="步骤">
-            <template #default="{ row }">{{ eventLabel(row.eventType) }}</template>
-          </el-table-column>
-          <el-table-column prop="count" label="数量" width="120" />
-          <el-table-column label="转化率" width="160">
-            <template #default="{ row }">
-              {{ (Number(row.conversionRate) * 100).toFixed(2) }}%
-            </template>
-          </el-table-column>
-        </el-table>
-      </section>
-
-      <section class="profile-grid">
-        <div class="profile-panel">
-          <div class="section-heading">
-            <h2>用户画像</h2>
-            <span>{{ myProfile?.lastEventAt ?? '-' }}</span>
+          <div>
+            <h2 id="dashboard-funnel-title">{{ t('dashboard.conversionFunnel') }}</h2>
+            <p>{{ t('dashboard.fromSearchToPayment') }}</p>
           </div>
-          <p>{{ profileSummary }}</p>
+        </div>
+        <DataTableShell
+          :aria-label="t('dashboard.conversionFunnel')"
+          :empty="funnel.length === 0"
+          :busy="dashboardState.status.value === 'updating'"
+        >
+          <template #empty>{{ t('common.noData') }}</template>
+          <el-table :data="funnel" size="small">
+            <el-table-column :label="t('dashboard.step')" min-width="180">
+              <template #default="{ row }">{{ eventLabel(row.eventType) }}</template>
+            </el-table-column>
+            <el-table-column prop="count" :label="t('dashboard.count')" width="120" />
+            <el-table-column :label="t('dashboard.conversionRate')" width="160">
+              <template #default="{ row }">
+                {{ (Number(row.conversionRate) * 100).toFixed(2) }}%
+              </template>
+            </el-table-column>
+          </el-table>
+        </DataTableShell>
+      </section>
+    </AsyncStateView>
+
+    <div class="profile-grid">
+      <section class="dashboard-section profile-section" :aria-labelledby="'user-profile-title'">
+        <div class="section-heading">
+          <h2 id="user-profile-title">{{ t('dashboard.userProfile') }}</h2>
+          <time v-if="myProfile?.lastEventAt" :datetime="myProfile.lastEventAt">
+            {{ new Date(myProfile.lastEventAt).toLocaleString(locale) }}
+          </time>
+        </div>
+        <AsyncStateView
+          :status="profileDisplayStatus"
+          :error="profileState.error.value"
+          @retry="loadProfile"
+        >
+          <p class="profile-summary">{{ normalizeProfileText(myProfile?.profileSummary) }}</p>
           <div class="tag-row">
             <el-tag v-for="tag in myProfile?.behaviorTags ?? []" :key="tag" type="info">
               {{ tagLabel(tag) }}
@@ -176,138 +246,139 @@ onBeforeUnmount(() => {
               {{ tagLabel(tag) }}
             </el-tag>
           </div>
-        </div>
+        </AsyncStateView>
+      </section>
 
-        <div class="profile-panel">
-          <div class="section-heading">
-            <h2>商品画像</h2>
+      <section class="dashboard-section profile-section" :aria-labelledby="'product-profile-title'">
+        <div class="section-heading product-profile-heading">
+          <h2 id="product-profile-title">{{ t('dashboard.productProfile') }}</h2>
+          <div class="product-profile-control">
+            <span>{{ t('dashboard.productId') }}</span>
             <el-input-number
               v-model="productId"
               :min="1"
               size="small"
+              :aria-label="t('dashboard.productId')"
               @change="loadProductProfile"
             />
           </div>
-          <p>
-            销量 {{ productProfile?.salesCount ?? 0 }} / 评分
-            {{ productProfile?.reviewScore ?? 0 }}
+        </div>
+        <AsyncStateView
+          :status="productDisplayStatus"
+          :error="productState.error.value"
+          @retry="loadProductProfile"
+        >
+          <p class="profile-summary">
+            {{
+              t('dashboard.salesAndScore', {
+                sales: productProfile?.salesCount ?? 0,
+                score: productProfile?.reviewScore ?? 0,
+              })
+            }}
           </p>
           <div class="tag-row">
             <el-tag v-for="tag in productProfile?.tagVector ?? []" :key="tag">
-              {{ tag }}
+              {{ humanize(tag) }}
             </el-tag>
           </div>
-        </div>
+        </AsyncStateView>
       </section>
-    </section>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .dashboard-view {
   display: grid;
-  gap: 20px;
+  gap: var(--space-5);
   min-width: 0;
 }
 
-.view-toolbar,
+.dashboard-section {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
 .section-heading {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
-.eyebrow {
-  margin: 0 0 4px;
-  color: var(--el-color-primary);
-  font-size: 0.78rem;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-h1,
-h2,
-p {
+.section-heading h2,
+.section-heading p,
+.profile-summary {
   margin: 0;
 }
 
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+.section-heading h2 {
+  font-size: var(--text-lg);
 }
 
-.metric-tile,
-.profile-panel {
-  border: 1px solid var(--el-border-color);
-  border-radius: 8px;
-  padding: 16px;
-  background: var(--el-bg-color);
-}
-
-.metric-tile {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  gap: 6px 10px;
-  min-height: 92px;
-}
-
-.metric-tile strong {
-  grid-column: 1 / -1;
-  font-size: 1.9rem;
-  line-height: 1;
-}
-
-.content-band {
-  display: grid;
-  gap: 12px;
-  min-width: 0;
+.section-heading p,
+.section-heading time,
+.product-profile-control span,
+.profile-summary {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
 }
 
 .profile-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--space-5);
 }
 
-.profile-panel {
-  display: grid;
-  gap: 12px;
-  min-width: 0;
+.profile-section {
+  align-content: start;
+  padding-block: var(--space-4);
+  border-top: 1px solid var(--color-line);
 }
 
-.profile-panel p {
-  color: var(--el-text-color-secondary);
+.profile-summary {
   line-height: 1.6;
   overflow-wrap: anywhere;
+}
+
+.product-profile-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .tag-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-2);
   min-width: 0;
+  margin-top: var(--space-3);
 }
 
 .tag-row :deep(.el-tag) {
   max-width: 100%;
   height: auto;
-  min-height: 24px;
-  padding-block: 3px;
-}
-
-.tag-row :deep(.el-tag__content) {
-  min-width: 0;
-  overflow-wrap: anywhere;
+  min-height: var(--control-height);
   white-space: normal;
 }
 
 @media (max-width: 900px) {
-  .metric-grid,
   .profile-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .section-heading,
+  .product-profile-heading,
+  .product-profile-control {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .product-profile-control :deep(.el-input-number) {
+    width: 100%;
   }
 }
 </style>

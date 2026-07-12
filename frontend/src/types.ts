@@ -461,7 +461,6 @@ export interface InventoryDiscrepancy {
 
 export interface CouponClaimRequest {
   couponId: number
-  userId: number
   idempotencyKey: string
 }
 
@@ -503,7 +502,6 @@ export interface MarketingPriceQuote {
 
 export interface SeckillRequest {
   activityId: number
-  userId: number
   orderId?: number
   quantity: number
   idempotencyKey: string
@@ -523,7 +521,6 @@ export interface SeckillOrder {
 
 export interface GroupBuyJoinRequest {
   activityId: number
-  userId: number
   teamId?: number
   idempotencyKey: string
 }
