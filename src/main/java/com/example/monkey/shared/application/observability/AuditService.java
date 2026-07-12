@@ -82,6 +82,8 @@ public class AuditService {
     public static final String PAYMENT_FAILED = "PAYMENT_FAILED";
     public static final String PAYMENT_CALLBACK_ACCEPTED = "PAYMENT_CALLBACK_ACCEPTED";
     public static final String PAYMENT_REFUNDED = "PAYMENT_REFUNDED";
+    public static final String PAYMENT_ADMIN_READ = "PAYMENT_ADMIN_READ";
+    public static final String PAYMENT_ADMIN_REFUNDED = "PAYMENT_ADMIN_REFUNDED";
     public static final String PAYMENT_RECONCILED = "PAYMENT_RECONCILED";
     public static final String PAYMENT_HIGH_VALUE_DENIED = "PAYMENT_HIGH_VALUE_DENIED";
     public static final String LOGISTICS_SHIPMENT_CREATED = "LOGISTICS_SHIPMENT_CREATED";
@@ -148,22 +150,40 @@ public class AuditService {
             String subject,
             String sourceIp,
             String detail) {
-        try {
-            AuditEventRecord auditEvent = new AuditEventRecord(
-                    null,
-                    limit(eventType, 64),
-                    limit(outcome, 32),
-                    actorUserId,
-                    limit(actorRole, 32),
-                    hashSubject(subject),
-                    limit(sourceIp, 64),
-                    limit(TraceIds.currentOrCreate(), 128),
-                    limit(sanitizeDetail(detail), 255),
-                    LocalDateTime.now(clock));
-            auditLogStore.save(auditEvent);
-        } catch (RuntimeException e) {
-            log.warn("Audit event {} could not be persisted", eventType, e);
-        }
+        persist(eventType, outcome, actorUserId, actorRole, subject, sourceIp, detail);
+    }
+
+    public void recordReliable(
+            String eventType,
+            String outcome,
+            Long actorUserId,
+            String actorRole,
+            String subject,
+            String sourceIp,
+            String detail) {
+        persist(eventType, outcome, actorUserId, actorRole, subject, sourceIp, detail);
+    }
+
+    private void persist(
+            String eventType,
+            String outcome,
+            Long actorUserId,
+            String actorRole,
+            String subject,
+            String sourceIp,
+            String detail) {
+        AuditEventRecord auditEvent = new AuditEventRecord(
+                null,
+                limit(eventType, 64),
+                limit(outcome, 32),
+                actorUserId,
+                limit(actorRole, 32),
+                hashSubject(subject),
+                limit(sourceIp, 64),
+                limit(TraceIds.currentOrCreate(), 128),
+                limit(sanitizeDetail(detail), 255),
+                LocalDateTime.now(clock));
+        auditLogStore.save(auditEvent);
     }
 
     @Transactional(readOnly = true)

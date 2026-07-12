@@ -102,6 +102,25 @@ class AuditServiceTest {
         assertThat(auditLogStore.deletedBefore).isEqualTo(LocalDateTime.parse("2025-12-30T00:00:00"));
     }
 
+    @Test
+    void propagatesPersistenceFailure() {
+        TestAuditLogStore auditLogStore = new TestAuditLogStore();
+        IllegalStateException persistenceFailure = new IllegalStateException("audit database unavailable");
+        auditLogStore.saveFailure = persistenceFailure;
+        AuditService auditService = new AuditService(auditLogStore, Clock.systemUTC());
+
+        Throwable thrown = catchThrowable(() -> auditService.recordReliable(
+                AuditService.PAYMENT_ADMIN_READ,
+                AuditService.OUTCOME_SUCCESS,
+                7L,
+                "ADMIN",
+                "payment-1",
+                "127.0.0.1",
+                "orderId=10"));
+
+        assertThat(thrown).isSameAs(persistenceFailure);
+    }
+
     private static final class TestAuditLogStore implements AuditLogStore {
 
         private AuditEventRecord savedRecord;
@@ -109,9 +128,13 @@ class AuditServiceTest {
         private String lastTraceId;
         private LocalDateTime deletedBefore;
         private long deleteResult;
+        private RuntimeException saveFailure;
 
         @Override
         public void save(AuditEventRecord record) {
+            if (saveFailure != null) {
+                throw saveFailure;
+            }
             this.savedRecord = record;
         }
 

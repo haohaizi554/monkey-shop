@@ -52,6 +52,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Pattern;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -191,11 +192,15 @@ public class PaymentApplicationService {
             SessionUser currentUser, PaymentRefundRequestDto request, String idempotencyKey) {
         Long userId = requireUserId(currentUser);
         String key = normalizeIdempotencyKey(idempotencyKey);
-        PaymentOrder payment = requireOwnedPayment(request.paymentNo(), userId);
         return paymentStore
-                .findLedger(payment.id(), PaymentLedgerType.REFUND, key)
-                .map(ledger -> PaymentDtoAssembler.toRefundResponse(payment, ledger))
-                .orElseGet(() -> refundLocked(payment, request, key));
+                .withLockedPayment(request.paymentNo(), payment -> {
+                    requireOwnedPayment(payment, userId);
+                    return paymentStore
+                            .findLedger(payment.id(), PaymentLedgerType.REFUND, key)
+                            .map(ledger -> PaymentDtoAssembler.toRefundResponse(payment, ledger))
+                            .orElseGet(() -> refundLocked(payment, request, key));
+                })
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Payment order does not exist"));
     }
 
     @WithSpan("payment.find")
@@ -205,6 +210,52 @@ public class PaymentApplicationService {
         return paymentStore
                 .findByOrderIdAndUserId(orderId, userId)
                 .map(PaymentDtoAssembler::toResponse)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Payment order does not exist"));
+    }
+
+    @WithSpan("payment.admin.find")
+    @Transactional
+    public PaymentResponseDto findByOrderAsAdmin(SessionUser currentUser, Long orderId, String sourceIp) {
+        Long adminUserId = requireAdminUserId(currentUser);
+        OrderRecord order = requireOrder(orderId);
+        PaymentOrder payment = paymentStore
+                .findByOrderIdAndUserId(orderId, order.userId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Payment order does not exist"));
+        auditService.recordReliable(
+                AuditService.PAYMENT_ADMIN_READ,
+                AuditService.OUTCOME_SUCCESS,
+                adminUserId,
+                "ADMIN",
+                payment.paymentNo(),
+                sourceIp,
+                "orderId=" + orderId + ",ownerUserId=" + payment.userId());
+        return PaymentDtoAssembler.toResponse(payment);
+    }
+
+    @WithSpan("payment.admin.refund")
+    @Transactional
+    public PaymentRefundResponseDto refundAsAdmin(
+            SessionUser currentUser, PaymentRefundRequestDto request, String idempotencyKey, String sourceIp) {
+        Long adminUserId = requireAdminUserId(currentUser);
+        String key = normalizeIdempotencyKey(idempotencyKey);
+        return paymentStore
+                .withLockedPayment(request.paymentNo(), payment -> {
+                    requireMatchingOrderOwner(payment);
+                    return paymentStore
+                            .findLedger(payment.id(), PaymentLedgerType.REFUND, key)
+                            .map(ledger -> PaymentDtoAssembler.toRefundResponse(payment, ledger))
+                            .orElseGet(() -> refundLocked(
+                                    payment,
+                                    request,
+                                    key,
+                                    new RefundAuditContext(
+                                            AuditService.PAYMENT_ADMIN_REFUNDED,
+                                            adminUserId,
+                                            "ADMIN",
+                                            sourceIp,
+                                            true,
+                                            true)));
+                })
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Payment order does not exist"));
     }
 
@@ -293,6 +344,16 @@ public class PaymentApplicationService {
     }
 
     private PaymentRefundResponseDto refundLocked(PaymentOrder payment, PaymentRefundRequestDto request, String key) {
+        return refundLocked(
+                payment,
+                request,
+                key,
+                new RefundAuditContext(
+                        AuditService.PAYMENT_REFUNDED, payment.userId(), CUSTOMER_ROLE, null, false, false));
+    }
+
+    private PaymentRefundResponseDto refundLocked(
+            PaymentOrder payment, PaymentRefundRequestDto request, String key, RefundAuditContext auditContext) {
         BigDecimal amount = money(request.amount());
         if (amount.compareTo(BigDecimal.ZERO) <= 0 || amount.compareTo(payment.refundableAmount()) > 0) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Refund amount exceeds refundable amount");
@@ -314,12 +375,29 @@ public class PaymentApplicationService {
                 key,
                 gatewayResult.providerTradeNo(),
                 now()));
-        audit(
-                AuditService.PAYMENT_REFUNDED,
-                payment.userId(),
-                payment.paymentNo(),
-                null,
-                "amount=" + amount + ",status=" + updated.status());
+        String detail = auditContext.includeOwner()
+                ? "orderId=" + payment.orderId() + ",ownerUserId=" + payment.userId() + ",amount=" + amount + ",status="
+                        + updated.status()
+                : "amount=" + amount + ",status=" + updated.status();
+        if (auditContext.reliable()) {
+            auditService.recordReliable(
+                    auditContext.eventType(),
+                    AuditService.OUTCOME_SUCCESS,
+                    auditContext.actorUserId(),
+                    auditContext.actorRole(),
+                    payment.paymentNo(),
+                    auditContext.sourceIp(),
+                    detail);
+        } else {
+            auditService.record(
+                    auditContext.eventType(),
+                    AuditService.OUTCOME_SUCCESS,
+                    auditContext.actorUserId(),
+                    auditContext.actorRole(),
+                    payment.paymentNo(),
+                    auditContext.sourceIp(),
+                    detail);
+        }
         return PaymentDtoAssembler.toRefundResponse(updated, ledger);
     }
 
@@ -492,12 +570,31 @@ public class PaymentApplicationService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Payment order does not exist"));
     }
 
-    private PaymentOrder requireOwnedPayment(String paymentNo, Long userId) {
-        PaymentOrder payment = requirePayment(paymentNo);
+    private static void requireOwnedPayment(PaymentOrder payment, Long userId) {
         if (!userId.equals(payment.userId())) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Payment order is not available for current user");
         }
-        return payment;
+    }
+
+    private OrderRecord requireOrder(Long orderId) {
+        return orderStore
+                .findById(orderId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order does not exist"));
+    }
+
+    private void requireMatchingOrderOwner(PaymentOrder payment) {
+        OrderRecord order = requireOrder(payment.orderId());
+        if (!Objects.equals(order.userId(), payment.userId())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Payment owner does not match order owner");
+        }
+    }
+
+    private static Long requireAdminUserId(SessionUser currentUser) {
+        Long userId = requireUserId(currentUser);
+        if (!"ADMIN".equals(currentUser.role())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Administrator payment access is required");
+        }
+        return userId;
     }
 
     private static ReconciliationLine toLine(ReconciliationLineDto line) {
@@ -586,4 +683,12 @@ public class PaymentApplicationService {
         }
         return secret.trim();
     }
+
+    private record RefundAuditContext(
+            String eventType,
+            Long actorUserId,
+            String actorRole,
+            String sourceIp,
+            boolean includeOwner,
+            boolean reliable) {}
 }

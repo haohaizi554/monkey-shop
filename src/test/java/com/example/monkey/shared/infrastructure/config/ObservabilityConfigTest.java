@@ -2,10 +2,17 @@ package com.example.monkey.shared.infrastructure.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.monkey.shared.application.observability.AuditService;
+import com.example.monkey.shared.application.tenant.TenantContext;
+import com.example.monkey.shared.domain.observability.AuditLogStore;
+import com.example.monkey.shared.domain.observability.AuditLogStore.AuditEventRecord;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -82,6 +89,68 @@ class ObservabilityConfigTest {
         } finally {
             MDC.clear();
             executor.shutdown();
+        }
+    }
+
+    @Test
+    void asyncAuditUsesSubmittingTenantWithoutLeakingItToTheNextTask() throws Exception {
+        ObservabilityConfig config = new ObservabilityConfig();
+        ThreadPoolTaskExecutor executor = (ThreadPoolTaskExecutor) config.observabilityTaskExecutor(1, 1, 3);
+        CountDownLatch savesCompleted = new CountDownLatch(2);
+        List<Long> savedTenantIds = new CopyOnWriteArrayList<>();
+        AuditService auditService =
+                new AuditService(new TenantCapturingAuditLogStore(savedTenantIds, savesCompleted), 180);
+
+        try {
+            TenantContext.setTenantId(2L);
+            executor.execute(() -> recordPaymentAdminRead(auditService, "payment-tenant-2"));
+
+            TenantContext.clear();
+            executor.execute(() -> recordPaymentAdminRead(auditService, "payment-platform"));
+
+            assertThat(savesCompleted.await(2, TimeUnit.SECONDS)).isTrue();
+            assertThat(savedTenantIds).containsExactly(2L, TenantContext.PLATFORM_TENANT_ID);
+        } finally {
+            TenantContext.clear();
+            executor.shutdown();
+        }
+    }
+
+    private static void recordPaymentAdminRead(AuditService auditService, String subject) {
+        auditService.record(
+                AuditService.PAYMENT_ADMIN_READ,
+                AuditService.OUTCOME_SUCCESS,
+                7L,
+                "ADMIN",
+                subject,
+                "127.0.0.1",
+                "orderId=10");
+    }
+
+    private static final class TenantCapturingAuditLogStore implements AuditLogStore {
+
+        private final List<Long> savedTenantIds;
+        private final CountDownLatch savesCompleted;
+
+        private TenantCapturingAuditLogStore(List<Long> savedTenantIds, CountDownLatch savesCompleted) {
+            this.savedTenantIds = savedTenantIds;
+            this.savesCompleted = savesCompleted;
+        }
+
+        @Override
+        public void save(AuditEventRecord record) {
+            savedTenantIds.add(TenantContext.currentTenantIdOrDefault());
+            savesCompleted.countDown();
+        }
+
+        @Override
+        public List<AuditEventRecord> findFirst50ByTraceId(String traceId) {
+            return List.of();
+        }
+
+        @Override
+        public long deleteCreatedBefore(LocalDateTime cutoff) {
+            return 0;
         }
     }
 }

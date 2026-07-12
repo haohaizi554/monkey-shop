@@ -3,29 +3,45 @@ package com.example.monkey.user.infrastructure;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.shared.application.security.SessionTokenPair;
 import com.example.monkey.shared.domain.security.JwtTokenPair;
+import com.example.monkey.user.domain.RefreshTokenReuseException;
+import com.example.monkey.user.domain.SessionTokenService;
 import com.example.monkey.user.domain.SessionTokenService.AuthenticatedAccessToken;
 import com.example.monkey.user.domain.SessionTokenService.AuthenticatedRefreshToken;
 import jakarta.servlet.http.Cookie;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -180,19 +196,101 @@ class JwtTokenServiceTest {
     }
 
     @Test
-    void refreshTokenReplayRevokesOutstandingUserTokens() {
-        JwtTokenService tokenService = new JwtTokenService(TEST_SECRET, 30, 60, 30, 60, false, null);
+    void concurrentRefreshRotationReturnsOneTokenPairWithinGrace() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-12T06:00:00Z"));
+        JwtTokenService tokenService = tokenService(clock, Duration.ofSeconds(5));
+        JwtTokenPair firstPair = tokenService.issueTokenPair(1L, "USER");
+        AuthenticatedRefreshToken parsed = tokenService
+                .parseRefreshToken(firstPair.refreshToken())
+                .orElseThrow(() -> new AssertionError("Refresh token should parse"));
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<JwtTokenPair> first = executor.submit(() -> {
+                start.await();
+                return tokenService.rotateRefreshToken(parsed, "USER", List.of("ROLE_USER"));
+            });
+            Future<JwtTokenPair> second = executor.submit(() -> {
+                start.await();
+                return tokenService.rotateRefreshToken(parsed, "USER", List.of("ROLE_USER"));
+            });
+            start.countDown();
+
+            JwtTokenPair firstResult = first.get();
+            JwtTokenPair secondResult = second.get();
+
+            assertThat(secondResult).isEqualTo(firstResult);
+            assertThat(tokenService.parseRefreshToken(firstPair.refreshToken())).isEmpty();
+            assertThat(tokenService.recoverRefreshTokenRotation(firstPair.refreshToken()))
+                    .get()
+                    .extracting(recovery -> recovery.tokenPair().refreshToken())
+                    .isEqualTo(firstResult.refreshToken());
+            assertThat(tokenService.revokeUserTokensForRefreshTokenReuse(firstPair.refreshToken()))
+                    .isFalse();
+            assertThat(tokenService.parseRefreshToken(firstResult.refreshToken()))
+                    .isPresent();
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void refreshTokenReplayAfterGraceRevokesOutstandingUserTokens() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-12T06:00:00Z"));
+        JwtTokenService tokenService = tokenService(clock, Duration.ofSeconds(5));
 
         JwtTokenPair firstPair = tokenService.issueTokenPair(1L, "USER");
         JwtTokenPair refreshedPair = tokenService
                 .rotateRefreshToken(firstPair.refreshToken())
                 .orElseThrow(() -> new AssertionError("Refresh token rotation should succeed"));
 
+        clock.advance(Duration.ofSeconds(6));
+
         assertThat(tokenService.revokeUserTokensForRefreshTokenReuse(firstPair.refreshToken()))
                 .isTrue();
 
         assertThat(tokenService.parseAccessToken(refreshedPair.accessToken())).isEmpty();
         assertThat(tokenService.parseRefreshToken(refreshedPair.refreshToken())).isEmpty();
+    }
+
+    @Test
+    void parsedRefreshTokenReusedAfterGraceRevokesOutstandingUserTokens() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-12T06:00:00Z"));
+        JwtTokenService tokenService = tokenService(clock, Duration.ofSeconds(5));
+        JwtTokenPair firstPair = tokenService.issueTokenPair(1L, "USER");
+        AuthenticatedRefreshToken parsed = tokenService
+                .parseRefreshToken(firstPair.refreshToken())
+                .orElseThrow(() -> new AssertionError("Refresh token should parse"));
+        JwtTokenPair refreshedPair = tokenService.rotateRefreshToken(parsed, "USER", List.of("ROLE_USER"));
+        clock.advance(Duration.ofSeconds(6));
+
+        assertThatThrownBy(() -> tokenService.rotateRefreshToken(parsed, "USER", List.of("ROLE_USER")))
+                .isInstanceOf(RefreshTokenReuseException.class);
+        assertThat(tokenService.parseAccessToken(refreshedPair.accessToken())).isEmpty();
+        assertThat(tokenService.parseRefreshToken(refreshedPair.refreshToken())).isEmpty();
+    }
+
+    @Test
+    void parsedSuccessorCannotRotateAfterPredecessorReplayRevokesItsGeneration() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-12T06:00:00Z"));
+        JwtTokenService tokenService = tokenService(clock, Duration.ofSeconds(5));
+        JwtTokenPair predecessor = tokenService.issueTokenPair(1L, "USER");
+        JwtTokenPair successor = tokenService
+                .rotateRefreshToken(predecessor.refreshToken())
+                .orElseThrow(() -> new AssertionError("Refresh token rotation should succeed"));
+        AuthenticatedRefreshToken parsedSuccessor = tokenService
+                .parseRefreshToken(successor.refreshToken())
+                .orElseThrow(() -> new AssertionError("Successor refresh token should parse"));
+        clock.advance(Duration.ofSeconds(6));
+
+        assertThat(tokenService.revokeUserTokensForRefreshTokenReuse(predecessor.refreshToken()))
+                .isTrue();
+
+        assertThatThrownBy(() -> tokenService.rotateRefreshToken(parsedSuccessor, "USER", List.of("ROLE_USER")))
+                .isInstanceOf(RefreshTokenReuseException.class);
+        assertThat(tokenService.parseAccessToken(successor.accessToken())).isEmpty();
+        assertThat(tokenService.parseRefreshToken(successor.refreshToken())).isEmpty();
     }
 
     @Test
@@ -254,8 +352,202 @@ class JwtTokenServiceTest {
                 .orElseThrow(() -> new AssertionError("Refresh token rotation should succeed"));
 
         verify(redisValues).set(eq(firstRefreshKey), eq("1"), any(Duration.class));
-        verify(redisTemplate).delete(firstRefreshKey);
-        verify(redisValues).set(eq("jwt:refresh:" + refreshedPair.refreshTokenId()), eq("1"), any(Duration.class));
+        verify(redisTemplate, never()).delete(firstRefreshKey);
+        verify(redisValues, never())
+                .set(eq("jwt:refresh:" + refreshedPair.refreshTokenId()), eq("1"), any(Duration.class));
+    }
+
+    @Test
+    void redisRotationUsesOneAtomicConsumeGenerationCheckActivationAndRecoveryWrite() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        ValueOperations<String, String> redisValues = mockRedisValues(redisTemplate);
+        List<RedisScript<?>> executedScripts = new ArrayList<>();
+        List<List<String>> executedKeys = new ArrayList<>();
+        doAnswer(invocation -> {
+                    RedisScript<?> script = invocation.getArgument(0);
+                    executedScripts.add(script);
+                    executedKeys.add(List.copyOf(invocation.getArgument(1)));
+                    return String.class.equals(script.getResultType()) ? "ROTATED" : 1L;
+                })
+                .when(redisTemplate)
+                .execute(any(RedisScript.class), anyList(), any(Object[].class));
+        JwtTokenService tokenService = redisRequiredTokenService(redisTemplate);
+        JwtTokenPair predecessor = tokenService.issueTokenPair(1L, "USER");
+        String predecessorKey = "jwt:refresh:" + predecessor.refreshTokenId();
+        when(redisTemplate.hasKey(predecessorKey)).thenReturn(true);
+
+        JwtTokenPair successor = tokenService
+                .rotateRefreshToken(predecessor.refreshToken())
+                .orElseThrow(() -> new AssertionError("Refresh token rotation should succeed"));
+
+        assertThat(executedScripts)
+                .singleElement()
+                .satisfies(script -> assertThat(script.getScriptAsString())
+                        .contains("redis.call('get', KEYS[4])")
+                        .contains("redis.call('del', KEYS[1])")
+                        .contains("redis.call('psetex', KEYS[2]")
+                        .contains("redis.call('psetex', KEYS[3]"));
+        assertThat(executedKeys)
+                .singleElement()
+                .satisfies(keys -> assertThat(keys)
+                        .containsExactly(
+                                predecessorKey,
+                                "jwt:refresh:" + successor.refreshTokenId(),
+                                "jwt:refresh:rotation:" + predecessor.refreshTokenId(),
+                                "jwt:revoked:user:1"));
+        verify(redisValues, never())
+                .setIfAbsent(startsWith("jwt:refresh:rotation-lock:"), anyString(), any(Duration.class));
+    }
+
+    @Test
+    void redisRotationsForDifferentUsersDoNotShareAJvmWideMonitor() throws Exception {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        mockRedisValues(redisTemplate);
+        CountDownLatch enteredScript = new CountDownLatch(2);
+        CountDownLatch releaseScripts = new CountDownLatch(1);
+        doAnswer(invocation -> {
+                    RedisScript<?> script = invocation.getArgument(0);
+                    if (!String.class.equals(script.getResultType())) {
+                        return 1L;
+                    }
+                    enteredScript.countDown();
+                    if (!enteredScript.await(2, TimeUnit.SECONDS)) {
+                        throw new AssertionError("Redis refresh rotations were serialized in the JVM");
+                    }
+                    releaseScripts.await(2, TimeUnit.SECONDS);
+                    return "ROTATED";
+                })
+                .when(redisTemplate)
+                .execute(any(RedisScript.class), anyList(), any(Object[].class));
+        when(redisTemplate.hasKey(startsWith("jwt:refresh:"))).thenReturn(true);
+        JwtTokenService tokenService = redisRequiredTokenService(redisTemplate);
+        JwtTokenPair first = tokenService.issueTokenPair(1L, "USER");
+        JwtTokenPair second = tokenService.issueTokenPair(2L, "USER");
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<JwtTokenPair> firstRotation = executor.submit(
+                    () -> tokenService.rotateRefreshToken(first.refreshToken()).orElseThrow());
+            Future<JwtTokenPair> secondRotation = executor.submit(
+                    () -> tokenService.rotateRefreshToken(second.refreshToken()).orElseThrow());
+
+            assertThat(enteredScript.await(2, TimeUnit.SECONDS)).isTrue();
+            releaseScripts.countDown();
+            assertThat(firstRotation.get(2, TimeUnit.SECONDS)).isNotNull();
+            assertThat(secondRotation.get(2, TimeUnit.SECONDS)).isNotNull();
+        } finally {
+            releaseScripts.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void redisRotationRecoveryNeverStoresBearerTokensInPlaintext() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        ValueOperations<String, String> redisValues = mockRedisValues(redisTemplate);
+        List<String> redisPayloads = new ArrayList<>();
+        doAnswer(invocation -> {
+                    redisPayloads.add(invocation.getArgument(1));
+                    return null;
+                })
+                .when(redisValues)
+                .set(anyString(), anyString(), any(Duration.class));
+        doAnswer(invocation -> {
+                    RedisScript<?> script = invocation.getArgument(0);
+                    Object[] arguments = invocation.getArguments();
+                    for (int index = 2; index < arguments.length; index++) {
+                        Object argument = arguments[index];
+                        if (argument instanceof String value) {
+                            redisPayloads.add(value);
+                        }
+                    }
+                    return String.class.equals(script.getResultType()) ? "ROTATED" : 1L;
+                })
+                .when(redisTemplate)
+                .execute(any(RedisScript.class), anyList(), any(Object[].class));
+        JwtTokenService tokenService = redisRequiredTokenService(redisTemplate);
+        JwtTokenPair predecessor = tokenService.issueTokenPair(1L, "USER");
+        when(redisTemplate.hasKey("jwt:refresh:" + predecessor.refreshTokenId()))
+                .thenReturn(true);
+
+        JwtTokenPair successor = tokenService
+                .rotateRefreshToken(predecessor.refreshToken())
+                .orElseThrow(() -> new AssertionError("Refresh token rotation should succeed"));
+
+        assertThat(redisPayloads)
+                .noneMatch(value -> value.contains(successor.accessToken()))
+                .noneMatch(value -> value.contains(successor.refreshToken()))
+                .anyMatch(value -> value.startsWith("v1."));
+    }
+
+    @Test
+    void encryptedRedisRecoveryIsReadableAcrossServiceInstances() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        ValueOperations<String, String> redisValues = mockRedisValues(redisTemplate);
+        AtomicReference<String> encryptedRecovery = new AtomicReference<>();
+        doAnswer(invocation -> {
+                    RedisScript<?> script = invocation.getArgument(0);
+                    if (String.class.equals(script.getResultType())) {
+                        Object[] arguments = invocation.getArguments();
+                        encryptedRecovery.set((String) arguments[arguments.length - 1]);
+                        return "ROTATED";
+                    }
+                    return 1L;
+                })
+                .when(redisTemplate)
+                .execute(any(RedisScript.class), anyList(), any(Object[].class));
+        JwtTokenService firstNode = redisRequiredTokenService(redisTemplate);
+        JwtTokenPair predecessor = firstNode.issueTokenPair(1L, "USER");
+        when(redisTemplate.hasKey("jwt:refresh:" + predecessor.refreshTokenId()))
+                .thenReturn(true);
+        JwtTokenPair successor = firstNode
+                .rotateRefreshToken(predecessor.refreshToken())
+                .orElseThrow(() -> new AssertionError("Refresh token rotation should succeed"));
+        when(redisValues.get("jwt:refresh:rotation:" + predecessor.refreshTokenId()))
+                .thenAnswer(ignored -> encryptedRecovery.get());
+        when(redisTemplate.hasKey("jwt:refresh:" + successor.refreshTokenId())).thenReturn(true);
+        JwtTokenService secondNode = redisRequiredTokenService(redisTemplate);
+
+        SessionTokenService.RecoveredRefreshToken recovered = secondNode
+                .recoverRefreshTokenRotation(predecessor.refreshToken())
+                .orElseThrow(() -> new AssertionError("Encrypted rotation should be recovered"));
+
+        assertThat(encryptedRecovery.get()).startsWith("v1.");
+        assertThat(recovered.tokenPair()).isEqualTo(successor);
+    }
+
+    @Test
+    void tamperedRedisRecoveryCiphertextIsRejected() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        ValueOperations<String, String> redisValues = mockRedisValues(redisTemplate);
+        AtomicReference<String> encryptedRecovery = new AtomicReference<>();
+        doAnswer(invocation -> {
+                    RedisScript<?> script = invocation.getArgument(0);
+                    if (String.class.equals(script.getResultType())) {
+                        Object[] arguments = invocation.getArguments();
+                        encryptedRecovery.set((String) arguments[arguments.length - 1]);
+                        return "ROTATED";
+                    }
+                    return 1L;
+                })
+                .when(redisTemplate)
+                .execute(any(RedisScript.class), anyList(), any(Object[].class));
+        JwtTokenService firstNode = redisRequiredTokenService(redisTemplate);
+        JwtTokenPair predecessor = firstNode.issueTokenPair(1L, "USER");
+        when(redisTemplate.hasKey("jwt:refresh:" + predecessor.refreshTokenId()))
+                .thenReturn(true);
+        firstNode
+                .rotateRefreshToken(predecessor.refreshToken())
+                .orElseThrow(() -> new AssertionError("Refresh token rotation should succeed"));
+        String ciphertext = encryptedRecovery.get();
+        char replacement = ciphertext.endsWith("A") ? 'B' : 'A';
+        String tampered = ciphertext.substring(0, ciphertext.length() - 1) + replacement;
+        when(redisValues.get("jwt:refresh:rotation:" + predecessor.refreshTokenId()))
+                .thenReturn(tampered);
+        JwtTokenService secondNode = redisRequiredTokenService(redisTemplate);
+
+        assertThat(secondNode.recoverRefreshTokenRotation(predecessor.refreshToken()))
+                .isEmpty();
     }
 
     @Test
@@ -366,7 +658,7 @@ class JwtTokenServiceTest {
     }
 
     @Test
-    void requiredRedisTokenStoreFailsClosedWhenRefreshRevocationDeleteFails() {
+    void requiredRedisTokenStoreFailsClosedWhenAtomicRotationFails() {
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
         mockRedisValues(redisTemplate);
         JwtTokenService tokenService = redisRequiredTokenService(redisTemplate);
@@ -374,11 +666,11 @@ class JwtTokenServiceTest {
         when(redisTemplate.hasKey("jwt:refresh:" + tokenPair.refreshTokenId())).thenReturn(true);
         doThrow(new RuntimeException("redis unavailable"))
                 .when(redisTemplate)
-                .delete("jwt:refresh:" + tokenPair.refreshTokenId());
+                .execute(any(RedisScript.class), anyList(), any(Object[].class));
 
         assertThatThrownBy(() -> tokenService.rotateRefreshToken(tokenPair.refreshToken()))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Redis token store is required for JWT refresh-token revocation");
+                .hasMessageContaining("Redis token store is required for JWT refresh-token rotation");
     }
 
     @Test
@@ -563,10 +855,47 @@ class JwtTokenServiceTest {
         return new JwtTokenService(TEST_SECRET, 30, 60, 30, 60, false, false, true, redisTemplate);
     }
 
+    private static JwtTokenService tokenService(Clock clock, Duration refreshRotationGrace) {
+        return new JwtTokenService(TEST_SECRET, 30, 60, 30, 60, false, false, false, null, refreshRotationGrace, clock);
+    }
+
     @SuppressWarnings("unchecked")
     private static ValueOperations<String, String> mockRedisValues(StringRedisTemplate redisTemplate) {
         ValueOperations<String, String> redisValues = mock(ValueOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(redisValues);
+        doAnswer(invocation -> {
+                    RedisScript<?> script = invocation.getArgument(0);
+                    return String.class.equals(script.getResultType()) ? "ROTATED" : 1L;
+                })
+                .when(redisTemplate)
+                .execute(any(RedisScript.class), anyList(), any(Object[].class));
         return redisValues;
+    }
+
+    private static final class MutableClock extends Clock {
+        private Instant current;
+
+        private MutableClock(Instant current) {
+            this.current = current;
+        }
+
+        void advance(Duration duration) {
+            current = current.plus(duration);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return current;
+        }
     }
 }

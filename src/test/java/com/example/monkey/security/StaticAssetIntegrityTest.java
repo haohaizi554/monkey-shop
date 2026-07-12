@@ -63,7 +63,7 @@ class StaticAssetIntegrityTest {
 
         assertThat(router)
                 .contains("createWebHistory()")
-                .contains("{ path: '/', redirect: '/shop' }")
+                .contains("path: '/', redirect: '/shop'")
                 .contains("path: '/login'")
                 .contains("path: '/shop'")
                 .contains("path: '/shop/:productId'")
@@ -93,7 +93,9 @@ class StaticAssetIntegrityTest {
                 .contains("idempotencyKeyHeader = 'Idempotency-Key'")
                 .contains("config.headers.set(idempotencyKeyHeader, createTraceId())")
                 .contains("status === 401")
-                .contains("http.post('/auth/refresh')")
+                .contains("sessionRefreshPromise")
+                .contains(".post('/auth/refresh')")
+                .contains("return sessionRefreshPromise")
                 .contains("result.code === 'OK'")
                 .contains("detail?.traceId");
         assertThat(authStore)
@@ -113,6 +115,8 @@ class StaticAssetIntegrityTest {
     @Test
     void viteShopCheckoutDebouncesSubmissionsAndKeepsOrderIdempotency() throws IOException {
         String shop = Files.readString(Path.of("frontend/src/views/ShopView.vue"), StandardCharsets.UTF_8);
+        String productCard =
+                Files.readString(Path.of("frontend/src/components/product/ProductCard.vue"), StandardCharsets.UTF_8);
         String checkout = Files.readString(Path.of("frontend/src/composables/useCheckout.ts"), StandardCharsets.UTF_8);
         String ordersApi = Files.readString(Path.of("frontend/src/api/orders.ts"), StandardCharsets.UTF_8);
 
@@ -122,18 +126,25 @@ class StaticAssetIntegrityTest {
                 .contains("openingCheckoutId")
                 .contains(":disabled=\"monkey.stock <= 0 || openingCheckoutId !== null\"")
                 .contains("openingCheckoutId === monkey.id")
-                .contains("`/shop/${monkey.id}`");
+                .contains("openProductDetails(monkey.id)")
+                .contains("router.push(`/shop/${productId}`)");
+        assertThat(productCard)
+                .contains(":loading=\"pending\"")
+                .contains(":disabled=\"actionDisabled\"")
+                .contains("emit('primary')");
         assertThat(checkout)
-                .contains("submitTimer")
-                .contains("setTimeout(() =>")
                 .contains("submittingOrder")
                 .contains("if (submittingOrder.value)")
-                .contains("await createOrder(selectedMonkey.value.id, selectedAddressId.value)")
+                .contains("getIdempotencyIntent('order:create', payload)")
+                .contains("await createOrder(payload.monkeyId, payload.addressId, intent.key)")
+                .contains("intent.complete()")
                 .contains("afterOrderCreated")
-                .doesNotContain("useDebounceFn");
+                .contains("ensureRiskAllowed")
+                .doesNotContain("submitTimer");
         assertThat(ordersApi)
+                .contains("idempotencyKey?: string")
                 .contains("'Idempotency-Key'")
-                .contains("crypto.randomUUID()")
+                .doesNotContain("crypto.randomUUID()")
                 .contains("method: 'POST'");
     }
 
@@ -153,27 +164,23 @@ class StaticAssetIntegrityTest {
     }
 
     @Test
-    void viteOrderAndAdminWriteActionsDebounceAndExposeLoadingStates() throws IOException {
+    void viteOrderAndAdminWriteActionsUseRowScopedSingleFlightStates() throws IOException {
         String orders = Files.readString(Path.of("frontend/src/views/OrdersView.vue"), StandardCharsets.UTF_8);
         String admin = Files.readString(Path.of("frontend/src/views/AdminView.vue"), StandardCharsets.UTF_8);
 
         assertThat(orders)
-                .contains("useDebounceFn")
-                .contains("actionInProgress")
-                .contains(":loading=\"actionInProgress === orderActionKey")
-                .contains(":disabled=\"actionInProgress !== null\"")
+                .contains("actionInProgress = reactive<Record<number")
+                .contains("isActionPending(order.id")
+                .contains(":disabled=\"isOrderUpdating(order.id)\"")
                 .contains("ordersApi.receiveOrder")
                 .contains("ordersApi.applyReturn")
                 .contains("ordersApi.shipReturn")
                 .contains("ordersApi.hideOrder");
         assertThat(admin)
-                .contains("useDebounceFn")
-                .contains("savingProduct")
-                .contains("deletingProductId")
-                .contains("orderActionInProgress")
-                .contains(":loading=\"savingProduct\"")
-                .contains(":loading=\"deletingProductId === row.id\"")
-                .contains(":loading=\"orderActionInProgress === orderActionKey")
+                .contains("pendingKeys = ref(new Set<string>())")
+                .contains("isPending(`product:delete:${row.id}`)")
+                .contains("isPending(`ship:${row.id}`)")
+                .contains("notify.confirm")
                 .contains("ordersApi.shipOrder")
                 .contains("ordersApi.approveReturn")
                 .contains("ordersApi.confirmReturn");
@@ -181,13 +188,20 @@ class StaticAssetIntegrityTest {
 
     @Test
     void viteShellKeepsChineseEnglishLocaleAndDarkModeReachable() throws IOException {
-        String shell = Files.readString(Path.of("frontend/src/components/AppShell.vue"), StandardCharsets.UTF_8);
+        String consumerHeader =
+                Files.readString(Path.of("frontend/src/components/shell/ConsumerHeader.vue"), StandardCharsets.UTF_8);
+        String adminTopbar =
+                Files.readString(Path.of("frontend/src/components/shell/AdminTopbar.vue"), StandardCharsets.UTF_8);
         String locales = Files.readString(Path.of("frontend/src/locales/index.ts"), StandardCharsets.UTF_8);
         String theme = Files.readString(Path.of("frontend/src/stores/theme.ts"), StandardCharsets.UTF_8);
         String a11y = Files.readString(Path.of("frontend/tests/a11y.spec.ts"), StandardCharsets.UTF_8);
 
-        assertThat(shell)
-                .contains("aria-label=\"Switch language\"")
+        assertThat(consumerHeader)
+                .contains(":aria-label=\"$t('nav.switchLanguage')\"")
+                .contains("monkeyshop-locale")
+                .contains("theme.toggle()");
+        assertThat(adminTopbar)
+                .contains(":aria-label=\"$t('nav.switchLanguage')\"")
                 .contains("monkeyshop-locale")
                 .contains("theme.toggle()");
         assertThat(locales)
@@ -212,6 +226,8 @@ class StaticAssetIntegrityTest {
         String login = Files.readString(Path.of("frontend/src/views/LoginView.vue"), StandardCharsets.UTF_8);
         String humanVerification =
                 Files.readString(Path.of("frontend/src/components/HumanVerification.vue"), StandardCharsets.UTF_8);
+        String turnstileLoader =
+                Files.readString(Path.of("frontend/src/utils/loadTurnstile.ts"), StandardCharsets.UTF_8);
 
         assertThat(login)
                 .contains("HumanVerification")
@@ -226,9 +242,14 @@ class StaticAssetIntegrityTest {
                 .contains("requestResetCode")
                 .contains("authApi.resetPassword(resetForm)");
         assertThat(humanVerification)
-                .contains("https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit")
+                .contains("import { loadTurnstile }")
+                .contains("await loadTurnstile()")
                 .contains("action: props.action")
                 .contains("callback: (token: string)");
+        assertThat(turnstileLoader)
+                .contains("https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit")
+                .contains("script.remove()")
+                .contains("loader = null");
     }
 
     @Test
@@ -246,19 +267,19 @@ class StaticAssetIntegrityTest {
         String sitemap = Files.readString(Path.of("frontend/public/sitemap.xml"), StandardCharsets.UTF_8);
 
         assertThat(productImage)
-                .contains("v-fallback-img")
-                .contains("addEventListener('error'")
-                .doesNotContain("@error=");
+                .contains("sourceFailed", "fallbackFailed", "builtInFallback")
+                .contains("@error=\"handleError\"")
+                .doesNotContain("onerror=");
         assertThat(shop)
                 .contains("productListJsonLd")
                 .contains("productListStructuredData")
                 .contains("useJsonLd('monkeyshop-product-list-jsonld'")
-                .contains("`/shop/${monkey.id}`");
+                .contains("router.push(`/shop/${productId}`)");
         assertThat(productDetail)
                 .contains("useJsonLd('monkeyshop-product-jsonld'")
                 .contains("productJsonLd(checkoutProduct.value)")
                 .contains("selectedSkuId: selectedSku.value?.id")
-                .contains("useCheckout()")
+                .contains("useCheckout({ notify: showNotice })")
                 .contains("listMonkeys()");
         assertThat(productJsonLd)
                 .contains("'@context': 'https://schema.org'")

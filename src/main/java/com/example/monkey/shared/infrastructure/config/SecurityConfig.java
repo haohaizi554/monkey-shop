@@ -38,6 +38,9 @@ import org.springframework.http.MediaType;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.AuthenticationTrustResolver;
 import org.springframework.security.authentication.AuthenticationTrustResolverImpl;
+import org.springframework.security.authorization.AuthorityAuthorizationManager;
+import org.springframework.security.authorization.AuthorizationManager;
+import org.springframework.security.authorization.AuthorizationManagers;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -52,6 +55,7 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 import org.springframework.security.web.authentication.logout.LogoutFilter;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
@@ -69,6 +73,14 @@ public class SecurityConfig {
     static final String CSP_NONCE_ATTRIBUTE = "cspNonce";
     static final String PASSWORD_CHANGE_REQUIRED = "password change required";
     private static final AuthenticationTrustResolver TRUST_RESOLVER = new AuthenticationTrustResolverImpl();
+    private static final AuthorizationManager<RequestAuthorizationContext> TENANT_READ_AUTHORIZATION =
+            AuthorizationManagers.allOf(
+                    AuthorityAuthorizationManager.<RequestAuthorizationContext>hasAuthority("ROLE_ADMIN"),
+                    AuthorityAuthorizationManager.<RequestAuthorizationContext>hasAuthority("TENANT_READ"));
+    private static final AuthorizationManager<RequestAuthorizationContext> TENANT_ADMIN_AUTHORIZATION =
+            AuthorizationManagers.allOf(
+                    AuthorityAuthorizationManager.<RequestAuthorizationContext>hasAuthority("ROLE_ADMIN"),
+                    AuthorityAuthorizationManager.<RequestAuthorizationContext>hasAuthority("TENANT_ADMIN"));
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -259,6 +271,8 @@ public class SecurityConfig {
                         .hasAuthority("ORDER_CREATE")
                         .requestMatchers("/api/payments/pay", "/api/v1/payments/pay")
                         .hasAuthority("ORDER_CREATE")
+                        .requestMatchers("/api/payments/admin/**", "/api/v1/payments/admin/**")
+                        .hasAuthority("ORDER_MANAGE")
                         .requestMatchers(
                                 "/api/payments/orders/**",
                                 "/api/v1/payments/orders/**",
@@ -314,9 +328,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/tracking/**", "/api/v1/tracking/**")
                         .hasAuthority("TRACKING_ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/tenants", "/api/v1/tenants")
-                        .hasAuthority("TENANT_READ")
+                        .access(TENANT_READ_AUTHORIZATION)
                         .requestMatchers(HttpMethod.GET, "/api/tenants/dashboard", "/api/v1/tenants/dashboard")
-                        .hasAuthority("TENANT_ADMIN")
+                        .access(TENANT_ADMIN_AUTHORIZATION)
                         .requestMatchers(
                                 HttpMethod.GET,
                                 "/api/tenants/*/configs",
@@ -325,9 +339,9 @@ public class SecurityConfig {
                                 "/api/v1/tenants/*/bills",
                                 "/api/tenants/*/exports",
                                 "/api/v1/tenants/*/exports")
-                        .hasAuthority("TENANT_READ")
+                        .access(TENANT_READ_AUTHORIZATION)
                         .requestMatchers("/api/tenants/**", "/api/v1/tenants/**")
-                        .hasAuthority("TENANT_ADMIN")
+                        .access(TENANT_ADMIN_AUTHORIZATION)
                         .requestMatchers(
                                 "/api/orders/my",
                                 "/api/v1/orders/my",
@@ -514,6 +528,7 @@ public class SecurityConfig {
                 || (HttpMethod.GET.matches(method) && "/api/user/captcha".equals(path))
                 || (HttpMethod.POST.matches(method) && "/api/tracking/events".equals(path))
                 || (HttpMethod.POST.matches(method) && "/api/user/update-password".equals(path))
+                || (HttpMethod.POST.matches(method) && "/api/user/update-avatar".equals(path))
                 || (HttpMethod.POST.matches(method) && "/api/user/logout".equals(path));
     }
 

@@ -36,6 +36,13 @@ public class SessionTokenApplicationService {
                 sessionTokenService.rotateRefreshToken(toDomain(refreshToken), currentRole, currentAuthorities));
     }
 
+    public Optional<RecoveredRefreshToken> recoverRefreshTokenRotation(String rawToken) {
+        return sessionTokenService
+                .recoverRefreshTokenRotation(rawToken)
+                .map(recovered -> new RecoveredRefreshToken(
+                        recovered.userId(), recovered.role(), recovered.tenantId(), fromDomain(recovered.tokenPair())));
+    }
+
     public void revokeRefreshToken(AuthenticatedRefreshToken refreshToken) {
         sessionTokenService.revokeRefreshToken(toDomain(refreshToken));
     }
@@ -51,7 +58,8 @@ public class SessionTokenApplicationService {
                 refreshToken.authorities(),
                 refreshToken.tokenId(),
                 refreshToken.expiration(),
-                refreshToken.tenantId());
+                refreshToken.tenantId(),
+                refreshToken.issuedAt());
     }
 
     private static SessionTokenPair fromDomain(JwtTokenPair pair) {
@@ -71,14 +79,26 @@ public class SessionTokenApplicationService {
                 refreshToken.authorities(),
                 refreshToken.tokenId(),
                 refreshToken.expiration(),
-                refreshToken.tenantId());
+                refreshToken.tenantId(),
+                refreshToken.issuedAt());
     }
 
     public record AuthenticatedRefreshToken(
-            Long userId, String role, List<String> authorities, String tokenId, Instant expiration, Long tenantId) {
+            Long userId,
+            String role,
+            List<String> authorities,
+            String tokenId,
+            Instant expiration,
+            Long tenantId,
+            Instant issuedAt) {
+        public AuthenticatedRefreshToken(
+                Long userId, String role, List<String> authorities, String tokenId, Instant expiration, Long tenantId) {
+            this(userId, role, authorities, tokenId, expiration, tenantId, null);
+        }
+
         public AuthenticatedRefreshToken(
                 Long userId, String role, List<String> authorities, String tokenId, Instant expiration) {
-            this(userId, role, authorities, tokenId, expiration, 1L);
+            this(userId, role, authorities, tokenId, expiration, 1L, null);
         }
 
         public AuthenticatedRefreshToken {
@@ -86,4 +106,6 @@ public class SessionTokenApplicationService {
             tenantId = tenantId == null || tenantId <= 0 ? 1L : tenantId;
         }
     }
+
+    public record RecoveredRefreshToken(Long userId, String role, Long tenantId, SessionTokenPair tokenPair) {}
 }

@@ -14,6 +14,7 @@ import com.example.monkey.payment.domain.PaymentReconciliationReport;
 import com.example.monkey.payment.domain.PaymentStatus;
 import com.example.monkey.payment.domain.ReconciliationStatus;
 import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
+import jakarta.persistence.LockModeType;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -24,6 +25,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.jpa.repository.Lock;
 
 @ExtendWith(MockitoExtension.class)
 class JpaPaymentStoreTest {
@@ -83,6 +85,21 @@ class JpaPaymentStoreTest {
         assertThat(saved.id()).isEqualTo(200L);
         assertThat(saved.type()).isEqualTo(PaymentLedgerType.REFUND);
         assertThat(captureLedger().getRequestKey()).isEqualTo("refund-key");
+    }
+
+    @Test
+    void withLockedPaymentUsesPessimisticWriteQuery() throws NoSuchMethodException {
+        when(paymentOrderRepository.findByPaymentNoForUpdate("PAY100")).thenReturn(Optional.of(paidPaymentEntity()));
+
+        Optional<BigDecimal> refundableAmount = store.withLockedPayment("PAY100", PaymentOrder::refundableAmount);
+
+        assertThat(refundableAmount).contains(new BigDecimal("100.00"));
+        verify(paymentOrderRepository).findByPaymentNoForUpdate("PAY100");
+        Lock lock = PaymentOrderRepository.class
+                .getMethod("findByPaymentNoForUpdate", String.class)
+                .getAnnotation(Lock.class);
+        assertThat(lock).isNotNull();
+        assertThat(lock.value()).isEqualTo(LockModeType.PESSIMISTIC_WRITE);
     }
 
     @Test
@@ -155,5 +172,25 @@ class JpaPaymentStoreTest {
                 null,
                 LocalDateTime.parse("2026-07-04T08:00:00"),
                 LocalDateTime.parse("2026-07-04T08:00:00"));
+    }
+
+    private static PaymentOrderEntity paidPaymentEntity() {
+        PaymentOrderEntity entity = new PaymentOrderEntity();
+        entity.setId(100L);
+        entity.setPaymentNo("PAY100");
+        entity.setOrderId(10L);
+        entity.setUserId(42L);
+        entity.setMethod(PaymentMethod.WECHAT);
+        entity.setAmount(new BigDecimal("100.00"));
+        entity.setPaidAmount(new BigDecimal("100.00"));
+        entity.setRefundedAmount(BigDecimal.ZERO);
+        entity.setStatus(PaymentStatus.PAID);
+        entity.setIdempotencyKey("pay-key");
+        entity.setProviderTradeNo("wx-trade-1");
+        entity.setPaidAt(LocalDateTime.parse("2026-07-04T08:10:00"));
+        entity.setCreateTime(LocalDateTime.parse("2026-07-04T08:00:00"));
+        entity.setUpdateTime(LocalDateTime.parse("2026-07-04T08:10:00"));
+        entity.setVersion(0L);
+        return entity;
     }
 }

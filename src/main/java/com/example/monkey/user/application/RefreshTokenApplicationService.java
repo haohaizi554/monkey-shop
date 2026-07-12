@@ -5,6 +5,8 @@ import com.example.monkey.shared.application.security.SessionTokenPair;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.user.application.SessionTokenApplicationService.AuthenticatedRefreshToken;
+import com.example.monkey.user.domain.RefreshTokenReuseException;
+import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -39,10 +41,42 @@ public class RefreshTokenApplicationService {
                     "missing_refresh_token");
             throw authFailure(ErrorCode.UNAUTHORIZED, REFRESH_TOKEN_NOT_PROVIDED, false);
         }
-        return tokenService
-                .parseRefreshToken(rawRefreshToken)
-                .map(token -> refreshCurrentPrincipal(token, clientIp))
-                .orElseGet(() -> rejectInvalidRefreshToken(rawRefreshToken, clientIp));
+        try {
+            return tokenService
+                    .parseRefreshToken(rawRefreshToken)
+                    .map(token -> refreshCurrentPrincipal(token, clientIp))
+                    .orElseGet(() -> tokenService
+                            .recoverRefreshTokenRotation(rawRefreshToken)
+                            .map(recovered -> acceptConcurrentRotation(recovered, clientIp))
+                            .orElseGet(() -> rejectInvalidRefreshToken(rawRefreshToken, clientIp)));
+        } catch (RefreshTokenReuseException e) {
+            return rejectDetectedReplay(e, clientIp);
+        }
+    }
+
+    private RefreshTokenResult rejectDetectedReplay(RefreshTokenReuseException replay, String clientIp) {
+        auditService.record(
+                AuditService.REFRESH_TOKEN_REPLAY,
+                AuditService.OUTCOME_DENIED,
+                replay.userId(),
+                replay.role(),
+                null,
+                clientIp,
+                "replay_detected");
+        throw authFailure(ErrorCode.UNAUTHORIZED, REFRESH_TOKEN_INVALID, true);
+    }
+
+    private RefreshTokenResult acceptConcurrentRotation(
+            SessionTokenApplicationService.RecoveredRefreshToken recovered, String clientIp) {
+        auditService.record(
+                AuditService.REFRESH_TOKEN_SUCCESS,
+                AuditService.OUTCOME_SUCCESS,
+                recovered.userId(),
+                recovered.role(),
+                null,
+                clientIp,
+                "concurrent_rotation_reused");
+        return new RefreshTokenResult(recovered.tokenPair());
     }
 
     private RefreshTokenResult rejectInvalidRefreshToken(String refreshToken, String clientIp) {
@@ -62,6 +96,9 @@ public class RefreshTokenApplicationService {
         return authenticationService
                 .currentPrincipal(refreshToken.userId(), refreshToken.tenantId())
                 .map(principal -> {
+                    if (!Objects.equals(refreshToken.role(), principal.role())) {
+                        rejectPrincipalRoleChange(refreshToken, principal, clientIp);
+                    }
                     SessionTokenPair pair =
                             tokenService.rotateRefreshToken(refreshToken, principal.role(), principal.authorities());
                     auditService.record(
@@ -75,6 +112,20 @@ public class RefreshTokenApplicationService {
                     return new RefreshTokenResult(pair);
                 })
                 .orElseGet(() -> rejectRejectedPrincipal(refreshToken, clientIp));
+    }
+
+    private void rejectPrincipalRoleChange(
+            AuthenticatedRefreshToken refreshToken, AuthenticatedUserPrincipal principal, String clientIp) {
+        tokenService.revokeRefreshToken(refreshToken);
+        auditService.record(
+                AuditService.REFRESH_TOKEN_FAILURE,
+                AuditService.OUTCOME_DENIED,
+                principal.userId(),
+                principal.role(),
+                null,
+                clientIp,
+                "principal_role_changed");
+        throw authFailure(ErrorCode.UNAUTHORIZED, REFRESH_TOKEN_INVALID, true);
     }
 
     private RefreshTokenResult rejectRejectedPrincipal(AuthenticatedRefreshToken refreshToken, String clientIp) {

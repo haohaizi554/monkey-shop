@@ -221,6 +221,7 @@ class Ws1SecurityWorkflowTest {
     private static boolean isRiskScannedTextFile(Path path) {
         String normalized = normalized(path);
         if (normalized.startsWith(".git/")
+                || normalized.startsWith(".tools/")
                 || normalized.startsWith("target/")
                 || normalized.startsWith("frontend/node_modules/")
                 || normalized.startsWith("frontend/dist/")
@@ -240,6 +241,8 @@ class Ws1SecurityWorkflowTest {
                 && !lower.endsWith(".gif")
                 && !lower.endsWith(".ico")
                 && !lower.endsWith(".jar")
+                && !lower.endsWith(".exe")
+                && !lower.endsWith(".pdb")
                 && !lower.endsWith(".class");
     }
 

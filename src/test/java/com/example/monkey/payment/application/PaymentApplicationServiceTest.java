@@ -45,10 +45,19 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -199,6 +208,145 @@ class PaymentApplicationServiceTest {
     }
 
     @Test
+    void concurrentRefundsWithDifferentIdempotencyKeysNeverExceedRefundableAmount() throws Exception {
+        paymentStore.savePayment(paidPayment());
+        paymentStore.synchronizeNextPaymentReads(2);
+        AtomicLong ledgerIds = new AtomicLong(3000L);
+        when(idGenerator.nextId()).thenAnswer(ignored -> ledgerIds.getAndIncrement());
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            List<Future<PaymentRefundResponseDto>> attempts = List.of(
+                    executor.submit(() -> service.refund(
+                            user(), new PaymentRefundRequestDto("PAY100", new BigDecimal("80.00"), "first"), "key-1")),
+                    executor.submit(() -> service.refund(
+                            user(),
+                            new PaymentRefundRequestDto("PAY100", new BigDecimal("80.00"), "second"),
+                            "key-2")));
+
+            int successfulAttempts = 0;
+            int rejectedAttempts = 0;
+            for (Future<PaymentRefundResponseDto> attempt : attempts) {
+                try {
+                    attempt.get(5, TimeUnit.SECONDS);
+                    successfulAttempts++;
+                } catch (ExecutionException exception) {
+                    assertThat(exception.getCause())
+                            .isInstanceOfSatisfying(
+                                    BusinessException.class,
+                                    businessException -> assertThat(businessException.errorCode())
+                                            .isEqualTo(ErrorCode.VALIDATION_ERROR));
+                    rejectedAttempts++;
+                }
+            }
+
+            assertThat(successfulAttempts).isEqualTo(1);
+            assertThat(rejectedAttempts).isEqualTo(1);
+            assertThat(paymentGateway.refundAmounts).containsExactly(new BigDecimal("80.00"));
+            assertThat(paymentGateway.refundRequests).hasSize(1);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void gatewayFailureLeavesRefundStateUnchangedAndSameIdempotencyKeyCanRetry() {
+        paymentStore.savePayment(paidPayment());
+        RuntimeException gatewayFailure = new IllegalStateException("refund gateway unavailable");
+        paymentGateway.refundFailure = gatewayFailure;
+
+        assertThatThrownBy(() -> service.refund(
+                        user(),
+                        new PaymentRefundRequestDto("PAY100", new BigDecimal("30.00"), "retryable"),
+                        "retry-key"))
+                .isSameAs(gatewayFailure);
+
+        assertThat(paymentStore.findByPaymentNo("PAY100")).get().satisfies(payment -> {
+            assertThat(payment.status()).isEqualTo(PaymentStatus.PAID);
+            assertThat(payment.refundedAmount()).isEqualByComparingTo(BigDecimal.ZERO);
+        });
+        assertThat(paymentStore.ledgers).isEmpty();
+
+        paymentGateway.refundFailure = null;
+        when(idGenerator.nextId()).thenReturn(3000L);
+        PaymentRefundResponseDto retry = service.refund(
+                user(), new PaymentRefundRequestDto("PAY100", new BigDecimal("30.00"), "retryable"), "retry-key");
+
+        assertThat(retry.refundedAmount()).isEqualByComparingTo(new BigDecimal("30.00"));
+        assertThat(paymentGateway.refundRequests).containsExactly("retry-key", "retry-key");
+    }
+
+    @Test
+    void adminReadsAnotherUsersPaymentThroughDedicatedBoundary() {
+        paymentStore.savePayment(paidPayment());
+        when(orderStore.findById(10L)).thenReturn(Optional.of(order(new BigDecimal("100.00"))));
+
+        PaymentResponseDto response = service.findByOrderAsAdmin(admin(), 10L, "10.0.0.8");
+
+        assertThat(response.paymentNo()).isEqualTo("PAY100");
+        assertThat(response.userId()).isEqualTo(42L);
+        verify(auditService)
+                .recordReliable(
+                        AuditService.PAYMENT_ADMIN_READ,
+                        AuditService.OUTCOME_SUCCESS,
+                        1L,
+                        "ADMIN",
+                        "PAY100",
+                        "10.0.0.8",
+                        "orderId=10,ownerUserId=42");
+    }
+
+    @Test
+    void adminRefundsAnotherUsersPaymentAndAuditsActorSeparatelyFromOwner() {
+        paymentStore.savePayment(paidPayment());
+        when(orderStore.findById(10L)).thenReturn(Optional.of(order(new BigDecimal("100.00"))));
+        when(idGenerator.nextId()).thenReturn(3001L);
+
+        PaymentRefundResponseDto response = service.refundAsAdmin(
+                admin(),
+                new PaymentRefundRequestDto("PAY100", new BigDecimal("30.00"), "approved return"),
+                "admin-refund-key",
+                "10.0.0.8");
+
+        assertThat(response.paymentStatus()).isEqualTo(PaymentStatus.PARTIALLY_REFUNDED);
+        assertThat(paymentGateway.refundRequests).containsExactly("admin-refund-key");
+        verify(auditService)
+                .recordReliable(
+                        AuditService.PAYMENT_ADMIN_REFUNDED,
+                        AuditService.OUTCOME_SUCCESS,
+                        1L,
+                        "ADMIN",
+                        "PAY100",
+                        "10.0.0.8",
+                        "orderId=10,ownerUserId=42,amount=30.00,status=PARTIALLY_REFUNDED");
+    }
+
+    @Test
+    void adminPaymentBoundaryRejectsNonAdminCallers() {
+        assertThatThrownBy(() -> service.findByOrderAsAdmin(user(), 10L, "10.0.0.9"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.FORBIDDEN));
+    }
+
+    @Test
+    void adminRefundRejectsMismatchedOrderAndPaymentOwnership() {
+        paymentStore.savePayment(paidPayment());
+        when(orderStore.findById(10L)).thenReturn(Optional.of(orderForUser(99L, new BigDecimal("100.00"))));
+
+        assertThatThrownBy(() -> service.refundAsAdmin(
+                        admin(),
+                        new PaymentRefundRequestDto("PAY100", new BigDecimal("30.00"), "approved return"),
+                        "admin-refund-key",
+                        "10.0.0.8"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+
+        assertThat(paymentGateway.refundRequests).isEmpty();
+    }
+
+    @Test
     void reconciliationSuspendsMismatchedPlatformPaymentsAndBuildsReport() {
         paymentStore.savePayment(paidPayment());
         when(idGenerator.nextId()).thenReturn(4000L);
@@ -264,11 +412,19 @@ class PaymentApplicationServiceTest {
         return new SessionUser(42L, "USER");
     }
 
+    private static SessionUser admin() {
+        return new SessionUser(1L, "ADMIN");
+    }
+
     private static OrderRecord order(BigDecimal amount) {
+        return orderForUser(42L, amount);
+    }
+
+    private static OrderRecord orderForUser(Long userId, BigDecimal amount) {
         return new OrderRecord(
                 10L,
                 "ORD202607040001",
-                42L,
+                userId,
                 "buyer",
                 "/images/avatar/buyer.png",
                 7L,
@@ -381,7 +537,9 @@ class PaymentApplicationServiceTest {
     private static final class RecordingPaymentGateway implements PaymentGateway {
         private PaymentGatewayResult queryResult =
                 new PaymentGatewayResult(PaymentStatus.PENDING, null, null, BigDecimal.ZERO);
-        private final List<String> refundRequests = new ArrayList<>();
+        private final List<String> refundRequests = new CopyOnWriteArrayList<>();
+        private final List<BigDecimal> refundAmounts = new CopyOnWriteArrayList<>();
+        private RuntimeException refundFailure;
 
         @Override
         public PaymentGatewayResult create(PaymentOrder payment) {
@@ -400,21 +558,44 @@ class PaymentApplicationServiceTest {
         @Override
         public PaymentGatewayResult refund(PaymentOrder payment, BigDecimal amount, String requestKey) {
             refundRequests.add(requestKey);
+            refundAmounts.add(amount);
+            if (refundFailure != null) {
+                throw refundFailure;
+            }
             return new PaymentGatewayResult(
                     PaymentStatus.PARTIALLY_REFUNDED, "REFUND-" + payment.paymentNo(), null, amount);
         }
     }
 
     private static final class InMemoryPaymentStore implements PaymentStore {
-        private final Map<Long, PaymentOrder> payments = new LinkedHashMap<>();
-        private final List<PaymentLedgerEntry> ledgers = new ArrayList<>();
+        private final Map<Long, PaymentOrder> payments = new ConcurrentHashMap<>();
+        private final List<PaymentLedgerEntry> ledgers = new CopyOnWriteArrayList<>();
         private final List<PaymentReconciliationReport> reports = new ArrayList<>();
+        private volatile CountDownLatch paymentReads;
+
+        private void synchronizeNextPaymentReads(int parties) {
+            paymentReads = new CountDownLatch(parties);
+        }
 
         @Override
         public Optional<PaymentOrder> findByPaymentNo(String paymentNo) {
-            return payments.values().stream()
+            Optional<PaymentOrder> result = payments.values().stream()
                     .filter(payment -> payment.paymentNo().equals(paymentNo))
                     .findFirst();
+            CountDownLatch reads = paymentReads;
+            if (reads != null) {
+                reads.countDown();
+                try {
+                    if (!reads.await(5, TimeUnit.SECONDS)) {
+                        throw new AssertionError("Concurrent payment reads did not arrive in time");
+                    }
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError("Interrupted while coordinating concurrent payment reads", exception);
+                }
+                paymentReads = null;
+            }
+            return result;
         }
 
         @Override
@@ -431,6 +612,14 @@ class PaymentApplicationServiceTest {
                     .filter(payment -> payment.userId().equals(userId)
                             && payment.idempotencyKey().equals(idempotencyKey))
                     .findFirst();
+        }
+
+        @Override
+        public synchronized <T> Optional<T> withLockedPayment(String paymentNo, Function<PaymentOrder, T> operation) {
+            return payments.values().stream()
+                    .filter(payment -> payment.paymentNo().equals(paymentNo))
+                    .findFirst()
+                    .map(operation);
         }
 
         @Override

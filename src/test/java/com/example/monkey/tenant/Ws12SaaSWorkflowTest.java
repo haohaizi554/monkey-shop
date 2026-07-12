@@ -95,7 +95,9 @@ class Ws12SaaSWorkflowTest {
         assertThat(security).contains("/tenants", "TENANT_READ", "TENANT_ADMIN");
         assertThat(audit).contains("TENANT_CREATED", "TENANT_EXPORT_COMPLETED");
         assertThat(frontendApi).contains("tenantDashboard", "requestTenantExport");
-        assertThat(frontendView).contains("租户指挥台", "生成账单", "提交导出");
+        assertThat(frontendView)
+                .contains("t('tenant.title')", "t('tenant.generateBill')", "t('tenant.submitExport')")
+                .contains("detailRequestVersion", "router.replace");
         assertThat(router).contains("TenantAdminView");
         assertThat(orderRepository).contains("o.tenantId = :tenantId");
         assertThat(monkeyRepository).contains("m.tenantId = :tenantId");

@@ -72,4 +72,21 @@ class SessionTokenApplicationServiceTest {
                         7L, "USER", List.of("ROLE_USER"), "refresh-id", expiration));
         verify(sessionTokenService).revokeUserTokensForRefreshTokenReuse("raw-refresh");
     }
+
+    @Test
+    void mapsRecoveredRefreshTokenRotationThroughDomainPort() {
+        JwtTokenPair pair = new JwtTokenPair("access", "refresh", "access-id", "refresh-id", 900, 604800);
+        SessionTokenService.RecoveredRefreshToken domainRecovery =
+                new SessionTokenService.RecoveredRefreshToken(7L, "USER", 3L, pair);
+        when(sessionTokenService.recoverRefreshTokenRotation("old-refresh")).thenReturn(Optional.of(domainRecovery));
+
+        SessionTokenApplicationService.RecoveredRefreshToken recovered =
+                service.recoverRefreshTokenRotation("old-refresh").orElseThrow();
+
+        assertThat(recovered.userId()).isEqualTo(7L);
+        assertThat(recovered.role()).isEqualTo("USER");
+        assertThat(recovered.tenantId()).isEqualTo(3L);
+        assertThat(recovered.tokenPair().refreshToken()).isEqualTo("refresh");
+        verify(sessionTokenService).recoverRefreshTokenRotation("old-refresh");
+    }
 }

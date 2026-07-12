@@ -481,6 +481,20 @@ class SecurityConfigTest {
         assertRouteStatus(method, path, "ADMIN", adminStatus);
     }
 
+    @Test
+    void staleTenantReadAuthorityCannotPromoteAUserTokenToPlatformAdmin() throws Exception {
+        UsernamePasswordAuthenticationToken staleUserToken = new UsernamePasswordAuthenticationToken(
+                new SessionUser(7L, "USER"),
+                null,
+                List.of(new SimpleGrantedAuthority("ROLE_USER"), new SimpleGrantedAuthority("TENANT_READ")));
+
+        mockMvc.perform(get("/api/tenants").with(authentication(staleUserToken)))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/tenants").with(authenticatedUser(1L, "ADMIN")))
+                .andExpect(status().isOk());
+    }
+
     private static Stream<Arguments> rbacRoutes() {
         return Stream.concat(legacyRbacRoutes(), versionedRbacRoutes());
     }
@@ -547,17 +561,17 @@ class SecurityConfigTest {
                 adminRoute(HttpMethod.GET, "/api/tracking/funnel"),
                 adminRoute(HttpMethod.GET, "/api/tracking/profile/7"),
                 adminRoute(HttpMethod.GET, "/api/tracking/products/42"),
-                authenticatedRoute(HttpMethod.GET, "/api/tenants"),
+                adminRoute(HttpMethod.GET, "/api/tenants"),
                 adminRoute(HttpMethod.GET, "/api/tenants/dashboard"),
                 adminRoute(HttpMethod.POST, "/api/tenants"),
                 adminRoute(HttpMethod.POST, "/api/tenants/200/renew"),
                 adminRoute(HttpMethod.POST, "/api/tenants/200/downgrade"),
-                authenticatedRoute(HttpMethod.GET, "/api/tenants/200/configs"),
+                adminRoute(HttpMethod.GET, "/api/tenants/200/configs"),
                 adminRoute(HttpMethod.PUT, "/api/tenants/200/configs"),
                 adminRoute(HttpMethod.POST, "/api/tenants/200/bills"),
-                authenticatedRoute(HttpMethod.GET, "/api/tenants/200/bills"),
+                adminRoute(HttpMethod.GET, "/api/tenants/200/bills"),
                 adminRoute(HttpMethod.POST, "/api/tenants/200/exports"),
-                authenticatedRoute(HttpMethod.GET, "/api/tenants/200/exports"),
+                adminRoute(HttpMethod.GET, "/api/tenants/200/exports"),
                 authenticatedRoute(HttpMethod.POST, "/api/orders/create"),
                 authenticatedRoute(HttpMethod.GET, "/api/orders/my"),
                 authenticatedRoute(HttpMethod.POST, "/api/orders/receive/1"),
@@ -615,17 +629,17 @@ class SecurityConfigTest {
                 adminRoute(HttpMethod.GET, "/api/v1/tracking/funnel"),
                 adminRoute(HttpMethod.GET, "/api/v1/tracking/profile/7"),
                 adminRoute(HttpMethod.GET, "/api/v1/tracking/products/42"),
-                authenticatedRoute(HttpMethod.GET, "/api/v1/tenants"),
+                adminRoute(HttpMethod.GET, "/api/v1/tenants"),
                 adminRoute(HttpMethod.GET, "/api/v1/tenants/dashboard"),
                 adminRoute(HttpMethod.POST, "/api/v1/tenants"),
                 adminRoute(HttpMethod.POST, "/api/v1/tenants/200/renew"),
                 adminRoute(HttpMethod.POST, "/api/v1/tenants/200/downgrade"),
-                authenticatedRoute(HttpMethod.GET, "/api/v1/tenants/200/configs"),
+                adminRoute(HttpMethod.GET, "/api/v1/tenants/200/configs"),
                 adminRoute(HttpMethod.PUT, "/api/v1/tenants/200/configs"),
                 adminRoute(HttpMethod.POST, "/api/v1/tenants/200/bills"),
-                authenticatedRoute(HttpMethod.GET, "/api/v1/tenants/200/bills"),
+                adminRoute(HttpMethod.GET, "/api/v1/tenants/200/bills"),
                 adminRoute(HttpMethod.POST, "/api/v1/tenants/200/exports"),
-                authenticatedRoute(HttpMethod.GET, "/api/v1/tenants/200/exports"),
+                adminRoute(HttpMethod.GET, "/api/v1/tenants/200/exports"),
                 authenticatedRoute(HttpMethod.POST, "/api/v1/orders/create"),
                 authenticatedRoute(HttpMethod.GET, "/api/v1/orders/my"),
                 authenticatedRoute(HttpMethod.POST, "/api/v1/orders/receive/1"),
@@ -1114,7 +1128,6 @@ class SecurityConfigTest {
                 new SimpleGrantedAuthority("RISK_WRITE"),
                 new SimpleGrantedAuthority("TRACKING_READ"),
                 new SimpleGrantedAuthority("TRACKING_WRITE"),
-                new SimpleGrantedAuthority("TENANT_READ"),
                 new SimpleGrantedAuthority("UPLOAD_AVATAR"));
     }
 

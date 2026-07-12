@@ -12,9 +12,12 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 @Component
@@ -54,6 +57,15 @@ public class JpaPaymentStore implements PaymentStore {
         return paymentOrderRepository
                 .findByUserIdAndIdempotencyKey(userId, idempotencyKey)
                 .map(this::toDomain);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public <T> Optional<T> withLockedPayment(String paymentNo, Function<PaymentOrder, T> operation) {
+        return paymentOrderRepository
+                .findByPaymentNoForUpdate(paymentNo)
+                .map(this::toDomain)
+                .map(operation);
     }
 
     @Override

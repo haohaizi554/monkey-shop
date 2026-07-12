@@ -3,9 +3,11 @@ package com.example.monkey.user.infrastructure;
 import com.example.monkey.shared.application.security.SessionTokenPair;
 import com.example.monkey.shared.domain.security.JwtTokenPair;
 import com.example.monkey.shared.interfaces.web.SessionTokenTransport;
+import com.example.monkey.user.domain.RefreshTokenReuseException;
 import com.example.monkey.user.domain.SessionTokenService;
 import com.example.monkey.user.domain.SessionTokenService.AuthenticatedAccessToken;
 import com.example.monkey.user.domain.SessionTokenService.AuthenticatedRefreshToken;
+import com.example.monkey.user.domain.SessionTokenService.RecoveredRefreshToken;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JOSEObjectType;
 import com.nimbusds.jose.JWSAlgorithm;
@@ -17,9 +19,16 @@ import com.nimbusds.jwt.SignedJWT;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.text.ParseException;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
@@ -31,10 +40,15 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.crypto.Cipher;
+import javax.crypto.Mac;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.util.StringUtils;
@@ -53,12 +67,41 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
     private static final String COOKIE_REFRESH_TOKEN = "refresh_token";
     private static final String SECURITY_PREFIX = "Bearer ";
     private static final String REDIS_REFRESH_TOKEN_PREFIX = "jwt:refresh:";
+    private static final String REDIS_REFRESH_ROTATION_PREFIX = "jwt:refresh:rotation:";
     private static final String REDIS_REVOKED_ACCESS_PREFIX = "jwt:revoked:access:";
     private static final String REDIS_REVOKED_USER_PREFIX = "jwt:revoked:user:";
     private static final int MIN_HMAC_SECRET_BYTES = 32;
+    private static final Duration DEFAULT_REFRESH_ROTATION_GRACE = Duration.ofSeconds(5);
+    private static final String ROTATION_STATUS_ROTATED = "ROTATED";
+    private static final String ROTATION_STATUS_REUSED = "REUSED";
+    private static final String ROTATION_STATUS_REVOKED = "REVOKED";
+    private static final String ROTATION_CIPHERTEXT_VERSION = "v1";
+    private static final String ROTATION_KEY_DERIVATION_SALT = "MonkeyShop JWT rotation recovery HKDF salt v1";
+    private static final String ROTATION_KEY_DERIVATION_INFO = "MonkeyShop JWT rotation recovery AES-256-GCM key v1";
+    private static final int GCM_IV_BYTES = 12;
+    private static final int GCM_TAG_BITS = 128;
+    private static final DefaultRedisScript<String> ROTATE_REFRESH_TOKEN = new DefaultRedisScript<>("""
+            local revokedGeneration = redis.call('get', KEYS[4])
+            if revokedGeneration and tonumber(ARGV[1]) <= tonumber(revokedGeneration) then
+                return 'REVOKED'
+            end
+            local recovered = redis.call('get', KEYS[3])
+            if recovered then
+                return recovered
+            end
+            local active = redis.call('get', KEYS[1])
+            if not active then
+                return 'REUSED'
+            end
+            redis.call('del', KEYS[1])
+            redis.call('psetex', KEYS[2], ARGV[2], '1')
+            redis.call('psetex', KEYS[3], ARGV[3], ARGV[4])
+            return 'ROTATED'
+            """, String.class);
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final byte[] signingSecret;
+    private final byte[] recoveryEncryptionKey;
     private final long accessTokenTtlSeconds;
     private final long refreshTokenTtlSeconds;
     private final long accessCookieMaxAgeSeconds;
@@ -66,9 +109,13 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
     private final boolean cookieSecure;
     private final StringRedisTemplate redisTemplate;
     private final boolean requireRedisTokenStore;
+    private final Duration refreshRotationGrace;
+    private final Clock clock;
     private final Map<String, Instant> refreshTokens = new ConcurrentHashMap<>();
+    private final Map<String, RefreshTokenRotation> refreshTokenRotations = new ConcurrentHashMap<>();
     private final Map<String, Instant> revokedAccessTokens = new ConcurrentHashMap<>();
     private final Map<Long, Instant> revokedUserTokensIssuedBefore = new ConcurrentHashMap<>();
+    private final Object refreshRotationMonitor = new Object();
 
     public JwtTokenService(
             @Value("${app.jwt.secret:}") String rawSecret,
@@ -87,7 +134,9 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
                 cookieSecure,
                 allowGeneratedSecret,
                 false,
-                null);
+                null,
+                DEFAULT_REFRESH_ROTATION_GRACE,
+                Clock.systemUTC());
     }
 
     public JwtTokenService(
@@ -107,7 +156,9 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
                 cookieSecure,
                 false,
                 false,
-                redisTemplate);
+                redisTemplate,
+                DEFAULT_REFRESH_ROTATION_GRACE,
+                Clock.systemUTC());
     }
 
     public JwtTokenService(
@@ -128,7 +179,9 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
                 cookieSecure,
                 allowGeneratedSecret,
                 false,
-                redisTemplate);
+                redisTemplate,
+                DEFAULT_REFRESH_ROTATION_GRACE,
+                Clock.systemUTC());
     }
 
     public JwtTokenService(
@@ -141,7 +194,34 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
             boolean allowGeneratedSecret,
             boolean requireRedisTokenStore,
             StringRedisTemplate redisTemplate) {
+        this(
+                rawSecret,
+                accessTokenTtlSeconds,
+                refreshTokenTtlSeconds,
+                accessCookieMaxAgeSeconds,
+                refreshCookieMaxAgeSeconds,
+                cookieSecure,
+                allowGeneratedSecret,
+                requireRedisTokenStore,
+                redisTemplate,
+                DEFAULT_REFRESH_ROTATION_GRACE,
+                Clock.systemUTC());
+    }
+
+    JwtTokenService(
+            String rawSecret,
+            long accessTokenTtlSeconds,
+            long refreshTokenTtlSeconds,
+            long accessCookieMaxAgeSeconds,
+            long refreshCookieMaxAgeSeconds,
+            boolean cookieSecure,
+            boolean allowGeneratedSecret,
+            boolean requireRedisTokenStore,
+            StringRedisTemplate redisTemplate,
+            Duration refreshRotationGrace,
+            Clock clock) {
         this.signingSecret = resolveSigningSecret(rawSecret, allowGeneratedSecret);
+        this.recoveryEncryptionKey = deriveRecoveryEncryptionKey(signingSecret);
         this.accessTokenTtlSeconds = Math.max(60L, accessTokenTtlSeconds);
         this.refreshTokenTtlSeconds = Math.max(3600L, refreshTokenTtlSeconds);
         this.accessCookieMaxAgeSeconds = accessCookieMaxAgeSeconds;
@@ -149,6 +229,8 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
         this.cookieSecure = cookieSecure;
         this.redisTemplate = redisTemplate;
         this.requireRedisTokenStore = requireRedisTokenStore;
+        this.refreshRotationGrace = normalizeRefreshRotationGrace(refreshRotationGrace);
+        this.clock = clock == null ? Clock.systemUTC() : clock;
         if (requireRedisTokenStore && redisTemplate == null) {
             throw tokenStoreUnavailable("revocation and refresh-token state");
         }
@@ -163,7 +245,14 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
     }
 
     public JwtTokenPair issueTokenPair(Long userId, String role, Collection<String> authorities, Long tenantId) {
-        Instant now = Instant.now();
+        Instant issuedAt = now();
+        JwtTokenPair pair = createTokenPair(userId, role, authorities, tenantId, issuedAt);
+        storeRefreshToken(pair.refreshTokenId(), issuedAt.plusSeconds(refreshTokenTtlSeconds));
+        return pair;
+    }
+
+    private JwtTokenPair createTokenPair(
+            Long userId, String role, Collection<String> authorities, Long tenantId, Instant issuedAt) {
         String accessJti = UUID.randomUUID().toString().replace("-", "");
         String refreshJti = UUID.randomUUID().toString().replace("-", "");
         List<String> normalizedAuthorities = normalizeAuthorities(role, authorities);
@@ -177,7 +266,7 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
                 TOKEN_TYPE_ACCESS,
                 accessTokenTtlSeconds,
                 accessJti,
-                now);
+                issuedAt);
         String refreshToken = buildToken(
                 userId,
                 role,
@@ -186,8 +275,7 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
                 TOKEN_TYPE_REFRESH,
                 refreshTokenTtlSeconds,
                 refreshJti,
-                now);
-        storeRefreshToken(refreshJti, Instant.now().plusSeconds(refreshTokenTtlSeconds));
+                issuedAt);
         return new JwtTokenPair(
                 accessToken, refreshToken, accessJti, refreshJti, accessTokenTtlSeconds, refreshTokenTtlSeconds);
     }
@@ -225,19 +313,51 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
                         token.authorities(),
                         token.tokenId(),
                         token.expiration(),
-                        token.tenantId()));
+                        token.tenantId(),
+                        token.issuedAt()));
     }
 
     public Optional<JwtTokenPair> rotateRefreshToken(String refreshToken) {
-        return parseRefreshToken(refreshToken).map(token -> {
-            return rotateRefreshToken(token, token.role(), token.authorities());
-        });
+        Optional<AuthenticatedRefreshToken> parsed = parseRefreshToken(refreshToken);
+        if (parsed.isPresent()) {
+            AuthenticatedRefreshToken token = parsed.orElseThrow();
+            return Optional.of(rotateRefreshToken(token, token.role(), token.authorities()));
+        }
+        return recoverRefreshTokenRotation(refreshToken).map(RecoveredRefreshToken::tokenPair);
     }
 
     public JwtTokenPair rotateRefreshToken(
             AuthenticatedRefreshToken refreshToken, String currentRole, Collection<String> currentAuthorities) {
-        revokeRefreshTokenById(refreshToken.tokenId());
-        return issueTokenPair(refreshToken.userId(), currentRole, currentAuthorities, refreshToken.tenantId());
+        if (refreshToken == null) {
+            throw new IllegalArgumentException("refresh token is required");
+        }
+        if (requireRedisTokenStore) {
+            return rotateRefreshTokenAtomically(refreshToken, currentRole, currentAuthorities);
+        }
+        synchronized (refreshRotationMonitor) {
+            Optional<RefreshTokenRotation> completed = findRecoverableRefreshTokenRotation(refreshToken.tokenId());
+            if (completed.isPresent()) {
+                if (isRefreshTokenGenerationRevoked(refreshToken)) {
+                    throw rejectRefreshTokenReuse(refreshToken);
+                }
+                return completed.orElseThrow().tokenPair();
+            }
+            return rotateRefreshTokenLocally(refreshToken, currentRole, currentAuthorities);
+        }
+    }
+
+    @Override
+    public Optional<RecoveredRefreshToken> recoverRefreshTokenRotation(String rawToken) {
+        return parseTokenForRevocation(rawToken)
+                .filter(token -> TOKEN_TYPE_REFRESH.equals(token.tokenType()))
+                .flatMap(token -> findRecoverableRefreshTokenRotation(token.tokenId())
+                        .filter(rotation -> token.userId().equals(rotation.userId()))
+                        .filter(rotation -> token.tenantId().equals(rotation.tenantId()))
+                        .filter(rotation -> parseRefreshToken(
+                                        rotation.tokenPair().refreshToken())
+                                .isPresent())
+                        .map(rotation -> new RecoveredRefreshToken(
+                                rotation.userId(), rotation.role(), rotation.tenantId(), rotation.tokenPair())));
     }
 
     public void revokeRefreshToken(AuthenticatedRefreshToken refreshToken) {
@@ -247,6 +367,9 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
     }
 
     public boolean revokeUserTokensForRefreshTokenReuse(String rawRefreshToken) {
+        if (recoverRefreshTokenRotation(rawRefreshToken).isPresent()) {
+            return false;
+        }
         Optional<AuthenticatedToken> refreshToken =
                 parseTokenForRevocation(rawRefreshToken).filter(token -> TOKEN_TYPE_REFRESH.equals(token.tokenType()));
         refreshToken.ifPresent(token -> revokeUserTokens(token.userId()));
@@ -286,7 +409,7 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
     }
 
     public void revokeUserTokens(Long userId) {
-        revokeUserTokensIssuedBefore(userId, Instant.now());
+        revokeUserTokensIssuedBefore(userId, now());
     }
 
     public void revokeAccessToken(String rawAccessToken) {
@@ -325,7 +448,7 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
             Instant expiresAt = expirationDate == null ? null : expirationDate.toInstant();
             Instant issuedAt = issuedAtDate == null ? null : issuedAtDate.toInstant();
 
-            if (expirationDate == null || expirationDate.before(new Date())) {
+            if (expirationDate == null || !expirationDate.toInstant().isAfter(now())) {
                 return Optional.empty();
             }
             if (!StringUtils.hasText(tokenId)
@@ -336,8 +459,8 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
                     || (enforceRevocationState && isUserTokenRevoked(userId, issuedAt))) {
                 return Optional.empty();
             }
-            return Optional.of(
-                    new AuthenticatedToken(userId, role, authorities, tenantId, tokenType, tokenId, expiresAt));
+            return Optional.of(new AuthenticatedToken(
+                    userId, role, authorities, tenantId, tokenType, tokenId, expiresAt, issuedAt));
         } catch (ParseException | JOSEException | RuntimeException exception) {
             log.warn(
                     "JWT token rejected while parsing {} token; reason={}",
@@ -415,11 +538,248 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
         return signedJwt.serialize();
     }
 
+    private JwtTokenPair rotateRefreshTokenLocally(
+            AuthenticatedRefreshToken refreshToken, String currentRole, Collection<String> currentAuthorities) {
+        if (isRefreshTokenGenerationRevoked(refreshToken) || !isRefreshTokenValid(refreshToken.tokenId())) {
+            throw rejectRefreshTokenReuse(refreshToken);
+        }
+        revokeRefreshTokenById(refreshToken.tokenId());
+        JwtTokenPair pair =
+                issueTokenPair(refreshToken.userId(), currentRole, currentAuthorities, refreshToken.tenantId());
+        storeRefreshTokenRotation(refreshToken, currentRole, pair);
+        return pair;
+    }
+
+    private JwtTokenPair rotateRefreshTokenAtomically(
+            AuthenticatedRefreshToken refreshToken, String currentRole, Collection<String> currentAuthorities) {
+        if (refreshToken.issuedAt() == null) {
+            throw rejectRefreshTokenReuse(refreshToken);
+        }
+        Instant issuedAt = now();
+        JwtTokenPair pair = createTokenPair(
+                refreshToken.userId(), currentRole, currentAuthorities, refreshToken.tenantId(), issuedAt);
+        RefreshTokenRotation rotation = new RefreshTokenRotation(
+                refreshToken.userId(), currentRole, refreshToken.tenantId(), pair, issuedAt.plus(refreshRotationGrace));
+        String encryptedRotation = encryptRotation(refreshToken.tokenId(), rotation);
+        List<String> keys = List.of(
+                REDIS_REFRESH_TOKEN_PREFIX + refreshToken.tokenId(),
+                REDIS_REFRESH_TOKEN_PREFIX + pair.refreshTokenId(),
+                REDIS_REFRESH_ROTATION_PREFIX + refreshToken.tokenId(),
+                REDIS_REVOKED_USER_PREFIX + refreshToken.userId());
+        long refreshTtlMillis = Duration.ofSeconds(refreshTokenTtlSeconds).toMillis();
+        long recoveryTtlMillis = Math.max(1L, refreshRotationGrace.toMillis());
+        String result;
+        try {
+            result = redisTemplate.execute(
+                    ROTATE_REFRESH_TOKEN,
+                    keys,
+                    Long.toString(refreshToken.issuedAt().toEpochMilli()),
+                    Long.toString(refreshTtlMillis),
+                    Long.toString(recoveryTtlMillis),
+                    encryptedRotation);
+        } catch (Exception e) {
+            throw tokenStoreUnavailable("refresh-token rotation", e);
+        }
+        if (ROTATION_STATUS_ROTATED.equals(result)) {
+            return pair;
+        }
+        if (ROTATION_STATUS_REUSED.equals(result) || ROTATION_STATUS_REVOKED.equals(result)) {
+            throw rejectRefreshTokenReuse(refreshToken);
+        }
+        if (!StringUtils.hasText(result)) {
+            throw tokenStoreUnavailable("refresh-token rotation");
+        }
+        return recoverAtomicRefreshTokenRotation(refreshToken, result);
+    }
+
+    private RefreshTokenReuseException rejectRefreshTokenReuse(AuthenticatedRefreshToken refreshToken) {
+        revokeUserTokens(refreshToken.userId());
+        return new RefreshTokenReuseException(refreshToken.userId(), refreshToken.role());
+    }
+
+    private JwtTokenPair recoverAtomicRefreshTokenRotation(
+            AuthenticatedRefreshToken refreshToken, String encryptedRotation) {
+        RefreshTokenRotation rotation = decryptRotation(refreshToken.tokenId(), encryptedRotation)
+                .filter(candidate -> refreshToken.userId().equals(candidate.userId()))
+                .filter(candidate -> refreshToken.tenantId().equals(candidate.tenantId()))
+                .filter(candidate -> now().isBefore(candidate.recoverUntil()))
+                .orElseThrow(() -> tokenStoreUnavailable("refresh-token rotation recovery"));
+        if (parseRefreshToken(rotation.tokenPair().refreshToken()).isEmpty()) {
+            throw rejectRefreshTokenReuse(refreshToken);
+        }
+        return rotation.tokenPair();
+    }
+
+    private boolean isRefreshTokenGenerationRevoked(AuthenticatedRefreshToken refreshToken) {
+        return refreshToken.issuedAt() == null || isUserTokenRevoked(refreshToken.userId(), refreshToken.issuedAt());
+    }
+
+    private void storeRefreshTokenRotation(
+            AuthenticatedRefreshToken refreshToken, String currentRole, JwtTokenPair pair) {
+        RefreshTokenRotation rotation = new RefreshTokenRotation(
+                refreshToken.userId(), currentRole, refreshToken.tenantId(), pair, now().plus(refreshRotationGrace));
+        if (!requireRedisTokenStore) {
+            refreshTokenRotations.put(refreshToken.tokenId(), rotation);
+        }
+        requireRedisSuccess(
+                storeRefreshTokenRotationInRedis(refreshToken.tokenId(), rotation), "refresh-token rotation recovery");
+    }
+
+    private Optional<RefreshTokenRotation> findRecoverableRefreshTokenRotation(String refreshTokenId) {
+        if (!StringUtils.hasText(refreshTokenId)) {
+            return Optional.empty();
+        }
+        Instant current = now();
+        purgeExpiredEntries(current);
+        if (!requireRedisTokenStore) {
+            RefreshTokenRotation local = refreshTokenRotations.get(refreshTokenId);
+            if (local != null && current.isBefore(local.recoverUntil())) {
+                return Optional.of(local);
+            }
+        }
+        return readRefreshTokenRotationFromRedis(refreshTokenId)
+                .filter(rotation -> current.isBefore(rotation.recoverUntil()));
+    }
+
+    private boolean storeRefreshTokenRotationInRedis(String refreshTokenId, RefreshTokenRotation rotation) {
+        if (redisTemplate == null || !StringUtils.hasText(refreshTokenId) || rotation == null) {
+            return false;
+        }
+        Duration ttl = Duration.between(now(), rotation.recoverUntil());
+        if (ttl.isZero() || ttl.isNegative()) {
+            return false;
+        }
+        try {
+            redisTemplate
+                    .opsForValue()
+                    .set(
+                            REDIS_REFRESH_ROTATION_PREFIX + refreshTokenId,
+                            encryptRotation(refreshTokenId, rotation),
+                            ttl);
+            return true;
+        } catch (Exception e) {
+            log.debug("Redis write for refresh-token rotation failed", e);
+            return false;
+        }
+    }
+
+    private Optional<RefreshTokenRotation> readRefreshTokenRotationFromRedis(String refreshTokenId) {
+        if (redisTemplate == null || !StringUtils.hasText(refreshTokenId)) {
+            return Optional.empty();
+        }
+        try {
+            return decryptRotation(
+                    refreshTokenId, redisTemplate.opsForValue().get(REDIS_REFRESH_ROTATION_PREFIX + refreshTokenId));
+        } catch (Exception e) {
+            if (requireRedisTokenStore) {
+                throw tokenStoreUnavailable("refresh-token rotation recovery", e);
+            }
+            log.debug("Redis read for refresh-token rotation failed, fallback to in-memory", e);
+            return Optional.empty();
+        }
+    }
+
+    private String encryptRotation(String refreshTokenId, RefreshTokenRotation rotation) {
+        try {
+            byte[] iv = new byte[GCM_IV_BYTES];
+            SECURE_RANDOM.nextBytes(iv);
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(
+                    Cipher.ENCRYPT_MODE,
+                    new SecretKeySpec(recoveryEncryptionKey, "AES"),
+                    new GCMParameterSpec(GCM_TAG_BITS, iv));
+            cipher.updateAAD(rotationAdditionalAuthenticatedData(refreshTokenId));
+            byte[] ciphertext = cipher.doFinal(serializeRotation(rotation));
+            Base64.Encoder encoder = Base64.getUrlEncoder().withoutPadding();
+            return String.join(
+                    ".", ROTATION_CIPHERTEXT_VERSION, encoder.encodeToString(iv), encoder.encodeToString(ciphertext));
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("JWT refresh-token rotation recovery encryption failed", e);
+        }
+    }
+
+    private Optional<RefreshTokenRotation> decryptRotation(String refreshTokenId, String value) {
+        if (!StringUtils.hasText(refreshTokenId) || !StringUtils.hasText(value)) {
+            return Optional.empty();
+        }
+        String[] fields = value.split("\\.", -1);
+        if (fields.length != 3 || !ROTATION_CIPHERTEXT_VERSION.equals(fields[0])) {
+            return Optional.empty();
+        }
+        try {
+            Base64.Decoder decoder = Base64.getUrlDecoder();
+            byte[] iv = decoder.decode(fields[1]);
+            if (iv.length != GCM_IV_BYTES) {
+                return Optional.empty();
+            }
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(
+                    Cipher.DECRYPT_MODE,
+                    new SecretKeySpec(recoveryEncryptionKey, "AES"),
+                    new GCMParameterSpec(GCM_TAG_BITS, iv));
+            cipher.updateAAD(rotationAdditionalAuthenticatedData(refreshTokenId));
+            return deserializeRotation(cipher.doFinal(decoder.decode(fields[2])));
+        } catch (GeneralSecurityException | IllegalArgumentException e) {
+            log.warn(
+                    "JWT refresh-token rotation recovery ciphertext rejected; reason={}",
+                    e.getClass().getSimpleName());
+            log.debug("JWT refresh-token rotation recovery ciphertext rejection details", e);
+            return Optional.empty();
+        }
+    }
+
+    private static byte[] serializeRotation(RefreshTokenRotation rotation) {
+        try (ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                DataOutputStream output = new DataOutputStream(bytes)) {
+            JwtTokenPair pair = rotation.tokenPair();
+            output.writeLong(rotation.userId());
+            output.writeUTF(rotation.role());
+            output.writeLong(rotation.tenantId());
+            output.writeUTF(pair.accessToken());
+            output.writeUTF(pair.refreshToken());
+            output.writeUTF(pair.accessTokenId());
+            output.writeUTF(pair.refreshTokenId());
+            output.writeLong(pair.accessTtlSeconds());
+            output.writeLong(pair.refreshTtlSeconds());
+            output.writeLong(rotation.recoverUntil().toEpochMilli());
+            output.flush();
+            return bytes.toByteArray();
+        } catch (IOException e) {
+            throw new IllegalStateException("JWT refresh-token rotation recovery serialization failed", e);
+        }
+    }
+
+    private static Optional<RefreshTokenRotation> deserializeRotation(byte[] value) {
+        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(value))) {
+            Long userId = input.readLong();
+            String role = input.readUTF();
+            Long tenantId = input.readLong();
+            JwtTokenPair pair = new JwtTokenPair(
+                    input.readUTF(),
+                    input.readUTF(),
+                    input.readUTF(),
+                    input.readUTF(),
+                    input.readLong(),
+                    input.readLong());
+            Instant recoverUntil = Instant.ofEpochMilli(input.readLong());
+            if (input.available() != 0) {
+                return Optional.empty();
+            }
+            return Optional.of(new RefreshTokenRotation(userId, role, tenantId, pair, recoverUntil));
+        } catch (IOException | RuntimeException e) {
+            return Optional.empty();
+        }
+    }
+
+    private static byte[] rotationAdditionalAuthenticatedData(String refreshTokenId) {
+        return (REDIS_REFRESH_ROTATION_PREFIX + refreshTokenId).getBytes(StandardCharsets.UTF_8);
+    }
+
     private boolean isRefreshTokenValid(String tokenId) {
         if (!StringUtils.hasText(tokenId)) {
             return false;
         }
-        Instant now = Instant.now();
+        Instant now = now();
         purgeExpiredEntries(now);
         if (requireRedisTokenStore) {
             return isRefreshTokenStoredInRedis(tokenId);
@@ -447,7 +807,7 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
         if (!StringUtils.hasText(refreshTokenId) || expiresAt == null) {
             return;
         }
-        purgeExpiredEntries(Instant.now());
+        purgeExpiredEntries(now());
         if (!requireRedisTokenStore) {
             refreshTokens.put(refreshTokenId, expiresAt);
         }
@@ -485,7 +845,7 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
     }
 
     private boolean isAccessTokenRevoked(String tokenId) {
-        purgeExpiredEntries(Instant.now());
+        purgeExpiredEntries(now());
         if (requireRedisTokenStore) {
             return isAccessTokenRevokedInRedis(tokenId);
         }
@@ -499,7 +859,7 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
         if (userId == null || issuedAt == null) {
             return true;
         }
-        purgeExpiredEntries(Instant.now());
+        purgeExpiredEntries(now());
         if (requireRedisTokenStore) {
             return isUserTokenRevokedInRedis(userId, issuedAt);
         }
@@ -545,7 +905,7 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
         if (redisTemplate == null || !StringUtils.hasText(tokenId) || expiresAt == null) {
             return false;
         }
-        Duration ttl = Duration.between(Instant.now(), expiresAt);
+        Duration ttl = Duration.between(now(), expiresAt);
         if (ttl.isZero() || ttl.isNegative()) {
             return true;
         }
@@ -598,7 +958,7 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
         if (redisTemplate == null || !StringUtils.hasText(refreshTokenId) || expiresAt == null) {
             return false;
         }
-        Duration ttl = Duration.between(Instant.now(), expiresAt);
+        Duration ttl = Duration.between(now(), expiresAt);
         if (ttl.isZero() || ttl.isNegative()) {
             return true;
         }
@@ -634,12 +994,44 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
         return new IllegalStateException("Redis token store is required for JWT " + action);
     }
 
+    private static IllegalStateException tokenStoreUnavailable(String action, Exception cause) {
+        return new IllegalStateException("Redis token store is required for JWT " + action, cause);
+    }
+
     private void purgeExpiredEntries(Instant now) {
         refreshTokens.entrySet().removeIf(entry -> now.isAfter(entry.getValue()));
+        refreshTokenRotations
+                .entrySet()
+                .removeIf(entry -> !now.isBefore(entry.getValue().recoverUntil()));
         revokedAccessTokens.entrySet().removeIf(entry -> now.isAfter(entry.getValue()));
         revokedUserTokensIssuedBefore
                 .entrySet()
                 .removeIf(entry -> now.isAfter(entry.getValue().plusSeconds(refreshTokenTtlSeconds)));
+    }
+
+    private Instant now() {
+        return clock.instant();
+    }
+
+    private static Duration normalizeRefreshRotationGrace(Duration grace) {
+        if (grace == null || grace.isZero() || grace.isNegative()) {
+            return DEFAULT_REFRESH_ROTATION_GRACE;
+        }
+        return grace.compareTo(Duration.ofSeconds(30)) > 0 ? Duration.ofSeconds(30) : grace;
+    }
+
+    private static byte[] deriveRecoveryEncryptionKey(byte[] signingSecret) {
+        try {
+            Mac hmac = Mac.getInstance("HmacSHA256");
+            hmac.init(new SecretKeySpec(ROTATION_KEY_DERIVATION_SALT.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            byte[] pseudoRandomKey = hmac.doFinal(signingSecret);
+            hmac.init(new SecretKeySpec(pseudoRandomKey, "HmacSHA256"));
+            hmac.update(ROTATION_KEY_DERIVATION_INFO.getBytes(StandardCharsets.UTF_8));
+            hmac.update((byte) 1);
+            return hmac.doFinal();
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("JWT refresh-token rotation recovery key derivation failed", e);
+        }
     }
 
     private static byte[] resolveSigningSecret(String rawSecret, boolean allowGeneratedSecret) {
@@ -674,6 +1066,9 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
         return tenantId == null || tenantId <= 0 ? DEFAULT_TENANT_ID : tenantId;
     }
 
+    private record RefreshTokenRotation(
+            Long userId, String role, Long tenantId, JwtTokenPair tokenPair, Instant recoverUntil) {}
+
     private static final record AuthenticatedToken(
             Long userId,
             String role,
@@ -681,5 +1076,6 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
             Long tenantId,
             String tokenType,
             String tokenId,
-            Instant expiration) {}
+            Instant expiration,
+            Instant issuedAt) {}
 }

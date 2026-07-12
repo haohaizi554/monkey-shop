@@ -14,6 +14,7 @@ import com.example.monkey.shared.application.security.SessionTokenPair;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.user.application.RefreshTokenApplicationService.RefreshTokenFailure;
 import com.example.monkey.user.application.SessionTokenApplicationService.AuthenticatedRefreshToken;
+import com.example.monkey.user.domain.RefreshTokenReuseException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -140,6 +141,59 @@ class RefreshTokenApplicationServiceTest {
                         "203.0.113.12",
                         "replay_detected");
         verifyNoInteractions(authenticationService);
+    }
+
+    @Test
+    void concurrentRefreshWithinGraceReusesTheCompletedRotation() {
+        SessionTokenPair tokenPair =
+                new SessionTokenPair("access-token", "refresh-token", "access-id", "new-refresh-id", 900, 604800);
+        SessionTokenApplicationService.RecoveredRefreshToken recovered =
+                new SessionTokenApplicationService.RecoveredRefreshToken(7L, "USER", 1L, tokenPair);
+        when(tokenService.parseRefreshToken("old-refresh-token")).thenReturn(Optional.empty());
+        when(tokenService.recoverRefreshTokenRotation("old-refresh-token")).thenReturn(Optional.of(recovered));
+
+        var result = refreshTokenService.refresh("old-refresh-token", "203.0.113.15");
+
+        assertThat(result.tokenPair()).isSameAs(tokenPair);
+        verify(tokenService, never()).revokeUserTokensForRefreshTokenReuse(anyString());
+        verify(auditService)
+                .record(
+                        AuditService.REFRESH_TOKEN_SUCCESS,
+                        AuditService.OUTCOME_SUCCESS,
+                        7L,
+                        "USER",
+                        null,
+                        "203.0.113.15",
+                        "concurrent_rotation_reused");
+        verifyNoInteractions(authenticationService);
+    }
+
+    @Test
+    void parsedRefreshTokenReusedAfterGraceIsReportedAsReplay() {
+        AuthenticatedRefreshToken refreshToken = refreshToken(7L, "USER");
+        AuthenticatedUserPrincipal currentPrincipal =
+                new AuthenticatedUserPrincipal(7L, "USER", List.of("ROLE_USER"), false);
+        when(tokenService.parseRefreshToken("old-refresh-token")).thenReturn(Optional.of(refreshToken));
+        when(authenticationService.currentPrincipal(7L, 1L)).thenReturn(Optional.of(currentPrincipal));
+        when(tokenService.rotateRefreshToken(refreshToken, "USER", currentPrincipal.authorities()))
+                .thenThrow(new RefreshTokenReuseException(7L, "USER"));
+
+        assertThatExceptionOfType(RefreshTokenFailure.class)
+                .isThrownBy(() -> refreshTokenService.refresh("old-refresh-token", "203.0.113.16"))
+                .satisfies(exception -> {
+                    assertThat(exception.errorCode()).isEqualTo(ErrorCode.UNAUTHORIZED);
+                    assertThat(exception.clearTokenCookies()).isTrue();
+                });
+
+        verify(auditService)
+                .record(
+                        AuditService.REFRESH_TOKEN_REPLAY,
+                        AuditService.OUTCOME_DENIED,
+                        7L,
+                        "USER",
+                        null,
+                        "203.0.113.16",
+                        "replay_detected");
     }
 
     @Test

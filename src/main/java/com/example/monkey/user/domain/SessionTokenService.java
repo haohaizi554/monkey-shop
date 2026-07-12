@@ -19,6 +19,8 @@ public interface SessionTokenService {
     JwtTokenPair rotateRefreshToken(
             AuthenticatedRefreshToken refreshToken, String currentRole, Collection<String> currentAuthorities);
 
+    Optional<RecoveredRefreshToken> recoverRefreshTokenRotation(String rawToken);
+
     void revokeRefreshToken(AuthenticatedRefreshToken refreshToken);
 
     boolean revokeUserTokensForRefreshTokenReuse(String rawRefreshToken);
@@ -37,11 +39,24 @@ public interface SessionTokenService {
     }
 
     record AuthenticatedRefreshToken(
-            Long userId, String role, List<String> authorities, String tokenId, Instant expiration, Long tenantId) {
+            Long userId,
+            String role,
+            List<String> authorities,
+            String tokenId,
+            Instant expiration,
+            Long tenantId,
+            Instant issuedAt) {
+
+        public AuthenticatedRefreshToken(
+                Long userId, String role, List<String> authorities, String tokenId, Instant expiration, Long tenantId) {
+            this(userId, role, authorities, tokenId, expiration, tenantId, null);
+        }
 
         public AuthenticatedRefreshToken(
                 Long userId, String role, List<String> authorities, String tokenId, Instant expiration) {
-            this(userId, role, authorities, tokenId, expiration, 1L);
+            this(userId, role, authorities, tokenId, expiration, 1L, null);
         }
     }
+
+    record RecoveredRefreshToken(Long userId, String role, Long tenantId, JwtTokenPair tokenPair) {}
 }

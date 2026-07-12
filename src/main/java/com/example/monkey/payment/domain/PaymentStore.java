@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 
 public interface PaymentStore {
 
@@ -12,6 +13,8 @@ public interface PaymentStore {
     Optional<PaymentOrder> findByOrderIdAndUserId(Long orderId, Long userId);
 
     Optional<PaymentOrder> findByUserIdAndIdempotencyKey(Long userId, String idempotencyKey);
+
+    <T> Optional<T> withLockedPayment(String paymentNo, Function<PaymentOrder, T> operation);
 
     Optional<PaymentLedgerEntry> findLedger(Long paymentId, PaymentLedgerType type, String requestKey);
 
