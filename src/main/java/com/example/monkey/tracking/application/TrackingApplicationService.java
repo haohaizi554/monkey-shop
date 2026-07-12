@@ -90,7 +90,9 @@ public class TrackingApplicationService {
         if (saved.eventType() == TrackingEventType.PAGE_VIEW) {
             visitMetricsService.recordClientPageView(saved.page(), clientIp);
         }
-        refreshProfiles(saved);
+        if (saved.eventType() != TrackingEventType.UI_ERROR) {
+            refreshProfiles(saved);
+        }
         auditService.record(
                 AuditService.TRACKING_EVENT_RECORDED,
                 AuditService.OUTCOME_SUCCESS,

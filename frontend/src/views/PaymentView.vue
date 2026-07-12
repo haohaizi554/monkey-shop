@@ -1,21 +1,26 @@
 <script setup lang="ts">
-import { CreditCard, Money, RefreshRight, Wallet } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { CreditCard, Money, RefreshRight, Search, Wallet } from '@element-plus/icons-vue'
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import * as paymentsApi from '@/api/payments'
+import AsyncStateView from '@/components/ui/AsyncStateView.vue'
+import DataTableShell from '@/components/ui/DataTableShell.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import { useAsyncState } from '@/composables/useAsyncState'
+import { useNotify } from '@/composables/useNotify'
 import type { PaymentMethod, PaymentResponse } from '@/types'
-import {
-  dateTime,
-  money,
-  paymentMethodLabel,
-  paymentStatusLabel,
-  paymentStatusType,
-} from '@/utils/format'
+import { dateTime, money } from '@/utils/format'
 
 const route = useRoute()
-const busy = ref(false)
-const payment = ref<PaymentResponse | null>(null)
+const { locale, t } = useI18n()
+const notify = useNotify()
+const paymentResource = useAsyncState<PaymentResponse | null>({ timeoutMs: 20000 })
+
+const createPending = ref(false)
+const createError = ref('')
+const refundPending = ref(false)
+const refundError = ref('')
 const refundAmount = ref(0)
 const refundReason = ref('')
 
@@ -26,64 +31,129 @@ const form = reactive({
   totpCode: '',
 })
 
+const payment = computed(() => paymentResource.data.value)
 const refundable = computed(() => {
   if (!payment.value) {
     return 0
   }
   return Math.max(0, Number(payment.value.paidAmount) - Number(payment.value.refundedAmount))
 })
+const isChinese = computed(() => locale.value === 'zh')
+
+function localized(english: string, chinese: string): string {
+  return isChinese.value ? chinese : english
+}
+
+function safePaymentMethod(method: string): string {
+  const labels: Record<string, [string, string]> = {
+    WECHAT: ['WeChat Pay', '\u5fae\u4fe1\u652f\u4ed8'],
+    ALIPAY: ['Alipay', '\u652f\u4ed8\u5b9d'],
+    BANK_CARD: ['Bank card', '\u94f6\u884c\u5361'],
+  }
+  const label = labels[method]
+  return label ? localized(label[0], label[1]) : localized('Other method', '\u5176\u4ed6\u65b9\u5f0f')
+}
+
+function safePaymentStatus(status: string): string {
+  const labels: Record<string, [string, string]> = {
+    PENDING: ['Pending', '\u5f85\u652f\u4ed8'],
+    PAID: ['Paid', '\u5df2\u652f\u4ed8'],
+    PARTIALLY_REFUNDED: ['Partially refunded', '\u90e8\u5206\u9000\u6b3e'],
+    REFUNDED: ['Refunded', '\u5df2\u9000\u6b3e'],
+    SUSPENDED: ['On hold', '\u5df2\u6682\u505c'],
+    FAILED: ['Failed', '\u652f\u4ed8\u5931\u8d25'],
+  }
+  const label = labels[status]
+  return label ? localized(label[0], label[1]) : localized('Processing', '\u5904\u7406\u4e2d')
+}
+
+function paymentStatusType(status: string): 'success' | 'warning' | 'info' | 'danger' {
+  if (status === 'PAID') {
+    return 'success'
+  }
+  if (status === 'PENDING' || status === 'PARTIALLY_REFUNDED') {
+    return 'warning'
+  }
+  if (status === 'REFUNDED') {
+    return 'info'
+  }
+  return 'danger'
+}
 
 async function loadPayment() {
   if (!form.orderId) {
+    paymentResource.reset()
     return
   }
-  busy.value = true
-  try {
-    payment.value = await paymentsApi.paymentForOrder(form.orderId)
-  } catch {
-    payment.value = null
-  } finally {
-    busy.value = false
-  }
+  await paymentResource.load(() => paymentsApi.paymentForOrder(form.orderId), {
+    isEmpty: (result) => result === null,
+    preserveData: true,
+  })
+}
+
+async function setCurrentPayment(result: PaymentResponse) {
+  await paymentResource.load(() => Promise.resolve(result), {
+    isEmpty: () => false,
+    preserveData: false,
+    timeoutMs: 0,
+  })
 }
 
 async function submitPayment() {
-  if (!form.orderId) {
+  if (!form.orderId || createPending.value) {
     return
   }
-  busy.value = true
+
+  createPending.value = true
+  createError.value = ''
   try {
-    payment.value = await paymentsApi.createPayment({
+    const created = await paymentsApi.createPayment({
       orderId: form.orderId,
       method: form.method,
       bankCardNo: form.method === 'BANK_CARD' ? form.bankCardNo : undefined,
       totpCode: form.totpCode || undefined,
     })
-    ElMessage.success('支付单已创建')
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '无法创建支付单')
+    await setCurrentPayment(created)
+    notify.success(t('payment.paymentCreated'), { key: `payment:${form.orderId}:created` })
+  } catch {
+    createError.value = t('payment.createFailed')
   } finally {
-    busy.value = false
+    createPending.value = false
   }
 }
 
 async function submitRefund() {
-  if (!payment.value || refundAmount.value <= 0) {
+  if (!payment.value || refundAmount.value <= 0 || refundPending.value) {
     return
   }
-  busy.value = true
+
+  refundPending.value = true
+  refundError.value = ''
   try {
+    const confirmed = await notify.confirm({
+      title: t('common.refund'),
+      content: `${t('common.confirm')} ${t('common.refund')}`,
+      type: 'warning',
+    })
+    if (!confirmed) {
+      return
+    }
+
     await paymentsApi.refundPayment({
       paymentNo: payment.value.paymentNo,
       amount: refundAmount.value,
       reason: refundReason.value || undefined,
     })
-    ElMessage.success('退款申请已受理')
+    notify.success(t('payment.refundSubmitted'), {
+      key: `payment:${payment.value.paymentNo}:refunded`,
+    })
+    refundAmount.value = 0
+    refundReason.value = ''
     await loadPayment()
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '无法提交退款')
+  } catch {
+    refundError.value = t('payment.refundFailed')
   } finally {
-    busy.value = false
+    refundPending.value = false
   }
 }
 
@@ -93,31 +163,58 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="route-view">
-    <section class="page-heading">
-      <h1>{{ $t('nav.payment') }}</h1>
-      <el-button :icon="RefreshRight" @click="loadPayment"> 刷新 </el-button>
-    </section>
+  <div class="route-view payment-view">
+    <PageHeader :title="$t('nav.payment')">
+      <template #actions>
+        <el-button
+          :icon="RefreshRight"
+          :loading="paymentResource.status.value === 'updating'"
+          :disabled="!form.orderId"
+          @click="loadPayment"
+        >
+          {{ $t('common.refresh') }}
+        </el-button>
+      </template>
+    </PageHeader>
 
-    <section class="payment-layout">
-      <form class="payment-panel" @submit.prevent="submitPayment">
-        <h2>
-          <el-icon><Wallet /></el-icon>
-          发起支付
-        </h2>
+    <section class="payment-task lookup-task" :aria-label="$t('common.search')">
+      <h2>
+        <el-icon aria-hidden="true"><Search /></el-icon>
+        {{ $t('common.search') }} {{ $t('common.payment') }}
+      </h2>
+      <form class="task-form task-form--inline" @submit.prevent="loadPayment">
         <el-input-number
           v-model="form.orderId"
           :min="1"
           controls-position="right"
-          placeholder="订单 ID"
+          :aria-label="$t('payment.orderId')"
+          :placeholder="$t('payment.orderId')"
         />
+        <el-button
+          type="primary"
+          native-type="submit"
+          :loading="paymentResource.status.value === 'loading'"
+          :disabled="!form.orderId"
+        >
+          {{ $t('common.search') }}
+        </el-button>
+      </form>
+    </section>
+
+    <section class="payment-task create-task" :aria-label="$t('payment.createPayment')">
+      <h2>
+        <el-icon aria-hidden="true"><Wallet /></el-icon>
+        {{ $t('payment.createPayment') }}
+      </h2>
+      <form class="task-form" @submit.prevent="submitPayment">
         <el-segmented
           v-model="form.method"
           :options="[
-            { label: '微信', value: 'WECHAT' },
-            { label: '支付宝', value: 'ALIPAY' },
-            { label: '银行卡', value: 'BANK_CARD' },
+            { label: $t('payment.wechat'), value: 'WECHAT' },
+            { label: $t('payment.alipay'), value: 'ALIPAY' },
+            { label: $t('payment.bankCard'), value: 'BANK_CARD' },
           ]"
+          :aria-label="$t('payment.paymentMethod')"
         />
         <el-input
           v-if="form.method === 'BANK_CARD'"
@@ -125,80 +222,134 @@ onMounted(() => {
           :prefix-icon="CreditCard"
           autocomplete="off"
           inputmode="numeric"
-          placeholder="银行卡号"
+          :aria-label="$t('payment.bankCardNo')"
+          :placeholder="$t('payment.bankCardNo')"
         />
-        <el-input v-model="form.totpCode" autocomplete="one-time-code" placeholder="动态验证码" />
-        <el-button type="primary" native-type="submit" :loading="busy"> 提交支付 </el-button>
+        <el-input
+          v-model="form.totpCode"
+          autocomplete="one-time-code"
+          :aria-label="$t('payment.totpCode')"
+          :placeholder="$t('payment.totpCode')"
+        />
+        <p v-if="createError" class="task-error" role="alert">{{ createError }}</p>
+        <el-button
+          type="primary"
+          native-type="submit"
+          :loading="createPending"
+          :disabled="createPending || !form.orderId"
+        >
+          {{ $t('payment.submitPayment') }}
+        </el-button>
       </form>
-
-      <section v-if="payment" class="payment-panel">
-        <h2>
-          <el-icon><Money /></el-icon>
-          {{ payment.paymentNo }}
-        </h2>
-        <div class="metric-grid">
-          <div class="metric-item">
-            <span>支付方式</span>
-            <el-tag disable-transitions>{{ paymentMethodLabel(payment.method) }}</el-tag>
-          </div>
-          <div class="metric-item">
-            <span>支付状态</span>
-            <el-tag :type="paymentStatusType(payment.status)" disable-transitions>
-              {{ paymentStatusLabel(payment.status) }}
-            </el-tag>
-          </div>
-          <div class="metric-item">
-            <span>支付金额</span>
-            <strong>{{ money(payment.amount) }}</strong>
-          </div>
-          <div class="metric-item">
-            <span>创建时间</span>
-            <strong>{{ dateTime(payment.createTime) }}</strong>
-          </div>
-        </div>
-        <p v-if="payment.providerTradeNo">{{ payment.providerTradeNo }}</p>
-        <p v-if="payment.bankCardLast4">**** {{ payment.bankCardLast4 }}</p>
-        <form class="refund-row" @submit.prevent="submitRefund">
-          <el-input-number
-            v-model="refundAmount"
-            :min="0"
-            :max="refundable"
-            :precision="2"
-            controls-position="right"
-          />
-          <el-input v-model="refundReason" placeholder="退款原因" />
-          <el-button type="warning" native-type="submit" :loading="busy">
-            {{ $t('common.refund') }}
-          </el-button>
-        </form>
-      </section>
-      <section v-else class="payment-panel muted-panel">
-        <h2>
-          <el-icon><Money /></el-icon>
-          暂无支付单
-        </h2>
-        <p>输入订单 ID 后可以查询或创建支付单。</p>
-      </section>
     </section>
+
+    <AsyncStateView
+      :status="paymentResource.status.value"
+      :error="paymentResource.error.value"
+      :empty-title="$t('payment.noPayment')"
+      :empty-description="$t('payment.noPaymentHint')"
+      @retry="loadPayment"
+    >
+      <template #idle>
+        <section class="payment-empty" role="status">
+          <el-icon aria-hidden="true"><Money /></el-icon>
+          <div>
+            <h2>{{ $t('payment.noPayment') }}</h2>
+            <p>{{ $t('payment.noPaymentHint') }}</p>
+          </div>
+        </section>
+      </template>
+
+      <template #error>
+        <section class="payment-empty" role="alert">
+          <el-icon aria-hidden="true"><Money /></el-icon>
+          <div>
+            <h2>{{ $t('payment.loadFailed') }}</h2>
+            <el-button :icon="RefreshRight" @click="loadPayment">
+              {{ $t('common.retry') }}
+            </el-button>
+          </div>
+        </section>
+      </template>
+
+      <DataTableShell v-if="payment" :aria-label="$t('payment.paymentStatus')">
+        <section class="payment-task current-payment">
+          <header class="payment-task__heading">
+            <h2>
+              <el-icon aria-hidden="true"><Money /></el-icon>
+              {{ $t('common.payment') }} {{ payment.paymentNo }}
+            </h2>
+            <el-tag :type="paymentStatusType(payment.status)" disable-transitions>
+              {{ safePaymentStatus(payment.status) }}
+            </el-tag>
+          </header>
+
+          <dl class="payment-summary">
+            <div>
+              <dt>{{ $t('payment.paymentMethod') }}</dt>
+              <dd>{{ safePaymentMethod(payment.method) }}</dd>
+            </div>
+            <div>
+              <dt>{{ $t('payment.paymentAmount') }}</dt>
+              <dd>{{ money(payment.amount) }}</dd>
+            </div>
+            <div>
+              <dt>{{ $t('payment.created') }}</dt>
+              <dd>{{ dateTime(payment.createTime) }}</dd>
+            </div>
+            <div v-if="payment.bankCardLast4">
+              <dt>{{ $t('payment.bankCard') }}</dt>
+              <dd>**** {{ payment.bankCardLast4 }}</dd>
+            </div>
+          </dl>
+
+          <form class="refund-task task-form" @submit.prevent="submitRefund">
+            <h3>{{ $t('common.refund') }}</h3>
+            <el-input-number
+              v-model="refundAmount"
+              :min="0"
+              :max="refundable"
+              :precision="2"
+              controls-position="right"
+              :aria-label="$t('payment.paymentAmount')"
+            />
+            <el-input
+              v-model="refundReason"
+              :aria-label="$t('payment.refundReason')"
+              :placeholder="$t('payment.refundReason')"
+            />
+            <p v-if="refundError" class="task-error" role="alert">{{ refundError }}</p>
+            <el-button
+              type="warning"
+              native-type="submit"
+              :loading="refundPending"
+              :disabled="refundPending || refundAmount <= 0 || refundable <= 0"
+            >
+              {{ $t('common.refund') }}
+            </el-button>
+          </form>
+        </section>
+      </DataTableShell>
+    </AsyncStateView>
   </div>
 </template>
 
 <style scoped>
-.payment-layout {
+.payment-view {
   display: grid;
-  gap: 16px;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 18px;
 }
 
-.payment-panel {
-  border: 1px solid var(--el-border-color);
-  border-radius: 8px;
+.payment-task {
+  border-top: 1px solid var(--el-border-color-lighter);
   display: grid;
-  gap: 12px;
-  padding: 16px;
+  gap: 14px;
+  padding: 18px 0 0;
 }
 
-.payment-panel h2 {
+.payment-task h2,
+.payment-task h3,
+.payment-empty h2 {
   align-items: center;
   display: flex;
   font-size: 1rem;
@@ -206,48 +357,97 @@ onMounted(() => {
   margin: 0;
 }
 
-.metric-grid {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.metric-item {
+.task-form {
   align-items: start;
-  background: var(--page);
-  border-radius: 8px;
   display: grid;
-  gap: 6px;
-  min-width: 0;
-  padding: 10px;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
-.metric-item span {
-  color: var(--text-muted);
-  font-size: 0.85rem;
+.task-form--inline {
+  grid-template-columns: minmax(220px, 360px) auto;
+  justify-content: start;
 }
 
-.metric-item strong {
-  min-width: 0;
+.task-form > .el-button {
+  justify-self: start;
+  min-height: 40px;
+}
+
+.payment-task__heading {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.payment-summary {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin: 0;
+}
+
+.payment-summary div {
+  border-left: 2px solid var(--el-border-color);
+  display: grid;
+  gap: 4px;
+  padding-left: 10px;
+}
+
+.payment-summary dt {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+.payment-summary dd {
+  margin: 0;
   overflow-wrap: anywhere;
 }
 
-.refund-row {
-  display: grid;
-  gap: 10px;
+.refund-task {
+  border-top: 1px solid var(--el-border-color-lighter);
+  margin-top: 4px;
+  padding-top: 14px;
+}
+
+.refund-task h3,
+.refund-task .task-error {
+  grid-column: 1 / -1;
+}
+
+.task-error {
+  color: var(--el-color-danger);
+  font-size: 13px;
+  margin: 0;
+}
+
+.payment-empty {
+  align-items: start;
+  color: var(--el-text-color-secondary);
+  display: flex;
+  gap: 12px;
+  padding: 18px 0;
+}
+
+.payment-empty p {
+  margin: 6px 0 0;
 }
 
 @media (max-width: 640px) {
-  .metric-grid {
+  .task-form,
+  .task-form--inline {
     grid-template-columns: 1fr;
   }
-}
 
-.muted-panel {
-  color: var(--text-muted);
-}
+  .task-form > *,
+  .task-form > .el-button {
+    justify-self: stretch;
+    width: 100%;
+  }
 
-.muted-panel p {
-  margin: 0;
+  .task-form > .el-button {
+    min-height: 44px;
+  }
 }
 </style>

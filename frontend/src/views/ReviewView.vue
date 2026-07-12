@@ -1,22 +1,31 @@
 <script setup lang="ts">
-import { Star, Upload } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { Close, RefreshRight, Star, Upload } from '@element-plus/icons-vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { uploadImage } from '@/api/catalog'
 import { orderReviews, reviewOrder } from '@/api/orders'
 import ProductImage from '@/components/ProductImage.vue'
+import AsyncStateView from '@/components/ui/AsyncStateView.vue'
+import DataTableShell from '@/components/ui/DataTableShell.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import { useAsyncState } from '@/composables/useAsyncState'
+import { useNotify } from '@/composables/useNotify'
 import type { OrderReview } from '@/types'
 import { dateTime } from '@/utils/format'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
-const loading = ref(false)
-const submitting = ref(false)
-const uploading = ref(false)
-const reviews = ref<OrderReview[]>([])
+const notify = useNotify()
+const reviewResource = useAsyncState<OrderReview[]>({ timeoutMs: 20000 })
+
+const uploadPending = ref(false)
+const uploadProgress = ref(0)
+const uploadError = ref('')
+const submitPending = ref(false)
+const submitError = ref('')
+
 const form = reactive({
   skuId: undefined as number | undefined,
   rating: 5,
@@ -26,41 +35,52 @@ const form = reactive({
 })
 
 const orderId = computed(() => Number(route.params.id))
+const reviews = computed(() => reviewResource.data.value ?? [])
 
 async function loadReviews() {
-  loading.value = true
-  try {
-    reviews.value = await orderReviews(orderId.value)
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t('common.unableToLoadOrders'))
-  } finally {
-    loading.value = false
-  }
+  await reviewResource.load(() => orderReviews(orderId.value), {
+    isEmpty: (items) => items.length === 0,
+    preserveData: true,
+  })
 }
 
 async function uploadReviewImage(event: Event) {
-  const file = (event.target as HTMLInputElement).files?.[0]
-  if (!file || uploading.value) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file || uploadPending.value) {
     return
   }
-  uploading.value = true
+
+  uploadPending.value = true
+  uploadProgress.value = 15
+  uploadError.value = ''
   try {
     const uploaded = await uploadImage(file, 'product')
+    uploadProgress.value = 100
     form.imageUrls.push(uploaded.path)
-    ElMessage.success(t('common.imageUploaded'))
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t('common.unableToUploadImage'))
+    notify.success(t('common.imageUploaded'), { key: `review-upload:${uploaded.path}` })
+  } catch {
+    uploadError.value = t('common.unableToUploadImage')
   } finally {
-    uploading.value = false
-    ;(event.target as HTMLInputElement).value = ''
+    uploadPending.value = false
+    uploadProgress.value = 0
+    input.value = ''
+  }
+}
+
+function removeImage(index: number) {
+  if (!submitPending.value) {
+    form.imageUrls.splice(index, 1)
   }
 }
 
 async function submitReview() {
-  if (submitting.value) {
+  if (submitPending.value || uploadPending.value) {
     return
   }
-  submitting.value = true
+
+  submitPending.value = true
+  submitError.value = ''
   try {
     await reviewOrder(orderId.value, {
       skuId: form.skuId,
@@ -69,13 +89,13 @@ async function submitReview() {
       imageUrls: form.imageUrls,
       anonymous: form.anonymous,
     })
-    ElMessage.success(t('common.reviewSubmitted'))
+    notify.success(t('common.reviewSubmitted'), { key: `review:${orderId.value}:submitted` })
     await loadReviews()
     await router.push('/orders')
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t('common.unableToReview'))
+  } catch {
+    submitError.value = t('common.unableToReview')
   } finally {
-    submitting.value = false
+    submitPending.value = false
   }
 }
 
@@ -85,93 +105,165 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="route-view">
-    <section class="page-heading">
-      <h1>{{ $t('common.review') }}</h1>
-      <el-button @click="$router.push('/orders')">
-        {{ $t('nav.orders') }}
-      </el-button>
-    </section>
+  <div class="route-view review-view">
+    <PageHeader :title="$t('common.review')">
+      <template #actions>
+        <el-button @click="$router.push('/orders')">
+          {{ $t('nav.orders') }}
+        </el-button>
+      </template>
+    </PageHeader>
 
-    <section class="review-layout">
+    <section class="review-task" :aria-label="$t('common.submitReview')">
       <form class="review-form" @submit.prevent="submitReview">
-        <el-rate v-model="form.rating" :max="5" size="large" />
-        <el-input
-          v-model="form.content"
-          type="textarea"
-          :rows="5"
-          :placeholder="$t('common.reviewContent')"
-        />
-        <el-switch v-model="form.anonymous" :active-text="$t('common.anonymous')" />
-        <div class="review-images">
-          <ProductImage
-            v-for="image in form.imageUrls"
-            :key="image"
-            :src="image"
-            :alt="$t('common.review')"
+        <div class="review-field">
+          <span id="review-rating-label">{{ $t('common.review') }}</span>
+          <el-rate
+            id="review-rating"
+            v-model="form.rating"
+            :max="5"
+            size="large"
+            aria-labelledby="review-rating-label"
           />
+        </div>
+
+        <div class="review-field">
+          <el-input
+            v-model="form.content"
+            type="textarea"
+            :rows="5"
+            :aria-label="$t('common.reviewContent')"
+            :placeholder="$t('common.reviewContent')"
+          />
+        </div>
+
+        <el-switch v-model="form.anonymous" :active-text="$t('common.anonymous')" />
+
+        <div class="review-images">
+          <div v-for="(image, index) in form.imageUrls" :key="image" class="review-image">
+            <ProductImage :src="image" :alt="$t('common.review')" />
+            <el-tooltip :content="$t('common.delete')">
+              <el-button
+                class="review-image__remove"
+                circle
+                :icon="Close"
+                :aria-label="$t('common.delete')"
+                :disabled="submitPending"
+                @click="removeImage(index)"
+              />
+            </el-tooltip>
+          </div>
+
           <label class="upload-chip" for="review-image-upload">
-            <el-icon><Upload /></el-icon>
+            <el-icon aria-hidden="true"><Upload /></el-icon>
             <span>{{ $t('common.upload') }}</span>
             <input
               id="review-image-upload"
               type="file"
               accept="image/*"
-              :disabled="uploading"
+              :disabled="uploadPending || submitPending"
               @change="uploadReviewImage"
             />
           </label>
         </div>
-        <el-button type="primary" native-type="submit" :loading="submitting">
+
+        <div v-if="uploadPending" class="upload-progress" role="status">
+          <el-progress
+            :percentage="uploadProgress"
+            :indeterminate="true"
+            :duration="2"
+            :show-text="false"
+          />
+          <span>{{ $t('common.loading') }}</span>
+        </div>
+        <p v-if="uploadError" class="task-error" role="alert">{{ uploadError }}</p>
+        <p v-if="submitError" class="task-error" role="alert">{{ submitError }}</p>
+
+        <el-button
+          type="primary"
+          native-type="submit"
+          :loading="submitPending"
+          :disabled="submitPending || uploadPending"
+        >
           {{ $t('common.submitReview') }}
         </el-button>
       </form>
+    </section>
 
-      <section v-loading="loading" class="review-history">
-        <article v-for="review in reviews" :key="review.id" class="review-item">
-          <div class="review-title">
-            <el-rate :model-value="review.rating" disabled />
-            <span>{{ dateTime(review.createTime) }}</span>
+    <section class="review-history" :aria-label="$t('common.review')">
+      <AsyncStateView
+        :status="reviewResource.status.value"
+        :error="reviewResource.error.value"
+        :empty-title="$t('common.noData')"
+        @retry="loadReviews"
+      >
+        <template #error>
+          <div class="history-error" role="alert">
+            <span>{{ $t('common.unableToLoadOrders') }}</span>
+            <el-button :icon="RefreshRight" @click="loadReviews">
+              {{ $t('common.retry') }}
+            </el-button>
           </div>
-          <p>{{ review.content }}</p>
-          <div class="review-thumbs">
-            <ProductImage
-              v-for="image in review.imageUrls"
-              :key="image"
-              :src="image"
-              :alt="$t('common.review')"
-            />
+        </template>
+
+        <template #empty>
+          <div class="history-empty" role="status">
+            <el-icon aria-hidden="true"><Star /></el-icon>
+            <span>{{ $t('common.noData') }}</span>
           </div>
-        </article>
-        <el-empty v-if="!loading && reviews.length === 0" :image-size="96">
-          <template #description>
-            <el-icon class="empty-icon"><Star /></el-icon>
-          </template>
-        </el-empty>
-      </section>
+        </template>
+
+        <DataTableShell :aria-label="$t('common.review')">
+          <div class="review-list">
+            <article v-for="review in reviews" :key="review.id" class="review-item">
+              <header class="review-title">
+                <el-rate :model-value="review.rating" disabled />
+                <time :datetime="review.createTime">{{ dateTime(review.createTime) }}</time>
+              </header>
+              <p v-if="review.content">{{ review.content }}</p>
+              <div v-if="review.imageUrls.length" class="review-thumbs">
+                <ProductImage
+                  v-for="image in review.imageUrls"
+                  :key="image"
+                  :src="image"
+                  :alt="$t('common.review')"
+                />
+              </div>
+            </article>
+          </div>
+        </DataTableShell>
+      </AsyncStateView>
     </section>
   </div>
 </template>
 
 <style scoped>
-.review-layout {
+.review-view {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
   gap: 18px;
 }
 
-.review-form,
+.review-task,
 .review-history {
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 16px;
-  background: var(--surface-color);
+  border-top: 1px solid var(--el-border-color-lighter);
+  padding-top: 18px;
 }
 
 .review-form {
+  align-content: start;
   display: grid;
   gap: 14px;
-  align-content: start;
+  max-width: 760px;
+}
+
+.review-field {
+  display: grid;
+  gap: 8px;
+}
+
+.review-field > span {
+  color: var(--el-text-color-regular);
+  font-size: 14px;
 }
 
 .review-images,
@@ -181,54 +273,118 @@ onMounted(() => {
   gap: 10px;
 }
 
-.review-images :deep(.product-image),
+.review-image {
+  height: 80px;
+  position: relative;
+  width: 80px;
+}
+
+.review-image :deep(.product-image),
 .review-thumbs :deep(.product-image) {
-  width: 72px;
-  height: 72px;
+  height: 80px;
+  width: 80px;
+}
+
+.review-image__remove {
+  position: absolute;
+  right: 4px;
+  top: 4px;
 }
 
 .upload-chip {
-  width: 72px;
-  height: 72px;
-  display: grid;
-  place-items: center;
-  gap: 2px;
-  border: 1px dashed var(--border-color);
-  border-radius: 8px;
+  align-content: center;
+  border: 1px dashed var(--el-border-color);
+  border-radius: var(--radius-surface);
+  color: var(--el-text-color-secondary);
   cursor: pointer;
-  color: var(--text-muted);
+  display: grid;
   font-size: 12px;
+  gap: 4px;
+  height: 80px;
+  justify-items: center;
+  width: 80px;
+}
+
+.upload-chip:focus-within {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
 }
 
 .upload-chip input {
-  display: none;
+  height: 1px;
+  opacity: 0;
+  position: absolute;
+  width: 1px;
 }
 
-.review-history {
+.upload-progress {
+  align-items: center;
   display: grid;
-  gap: 12px;
+  gap: 10px;
+  grid-template-columns: minmax(160px, 320px) auto;
+}
+
+.upload-progress span {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+.task-error {
+  color: var(--el-color-danger);
+  font-size: 13px;
+  margin: 0;
+}
+
+.review-form > .el-button {
+  justify-self: start;
+  min-height: 40px;
+}
+
+.review-list {
+  display: grid;
 }
 
 .review-item {
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 12px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  display: grid;
+  gap: 10px;
+  padding: 14px 0;
 }
 
 .review-item:last-child {
   border-bottom: 0;
-  padding-bottom: 0;
+}
+
+.review-item p {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .review-title {
-  display: flex;
   align-items: center;
-  justify-content: space-between;
+  color: var(--el-text-color-secondary);
+  display: flex;
   gap: 12px;
-  color: var(--text-muted);
+  justify-content: space-between;
 }
 
-@media (max-width: 760px) {
-  .review-layout {
+.history-error,
+.history-empty {
+  align-items: center;
+  color: var(--el-text-color-secondary);
+  display: flex;
+  gap: 12px;
+  min-height: 80px;
+}
+
+@media (max-width: 560px) {
+  .review-form > .el-button {
+    justify-self: stretch;
+    min-height: 44px;
+    width: 100%;
+  }
+
+  .upload-progress {
     grid-template-columns: 1fr;
   }
 }

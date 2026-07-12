@@ -309,6 +309,10 @@
     display: none;
   }
 
+  .consumer-header .brand > span:last-child {
+    display: none;
+  }
+
   .consumer-header__search-shortcut {
     display: inline-flex;
   }
@@ -325,6 +329,10 @@
 
   .app-shell[data-area='consumer'] > .app-main {
     padding-bottom: calc(var(--space-16) + env(safe-area-inset-bottom));
+  }
+
+  .app-main {
+    padding-inline: var(--space-3);
   }
 
   .consumer-bottom-nav {

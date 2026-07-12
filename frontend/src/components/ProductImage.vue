@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import type { Directive } from 'vue'
+import { computed, ref, watch } from 'vue'
+
+const builtInFallback = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
 
 const props = withDefaults(
   defineProps<{
@@ -14,44 +15,47 @@ const props = withDefaults(
   },
 )
 
-const currentSrc = ref(props.src || props.fallback)
-
-function useFallbackImage(event: Event) {
-  const image = event.currentTarget as HTMLImageElement
-  const fallback = image.dataset.fallbackSrc
-  if (fallback && image.getAttribute('src') !== fallback) {
-    image.setAttribute('src', fallback)
+const sourceFailed = ref(false)
+const fallbackFailed = ref(false)
+const resolvedSrc = computed(() => {
+  if (!props.src || sourceFailed.value) {
+    return props.fallback && !fallbackFailed.value ? props.fallback : builtInFallback
   }
-}
+  return props.src
+})
 
-const vFallbackImg: Directive<HTMLImageElement, string> = {
-  mounted(image, binding) {
-    image.dataset.fallbackSrc = binding.value
-    image.addEventListener('error', useFallbackImage)
-  },
-  updated(image, binding) {
-    image.dataset.fallbackSrc = binding.value
-  },
-  beforeUnmount(image) {
-    image.removeEventListener('error', useFallbackImage)
-  },
+function handleError() {
+  if (resolvedSrc.value === builtInFallback) {
+    return
+  }
+  if (props.src && !sourceFailed.value) {
+    sourceFailed.value = true
+    if (props.src === props.fallback) {
+      fallbackFailed.value = true
+    }
+    return
+  }
+  fallbackFailed.value = true
 }
 
 watch(
-  () => props.src,
-  (value) => {
-    currentSrc.value = value || props.fallback
+  () => [props.src, props.fallback],
+  () => {
+    sourceFailed.value = false
+    fallbackFailed.value = false
   },
 )
 </script>
 
 <template>
   <img
-    v-fallback-img="fallback"
     class="product-image"
-    :src="currentSrc"
+    :src="resolvedSrc"
     :alt="alt"
+    width="640"
+    height="480"
     loading="lazy"
     decoding="async"
+    @error="handleError"
   />
 </template>

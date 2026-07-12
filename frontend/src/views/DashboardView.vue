@@ -28,6 +28,7 @@ const eventLabels: Record<TrackingEventType, string> = {
   ADD_TO_CART: '加入购物车',
   ORDER_CREATED: '创建订单',
   PAYMENT_SUCCESS: '支付成功',
+  UI_ERROR: '界面错误',
 }
 
 function eventLabel(eventType: TrackingEventType): string {

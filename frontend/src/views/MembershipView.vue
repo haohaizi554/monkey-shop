@@ -1,13 +1,36 @@
 <script setup lang="ts">
 import { Check, Refresh, Star, Tickets } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as membershipApi from '@/api/membership'
+import AsyncStateView from '@/components/ui/AsyncStateView.vue'
+import DataTableShell from '@/components/ui/DataTableShell.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import { useAsyncState } from '@/composables/useAsyncState'
+import { useNotify } from '@/composables/useNotify'
+import { useAuthStore } from '@/stores/auth'
 import type { MembershipDashboard, MembershipLevel } from '@/types'
 import { couponStatusLabel, dateTime, membershipLevelLabel } from '@/utils/format'
 
-const dashboard = ref<MembershipDashboard>()
-const loading = ref(false)
+type MembershipMutation =
+  | 'checkIn'
+  | 'verifyIdentity'
+  | 'earnPoints'
+  | 'redeemPoints'
+  | 'changeLevel'
+  | 'addCollection'
+  | 'recordBrowse'
+  | 'scanPriceDrops'
+
+const auth = useAuthStore()
+const notify = useNotify()
+const { t } = useI18n()
+const {
+  data: dashboard,
+  status,
+  error,
+  load,
+} = useAsyncState<MembershipDashboard>({ timeoutMs: 20000 })
 const levels: MembershipLevel[] = ['BASIC', 'SILVER', 'GOLD', 'DIAMOND']
 const identityForm = reactive({ realName: '', idCardNo: '' })
 const earnForm = reactive({ amount: 199, orderId: undefined as number | undefined })
@@ -15,9 +38,30 @@ const redeemForm = reactive({ points: 100 })
 const levelForm = reactive({ level: 'SILVER' as MembershipLevel, reason: 'manual', totpCode: '' })
 const collectionForm = reactive({ productId: 1, targetPrice: 99 })
 const browseForm = reactive({ productId: 1 })
+const pending = reactive<Record<MembershipMutation, boolean>>({
+  checkIn: false,
+  verifyIdentity: false,
+  earnPoints: false,
+  redeemPoints: false,
+  changeLevel: false,
+  addCollection: false,
+  recordBrowse: false,
+  scanPriceDrops: false,
+})
+const removingCollectionIds = reactive(new Set<number>())
 
 const profile = computed(() => dashboard.value?.profile)
 const wallet = computed(() => dashboard.value?.wallet)
+const coupons = computed(() => dashboard.value?.coupons ?? [])
+const collections = computed(() => dashboard.value?.collections ?? [])
+const browseHistory = computed(() => dashboard.value?.browseHistory ?? [])
+const identitySummary = computed(() => {
+  if (!profile.value?.verified) {
+    return t('membership.notVerified')
+  }
+  const maskedValues = [profile.value.maskedRealName, profile.value.maskedIdCardNo].filter(Boolean)
+  return maskedValues.length ? maskedValues.join(' / ') : t('membership.verified')
+})
 const progress = computed(() => {
   const value = profile.value?.growthValue ?? 0
   const current = profile.value?.level ?? 'BASIC'
@@ -28,7 +72,7 @@ const progress = computed(() => {
   }
   const floor = levelMin(current)
   const ceiling = levelMin(next)
-  return Math.min(100, Math.round(((value - floor) / (ceiling - floor)) * 100))
+  return Math.max(0, Math.min(100, Math.round(((value - floor) / (ceiling - floor)) * 100)))
 })
 
 function levelMin(level: MembershipLevel): number {
@@ -40,72 +84,116 @@ function levelLabel(level: MembershipLevel | string): string {
 }
 
 async function loadDashboard() {
-  loading.value = true
+  await load(() => membershipApi.membershipDashboard())
+}
+
+async function runMutation(key: MembershipMutation, mutation: () => Promise<void>) {
+  if (pending[key]) {
+    return
+  }
+  pending[key] = true
   try {
-    dashboard.value = await membershipApi.membershipDashboard()
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '无法加载会员数据')
+    await mutation()
+  } catch (caught) {
+    notify.fromApiError(caught, 'membership.actionFailed')
   } finally {
-    loading.value = false
+    pending[key] = false
   }
 }
 
 async function checkIn() {
-  const result = await membershipApi.checkIn()
-  ElMessage.success(`已签到，+${result.rewardPoints} 积分`)
-  await loadDashboard()
+  await runMutation('checkIn', async () => {
+    const result = await membershipApi.checkIn()
+    notify.success(t('membership.checkedIn', { points: result.rewardPoints }))
+    await loadDashboard()
+  })
 }
 
 async function verifyIdentity() {
-  dashboard.value = await membershipApi.verifyIdentity(identityForm)
-  Object.assign(identityForm, { realName: '', idCardNo: '' })
-  ElMessage.success('实名信息已验证')
+  await runMutation('verifyIdentity', async () => {
+    dashboard.value = await membershipApi.verifyIdentity(identityForm)
+    Object.assign(identityForm, { realName: '', idCardNo: '' })
+    notify.success(t('membership.verified'))
+  })
 }
 
 async function earnPoints() {
-  await membershipApi.earnPoints({
-    amount: earnForm.amount,
-    orderId: earnForm.orderId,
-    referenceKey: earnForm.orderId ? `order:${earnForm.orderId}` : 'manual-purchase',
+  await runMutation('earnPoints', async () => {
+    await membershipApi.earnPoints({
+      amount: earnForm.amount,
+      orderId: earnForm.orderId,
+      referenceKey: earnForm.orderId ? `order:${earnForm.orderId}` : 'manual-purchase',
+    })
+    notify.success(t('membership.earned'))
+    await loadDashboard()
   })
-  ElMessage.success('积分已入账')
-  await loadDashboard()
 }
 
 async function redeemPoints() {
-  await membershipApi.redeemPoints({ points: redeemForm.points, referenceKey: 'wallet-redemption' })
-  ElMessage.success('积分已兑换')
-  await loadDashboard()
+  await runMutation('redeemPoints', async () => {
+    await membershipApi.redeemPoints({
+      points: redeemForm.points,
+      referenceKey: 'wallet-redemption',
+    })
+    notify.success(t('membership.redeemed'))
+    await loadDashboard()
+  })
 }
 
 async function changeLevel() {
-  dashboard.value = await membershipApi.changeLevel(levelForm)
-  levelForm.totpCode = ''
-  ElMessage.success('会员等级已更新')
+  await runMutation('changeLevel', async () => {
+    dashboard.value = await membershipApi.changeLevel(levelForm)
+    levelForm.totpCode = ''
+    notify.success(t('membership.levelUpdated'))
+  })
 }
 
 async function addCollection() {
-  await membershipApi.addCollection(collectionForm)
-  ElMessage.success('已加入关注')
-  await loadDashboard()
+  await runMutation('addCollection', async () => {
+    await membershipApi.addCollection(collectionForm)
+    notify.success(t('membership.collectionAdded'))
+    await loadDashboard()
+  })
 }
 
 async function removeCollection(productId: number) {
-  await ElMessageBox.confirm('移除这个价格关注？', '确认操作', { type: 'warning' })
-  await membershipApi.removeCollection(productId)
-  await loadDashboard()
+  const confirmed = await notify.confirm({
+    title: t('common.confirm'),
+    content: t('membership.removeConfirm'),
+    type: 'warning',
+  })
+  if (!confirmed || removingCollectionIds.has(productId)) {
+    return
+  }
+
+  removingCollectionIds.add(productId)
+  try {
+    await membershipApi.removeCollection(productId)
+    notify.success(t('common.updated'))
+    await loadDashboard()
+  } catch (caught) {
+    notify.fromApiError(caught, 'membership.actionFailed')
+  } finally {
+    removingCollectionIds.delete(productId)
+  }
 }
 
 async function recordBrowse() {
-  await membershipApi.recordBrowse(browseForm)
-  ElMessage.success('浏览记录已写入')
-  await loadDashboard()
+  await runMutation('recordBrowse', async () => {
+    await membershipApi.recordBrowse(browseForm)
+    notify.success(t('membership.browseRecorded'))
+    await loadDashboard()
+  })
 }
 
 async function scanPriceDrops() {
-  const result = await membershipApi.scanPriceDrops()
-  ElMessage.success(`已扫描 ${result.scanned} 条，提醒 ${result.reminders} 条`)
-  await loadDashboard()
+  await runMutation('scanPriceDrops', async () => {
+    const result = await membershipApi.scanPriceDrops()
+    notify.success(
+      t('membership.scanResult', { scanned: result.scanned, reminders: result.reminders }),
+    )
+    await loadDashboard()
+  })
 }
 
 onMounted(() => {
@@ -114,64 +202,77 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="route-view">
-    <section v-loading="loading" class="membership-page">
-      <header class="membership-header">
-        <div>
-          <p class="eyebrow">会员中心</p>
-          <h1>{{ levelLabel(profile?.level || 'BASIC') }}</h1>
-        </div>
-        <el-button type="primary" :icon="Check" @click="checkIn">每日签到</el-button>
-      </header>
+  <div class="route-view membership-page">
+    <PageHeader :title="$t('membership.center')" :eyebrow="levelLabel(profile?.level || 'BASIC')" />
 
-      <section class="metrics-row">
-        <div class="metric-panel">
-          <span>成长值</span>
-          <strong>{{ profile?.growthValue ?? 0 }}</strong>
-          <el-progress :percentage="progress" :stroke-width="10" />
+    <AsyncStateView :status="status" :error="error" @retry="loadDashboard">
+      <section class="account-summary" :aria-label="$t('membership.center')">
+        <div class="account-summary__level">
+          <span>{{ $t('membership.growthValue') }}</span>
+          <strong>{{ levelLabel(profile?.level || 'BASIC') }}</strong>
+          <el-progress :percentage="progress" :stroke-width="8" />
         </div>
-        <div class="metric-panel">
-          <span>积分余额</span>
-          <strong>{{ wallet?.balance ?? 0 }}</strong>
-          <small>约 CNY {{ wallet?.moneyEquivalent ?? 0 }}</small>
-        </div>
-        <div class="metric-panel">
-          <span>累计获得</span>
-          <strong>{{ wallet?.totalEarned ?? 0 }}</strong>
-          <small>已使用 {{ wallet?.totalSpent ?? 0 }}</small>
-        </div>
+        <dl class="account-summary__metrics">
+          <div>
+            <dt>{{ $t('membership.pointsBalance') }}</dt>
+            <dd>{{ wallet?.balance ?? 0 }}</dd>
+            <small>{{
+              $t('membership.moneyEquivalent', { amount: wallet?.moneyEquivalent ?? 0 })
+            }}</small>
+          </div>
+          <div>
+            <dt>{{ $t('membership.totalEarned') }}</dt>
+            <dd>{{ wallet?.totalEarned ?? 0 }}</dd>
+            <small>{{ $t('membership.totalSpent', { spent: wallet?.totalSpent ?? 0 }) }}</small>
+          </div>
+        </dl>
       </section>
 
-      <section class="section-grid">
-        <section class="tool-panel">
-          <h2>实名状态</h2>
-          <p>
-            {{
-              profile?.verified ? `${profile.maskedRealName} / ${profile.maskedIdCardNo}` : '未认证'
-            }}
-          </p>
-          <div class="compact-form">
-            <el-input v-model="identityForm.realName" placeholder="真实姓名" />
-            <el-input v-model="identityForm.idCardNo" placeholder="身份证号" />
-            <el-button type="primary" @click="verifyIdentity">认证</el-button>
+      <section class="task-section" data-membership-section="identity">
+        <div class="task-heading">
+          <div>
+            <h2>{{ $t('membership.identityStatus') }}</h2>
+            <p>{{ identitySummary }}</p>
           </div>
-        </section>
+          <el-button
+            type="primary"
+            :icon="Check"
+            :loading="pending.checkIn"
+            :disabled="pending.checkIn"
+            @click="checkIn"
+          >
+            {{ $t('membership.checkIn') }}
+          </el-button>
+        </div>
 
-        <section class="tool-panel">
-          <h2>积分账户</h2>
-          <div class="compact-form split">
-            <el-input-number v-model="earnForm.amount" :min="1" :step="10" />
-            <el-input-number v-model="earnForm.orderId" :min="1" placeholder="订单 ID" />
-            <el-button :icon="Tickets" @click="earnPoints">入账</el-button>
-            <el-input-number v-model="redeemForm.points" :min="1" :step="100" />
-            <el-button type="warning" @click="redeemPoints">兑换</el-button>
-          </div>
-        </section>
+        <div class="compact-form identity-form">
+          <el-input
+            v-model="identityForm.realName"
+            :aria-label="$t('membership.realName')"
+            :placeholder="$t('membership.realName')"
+            autocomplete="off"
+          />
+          <el-input
+            v-model="identityForm.idCardNo"
+            :aria-label="$t('membership.idCardNo')"
+            :placeholder="$t('membership.idCardNo')"
+            type="password"
+            autocomplete="off"
+          />
+          <el-button
+            type="primary"
+            :loading="pending.verifyIdentity"
+            :disabled="pending.verifyIdentity"
+            @click="verifyIdentity"
+          >
+            {{ $t('membership.verify') }}
+          </el-button>
+        </div>
 
-        <section class="tool-panel">
-          <h2>等级调整</h2>
-          <div class="compact-form">
-            <el-select v-model="levelForm.level">
+        <div v-if="auth.isAdmin" class="admin-tools">
+          <h3>{{ $t('membership.levelAdjust') }}</h3>
+          <div class="compact-form level-form">
+            <el-select v-model="levelForm.level" :aria-label="$t('membership.levelAdjust')">
               <el-option
                 v-for="level in levels"
                 :key="level"
@@ -179,181 +280,361 @@ onMounted(() => {
                 :value="level"
               />
             </el-select>
-            <el-input v-model="levelForm.reason" placeholder="调整原因" />
-            <el-input v-model="levelForm.totpCode" placeholder="管理员动态码" />
-            <el-button :icon="Star" @click="changeLevel">调整</el-button>
-          </div>
-        </section>
-
-        <section class="tool-panel">
-          <h2>价格关注</h2>
-          <div class="compact-form">
-            <el-input-number v-model="collectionForm.productId" :min="1" />
-            <el-input-number v-model="collectionForm.targetPrice" :min="0" :step="10" />
-            <el-button type="primary" @click="addCollection">保存</el-button>
-            <el-button :icon="Refresh" @click="scanPriceDrops">扫描降价</el-button>
-          </div>
-        </section>
-      </section>
-
-      <section class="table-band">
-        <div class="band-title">
-          <h2>优惠券账户</h2>
-        </div>
-        <el-table :data="dashboard?.coupons || []" class="data-table">
-          <el-table-column prop="couponCode" label="券码" />
-          <el-table-column label="状态" width="140">
-            <template #default="{ row }">
-              <el-tag disable-transitions>{{ couponStatusLabel(row.status) }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="领取时间" width="220">
-            <template #default="{ row }">{{ dateTime(row.claimedAt) }}</template>
-          </el-table-column>
-        </el-table>
-      </section>
-
-      <section class="table-band">
-        <div class="band-title">
-          <h2>价格关注</h2>
-        </div>
-        <el-table :data="dashboard?.collections || []" class="data-table">
-          <el-table-column prop="productName" label="商品" />
-          <el-table-column prop="lastPrice" label="最近价格" width="140" />
-          <el-table-column prop="targetPrice" label="目标价" width="140" />
-          <el-table-column label="已提醒" width="120">
-            <template #default="{ row }">
-              {{ row.priceDropNotified ? '已提醒' : '未提醒' }}
-            </template>
-          </el-table-column>
-          <el-table-column width="120">
-            <template #default="{ row }">
-              <el-button type="danger" plain @click="removeCollection(row.productId)">
-                移除
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </section>
-
-      <section class="table-band">
-        <div class="band-title">
-          <h2>浏览历史</h2>
-          <div class="inline-actions">
-            <el-input-number v-model="browseForm.productId" :min="1" />
-            <el-button @click="recordBrowse">记录</el-button>
+            <el-input v-model="levelForm.reason" :placeholder="$t('membership.adjustReason')" />
+            <el-input
+              v-model="levelForm.totpCode"
+              :placeholder="$t('membership.adminTotp')"
+              type="password"
+              autocomplete="one-time-code"
+            />
+            <el-button
+              :icon="Star"
+              :loading="pending.changeLevel"
+              :disabled="pending.changeLevel"
+              @click="changeLevel"
+            >
+              {{ $t('membership.adjust') }}
+            </el-button>
           </div>
         </div>
-        <el-table :data="dashboard?.browseHistory || []" class="data-table">
-          <el-table-column prop="productName" label="商品" />
-          <el-table-column label="浏览时间" width="220">
-            <template #default="{ row }">{{ dateTime(row.viewedAt) }}</template>
-          </el-table-column>
-          <el-table-column label="过期时间" width="220">
-            <template #default="{ row }">{{ dateTime(row.expiresAt) }}</template>
-          </el-table-column>
-        </el-table>
       </section>
-    </section>
+
+      <section class="task-section" data-membership-section="points">
+        <div class="task-heading">
+          <h2>{{ $t('membership.pointsAccount') }}</h2>
+        </div>
+        <div class="points-actions">
+          <div v-if="auth.isAdmin" class="compact-form points-form">
+            <el-input-number
+              v-model="earnForm.amount"
+              :aria-label="$t('membership.totalEarned')"
+              :min="1"
+              :step="10"
+            />
+            <el-input-number
+              v-model="earnForm.orderId"
+              :aria-label="$t('membership.orderId')"
+              :min="1"
+              :placeholder="$t('membership.orderId')"
+            />
+            <el-button
+              :icon="Tickets"
+              :loading="pending.earnPoints"
+              :disabled="pending.earnPoints"
+              @click="earnPoints"
+            >
+              {{ $t('membership.earn') }}
+            </el-button>
+          </div>
+          <div class="compact-form redeem-form">
+            <el-input-number
+              v-model="redeemForm.points"
+              :aria-label="$t('membership.pointsBalance')"
+              :min="1"
+              :step="100"
+            />
+            <el-button
+              type="warning"
+              :loading="pending.redeemPoints"
+              :disabled="pending.redeemPoints"
+              @click="redeemPoints"
+            >
+              {{ $t('membership.redeem') }}
+            </el-button>
+          </div>
+        </div>
+      </section>
+
+      <section class="task-section" data-membership-section="price-watch">
+        <div class="task-heading">
+          <h2>{{ $t('membership.priceWatch') }}</h2>
+          <el-button
+            v-if="auth.isAdmin"
+            :icon="Refresh"
+            :loading="pending.scanPriceDrops"
+            :disabled="pending.scanPriceDrops"
+            @click="scanPriceDrops"
+          >
+            {{ $t('membership.scanPriceDrops') }}
+          </el-button>
+        </div>
+        <div class="compact-form collection-form">
+          <el-input-number
+            v-model="collectionForm.productId"
+            :aria-label="$t('common.product')"
+            :min="1"
+          />
+          <el-input-number
+            v-model="collectionForm.targetPrice"
+            :aria-label="$t('membership.targetPrice')"
+            :min="0"
+            :step="10"
+          />
+          <el-button
+            type="primary"
+            :loading="pending.addCollection"
+            :disabled="pending.addCollection"
+            @click="addCollection"
+          >
+            {{ $t('common.save') }}
+          </el-button>
+        </div>
+
+        <DataTableShell :aria-label="$t('membership.priceWatch')" :empty="collections.length === 0">
+          <template #empty>{{ $t('common.noData') }}</template>
+          <el-table :data="collections" class="data-table">
+            <el-table-column prop="productName" :label="$t('common.product')" min-width="180" />
+            <el-table-column prop="lastPrice" :label="$t('membership.lastPrice')" width="140" />
+            <el-table-column prop="targetPrice" :label="$t('membership.targetPrice')" width="140" />
+            <el-table-column :label="$t('membership.notified')" width="120">
+              <template #default="{ row }">
+                {{
+                  row.priceDropNotified ? $t('membership.notifiedYes') : $t('membership.notifiedNo')
+                }}
+              </template>
+            </el-table-column>
+            <el-table-column width="120">
+              <template #default="{ row }">
+                <el-button
+                  type="danger"
+                  plain
+                  :loading="removingCollectionIds.has(row.productId)"
+                  :disabled="removingCollectionIds.has(row.productId)"
+                  @click="removeCollection(row.productId)"
+                >
+                  {{ $t('common.delete') }}
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </DataTableShell>
+      </section>
+
+      <section class="task-section" data-membership-section="coupons">
+        <div class="task-heading">
+          <h2>{{ $t('membership.couponAccount') }}</h2>
+        </div>
+        <DataTableShell :aria-label="$t('membership.couponAccount')" :empty="coupons.length === 0">
+          <template #empty>{{ $t('common.noData') }}</template>
+          <el-table :data="coupons" class="data-table">
+            <el-table-column
+              prop="couponCode"
+              :label="$t('membership.couponCode')"
+              min-width="180"
+            />
+            <el-table-column :label="$t('common.status')" width="140">
+              <template #default="{ row }">
+                <el-tag disable-transitions>{{ couponStatusLabel(row.status) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column :label="$t('membership.claimedAt')" width="220">
+              <template #default="{ row }">{{ dateTime(row.claimedAt) }}</template>
+            </el-table-column>
+          </el-table>
+        </DataTableShell>
+      </section>
+
+      <section class="task-section" data-membership-section="history">
+        <div class="task-heading">
+          <h2>{{ $t('membership.browseHistory') }}</h2>
+          <div class="history-action">
+            <el-input-number
+              v-model="browseForm.productId"
+              :aria-label="$t('common.product')"
+              :min="1"
+            />
+            <el-button
+              :loading="pending.recordBrowse"
+              :disabled="pending.recordBrowse"
+              @click="recordBrowse"
+            >
+              {{ $t('membership.record') }}
+            </el-button>
+          </div>
+        </div>
+        <DataTableShell
+          :aria-label="$t('membership.browseHistory')"
+          :empty="browseHistory.length === 0"
+        >
+          <template #empty>{{ $t('common.noData') }}</template>
+          <el-table :data="browseHistory" class="data-table">
+            <el-table-column prop="productName" :label="$t('common.product')" min-width="180" />
+            <el-table-column :label="$t('membership.viewedAt')" width="220">
+              <template #default="{ row }">{{ dateTime(row.viewedAt) }}</template>
+            </el-table-column>
+            <el-table-column :label="$t('membership.expiresAt')" width="220">
+              <template #default="{ row }">{{ dateTime(row.expiresAt) }}</template>
+            </el-table-column>
+          </el-table>
+        </DataTableShell>
+      </section>
+    </AsyncStateView>
   </div>
 </template>
 
 <style scoped>
 .membership-page {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+  display: grid;
+  gap: 0;
 }
 
-.membership-header,
-.band-title {
-  display: flex;
+.account-summary {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(320px, 1.2fr);
+  gap: 24px;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  padding: 18px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-surface);
+  background: var(--color-surface);
 }
 
-.eyebrow {
-  margin: 0 0 4px;
+.account-summary__level {
+  display: grid;
+  gap: 8px;
+}
+
+.account-summary__level span,
+.account-summary__metrics dt,
+.account-summary__metrics small,
+.task-heading p {
   color: var(--text-muted);
-  font-size: 0.85rem;
-  text-transform: uppercase;
 }
 
-h1,
-h2,
-p {
+.account-summary__level strong {
+  font-size: 1.35rem;
+}
+
+.account-summary__metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
   margin: 0;
 }
 
-.metrics-row,
-.section-grid {
+.account-summary__metrics div {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 4px;
+}
+
+.account-summary__metrics dd {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.task-section {
+  display: grid;
   gap: 16px;
+  padding: 24px 0;
+  border-bottom: 1px solid var(--color-border);
 }
 
-.metric-panel,
-.tool-panel,
-.table-band {
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--color-surface);
-  padding: 16px;
+.task-section:last-child {
+  border-bottom: 0;
 }
 
-.metric-panel {
+.task-heading {
   display: flex;
-  min-height: 120px;
-  flex-direction: column;
+  gap: 16px;
+  align-items: center;
   justify-content: space-between;
 }
 
-.metric-panel span,
-.metric-panel small {
-  color: var(--text-muted);
+.task-heading h2,
+.task-heading p,
+.admin-tools h3 {
+  margin: 0;
 }
 
-.metric-panel strong {
-  font-size: 2rem;
+.task-heading h2 {
+  font-size: 1.1rem;
 }
 
-.tool-panel {
-  display: flex;
-  flex-direction: column;
+.task-heading p {
+  margin-top: 4px;
+}
+
+.compact-form,
+.points-actions {
+  display: grid;
   gap: 12px;
 }
 
-.compact-form {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 10px;
+.identity-form {
+  grid-template-columns: minmax(160px, 1fr) minmax(220px, 1.4fr) auto;
 }
 
-.compact-form.split {
+.level-form {
+  grid-template-columns: 180px minmax(180px, 1fr) minmax(180px, 1fr) auto;
+}
+
+.points-actions {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.inline-actions {
+.points-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+}
+
+.redeem-form {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.collection-form {
+  grid-template-columns: repeat(2, minmax(0, 220px)) auto;
+  justify-content: start;
+}
+
+.admin-tools {
+  display: grid;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+.history-action {
   display: flex;
   gap: 10px;
+  align-items: center;
 }
 
 .data-table {
   width: 100%;
-  margin-top: 12px;
 }
 
-@media (max-width: 720px) {
-  .membership-header,
-  .band-title,
-  .inline-actions {
+@media (max-width: 900px) {
+  .account-summary,
+  .points-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .identity-form,
+  .level-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .account-summary__metrics,
+  .identity-form,
+  .level-form,
+  .points-form,
+  .redeem-form,
+  .collection-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .task-heading,
+  .history-action {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .compact-form.split {
-    grid-template-columns: minmax(0, 1fr);
+  .task-heading :deep(.el-button),
+  .history-action :deep(.el-button),
+  .compact-form :deep(.el-button) {
+    min-height: 44px;
   }
 }
 </style>

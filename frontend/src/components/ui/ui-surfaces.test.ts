@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp, h, type App, type Component } from 'vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import DataTableShell from '@/components/ui/DataTableShell.vue'
@@ -6,6 +6,10 @@ import PageHeader from '@/components/ui/PageHeader.vue'
 import { i18n } from '@/locales'
 
 const mountedApps: Array<{ app: App; host: HTMLElement }> = []
+
+beforeEach(() => {
+  i18n.global.locale.value = 'en'
+})
 
 function mount(component: Component, props: Record<string, unknown> = {}, slots = {}) {
   const host = document.createElement('div')
@@ -67,6 +71,16 @@ describe('AsyncStateView', () => {
     expect(retry).toHaveBeenCalledOnce()
   })
 
+  it('falls back to controlled copy for an unknown error string', () => {
+    const host = mount(AsyncStateView, {
+      status: 'error',
+      error: 'Raw provider secret',
+    })
+
+    expect(host.textContent).toContain('The request failed. Please try again later.')
+    expect(host.textContent).not.toContain('Raw provider secret')
+  })
+
   it('keeps content visible behind a compact updating indicator', () => {
     const host = mount(
       AsyncStateView,
@@ -89,7 +103,10 @@ describe('DataTableShell', () => {
     )
 
     expect(host.querySelector('.data-table-shell__scroller table')).not.toBeNull()
-    expect(host.querySelector('.data-table-shell')?.getAttribute('aria-label')).toBe('Products')
+    const scroller = host.querySelector('.data-table-shell__scroller')
+    expect(scroller?.getAttribute('role')).toBe('region')
+    expect(scroller?.getAttribute('tabindex')).toBe('0')
+    expect(scroller?.getAttribute('aria-label')).toBe('Products')
   })
 
   it('shows the empty slot instead of a stale table', () => {

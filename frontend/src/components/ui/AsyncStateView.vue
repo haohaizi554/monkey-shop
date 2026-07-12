@@ -24,10 +24,7 @@ defineEmits<{ retry: [] }>()
 
 const { t, te } = useI18n()
 const errorMessage = computed(() => {
-  if (!props.error) {
-    return t('common.requestFailed')
-  }
-  return te(props.error) ? t(props.error) : props.error
+  return props.error && te(props.error) ? t(props.error) : t('common.requestFailed')
 })
 </script>
 
@@ -43,7 +40,7 @@ const errorMessage = computed(() => {
 
     <div v-else-if="status === 'loading'" class="async-state-view__loading" role="status">
       <slot name="loading">
-        <span class="visually-hidden">{{ t('common.loading') }}</span>
+        <span class="sr-only">{{ t('common.loading') }}</span>
         <span
           v-for="line in loadingLines"
           :key="line"

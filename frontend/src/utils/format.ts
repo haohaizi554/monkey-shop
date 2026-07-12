@@ -7,6 +7,21 @@ export function money(value: string | number | undefined): string {
   }).format(Number.isFinite(numeric) ? numeric : 0)
 }
 
+function currentLocale(): 'en' | 'zh' {
+  if (typeof localStorage === 'undefined') {
+    return 'zh'
+  }
+  return localStorage.getItem('monkeyshop-locale') === 'en' ? 'en' : 'zh'
+}
+
+function localizedLabel(map: Record<string, [string, string]>, key: string): string {
+  const entry = map[key]
+  if (!entry) {
+    return key
+  }
+  return currentLocale() === 'en' ? entry[1] : entry[0]
+}
+
 export function dateTime(value?: string): string {
   if (!value) {
     return '-'
@@ -39,22 +54,25 @@ export function orderStatusKey(status: string): string {
 }
 
 export function orderStatusLabel(status: string): string {
-  const labels: Record<string, string> = {
-    PAID: '已支付',
-    PARTIALLY_SHIPPED: '部分发货',
-    SHIPPED: '已发货',
-    PARTIALLY_RECEIVED: '部分签收',
-    COMPLETED: '已完成',
-    RETURN_REQUESTED: '申请退货',
-    WAITING_RETURN_SHIPMENT: '待寄回',
-    RETURN_SHIPPING: '退货中',
-    REFUNDED: '已退款',
+  const labels: Record<string, [string, string]> = {
+    PAID: ['已支付', 'Paid'],
+    PARTIALLY_SHIPPED: ['部分发货', 'Partially shipped'],
+    SHIPPED: ['已发货', 'Shipped'],
+    PARTIALLY_RECEIVED: ['部分签收', 'Partially received'],
+    COMPLETED: ['已完成', 'Completed'],
+    RETURN_REQUESTED: ['申请退货', 'Return requested'],
+    WAITING_RETURN_SHIPMENT: ['待寄回', 'Awaiting return shipment'],
+    RETURN_SHIPPING: ['退货中', 'Returning'],
+    REFUNDED: ['已退款', 'Refunded'],
   }
-  return labels[orderStatusKey(status)] ?? status
+  return localizedLabel(labels, orderStatusKey(status))
 }
 
 export function statusType(status: string): 'primary' | 'success' | 'warning' | 'info' | 'danger' {
   const key = orderStatusKey(status)
+  if (key === 'PAID') {
+    return 'success'
+  }
   if (key === 'REFUNDED') {
     return 'info'
   }
@@ -71,24 +89,24 @@ export function statusType(status: string): 'primary' | 'success' | 'warning' | 
 }
 
 export function paymentMethodLabel(method: string): string {
-  const labels: Record<string, string> = {
-    WECHAT: '微信',
-    ALIPAY: '支付宝',
-    BANK_CARD: '银行卡',
+  const labels: Record<string, [string, string]> = {
+    WECHAT: ['微信', 'WeChat Pay'],
+    ALIPAY: ['支付宝', 'Alipay'],
+    BANK_CARD: ['银行卡', 'Bank card'],
   }
-  return labels[method] ?? method
+  return localizedLabel(labels, method)
 }
 
 export function paymentStatusLabel(status: string): string {
-  const labels: Record<string, string> = {
-    PENDING: '待支付',
-    PAID: '已支付',
-    PARTIALLY_REFUNDED: '部分退款',
-    REFUNDED: '已退款',
-    SUSPENDED: '已挂起',
-    FAILED: '支付失败',
+  const labels: Record<string, [string, string]> = {
+    PENDING: ['待支付', 'Pending'],
+    PAID: ['已支付', 'Paid'],
+    PARTIALLY_REFUNDED: ['部分退款', 'Partially refunded'],
+    REFUNDED: ['已退款', 'Refunded'],
+    SUSPENDED: ['已挂起', 'Suspended'],
+    FAILED: ['支付失败', 'Failed'],
   }
-  return labels[status] ?? status
+  return localizedLabel(labels, status)
 }
 
 export function paymentStatusType(status: string): 'success' | 'warning' | 'info' | 'danger' {
@@ -105,13 +123,13 @@ export function paymentStatusType(status: string): 'success' | 'warning' | 'info
 }
 
 export function paymentReconciliationStatusLabel(status: string): string {
-  const labels: Record<string, string> = {
-    BALANCED: '账实相符',
-    DIFF: '存在差异',
-    PENDING_PROVIDER_DATA: '等待渠道账单',
-    SUSPENDED: '已挂起',
+  const labels: Record<string, [string, string]> = {
+    BALANCED: ['账实相符', 'Balanced'],
+    DIFF: ['存在差异', 'Discrepancy'],
+    PENDING_PROVIDER_DATA: ['等待渠道账单', 'Awaiting provider data'],
+    SUSPENDED: ['已挂起', 'Suspended'],
   }
-  return labels[status] ?? status
+  return localizedLabel(labels, status)
 }
 
 export function paymentReconciliationStatusType(
@@ -130,14 +148,14 @@ export function paymentReconciliationStatusType(
 }
 
 export function trackingStatusLabel(status: string): string {
-  const labels: Record<string, string> = {
-    ORDERED: '已下单',
-    PICKED_UP: '已揽收',
-    IN_TRANSIT: '运输中',
-    OUT_FOR_DELIVERY: '派送中',
-    SIGNED: '已签收',
+  const labels: Record<string, [string, string]> = {
+    ORDERED: ['已下单', 'Ordered'],
+    PICKED_UP: ['已揽收', 'Picked up'],
+    IN_TRANSIT: ['运输中', 'In transit'],
+    OUT_FOR_DELIVERY: ['派送中', 'Out for delivery'],
+    SIGNED: ['已签收', 'Signed'],
   }
-  return labels[status] ?? status
+  return localizedLabel(labels, status)
 }
 
 export function trackingStatusType(status: string): 'primary' | 'success' | 'warning' | 'info' {
@@ -154,40 +172,40 @@ export function trackingStatusType(status: string): 'primary' | 'success' | 'war
 }
 
 export function trackingEventLabel(event: string): string {
-  const labels: Record<string, string> = {
-    PICKUP: '揽收',
-    TRANSIT: '运输',
-    DISPATCH: '派送',
-    SIGN: '签收',
+  const labels: Record<string, [string, string]> = {
+    PICKUP: ['揽收', 'Pickup'],
+    TRANSIT: ['运输', 'Transit'],
+    DISPATCH: ['派送', 'Dispatch'],
+    SIGN: ['签收', 'Sign'],
   }
-  return labels[event] ?? event
+  return localizedLabel(labels, event)
 }
 
 export function couponStatusLabel(status: string): string {
-  const labels: Record<string, string> = {
-    CLAIMED: '已领取',
-    USED: '已核销',
-    RETURNED: '已退回',
-    EXPIRED: '已过期',
+  const labels: Record<string, [string, string]> = {
+    CLAIMED: ['已领取', 'Claimed'],
+    USED: ['已核销', 'Used'],
+    RETURNED: ['已退回', 'Returned'],
+    EXPIRED: ['已过期', 'Expired'],
   }
-  return labels[status] ?? status
+  return localizedLabel(labels, status)
 }
 
 export function groupBuyStatusLabel(status: string): string {
-  const labels: Record<string, string> = {
-    OPEN: '拼团中',
-    SUCCEEDED: '已成团',
-    CANCELLED: '已取消',
+  const labels: Record<string, [string, string]> = {
+    OPEN: ['拼团中', 'Open'],
+    SUCCEEDED: ['已成团', 'Succeeded'],
+    CANCELLED: ['已取消', 'Cancelled'],
   }
-  return labels[status] ?? status
+  return localizedLabel(labels, status)
 }
 
 export function membershipLevelLabel(level: string): string {
-  const labels: Record<string, string> = {
-    BASIC: '基础会员',
-    SILVER: '银卡会员',
-    GOLD: '金卡会员',
-    DIAMOND: '钻石会员',
+  const labels: Record<string, [string, string]> = {
+    BASIC: ['基础会员', 'Basic'],
+    SILVER: ['银卡会员', 'Silver'],
+    GOLD: ['金卡会员', 'Gold'],
+    DIAMOND: ['钻石会员', 'Diamond'],
   }
-  return labels[level] ?? level
+  return localizedLabel(labels, level)
 }

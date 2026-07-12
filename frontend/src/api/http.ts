@@ -104,6 +104,12 @@ function friendlyMessage(message: string | undefined, status?: number, code?: st
     )
   }
   if (errorCode === 'FORBIDDEN' || status === 403 || normalized === 'operation is not permitted') {
+    if (normalized.includes('password change required')) {
+      return localized(
+        'Your password has expired. Please update it before continuing.',
+        '\u5bc6\u7801\u5df2\u8fc7\u671f\uff0c\u8bf7\u5148\u4fee\u6539\u5bc6\u7801\u540e\u518d\u7ee7\u7eed\u3002',
+      )
+    }
     return localized(
       'You do not have permission to perform this action.',
       '\u5f53\u524d\u8d26\u53f7\u6ca1\u6709\u6743\u9650\u6267\u884c\u8fd9\u4e2a\u64cd\u4f5c\u3002',
@@ -175,12 +181,35 @@ http.interceptors.response.use(
       config.url !== '/auth/refresh'
     ) {
       config._retry = true
-      await http.post('/auth/refresh')
-      return http(config)
+      try {
+        await http.post('/auth/refresh')
+        return http(config)
+      } catch (refreshError) {
+        await handleSessionExpired()
+        return Promise.reject(refreshError)
+      }
     }
     return Promise.reject(error)
   },
 )
+
+async function handleSessionExpired(): Promise<void> {
+  if (typeof window === 'undefined') {
+    return
+  }
+  try {
+    const { useAuthStore } = await import('@/stores/auth')
+    useAuthStore().clearLocalSession()
+  } catch {
+    // Pinia not yet initialised; fall through to redirect below.
+  }
+  const pathname = window.location.pathname
+  if (pathname === '/login' || pathname === '/') {
+    return
+  }
+  const redirect = pathname + window.location.search
+  window.location.assign(`/login?redirect=${encodeURIComponent(redirect)}`)
+}
 
 export async function request<T>(config: AxiosRequestConfig): Promise<T> {
   try {

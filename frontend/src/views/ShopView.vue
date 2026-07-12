@@ -1,10 +1,16 @@
 <script setup lang="ts">
 import { Search } from '@element-plus/icons-vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { listMonkeys } from '@/api/catalog'
 import ProductImage from '@/components/ProductImage.vue'
+import ProductCard from '@/components/product/ProductCard.vue'
+import AsyncStateView from '@/components/ui/AsyncStateView.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import { useAsyncState, type AsyncStatus } from '@/composables/useAsyncState'
 import { useCheckout } from '@/composables/useCheckout'
+import { useNotify } from '@/composables/useNotify'
 import { productListJsonLd } from '@/seo/product-json-ld'
 import { useJsonLd } from '@/seo/useJsonLd'
 import type { Address, Monkey } from '@/types'
@@ -12,25 +18,28 @@ import { money } from '@/utils/format'
 
 type NoticeLevel = 'error' | 'success' | 'warning'
 
-const loading = ref(false)
-const monkeys = ref<Monkey[]>([])
-const filters = reactive({ keyword: '', minPrice: '', maxPrice: '', inStockOnly: false })
+const router = useRouter()
 const { t } = useI18n()
-const notice = ref<{ level: NoticeLevel; message: string } | null>(null)
-let noticeTimer: ReturnType<typeof setTimeout> | undefined
+const filters = reactive({ keyword: '', minPrice: '', maxPrice: '', inStockOnly: false })
+const notify = useNotify()
+const catalogState = useAsyncState<Monkey[]>({ timeoutMs: 20000 })
 
 function addressLabel(address: Address) {
   return `${address.receiverName} - ${address.phone} - ${address.detailAddress}`
 }
 
 function showNotice(level: NoticeLevel, message: string) {
-  notice.value = { level, message }
-  if (noticeTimer !== undefined) {
-    clearTimeout(noticeTimer)
+  if (level === 'error') {
+    notify.error(t('feedback.requestFailed'), { key: 'shop:checkout-error' })
+    return
   }
-  noticeTimer = setTimeout(() => {
-    notice.value = null
-  }, 4000)
+  notify.notify(level, message)
+}
+
+async function loadMonkeys() {
+  await catalogState.load(() => listMonkeys(), {
+    isEmpty: (list) => list.length === 0,
+  })
 }
 
 const {
@@ -46,8 +55,9 @@ const {
   submitOrder,
 } = useCheckout({ afterOrderCreated: loadMonkeys, notify: showNotice })
 
+const monkeysList = computed(() => catalogState.data.value ?? [])
 const filteredMonkeys = computed(() =>
-  monkeys.value.filter((monkey) => {
+  monkeysList.value.filter((monkey) => {
     const keyword = filters.keyword.trim().toLowerCase()
     const price = Number(monkey.price)
     return (
@@ -67,6 +77,12 @@ const hasActiveFilters = computed(
     filters.maxPrice.trim().length > 0 ||
     filters.inStockOnly,
 )
+const catalogStatus = computed<AsyncStatus>(() => {
+  if (catalogState.status.value === 'success' && filteredMonkeys.value.length === 0) {
+    return 'empty'
+  }
+  return catalogState.status.value
+})
 const productListStructuredData = computed(() => productListJsonLd(filteredMonkeys.value))
 useJsonLd('monkeyshop-product-list-jsonld', productListStructuredData)
 
@@ -77,15 +93,8 @@ function clearFilters() {
   filters.inStockOnly = false
 }
 
-async function loadMonkeys() {
-  loading.value = true
-  try {
-    monkeys.value = await listMonkeys()
-  } catch (error) {
-    showNotice('error', error instanceof Error ? error.message : t('common.unableToLoadCatalog'))
-  } finally {
-    loading.value = false
-  }
+function openProductDetails(productId: number) {
+  void router.push(`/shop/${productId}`)
 }
 
 onMounted(() => {
@@ -94,16 +103,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="route-view">
-    <div v-if="notice" class="notice" :class="`notice-${notice.level}`" role="status">
-      {{ notice.message }}
-    </div>
+  <div class="route-view shop-view">
+    <PageHeader :title="$t('shop.title')" :description="$t('shop.subtitle')" />
 
-    <section class="toolbar-band">
-      <div>
-        <h1>{{ $t('shop.title') }}</h1>
-        <p>{{ $t('shop.subtitle') }}</p>
-      </div>
+    <section class="catalog-toolbar" :aria-label="$t('common.search')">
       <div class="catalog-tools">
         <input
           id="catalog-keyword"
@@ -128,138 +131,150 @@ onMounted(() => {
           type="number"
           :placeholder="$t('common.maxPrice')"
         />
-        <div class="native-checkbox">
-          <input
-            v-model="filters.inStockOnly"
-            type="checkbox"
-            :aria-label="$t('shop.inStockOnly')"
-          />
+        <label class="native-checkbox" for="catalog-in-stock">
+          <input id="catalog-in-stock" v-model="filters.inStockOnly" type="checkbox" />
           <span>{{ $t('shop.inStockOnly') }}</span>
-        </div>
+        </label>
       </div>
     </section>
 
-    <div v-if="loading" class="skeleton-grid" aria-busy="true">
-      <div v-for="item in 6" :key="item" class="skeleton-card" />
-    </div>
-
-    <section v-else-if="filteredMonkeys.length === 0" class="empty-state" aria-live="polite">
-      <Search class="empty-state-icon" aria-hidden="true" />
-      <h2>{{ $t('shop.emptyTitle') }}</h2>
-      <p>{{ $t('shop.emptyDescription') }}</p>
-      <button v-if="hasActiveFilters" class="secondary-button" type="button" @click="clearFilters">
-        {{ $t('common.clearFilters') }}
-      </button>
-    </section>
-
-    <div v-else class="product-grid">
-      <article v-for="monkey in filteredMonkeys" :key="monkey.id" class="product-card">
-        <RouterLink :to="`/shop/${monkey.id}`" :aria-label="monkey.name">
-          <ProductImage :src="monkey.imageUrl" :alt="monkey.name" />
-        </RouterLink>
-        <div class="product-body">
-          <div class="product-heading">
-            <div>
-              <RouterLink :to="`/shop/${monkey.id}`">
-                <h2>{{ monkey.name }}</h2>
-              </RouterLink>
-              <p>{{ monkey.breed }}</p>
-            </div>
-            <strong>{{ money(monkey.price) }}</strong>
-          </div>
-          <p class="description">
-            {{ monkey.description }}
-          </p>
-          <div class="product-actions">
-            <span class="stock-pill" :class="{ 'stock-pill-muted': monkey.stock <= 0 }">
-              {{ $t('common.stock') }} {{ monkey.stock }}
-            </span>
-            <button
-              class="primary-button"
-              type="button"
-              :disabled="monkey.stock <= 0 || openingCheckoutId !== null"
-              @click="openCheckout(monkey)"
-            >
-              {{
-                openingCheckoutId === monkey.id
-                  ? $t('common.loading')
-                  : monkey.stock > 0
-                    ? $t('shop.buy')
-                    : $t('shop.soldOut')
-              }}
-            </button>
-          </div>
+    <AsyncStateView
+      :status="catalogStatus"
+      :error="catalogState.error.value"
+      :empty-title="$t('shop.emptyTitle')"
+      :empty-description="$t('shop.emptyDescription')"
+      @retry="loadMonkeys"
+    >
+      <template #loading>
+        <div class="skeleton-grid" aria-busy="true">
+          <div v-for="item in 6" :key="item" class="skeleton-card" />
         </div>
-      </article>
-    </div>
+      </template>
 
-    <div v-if="checkoutOpen" class="modal-backdrop" role="presentation">
-      <section
-        class="checkout-dialog"
-        role="dialog"
-        aria-modal="true"
-        :aria-label="$t('shop.checkout')"
-      >
-        <div class="section-title">
-          <h2>{{ $t('shop.checkout') }}</h2>
-          <button class="text-button" type="button" @click="checkoutOpen = false">
-            {{ $t('common.cancel') }}
-          </button>
+      <template #error>
+        <div class="catalog-error" role="alert">
+          <el-icon class="state-error-icon" aria-hidden="true"><Search /></el-icon>
+          <p>{{ $t('common.unableToLoadCatalog') }}</p>
+          <el-button type="primary" @click="loadMonkeys">{{ $t('common.retry') }}</el-button>
         </div>
+      </template>
 
-        <div v-if="selectedMonkey" class="checkout-summary">
-          <ProductImage :src="selectedMonkey.imageUrl" :alt="selectedMonkey.name" />
-          <div>
-            <h2>{{ selectedMonkey.name }}</h2>
-            <p>{{ selectedMonkey.breed }}</p>
-            <strong>{{ money(selectedMonkey.price) }}</strong>
-          </div>
-        </div>
-
-        <div class="address-list">
-          <div v-for="address in addresses" :key="address.id" class="address-option">
-            <input
-              v-model="selectedAddressId"
-              type="radio"
-              :value="address.id"
-              :aria-label="addressLabel(address)"
-            />
-            <span>{{ addressLabel(address) }}</span>
-          </div>
-        </div>
-
-        <div class="divider">{{ $t('shop.addAddress') }}</div>
-        <div class="inline-form">
-          <input
-            v-model="newAddress.receiverName"
-            class="native-input"
-            :placeholder="$t('common.receiver')"
-          />
-          <input v-model="newAddress.phone" class="native-input" :placeholder="$t('auth.phone')" />
-          <input
-            v-model="newAddress.detailAddress"
-            class="native-input"
-            :placeholder="$t('common.address')"
-          />
-          <button class="secondary-button" type="button" @click="saveAddress">
-            {{ $t('common.save') }}
-          </button>
-        </div>
-
-        <div class="checkout-footer">
-          <button class="text-button" type="button" @click="checkoutOpen = false">
-            {{ $t('common.cancel') }}
-          </button>
+      <template #empty>
+        <div class="empty-state" role="status">
+          <Search class="empty-state-icon" aria-hidden="true" />
+          <h2>{{ $t('shop.emptyTitle') }}</h2>
+          <p>{{ $t('shop.emptyDescription') }}</p>
           <button
-            class="primary-button"
+            v-if="hasActiveFilters"
+            class="secondary-button"
             type="button"
-            :disabled="submittingOrder"
-            @click="submitOrder"
+            @click="clearFilters"
           >
-            {{ submittingOrder ? $t('common.loading') : $t('shop.placeOrder') }}
+            {{ $t('common.clearFilters') }}
           </button>
         </div>
-      </section>
-    </div>
+      </template>
+
+      <div class="product-grid">
+        <ProductCard
+          v-for="monkey in filteredMonkeys"
+          :key="monkey.id"
+          :product="monkey"
+          :pending="openingCheckoutId === monkey.id"
+          :disabled="monkey.stock <= 0 || openingCheckoutId !== null"
+          :primary-action-label="monkey.stock > 0 ? $t('shop.buy') : $t('shop.soldOut')"
+          @primary="openCheckout(monkey)"
+          @secondary="openProductDetails(monkey.id)"
+        />
+      </div>
+    </AsyncStateView>
+
+    <el-dialog
+      v-model="checkoutOpen"
+      :title="$t('shop.checkout')"
+      width="min(720px, 94vw)"
+    >
+      <div v-if="selectedMonkey" class="checkout-summary">
+        <ProductImage :src="selectedMonkey.imageUrl" :alt="selectedMonkey.name" />
+        <div>
+          <h2>{{ selectedMonkey.name }}</h2>
+          <p>{{ selectedMonkey.breed }}</p>
+          <strong>{{ money(selectedMonkey.price) }}</strong>
+        </div>
+      </div>
+
+      <el-radio-group v-model="selectedAddressId" class="address-list">
+        <el-radio v-for="address in addresses" :key="address.id" :value="address.id" border>
+          {{ addressLabel(address) }}
+        </el-radio>
+      </el-radio-group>
+
+      <el-divider>{{ $t('shop.addAddress') }}</el-divider>
+      <div class="inline-form">
+        <el-input v-model="newAddress.receiverName" :placeholder="$t('common.receiver')" />
+        <el-input v-model="newAddress.phone" :placeholder="$t('auth.phone')" />
+        <el-input v-model="newAddress.detailAddress" :placeholder="$t('common.address')" />
+        <el-button plain @click="saveAddress">
+          {{ $t('common.save') }}
+        </el-button>
+      </div>
+
+      <template #footer>
+        <el-button @click="checkoutOpen = false">
+          {{ $t('common.cancel') }}
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="submittingOrder"
+          :disabled="submittingOrder"
+          @click="submitOrder"
+        >
+          {{ $t('shop.placeOrder') }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
+
+<style scoped>
+.shop-view {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.catalog-toolbar {
+  min-width: 0;
+  padding-block: var(--space-2);
+}
+
+.catalog-tools {
+  grid-template-columns: minmax(220px, 2fr) minmax(110px, 1fr) minmax(110px, 1fr) auto;
+  width: 100%;
+}
+
+.catalog-tools :where(.native-input, .native-checkbox) {
+  min-height: 44px;
+}
+
+.catalog-error {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+  min-height: 280px;
+  align-content: center;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+@media (max-width: 1080px) {
+  .catalog-tools {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .catalog-tools {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

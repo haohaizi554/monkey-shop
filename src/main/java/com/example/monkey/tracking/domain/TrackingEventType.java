@@ -7,5 +7,6 @@ public enum TrackingEventType {
     PRODUCT_VIEW,
     ADD_TO_CART,
     ORDER_CREATED,
-    PAYMENT_SUCCESS
+    PAYMENT_SUCCESS,
+    UI_ERROR
 }

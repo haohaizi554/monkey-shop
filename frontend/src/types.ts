@@ -877,6 +877,7 @@ export type TrackingEventType =
   | 'ADD_TO_CART'
   | 'ORDER_CREATED'
   | 'PAYMENT_SUCCESS'
+  | 'UI_ERROR'
 
 export interface TrackingEventRequest {
   eventType: TrackingEventType

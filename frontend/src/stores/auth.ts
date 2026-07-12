@@ -32,6 +32,13 @@ export const useAuthStore = defineStore('auth', () => {
       await router.push('/profile')
       return
     }
+    const redirectQuery = router.currentRoute.value.query.redirect
+    const redirect =
+      typeof redirectQuery === 'string' && isSafeLocalPath(redirectQuery) ? redirectQuery : null
+    if (redirect) {
+      await router.push(redirect)
+      return
+    }
     await router.push(result.role === 'ADMIN' ? '/admin' : '/shop')
   }
 
@@ -48,6 +55,18 @@ export const useAuthStore = defineStore('auth', () => {
   function clearLocalSession(): void {
     user.value = {}
     loaded.value = true
+  }
+
+  function isSafeLocalPath(value: string): boolean {
+    if (!value.startsWith('/') || value.startsWith('//') || value.startsWith('/\\')) {
+      return false
+    }
+    try {
+      const parsed = new URL(value, window.location.origin)
+      return parsed.origin === window.location.origin && parsed.pathname.startsWith('/')
+    } catch {
+      return false
+    }
   }
 
   return {

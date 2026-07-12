@@ -1,161 +1,220 @@
 <script setup lang="ts">
-import { RefreshRight } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { RefreshRight, Search, Van } from '@element-plus/icons-vue'
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import * as logisticsApi from '@/api/logistics'
+import OrderStatusTimeline from '@/components/order/OrderStatusTimeline.vue'
+import AsyncStateView from '@/components/ui/AsyncStateView.vue'
+import DataTableShell from '@/components/ui/DataTableShell.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import { useAsyncState } from '@/composables/useAsyncState'
+import { useNotify } from '@/composables/useNotify'
 import type {
   FreightQuoteResponse,
   LogisticsCarrier,
   LogisticsTracking,
   TrackingEvent,
 } from '@/types'
-import {
-  dateTime,
-  money,
-  trackingEventLabel,
-  trackingStatusLabel,
-  trackingStatusType,
-} from '@/utils/format'
+import { money } from '@/utils/format'
 
 const route = useRoute()
-const busy = ref(false)
-const tracking = ref<LogisticsTracking | null>(null)
-const quote = ref<FreightQuoteResponse | null>(null)
+const { locale, t } = useI18n()
+const notify = useNotify()
+const trackingResource = useAsyncState<LogisticsTracking | null>({ timeoutMs: 20000 })
+
 const trackingNo = ref('')
-const addressText = ref('浙江省杭州市西湖区文一路 100 号')
+const addressText = ref('')
+const quote = ref<FreightQuoteResponse | null>(null)
+
+const addressParsePending = ref(false)
+const addressParseError = ref('')
+const quotePending = ref(false)
+const quoteError = ref('')
+const shipmentPending = ref(false)
+const shipmentError = ref('')
+const webhookPending = ref(false)
+const webhookError = ref('')
 
 const form = reactive({
   orderId: Number(route.params.orderId ?? route.query.orderId ?? 0),
   carrier: 'SF' as LogisticsCarrier,
-  recipientPhone: '13800138000',
-  province: '浙江',
-  city: '杭州',
-  district: '西湖',
-  detail: '文一路 100 号',
-  weightKg: 1.2,
+  recipientPhone: '',
+  province: '',
+  city: '',
+  district: '',
+  detail: '',
+  weightKg: 1,
   itemCount: 1,
 })
 
 const webhook = reactive({
   event: 'PICKUP' as TrackingEvent,
   eventId: '',
-  location: '杭州分拨中心',
-  remark: '本地物流轨迹推送',
+  location: '',
+  remark: '',
   signature: '',
 })
 
+const tracking = computed(() => trackingResource.data.value)
 const currentTrackingNo = computed(() => tracking.value?.trackingNo || trackingNo.value)
+const isChinese = computed(() => locale.value === 'zh')
+
+function localized(english: string, chinese: string): string {
+  return isChinese.value ? chinese : english
+}
+
+function safeCarrier(carrier: string): string {
+  const carriers: Record<string, [string, string]> = {
+    SF: ['SF Express', '\u987a\u4e30\u901f\u8fd0'],
+    ZTO: ['ZTO Express', '\u4e2d\u901a\u5feb\u9012'],
+    YTO: ['YTO Express', '\u5706\u901a\u901f\u9012'],
+  }
+  const label = carriers[carrier]
+  return label ? localized(label[0], label[1]) : localized('Delivery carrier', '\u7269\u6d41\u627f\u8fd0\u5546')
+}
+
+async function setTracking(result: LogisticsTracking) {
+  trackingNo.value = result.trackingNo
+  await trackingResource.load(() => Promise.resolve(result), {
+    isEmpty: () => false,
+    preserveData: false,
+    timeoutMs: 0,
+  })
+}
 
 async function loadByOrder() {
   if (!form.orderId) {
+    trackingResource.reset()
     return
   }
-  busy.value = true
-  try {
-    tracking.value = await logisticsApi.logisticsForOrder(form.orderId)
-    trackingNo.value = tracking.value.trackingNo
-  } catch {
-    tracking.value = null
-  } finally {
-    busy.value = false
+
+  const result = await trackingResource.load(() => logisticsApi.logisticsForOrder(form.orderId), {
+    isEmpty: (value) => value === null,
+    preserveData: true,
+  })
+  if (result) {
+    trackingNo.value = result.trackingNo
   }
 }
 
 async function loadByTrackingNo() {
-  if (!trackingNo.value) {
+  if (!trackingNo.value.trim()) {
     return
   }
-  busy.value = true
-  try {
-    tracking.value = await logisticsApi.logisticsByTrackingNo(trackingNo.value)
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '无法加载物流轨迹')
-  } finally {
-    busy.value = false
-  }
-}
 
-async function submitQuote() {
-  busy.value = true
-  try {
-    quote.value = await logisticsApi.quoteFreight({
-      carrier: form.carrier,
-      province: form.province,
-      weightKg: form.weightKg,
-      itemCount: form.itemCount,
-    })
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '无法试算运费')
-  } finally {
-    busy.value = false
+  const result = await trackingResource.load(
+    () => logisticsApi.logisticsByTrackingNo(trackingNo.value.trim()),
+    {
+      isEmpty: (value) => value === null,
+      preserveData: true,
+    },
+  )
+  if (result) {
+    form.orderId = result.orderId
   }
 }
 
 async function submitAddressParse() {
-  busy.value = true
+  if (!addressText.value.trim() || addressParsePending.value) {
+    return
+  }
+
+  addressParsePending.value = true
+  addressParseError.value = ''
   try {
-    const parsed = await logisticsApi.parseAddress({ text: addressText.value })
+    const parsed = await logisticsApi.parseAddress({ text: addressText.value.trim() })
     form.province = parsed.province
     form.city = parsed.city
     form.district = parsed.district
     form.detail = parsed.detail
-    ElMessage.success('地址已解析')
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '无法解析地址')
+    notify.success(t('logistics.addressParsed'), { key: 'logistics:address:parsed' })
+  } catch {
+    addressParseError.value = t('logistics.addressParseFailed')
   } finally {
-    busy.value = false
+    addressParsePending.value = false
+  }
+}
+
+async function submitQuote() {
+  if (quotePending.value) {
+    return
+  }
+
+  quotePending.value = true
+  quoteError.value = ''
+  try {
+    quote.value = await logisticsApi.quoteFreight({
+      carrier: form.carrier,
+      province: form.province || undefined,
+      weightKg: form.weightKg,
+      itemCount: form.itemCount,
+    })
+  } catch {
+    quoteError.value = t('logistics.quoteFailed')
+  } finally {
+    quotePending.value = false
   }
 }
 
 async function submitShipment() {
-  if (!form.orderId) {
+  if (!form.orderId || shipmentPending.value) {
     return
   }
-  busy.value = true
+
+  shipmentPending.value = true
+  shipmentError.value = ''
   try {
-    tracking.value = await logisticsApi.createShipment({
+    const result = await logisticsApi.createShipment({
       orderId: form.orderId,
       carrier: form.carrier,
-      recipientPhone: form.recipientPhone,
-      province: form.province,
-      city: form.city,
-      district: form.district,
-      detail: form.detail,
+      recipientPhone: form.recipientPhone || undefined,
+      province: form.province || undefined,
+      city: form.city || undefined,
+      district: form.district || undefined,
+      detail: form.detail || undefined,
       addressText: addressText.value || undefined,
       weightKg: form.weightKg,
       itemCount: form.itemCount,
     })
-    trackingNo.value = tracking.value.trackingNo
-    ElMessage.success('物流单已创建')
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '无法创建物流单')
+    await setTracking(result)
+    notify.success(t('logistics.shipmentCreated'), {
+      key: `logistics:${result.trackingNo}:created`,
+    })
+  } catch {
+    shipmentError.value = t('logistics.createFailed')
   } finally {
-    busy.value = false
+    shipmentPending.value = false
   }
 }
 
 async function submitWebhook() {
-  if (!currentTrackingNo.value) {
+  const activeTrackingNo = currentTrackingNo.value
+  if (!activeTrackingNo || webhookPending.value) {
     return
   }
-  busy.value = true
+
+  webhookPending.value = true
+  webhookError.value = ''
   try {
-    tracking.value = await logisticsApi.pushWebhook({
+    const result = await logisticsApi.pushWebhook({
       carrier: form.carrier,
-      trackingNo: currentTrackingNo.value,
-      eventId: webhook.eventId || `${currentTrackingNo.value}-${webhook.event}-${Date.now()}`,
+      trackingNo: activeTrackingNo,
+      eventId: webhook.eventId || `${activeTrackingNo}-${Date.now()}`,
       event: webhook.event,
-      location: webhook.location,
-      remark: webhook.remark,
+      location: webhook.location || undefined,
+      remark: webhook.remark || undefined,
       signature: webhook.signature,
     })
     webhook.eventId = ''
-    ElMessage.success('轨迹已推送')
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '无法推送轨迹')
+    await setTracking(result)
+    notify.success(t('logistics.webhookPushed'), {
+      key: `logistics:${activeTrackingNo}:updated`,
+    })
+  } catch {
+    webhookError.value = t('logistics.webhookFailed')
   } finally {
-    busy.value = false
+    webhookPending.value = false
   }
 }
 
@@ -165,174 +224,376 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="route-view">
-    <section class="page-heading">
-      <h1>{{ $t('nav.logistics') }}</h1>
-      <el-button :icon="RefreshRight" @click="loadByOrder"> 刷新 </el-button>
-    </section>
+  <div class="route-view logistics-view">
+    <PageHeader :title="$t('nav.logistics')">
+      <template #actions>
+        <el-button
+          :icon="RefreshRight"
+          :loading="trackingResource.status.value === 'updating'"
+          :disabled="!form.orderId"
+          @click="loadByOrder"
+        >
+          {{ $t('common.refresh') }}
+        </el-button>
+      </template>
+    </PageHeader>
 
-    <section class="logistics-layout">
-      <form class="logistics-panel" @submit.prevent="submitShipment">
-        <h2>创建物流</h2>
-        <div class="field-grid">
+    <section class="logistics-task lookup-task" :aria-label="$t('common.tracking')">
+      <h2>
+        <el-icon aria-hidden="true"><Search /></el-icon>
+        {{ $t('common.tracking') }}
+      </h2>
+      <div class="lookup-grid">
+        <form class="task-form task-form--inline" @submit.prevent="loadByOrder">
           <el-input-number
             v-model="form.orderId"
             :min="1"
             controls-position="right"
-            placeholder="订单 ID"
+            :aria-label="$t('logistics.orderId')"
+            :placeholder="$t('logistics.orderId')"
           />
-          <el-segmented
-            v-model="form.carrier"
-            :options="[
-              { label: 'SF', value: 'SF' },
-              { label: 'ZTO', value: 'ZTO' },
-              { label: 'YTO', value: 'YTO' },
-            ]"
+          <el-button
+            type="primary"
+            native-type="submit"
+            :disabled="!form.orderId"
+            :loading="trackingResource.status.value === 'loading'"
+          >
+            {{ $t('common.search') }}
+          </el-button>
+        </form>
+        <form class="task-form task-form--inline" @submit.prevent="loadByTrackingNo">
+          <el-input
+            v-model="trackingNo"
+            :aria-label="$t('logistics.trackingNo')"
+            :placeholder="$t('logistics.trackingNoPlaceholder')"
           />
+          <el-button
+            type="primary"
+            native-type="submit"
+            :disabled="!trackingNo.trim()"
+            :loading="trackingResource.status.value === 'loading'"
+          >
+            {{ $t('common.search') }}
+          </el-button>
+        </form>
+      </div>
+    </section>
+
+    <section class="logistics-task address-task" :aria-label="$t('common.parseAddress')">
+      <h2>{{ $t('common.parseAddress') }}</h2>
+      <form class="task-form" @submit.prevent="submitAddressParse">
+        <el-input
+          v-model="addressText"
+          type="textarea"
+          :rows="2"
+          :aria-label="$t('logistics.fullAddress')"
+          :placeholder="$t('logistics.fullAddress')"
+        />
+        <el-button
+          plain
+          native-type="submit"
+          :loading="addressParsePending"
+          :disabled="addressParsePending || !addressText.trim()"
+        >
+          {{ $t('common.parseAddress') }}
+        </el-button>
+        <p v-if="addressParseError" class="task-error" role="alert">
+          {{ addressParseError }}
+        </p>
+      </form>
+      <div class="address-grid">
+        <el-input v-model="form.province" :placeholder="$t('logistics.province')" />
+        <el-input v-model="form.city" :placeholder="$t('logistics.city')" />
+        <el-input v-model="form.district" :placeholder="$t('logistics.district')" />
+        <el-input v-model="form.detail" :placeholder="$t('logistics.detailAddress')" />
+      </div>
+    </section>
+
+    <section class="logistics-task quote-task" :aria-label="$t('logistics.quoteFreight')">
+      <h2>{{ $t('logistics.quoteFreight') }}</h2>
+      <form class="task-form quote-form" @submit.prevent="submitQuote">
+        <el-segmented
+          v-model="form.carrier"
+          :options="[
+            { label: safeCarrier('SF'), value: 'SF' },
+            { label: safeCarrier('ZTO'), value: 'ZTO' },
+            { label: safeCarrier('YTO'), value: 'YTO' },
+          ]"
+          :aria-label="$t('logistics.carrier')"
+        />
+        <el-input-number
+          v-model="form.weightKg"
+          :min="0.01"
+          :step="0.01"
+          :precision="2"
+          controls-position="right"
+          :aria-label="$t('logistics.weight')"
+          :placeholder="$t('logistics.weight')"
+        />
+        <el-input-number
+          v-model="form.itemCount"
+          :min="1"
+          controls-position="right"
+          :aria-label="$t('logistics.itemCount')"
+          :placeholder="$t('logistics.itemCount')"
+        />
+        <el-button plain native-type="submit" :loading="quotePending" :disabled="quotePending">
+          {{ $t('common.quote') }}
+        </el-button>
+        <p v-if="quoteError" class="task-error" role="alert">{{ quoteError }}</p>
+      </form>
+      <dl v-if="quote" class="logistics-summary">
+        <div>
+          <dt>{{ $t('logistics.carrier') }}</dt>
+          <dd>{{ safeCarrier(quote.carrier) }}</dd>
         </div>
+        <div>
+          <dt>{{ $t('logistics.freight') }}</dt>
+          <dd>{{ money(quote.amount) }}</dd>
+        </div>
+        <div>
+          <dt>{{ $t('logistics.weight') }}</dt>
+          <dd>{{ quote.weightKg }} kg</dd>
+        </div>
+        <div>
+          <dt>ETA</dt>
+          <dd>{{ quote.etaHours }} h</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="logistics-task shipment-task" :aria-label="$t('logistics.createShipment')">
+      <h2>
+        <el-icon aria-hidden="true"><Van /></el-icon>
+        {{ $t('logistics.createShipment') }}
+      </h2>
+      <form class="task-form shipment-form" @submit.prevent="submitShipment">
         <el-input
           v-model="form.recipientPhone"
           autocomplete="off"
           inputmode="tel"
-          placeholder="收件手机号"
+          :aria-label="$t('logistics.recipientPhone')"
+          :placeholder="$t('logistics.recipientPhone')"
         />
-        <el-input v-model="addressText" type="textarea" :rows="2" placeholder="完整地址" />
-        <div class="field-grid">
-          <el-input v-model="form.province" placeholder="省份" />
-          <el-input v-model="form.city" placeholder="城市" />
-          <el-input v-model="form.district" placeholder="区县" />
-        </div>
-        <el-input v-model="form.detail" placeholder="详细地址" />
-        <div class="field-grid">
-          <el-input-number
-            v-model="form.weightKg"
-            :min="0.01"
-            :precision="2"
-            controls-position="right"
-            placeholder="重量 kg"
-          />
-          <el-input-number
-            v-model="form.itemCount"
-            :min="1"
-            controls-position="right"
-            placeholder="件数"
-          />
-        </div>
-        <div class="inline-actions">
-          <el-button plain :loading="busy" @click="submitAddressParse">
-            {{ $t('common.parseAddress') }}
-          </el-button>
-          <el-button plain :loading="busy" @click="submitQuote">
-            {{ $t('common.quote') }}
-          </el-button>
-          <el-button type="primary" native-type="submit" :loading="busy">
-            {{ $t('common.createShipment') }}
-          </el-button>
-        </div>
+        <p v-if="shipmentError" class="task-error" role="alert">{{ shipmentError }}</p>
+        <el-button
+          type="primary"
+          native-type="submit"
+          :loading="shipmentPending"
+          :disabled="shipmentPending || !form.orderId"
+        >
+          {{ $t('common.createShipment') }}
+        </el-button>
       </form>
+    </section>
 
-      <section class="logistics-panel">
-        <h2>{{ $t('common.tracking') }}</h2>
-        <form class="tracking-search" @submit.prevent="loadByTrackingNo">
-          <el-input v-model="trackingNo" placeholder="物流单号" />
-          <el-button type="primary" native-type="submit" :loading="busy">
-            {{ $t('common.search') }}
+    <AsyncStateView
+      :status="trackingResource.status.value"
+      :error="trackingResource.error.value"
+      :empty-title="$t('logistics.noTracking')"
+      @retry="loadByOrder"
+    >
+      <template #idle>
+        <section class="tracking-empty" role="status">
+          <el-icon aria-hidden="true"><Van /></el-icon>
+          <span>{{ $t('logistics.noTracking') }}</span>
+        </section>
+      </template>
+
+      <template #error>
+        <section class="tracking-empty" role="alert">
+          <span>{{ $t('logistics.loadFailed') }}</span>
+          <el-button :icon="RefreshRight" @click="loadByOrder">
+            {{ $t('common.retry') }}
           </el-button>
-        </form>
-        <div v-if="quote" class="metric-grid">
-          <span>{{ quote.carrier }} / {{ quote.province }}</span>
-          <strong>{{ money(quote.amount) }}</strong>
-          <span>{{ quote.weightKg }} kg</span>
-          <span>{{ quote.etaHours }} h</span>
-        </div>
-        <div v-if="tracking" class="tracking-card">
-          <div class="tracking-title">
-            <strong>{{ tracking.trackingNo }}</strong>
-            <el-tag :type="trackingStatusType(tracking.status)" disable-transitions>
-              {{ trackingStatusLabel(tracking.status) }}
-            </el-tag>
-          </div>
-          <p>{{ tracking.province }} / {{ tracking.city }} / {{ tracking.district }}</p>
-          <p>{{ money(tracking.freightAmount) }} / {{ tracking.etaHours }}h</p>
-          <el-timeline>
-            <el-timeline-item
-              v-for="event in tracking.events"
-              :key="event.id"
-              :timestamp="dateTime(event.eventTime)"
-            >
-              {{ trackingEventLabel(event.eventType) }}：{{
-                trackingStatusLabel(event.fromStatus)
-              }}
-              → {{ trackingStatusLabel(event.toStatus) }} / {{ event.location || '未知位置' }}
-            </el-timeline-item>
-          </el-timeline>
-        </div>
-        <el-empty v-else description="暂无物流轨迹" :image-size="80" />
-        <form class="webhook-form" @submit.prevent="submitWebhook">
-          <el-segmented
-            v-model="webhook.event"
-            :options="[
-              { label: '揽收', value: 'PICKUP' },
-              { label: '运输', value: 'TRANSIT' },
-              { label: '派送', value: 'DISPATCH' },
-              { label: '签收', value: 'SIGN' },
-            ]"
+        </section>
+      </template>
+
+      <DataTableShell v-if="tracking" :aria-label="$t('common.tracking')">
+        <section class="logistics-task tracking-task">
+          <header class="tracking-heading">
+            <div>
+              <h2>{{ tracking.trackingNo }}</h2>
+              <p>{{ safeCarrier(tracking.carrier) }}</p>
+            </div>
+            <strong>{{ money(tracking.freightAmount) }}</strong>
+          </header>
+          <p class="tracking-address">
+            {{ [tracking.province, tracking.city, tracking.district].filter(Boolean).join(' · ') }}
+          </p>
+          <OrderStatusTimeline
+            :current-status="tracking.status"
+            :timestamps="{
+              created: tracking.createTime,
+              shipped: tracking.pickedUpAt,
+              delivered: tracking.signedAt,
+            }"
+            :logistics-events="tracking.events"
           />
-          <el-input v-model="webhook.eventId" placeholder="事件 ID" />
-          <el-input v-model="webhook.location" placeholder="位置" />
-          <el-input v-model="webhook.remark" placeholder="备注" />
-          <el-input v-model="webhook.signature" placeholder="签名" show-password />
-          <el-button type="warning" native-type="submit" :loading="busy">
-            {{ $t('common.pushWebhook') }}
-          </el-button>
-        </form>
-      </section>
+        </section>
+      </DataTableShell>
+    </AsyncStateView>
+
+    <section class="logistics-task webhook-task" :aria-label="$t('common.pushWebhook')">
+      <h2>{{ $t('common.pushWebhook') }}</h2>
+      <form class="task-form webhook-form" @submit.prevent="submitWebhook">
+        <el-segmented
+          v-model="webhook.event"
+          :options="[
+            { label: $t('logistics.eventPickup'), value: 'PICKUP' },
+            { label: $t('logistics.eventTransit'), value: 'TRANSIT' },
+            { label: $t('logistics.eventDispatch'), value: 'DISPATCH' },
+            { label: $t('logistics.eventSign'), value: 'SIGN' },
+          ]"
+          :aria-label="$t('logistics.event')"
+        />
+        <el-input v-model="webhook.eventId" :placeholder="$t('logistics.eventId')" />
+        <el-input v-model="webhook.location" :placeholder="$t('logistics.location')" />
+        <el-input v-model="webhook.remark" :placeholder="$t('logistics.remark')" />
+        <el-input
+          v-model="webhook.signature"
+          :placeholder="$t('logistics.signature')"
+          show-password
+        />
+        <p v-if="webhookError" class="task-error" role="alert">{{ webhookError }}</p>
+        <el-button
+          type="warning"
+          native-type="submit"
+          :loading="webhookPending"
+          :disabled="webhookPending || !currentTrackingNo"
+        >
+          {{ $t('common.pushWebhook') }}
+        </el-button>
+      </form>
     </section>
   </div>
 </template>
 
 <style scoped>
-.logistics-layout {
+.logistics-view {
   display: grid;
-  gap: 16px;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 18px;
 }
 
-.logistics-panel {
-  border: 1px solid var(--el-border-color);
-  border-radius: 8px;
+.logistics-task {
+  border-top: 1px solid var(--el-border-color-lighter);
+  display: grid;
+  gap: 14px;
+  padding-top: 18px;
+}
+
+.logistics-task h2 {
+  align-items: center;
+  display: flex;
+  font-size: 1rem;
+  gap: 8px;
+  margin: 0;
+}
+
+.lookup-grid,
+.address-grid,
+.task-form,
+.logistics-summary {
   display: grid;
   gap: 12px;
-  padding: 16px;
 }
 
-.field-grid,
-.metric-grid {
-  display: grid;
-  gap: 10px;
+.lookup-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.inline-actions,
-.tracking-search {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+.task-form {
+  align-items: start;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
 }
 
-.tracking-card {
+.task-form--inline {
+  grid-template-columns: minmax(180px, 1fr) auto;
+}
+
+.address-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.task-form > .el-button {
+  justify-self: start;
+  min-height: 40px;
+}
+
+.task-error {
+  color: var(--el-color-danger);
+  font-size: 13px;
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.logistics-summary {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  margin: 0;
+}
+
+.logistics-summary div {
+  border-left: 2px solid var(--el-border-color);
   display: grid;
-  gap: 8px;
+  gap: 4px;
+  padding-left: 10px;
 }
 
-.tracking-title {
-  align-items: center;
+.logistics-summary dt,
+.tracking-heading p,
+.tracking-address {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+.logistics-summary dd,
+.tracking-heading p,
+.tracking-address {
+  margin: 0;
+}
+
+.tracking-heading {
+  align-items: start;
   display: flex;
+  gap: 12px;
   justify-content: space-between;
 }
 
-.webhook-form {
-  display: grid;
-  gap: 10px;
+.tracking-heading p {
+  margin-top: 4px;
+}
+
+.tracking-empty {
+  align-items: center;
+  color: var(--el-text-color-secondary);
+  display: flex;
+  gap: 12px;
+  min-height: 80px;
+}
+
+@media (max-width: 820px) {
+  .lookup-grid,
+  .address-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .lookup-grid,
+  .address-grid,
+  .task-form,
+  .task-form--inline {
+    grid-template-columns: 1fr;
+  }
+
+  .task-form > *,
+  .task-form > .el-button {
+    justify-self: stretch;
+    width: 100%;
+  }
+
+  .task-form > .el-button {
+    min-height: 44px;
+  }
 }
 </style>

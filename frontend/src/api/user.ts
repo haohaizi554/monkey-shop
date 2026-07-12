@@ -17,6 +17,10 @@ export function addAddress(payload: AddressRequest): Promise<Address> {
   return request<Address>({ url: '/addresses', method: 'POST', data: payload })
 }
 
+export function updateAddress(id: number, payload: AddressRequest): Promise<Address> {
+  return request<Address>({ url: `/addresses/${id}`, method: 'PUT', data: payload })
+}
+
 export function setDefaultAddress(id: number): Promise<Address> {
   return request<Address>({ url: `/addresses/set-default/${id}`, method: 'POST' })
 }
@@ -31,6 +35,7 @@ export async function updateAvatar(avatarPath: string): Promise<void> {
 }
 
 export async function updatePassword(payload: {
+  oldPassword: string
   phone: string
   newPassword: string
   captcha: string

@@ -1,33 +1,49 @@
 <script setup lang="ts">
 import { Search, Star } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import * as searchApi from '@/api/search'
-import ProductImage from '@/components/ProductImage.vue'
-import type { Recommendation } from '@/types'
+import ProductCard from '@/components/product/ProductCard.vue'
+import AsyncStateView from '@/components/ui/AsyncStateView.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import { useAsyncState } from '@/composables/useAsyncState'
+import { useNotify } from '@/composables/useNotify'
+import type { Monkey, Recommendation } from '@/types'
+
+interface RecommendationCardEntry {
+  source: Recommendation
+  product: Monkey
+}
 
 const router = useRouter()
 const { t } = useI18n()
-const loading = ref(false)
+const notify = useNotify()
+const recommendationState = useAsyncState<Recommendation[]>({ timeoutMs: 20000 })
 const saving = ref(false)
-const items = ref<Recommendation[]>([])
 const profile = ref('')
-const form = reactive({
-  interestProfile: 'family shopping, premium service, fast delivery',
-  tags: 'premium,fast,smart',
-})
+const profileError = ref<string | null>(null)
+const form = reactive({ interestProfile: '', tags: '' })
+
+const recommendationCards = computed<RecommendationCardEntry[]>(() =>
+  (recommendationState.data.value ?? []).map((source) => ({
+    source,
+    product: {
+      id: source.productId,
+      name: source.name,
+      breed: '',
+      price: Number.NaN,
+      description: source.title || t('search.noTitle'),
+      imageUrl: source.imageUrl ?? '',
+      stock: Number.NaN,
+    },
+  })),
+)
 
 async function loadRecommendations() {
-  loading.value = true
-  try {
-    items.value = await searchApi.recommendations()
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t('recommend.unableToLoad'))
-  } finally {
-    loading.value = false
-  }
+  await recommendationState.load(() => searchApi.recommendations(), {
+    isEmpty: (items) => items.length === 0,
+  })
 }
 
 async function saveProfile() {
@@ -35,6 +51,7 @@ async function saveProfile() {
     return
   }
   saving.value = true
+  profileError.value = null
   try {
     const saved = await searchApi.updateSearchProfile({
       interestProfile: form.interestProfile,
@@ -44,129 +61,161 @@ async function saveProfile() {
         .filter(Boolean),
     })
     profile.value = saved.maskedInterestProfile
-    ElMessage.success(t('recommend.profileUpdated'))
+    notify.success(t('recommend.profileUpdated'), { key: 'recommend:profile-updated' })
     await loadRecommendations()
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t('recommend.unableToSave'))
+  } catch {
+    profileError.value = 'recommend.unableToSave'
   } finally {
     saving.value = false
   }
 }
 
 async function openRecommendation(item: Recommendation) {
-  await searchApi.recordSearchConversion({
-    productId: item.productId,
-    keyword: item.reason,
-    source: 'recommendation',
-  })
+  try {
+    await searchApi.recordSearchConversion({
+      productId: item.productId,
+      keyword: item.reason,
+      source: 'recommendation',
+    })
+  } catch (caught) {
+    notify.fromApiError(caught, 'recommend.unableToLoad')
+  }
   await router.push(`/shop/${item.productId}`)
 }
 
-onMounted(loadRecommendations)
+onMounted(() => {
+  void loadRecommendations()
+})
 </script>
 
 <template>
-  <div class="route-view">
-    <section class="recommend-page">
-      <header class="page-heading">
-        <div>
-          <p class="profile-kicker">{{ $t('recommend.personalized') }}</p>
-          <h1>{{ $t('nav.recommend') }}</h1>
-        </div>
+  <div class="route-view recommend-page">
+    <PageHeader :title="$t('nav.recommend')" :eyebrow="$t('recommend.personalized')">
+      <template #actions>
         <RouterLink class="secondary-button" to="/search">
           <el-icon><Search /></el-icon>
           <span>{{ $t('nav.search') }}</span>
         </RouterLink>
-      </header>
+      </template>
+    </PageHeader>
 
-      <form class="profile-panel" @submit.prevent="saveProfile">
-        <el-input
-          v-model="form.interestProfile"
-          :placeholder="$t('recommend.profilePlaceholder')"
-        />
-        <el-input v-model="form.tags" :placeholder="$t('recommend.tagsPlaceholder')" />
-        <el-button type="primary" native-type="submit" :loading="saving" :icon="Star">
-          {{ $t('common.save') }}
-        </el-button>
-        <span v-if="profile">{{ $t('recommend.storedAs', { profile }) }}</span>
-      </form>
+    <form class="profile-panel" @submit.prevent="saveProfile">
+      <el-input
+        v-model="form.interestProfile"
+        :aria-label="$t('recommend.profilePlaceholder')"
+        :placeholder="$t('recommend.profilePlaceholder')"
+      />
+      <el-input
+        v-model="form.tags"
+        :aria-label="$t('recommend.tagsPlaceholder')"
+        :placeholder="$t('recommend.tagsPlaceholder')"
+      />
+      <el-button
+        class="profile-panel__submit"
+        type="primary"
+        native-type="submit"
+        :loading="saving"
+        :disabled="saving"
+        :icon="Star"
+      >
+        {{ $t('common.save') }}
+      </el-button>
+      <span v-if="profile" class="profile-panel__stored">
+        {{ $t('recommend.storedAs', { profile }) }}
+      </span>
+      <p v-if="profileError" class="profile-panel__error" role="alert">
+        {{ $t(profileError) }}
+      </p>
+    </form>
 
-      <section v-loading="loading" class="recommend-grid">
-        <article v-for="item in items" :key="item.productId" class="recommend-tile">
-          <ProductImage :src="item.imageUrl || '/favicon.svg'" :alt="item.name" />
-          <div class="recommend-copy">
-            <h2>{{ item.name }}</h2>
-            <p>{{ item.title || $t('search.noTitle') }}</p>
-            <span>{{ item.reason }} / {{ item.score }}</span>
-          </div>
-          <el-button type="primary" plain @click="openRecommendation(item)">
-            {{ $t('common.open') }}
+    <AsyncStateView
+      :status="recommendationState.status.value"
+      :error="recommendationState.error.value"
+      :empty-title="$t('recommend.emptyTitle')"
+      :empty-description="$t('recommend.emptyDescription')"
+      @retry="loadRecommendations"
+    >
+      <template #error>
+        <div class="recommend-error" role="alert">
+          <Star class="empty-state-icon" aria-hidden="true" />
+          <p>{{ $t('recommend.unableToLoad') }}</p>
+          <el-button type="primary" @click="loadRecommendations">
+            {{ $t('common.retry') }}
           </el-button>
-        </article>
-        <div v-if="!loading && items.length === 0" class="empty-state">
-          <Star class="empty-state-icon" />
+        </div>
+      </template>
+
+      <template #empty>
+        <div class="empty-state" role="status">
+          <Star class="empty-state-icon" aria-hidden="true" />
           <h2>{{ $t('recommend.emptyTitle') }}</h2>
           <p>{{ $t('recommend.emptyDescription') }}</p>
         </div>
-      </section>
-    </section>
+      </template>
+
+      <div class="recommend-grid">
+        <ProductCard
+          v-for="entry in recommendationCards"
+          :key="entry.source.productId"
+          :product="entry.product"
+          :primary-action-label="$t('common.open')"
+          @primary="openRecommendation(entry.source)"
+          @secondary="openRecommendation(entry.source)"
+        >
+          <template #badge>{{ entry.source.reason }}</template>
+        </ProductCard>
+      </div>
+    </AsyncStateView>
   </div>
 </template>
 
 <style scoped>
 .recommend-page {
   display: grid;
-  gap: 20px;
+  gap: var(--space-5);
 }
 
 .profile-panel {
   display: grid;
   grid-template-columns: minmax(180px, 2fr) minmax(160px, 1fr) auto minmax(0, auto);
-  gap: 10px;
+  gap: var(--space-3);
   align-items: center;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 14px;
-  background: var(--panel);
-  box-shadow: var(--shadow);
+  min-width: 0;
+  padding-block: var(--space-2);
 }
 
-.profile-panel span {
-  color: var(--text-muted);
-  font-weight: 700;
+.profile-panel__submit {
+  min-width: 96px;
+  min-height: 44px;
+}
+
+.profile-panel__stored {
+  min-width: 0;
   overflow-wrap: anywhere;
+  color: var(--color-text-muted);
+  font-weight: 700;
+}
+
+.profile-panel__error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--color-danger);
 }
 
 .recommend-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-4);
 }
 
-.recommend-tile {
+.recommend-error {
   display: grid;
-  gap: 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 12px;
-  background: var(--surface-color);
-  box-shadow: var(--shadow);
-}
-
-.recommend-copy {
-  display: grid;
-  gap: 8px;
-}
-
-.recommend-copy h2,
-.recommend-copy p {
-  margin: 0;
-}
-
-.recommend-copy p,
-.recommend-copy span {
-  color: var(--text-muted);
-  line-height: 1.45;
+  justify-items: center;
+  gap: var(--space-3);
+  min-height: 280px;
+  align-content: center;
+  color: var(--color-text-muted);
+  text-align: center;
 }
 
 @media (max-width: 900px) {

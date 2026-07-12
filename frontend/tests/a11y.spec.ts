@@ -99,7 +99,7 @@ test('app shell toggles language and dark theme', async ({ page }) => {
   await page.goto('/shop')
   await expect(
     page
-      .getByRole('navigation', { name: 'Primary' })
+      .getByRole('navigation', { name: '\u4e3b\u5bfc\u822a' })
       .getByRole('link', { name: '商城', exact: true }),
   ).toBeVisible()
 

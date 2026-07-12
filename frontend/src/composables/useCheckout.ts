@@ -1,9 +1,11 @@
 import { reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { browserDeviceFingerprint } from '@/api/http'
 import { createOrder } from '@/api/orders'
 import { assessRisk } from '@/api/risk'
 import { addAddress, addresses as fetchAddresses } from '@/api/user'
+import { useNotify } from '@/composables/useNotify'
 import { useAuthStore } from '@/stores/auth'
 import type { Address, AddressRequest, Monkey, RiskDecision } from '@/types'
 
@@ -14,9 +16,20 @@ interface CheckoutOptions {
   notify?: (level: NoticeLevel, message: string) => void
 }
 
+class CheckoutRiskError extends Error {
+  readonly decision: RiskDecision
+
+  constructor(decision: RiskDecision) {
+    super('checkout-risk-blocked')
+    this.decision = decision
+  }
+}
+
 export function useCheckout(options: CheckoutOptions = {}) {
   const router = useRouter()
   const auth = useAuthStore()
+  const { t } = useI18n()
+  const appNotify = useNotify()
   const openingCheckoutId = ref<number | null>(null)
   const submittingOrder = ref(false)
   const checkoutOpen = ref(false)
@@ -28,10 +41,21 @@ export function useCheckout(options: CheckoutOptions = {}) {
     phone: '',
     detailAddress: '',
   })
-  let submitTimer: ReturnType<typeof setTimeout> | undefined
 
   function notify(level: NoticeLevel, message: string) {
-    options.notify?.(level, message)
+    if (options.notify) {
+      options.notify(level, message)
+      return
+    }
+    appNotify.notify(level, message)
+  }
+
+  function notifyApiError(error: unknown, fallbackKey: string) {
+    if (options.notify) {
+      options.notify('error', t(fallbackKey))
+      return
+    }
+    appNotify.fromApiError(error, fallbackKey)
   }
 
   async function openCheckout(monkey: Monkey) {
@@ -50,7 +74,7 @@ export function useCheckout(options: CheckoutOptions = {}) {
         addresses.value.find((item) => item.isDefault === 1)?.id ?? addresses.value[0]?.id ?? null
       checkoutOpen.value = true
     } catch (error) {
-      notify('error', error instanceof Error ? error.message : '无法打开结算')
+      notifyApiError(error, 'checkout.openFailed')
     } finally {
       openingCheckoutId.value = null
     }
@@ -63,7 +87,7 @@ export function useCheckout(options: CheckoutOptions = {}) {
       selectedAddressId.value = saved.id
       Object.assign(newAddress, { receiverName: '', phone: '', detailAddress: '' })
     } catch (error) {
-      notify('error', error instanceof Error ? error.message : '无法保存地址')
+      notifyApiError(error, 'checkout.saveAddressFailed')
     }
   }
 
@@ -72,19 +96,23 @@ export function useCheckout(options: CheckoutOptions = {}) {
       return
     }
     if (!selectedMonkey.value || !selectedAddressId.value) {
-      notify('warning', '请先选择收货地址')
+      notify('warning', t('checkout.selectAddressFirst'))
       return
     }
     submittingOrder.value = true
     try {
       await ensureRiskAllowed(selectedMonkey.value)
       await createOrder(selectedMonkey.value.id, selectedAddressId.value)
-      notify('success', '订单已创建')
+      notify('success', t('checkout.orderCreated'))
       checkoutOpen.value = false
       await options.afterOrderCreated?.()
       await router.push('/orders')
     } catch (error) {
-      notify('error', error instanceof Error ? error.message : '无法创建订单')
+      if (error instanceof CheckoutRiskError) {
+        notify('warning', riskDecisionMessage(error.decision))
+      } else {
+        notifyApiError(error, 'checkout.createFailed')
+      }
     } finally {
       submittingOrder.value = false
     }
@@ -96,27 +124,22 @@ export function useCheckout(options: CheckoutOptions = {}) {
       productId: monkey.id,
     })
     if (assessment.decision !== 'ALLOW') {
-      throw new Error(riskDecisionMessage(assessment.decision))
+      throw new CheckoutRiskError(assessment.decision)
     }
   }
 
   function riskDecisionMessage(decision: RiskDecision) {
     if (decision === 'RATE_LIMIT') {
-      return '操作太频繁了，请稍后再试。'
+      return t('checkout.riskRateLimit')
     }
     if (decision === 'TOTP_REQUIRED') {
-      return '需要额外验证后才能继续。'
+      return t('checkout.riskTotpRequired')
     }
-    return '订单需要审核后才能继续。'
+    return t('checkout.riskReview')
   }
 
-  function submitOrder() {
-    if (submitTimer !== undefined) {
-      clearTimeout(submitTimer)
-    }
-    submitTimer = setTimeout(() => {
-      void doSubmitOrder()
-    }, 350)
+  async function submitOrder() {
+    await doSubmitOrder()
   }
 
   return {

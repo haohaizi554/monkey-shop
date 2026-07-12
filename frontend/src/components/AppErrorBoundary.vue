@@ -3,6 +3,7 @@ import { Warning } from '@element-plus/icons-vue'
 import { onErrorCaptured, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
+import { getUiErrorReference } from '@/utils/reportUiError'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -12,7 +13,7 @@ const retryKey = ref(0)
 
 onErrorCaptured((err) => {
   error.value = err instanceof Error ? err : new Error(String(err))
-  errorReference.value = `UI-${Date.now().toString(36).toUpperCase()}`
+  errorReference.value = getUiErrorReference(err)
 })
 
 function retry() {

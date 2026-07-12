@@ -1,200 +1,387 @@
 <script setup lang="ts">
 import { DataAnalysis, Search, Star } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import * as searchApi from '@/api/search'
-import ProductImage from '@/components/ProductImage.vue'
-import type { HotKeyword, SearchProduct, SearchSort, SearchSuggestion } from '@/types'
-import { money } from '@/utils/format'
+import ProductCard from '@/components/product/ProductCard.vue'
+import AsyncStateView from '@/components/ui/AsyncStateView.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import { useAsyncState } from '@/composables/useAsyncState'
+import { useNotify } from '@/composables/useNotify'
+import {
+  searchRouteQuerySchema,
+  useRouteQueryState,
+} from '@/composables/useRouteQueryState'
+import type {
+  HotKeyword,
+  Monkey,
+  SearchPage,
+  SearchProduct,
+  SearchSuggestion,
+} from '@/types'
+
+interface SearchCardEntry {
+  source: SearchProduct
+  product: Monkey
+}
 
 const router = useRouter()
 const { t } = useI18n()
-const loading = ref(false)
-const products = ref<SearchProduct[]>([])
-const suggestions = ref<SearchSuggestion[]>([])
-const hot = ref<HotKeyword[]>([])
-const total = ref(0)
-const query = reactive({
-  keyword: '',
-  categoryId: undefined as number | undefined,
-  attributeKey: '',
-  attributeValue: '',
-  sort: 'RELEVANCE' as SearchSort,
-  page: 0,
-  size: 12,
-})
+const notify = useNotify()
+const { state: query, replaceNow } = useRouteQueryState(searchRouteQuerySchema)
+const resultState = useAsyncState<SearchPage>({ timeoutMs: 20000 })
+const suggestionState = useAsyncState<SearchSuggestion[]>({ timeoutMs: 10000 })
+const hotKeywordState = useAsyncState<HotKeyword[]>({ timeoutMs: 10000 })
+const resultHeadingRef = ref<HTMLElement>()
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+let focusResultsAfterLoad = false
 
+const products = computed(() => resultState.data.value?.content ?? [])
+const suggestions = computed(() => suggestionState.data.value ?? [])
+const hotKeywords = computed(() => hotKeywordState.data.value ?? [])
+const total = computed(() => resultState.data.value?.totalElements ?? 0)
+const currentPage = computed(() => query.page + 1)
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / query.size)))
 const hasActiveFilters = computed(
   () =>
     Boolean(query.keyword.trim()) ||
-    Boolean(query.categoryId) ||
-    Boolean(query.attributeKey.trim()) ||
-    Boolean(query.attributeValue.trim()) ||
+    Boolean(query.category.trim()) ||
+    Boolean(query.attribute.trim()) ||
+    Boolean(query.value.trim()) ||
     query.sort !== 'RELEVANCE',
 )
-
-async function loadHot() {
-  try {
-    hot.value = await searchApi.hotKeywords()
-  } catch {
-    hot.value = []
+const activeFilters = computed(() => {
+  const filters: Array<{ key: string; label: string }> = []
+  if (query.keyword.trim()) {
+    filters.push({ key: 'keyword', label: query.keyword.trim() })
   }
+  if (query.category.trim()) {
+    filters.push({
+      key: 'category',
+      label: `${t('search.categoryPlaceholder')}: ${query.category.trim()}`,
+    })
+  }
+  if (query.attribute.trim()) {
+    filters.push({
+      key: 'attribute',
+      label: `${t('search.attribute')}: ${query.attribute.trim()}`,
+    })
+  }
+  if (query.value.trim()) {
+    filters.push({ key: 'value', label: `${t('search.value')}: ${query.value.trim()}` })
+  }
+  if (query.sort !== 'RELEVANCE') {
+    filters.push({ key: 'sort', label: sortLabel(query.sort) })
+  }
+  return filters
+})
+const searchCards = computed<SearchCardEntry[]>(() =>
+  products.value.map((source) => ({
+    source,
+    product: {
+      id: source.productId,
+      name: source.name,
+      breed: '',
+      price: source.memberPrice ?? source.originalPrice,
+      description: source.title || t('search.noTitle'),
+      imageUrl: source.imageUrl ?? '',
+      stock: Number.NaN,
+    },
+  })),
+)
+
+function sortLabel(sort: typeof query.sort): string {
+  const keys = {
+    RELEVANCE: 'search.sortRelevance',
+    PRICE_ASC: 'search.sortPriceAsc',
+    PRICE_DESC: 'search.sortPriceDesc',
+    NEWEST: 'search.sortNewest',
+    HOT: 'search.sortHot',
+  } as const
+  return t(keys[sort])
+}
+
+function categoryId(): number | undefined {
+  const parsed = Number.parseInt(query.category, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+}
+
+async function loadHotKeywords() {
+  await hotKeywordState.load(() => searchApi.hotKeywords(), {
+    isEmpty: (items) => items.length === 0,
+  })
+}
+
+async function loadSuggestions() {
+  if (!query.keyword.trim()) {
+    suggestionState.reset()
+    return
+  }
+  await suggestionState.load(() => searchApi.searchSuggestions(query.keyword.trim()), {
+    isEmpty: (items) => items.length === 0,
+  })
 }
 
 async function searchProducts() {
-  loading.value = true
-  try {
-    const page = await searchApi.searchProducts({
-      keyword: query.keyword,
-      categoryId: query.categoryId,
-      attributeKey: query.attributeKey,
-      attributeValue: query.attributeValue,
-      sort: query.sort,
-      page: query.page,
-      size: query.size,
-    })
-    products.value = page.content
-    total.value = page.totalElements
-    suggestions.value = query.keyword.trim() ? await searchApi.searchSuggestions(query.keyword) : []
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t('search.unableToSearch'))
-  } finally {
-    loading.value = false
+  const resultPromise = resultState.load(
+    () =>
+      searchApi.searchProducts({
+        keyword: query.keyword.trim(),
+        categoryId: categoryId(),
+        attributeKey: query.attribute.trim(),
+        attributeValue: query.value.trim(),
+        sort: query.sort,
+        page: query.page,
+        size: query.size,
+      }),
+    { isEmpty: (page) => page.content.length === 0 },
+  )
+
+  await Promise.all([resultPromise, loadSuggestions()])
+  if (focusResultsAfterLoad) {
+    focusResultsAfterLoad = false
+    await nextTick()
+    resultHeadingRef.value?.focus({ preventScroll: true })
   }
+}
+
+function clearScheduledSearch() {
+  if (searchTimer !== undefined) {
+    clearTimeout(searchTimer)
+    searchTimer = undefined
+  }
+}
+
+function scheduleSearch() {
+  clearScheduledSearch()
+  searchTimer = setTimeout(() => {
+    searchTimer = undefined
+    void searchProducts()
+  }, 250)
+}
+
+async function runSearchNow(options: { focusResults?: boolean; resetPage?: boolean } = {}) {
+  clearScheduledSearch()
+  if (options.resetPage) {
+    query.page = 0
+  }
+  focusResultsAfterLoad = options.focusResults ?? false
+  await replaceNow().catch(() => false)
+  await searchProducts()
 }
 
 async function clearFilters() {
   Object.assign(query, {
     keyword: '',
-    categoryId: undefined,
-    attributeKey: '',
-    attributeValue: '',
-    sort: 'RELEVANCE' as SearchSort,
+    category: '',
+    attribute: '',
+    value: '',
+    sort: 'RELEVANCE' as const,
     page: 0,
+    size: 12 as const,
   })
-  suggestions.value = []
-  await searchProducts()
+  await runSearchNow()
 }
 
 async function useKeyword(keyword: string) {
   query.keyword = keyword
+  await runSearchNow({ resetPage: true })
+}
+
+function resetPage() {
   query.page = 0
-  await searchProducts()
 }
 
 async function openProduct(product: SearchProduct) {
-  await searchApi.recordSearchConversion({
-    keyword: query.keyword,
-    productId: product.productId,
-    source: 'search-result',
-  })
+  try {
+    await searchApi.recordSearchConversion({
+      keyword: query.keyword,
+      productId: product.productId,
+      source: 'search-result',
+    })
+  } catch (caught) {
+    notify.fromApiError(caught, 'search.unableToSearch')
+  }
   await router.push(`/shop/${product.productId}`)
 }
 
-onMounted(async () => {
-  await Promise.all([loadHot(), searchProducts()])
+async function onPageChange(page: number) {
+  query.page = Math.max(0, page - 1)
+  await runSearchNow({ focusResults: true })
+}
+
+watch(query, scheduleSearch, { deep: true })
+
+onMounted(() => {
+  void Promise.all([loadHotKeywords(), searchProducts()])
 })
+
+onBeforeUnmount(clearScheduledSearch)
 </script>
 
 <template>
-  <div class="route-view">
-    <section class="search-page">
-      <header class="page-heading">
-        <div>
-          <p class="profile-kicker">{{ $t('search.discovery') }}</p>
-          <h1>{{ $t('nav.search') }}</h1>
-        </div>
+  <div class="route-view search-page">
+    <PageHeader :title="$t('nav.search')" :eyebrow="$t('search.discovery')">
+      <template #actions>
         <RouterLink class="secondary-button" to="/recommendations">
           <el-icon><Star /></el-icon>
           <span>{{ $t('nav.recommend') }}</span>
         </RouterLink>
-      </header>
+      </template>
+    </PageHeader>
 
-      <form class="search-toolbar" @submit.prevent="searchProducts">
-        <el-input
-          v-model="query.keyword"
-          :placeholder="$t('search.keywordPlaceholder')"
-          clearable
-        />
-        <el-input-number
-          v-model="query.categoryId"
-          :placeholder="$t('search.categoryPlaceholder')"
-          :min="1"
-          controls-position="right"
-        />
-        <el-input v-model="query.attributeKey" :placeholder="$t('search.attribute')" clearable />
-        <el-input v-model="query.attributeValue" :placeholder="$t('search.value')" clearable />
-        <el-select v-model="query.sort" :aria-label="$t('search.sort')">
-          <el-option :label="$t('search.sortRelevance')" value="RELEVANCE" />
-          <el-option :label="$t('search.sortPriceAsc')" value="PRICE_ASC" />
-          <el-option :label="$t('search.sortPriceDesc')" value="PRICE_DESC" />
-          <el-option :label="$t('search.sortNewest')" value="NEWEST" />
-          <el-option :label="$t('search.sortHot')" value="HOT" />
-        </el-select>
-        <el-button native-type="submit" type="primary" :icon="Search">
-          {{ $t('common.search') }}
-        </el-button>
-        <el-button v-if="hasActiveFilters" native-type="button" @click="clearFilters">
-          {{ $t('common.clearFilters') }}
-        </el-button>
-      </form>
+    <form class="search-toolbar" @submit.prevent="runSearchNow({ resetPage: true })">
+      <el-input
+        v-model="query.keyword"
+        :aria-label="$t('search.keywordPlaceholder')"
+        :placeholder="$t('search.keywordPlaceholder')"
+        clearable
+        @update:model-value="resetPage"
+      />
+      <el-input
+        v-model="query.category"
+        :aria-label="$t('search.categoryPlaceholder')"
+        :placeholder="$t('search.categoryPlaceholder')"
+        inputmode="numeric"
+        clearable
+        @update:model-value="resetPage"
+      />
+      <el-input
+        v-model="query.attribute"
+        :aria-label="$t('search.attribute')"
+        :placeholder="$t('search.attribute')"
+        clearable
+        @update:model-value="resetPage"
+      />
+      <el-input
+        v-model="query.value"
+        :aria-label="$t('search.value')"
+        :placeholder="$t('search.value')"
+        clearable
+        @update:model-value="resetPage"
+      />
+      <el-select
+        v-model="query.sort"
+        :aria-label="$t('search.sort')"
+        @change="resetPage"
+      >
+        <el-option :label="$t('search.sortRelevance')" value="RELEVANCE" />
+        <el-option :label="$t('search.sortPriceAsc')" value="PRICE_ASC" />
+        <el-option :label="$t('search.sortPriceDesc')" value="PRICE_DESC" />
+        <el-option :label="$t('search.sortNewest')" value="NEWEST" />
+        <el-option :label="$t('search.sortHot')" value="HOT" />
+      </el-select>
+      <el-button native-type="submit" type="primary" :icon="Search">
+        {{ $t('common.search') }}
+      </el-button>
+      <el-button v-if="hasActiveFilters" native-type="button" @click="clearFilters">
+        {{ $t('common.clearFilters') }}
+      </el-button>
 
-      <div v-if="hot.length" class="keyword-strip" :aria-label="$t('search.hotKeywords')">
-        <button
-          v-for="item in hot"
-          :key="item.keyword"
-          type="button"
-          @click="useKeyword(item.keyword)"
-        >
-          {{ item.keyword }} <span>{{ item.score }}</span>
-        </button>
+      <div class="search-toolbar__summary" aria-live="polite">
+        <strong>{{ $t('search.matched', { total }) }}</strong>
+        <span v-for="filter in activeFilters" :key="filter.key" class="filter-chip">
+          {{ filter.label }}
+        </span>
+      </div>
+    </form>
+
+    <div
+      v-if="hotKeywords.length"
+      class="keyword-strip"
+      :aria-label="$t('search.hotKeywords')"
+    >
+      <button
+        v-for="item in hotKeywords"
+        :key="item.keyword"
+        type="button"
+        @click="useKeyword(item.keyword)"
+      >
+        {{ item.keyword }} <span>{{ item.score }}</span>
+      </button>
+    </div>
+
+    <div v-if="suggestions.length" class="suggestions" :aria-label="$t('search.suggestions')">
+      <button
+        v-for="item in suggestions"
+        :key="`${item.source}-${item.keyword}`"
+        type="button"
+        @click="useKeyword(item.keyword)"
+      >
+        {{ item.keyword }}
+      </button>
+    </div>
+
+    <section class="result-section">
+      <div class="result-heading">
+        <h2 ref="resultHeadingRef" tabindex="-1">{{ $t('common.products') }}</h2>
+        <span>{{ $t('search.matched', { total }) }}</span>
       </div>
 
-      <div v-if="suggestions.length" class="suggestions" :aria-label="$t('search.suggestions')">
-        <button
-          v-for="item in suggestions"
-          :key="`${item.source}-${item.keyword}`"
-          type="button"
-          @click="useKeyword(item.keyword)"
-        >
-          {{ item.keyword }}
-        </button>
-      </div>
+      <AsyncStateView
+        :status="resultState.status.value"
+        :error="resultState.error.value"
+        :empty-title="$t('search.emptyTitle')"
+        :empty-description="$t('search.emptyDescription')"
+        @retry="runSearchNow"
+      >
+        <template #loading>
+          <div class="result-grid skeleton-grid" aria-busy="true">
+            <div v-for="item in 4" :key="item" class="skeleton-card" />
+          </div>
+        </template>
 
-      <section v-loading="loading" class="result-section">
-        <div class="result-heading">
-          <h2>{{ $t('common.products') }}</h2>
-          <span>{{ $t('search.matched', { total }) }}</span>
+        <template #error>
+          <div class="search-error" role="alert">
+            <DataAnalysis class="empty-state-icon" aria-hidden="true" />
+            <p>{{ $t('search.unableToSearch') }}</p>
+            <el-button type="primary" @click="runSearchNow">{{ $t('common.retry') }}</el-button>
+          </div>
+        </template>
+
+        <template #empty>
+          <div class="empty-state" role="status">
+            <DataAnalysis class="empty-state-icon" aria-hidden="true" />
+            <h2>{{ $t('search.emptyTitle') }}</h2>
+            <p>{{ $t('search.emptyDescription') }}</p>
+            <button
+              v-if="hasActiveFilters"
+              class="secondary-button"
+              type="button"
+              @click="clearFilters"
+            >
+              {{ $t('common.clearFilters') }}
+            </button>
+          </div>
+        </template>
+
+        <div class="result-grid">
+          <ProductCard
+            v-for="entry in searchCards"
+            :key="entry.source.productId"
+            :product="entry.product"
+            :primary-action-label="$t('common.open')"
+            @primary="openProduct(entry.source)"
+            @secondary="openProduct(entry.source)"
+          />
         </div>
-        <div v-if="products.length" class="result-grid">
-          <article v-for="product in products" :key="product.productId" class="product-tile">
-            <ProductImage :src="product.imageUrl || '/favicon.svg'" :alt="product.name" />
-            <div class="product-tile-body">
-              <h3>{{ product.name }}</h3>
-              <p>{{ product.title || $t('search.noTitle') }}</p>
-              <strong>{{ money(product.memberPrice || product.originalPrice) }}</strong>
-            </div>
-            <el-button type="primary" plain @click="openProduct(product)">
-              {{ $t('common.open') }}
-            </el-button>
-          </article>
-        </div>
-        <div v-else-if="!loading" class="empty-state">
-          <DataAnalysis class="empty-state-icon" />
-          <h2>{{ $t('search.emptyTitle') }}</h2>
-          <p>{{ $t('search.emptyDescription') }}</p>
-          <button
-            v-if="hasActiveFilters"
-            class="secondary-button"
-            type="button"
-            @click="clearFilters"
-          >
-            {{ $t('common.clearFilters') }}
-          </button>
-        </div>
-      </section>
+      </AsyncStateView>
+
+      <div
+        v-if="resultState.status.value !== 'error' && total > query.size"
+        class="pagination-bar"
+      >
+        <el-pagination
+          :current-page="currentPage"
+          :page-size="query.size"
+          :total="total"
+          :page-count="totalPages"
+          layout="prev, pager, next, jumper, total"
+          background
+          @current-change="onPageChange"
+        />
+      </div>
     </section>
   </div>
 </template>
@@ -202,96 +389,112 @@ onMounted(async () => {
 <style scoped>
 .search-page {
   display: grid;
-  gap: 20px;
+  gap: var(--space-5);
 }
 
 .search-toolbar {
   display: grid;
   grid-template-columns: minmax(180px, 2fr) repeat(4, minmax(120px, 1fr)) auto auto;
-  gap: 10px;
+  gap: var(--space-3);
   align-items: center;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 14px;
-  background: var(--panel);
-  box-shadow: var(--shadow);
+  min-width: 0;
+  padding-block: var(--space-2);
+}
+
+.search-toolbar__summary {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  min-height: 32px;
+  color: var(--color-text-muted);
+}
+
+.filter-chip {
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text);
+  background: var(--color-surface-subtle);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .keyword-strip,
 .suggestions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .keyword-strip button,
 .suggestions button {
-  min-height: 34px;
-  border: 1px solid var(--border-color);
-  border-radius: 999px;
-  padding: 0 12px;
-  color: var(--text-color);
-  background: var(--surface-color);
+  min-height: 44px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-pill);
+  padding-inline: var(--space-3);
+  color: var(--color-text);
+  background: var(--color-surface);
   cursor: pointer;
 }
 
 .keyword-strip button:hover,
 .suggestions button:hover {
-  border-color: color-mix(in srgb, var(--brand) 45%, var(--line));
+  border-color: var(--color-brand);
 }
 
 .keyword-strip span {
-  color: var(--text-muted);
-  margin-left: 4px;
+  margin-left: var(--space-1);
+  color: var(--color-text-muted);
 }
 
 .result-section {
   display: grid;
-  gap: 14px;
+  gap: var(--space-4);
+  min-width: 0;
 }
 
 .result-heading {
   display: flex;
+  gap: var(--space-4);
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+}
+
+.result-heading h2 {
+  margin: 0;
 }
 
 .result-heading span {
-  color: var(--text-muted);
+  color: var(--color-text-muted);
   font-weight: 700;
 }
 
 .result-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-4);
 }
 
-.product-tile {
+.search-error {
   display: grid;
-  gap: 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 12px;
-  background: var(--surface-color);
-  box-shadow: var(--shadow);
+  justify-items: center;
+  gap: var(--space-3);
+  min-height: 280px;
+  align-content: center;
+  color: var(--color-text-muted);
+  text-align: center;
 }
 
-.product-tile-body {
-  display: grid;
-  gap: 8px;
-}
-
-.product-tile h3,
-.product-tile p {
-  margin: 0;
-}
-
-.product-tile p {
-  min-height: 40px;
-  color: var(--text-muted);
-  line-height: 1.45;
+.pagination-bar {
+  display: flex;
+  max-width: 100%;
+  overflow-x: auto;
+  justify-content: center;
+  padding-top: var(--space-3);
 }
 
 @media (max-width: 1080px) {
@@ -308,6 +511,10 @@ onMounted(async () => {
   .result-heading {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .pagination-bar {
+    justify-content: flex-start;
   }
 }
 </style>

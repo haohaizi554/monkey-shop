@@ -81,6 +81,31 @@ class TrackingApplicationServiceTest {
     }
 
     @Test
+    void uiErrorEventRemainsTraceableWithoutPollutingRecommendationProfiles() {
+        var response = service.recordEvent(
+                USER,
+                new TrackingEventRequestDto(
+                        TrackingEventType.UI_ERROR,
+                        "ui-session",
+                        "ui-support-reference",
+                        "/shop",
+                        "web-ui",
+                        null,
+                        null,
+                        null,
+                        null,
+                        Map.of("errorName", "TypeError", "info", "render function"),
+                        LocalDateTime.now()),
+                "203.0.113.9");
+
+        assertThat(response.traceId()).isEqualTo("ui-support-reference");
+        assertThat(trackingStore.events).hasSize(1);
+        assertThat(trackingStore.userProfiles).isEmpty();
+        assertThat(trackingStore.productProfiles).isEmpty();
+        verify(businessMetricsService).recordTrackingEvent("UI_ERROR");
+    }
+
+    @Test
     void dashboardAggregatesPvUvPaymentAndFunnelSnapshots() {
         record(null, TrackingEventType.PAGE_VIEW, "pv-session", null, null, null, null, "/shop");
         record(USER, TrackingEventType.SEARCH, "buyer-session", null, null, null, null, "/search");
