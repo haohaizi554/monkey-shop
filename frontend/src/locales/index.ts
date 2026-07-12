@@ -136,6 +136,7 @@ const messages = {
       operationSuccess: 'Operation succeeded',
       operationFailed: 'Operation failed',
       noData: 'No data',
+      unknown: 'Unknown',
       dataTable: 'Data table',
       pageControls: 'Page controls',
       auditTrace: 'Audit trace',
@@ -474,6 +475,8 @@ const messages = {
       productSaved: 'Product saved',
       productDeleted: 'Product deleted',
       orderUpdated: 'Order updated',
+      refundCompleteReturnPending:
+        'Refund completed. Return confirmation is still pending. Retry to finish the order update.',
       searchTrace: 'Search trace',
       traceId: 'Trace ID',
       noProducts: 'No products yet',
@@ -530,6 +533,8 @@ const messages = {
       pending: 'Pending',
       blocked: 'Blocked',
       maxScore: 'Max risk score',
+      priceBefore: 'Price before change',
+      priceAfter: 'Price after change',
       assessment: 'Risk assessment',
       phone: 'Phone',
       deviceFingerprint: 'Device fingerprint',
@@ -896,6 +901,7 @@ const messages = {
       operationSuccess: '\u64cd\u4f5c\u6210\u529f',
       operationFailed: '\u64cd\u4f5c\u5931\u8d25',
       noData: '\u6682\u65e0\u6570\u636e',
+      unknown: '\u672a\u77e5',
       dataTable: '\u6570\u636e\u8868\u683c',
       pageControls: '\u9875\u9762\u64cd\u4f5c',
       auditTrace: '\u5ba1\u8ba1\u8f68\u8ff9',
@@ -1077,7 +1083,8 @@ const messages = {
     },
     inventory: {
       title: '\u5e93\u5b58\u4f5c\u4e1a',
-      description: '\u67e5\u770b\u4ed3\u5e93\u5e93\u5b58\u3001\u7ba1\u7406\u9501\u5b9a\u5e76\u6838\u5bf9\u5dee\u5f02\u3002',
+      description:
+        '\u67e5\u770b\u4ed3\u5e93\u5e93\u5b58\u3001\u7ba1\u7406\u9501\u5b9a\u5e76\u6838\u5bf9\u5dee\u5f02\u3002',
       skuId: 'SKU \u7f16\u53f7',
       reconcile: '\u5bf9\u8d26',
       available: '\u53ef\u552e',
@@ -1185,7 +1192,8 @@ const messages = {
     },
     marketing: {
       title: '\u8425\u9500\u4f5c\u4e1a',
-      description: '\u72ec\u7acb\u5904\u7406\u4f18\u60e0\u5238\u3001\u8bd5\u7b97\u3001\u79d2\u6740\u4e0e\u62fc\u56e2\u4efb\u52a1\u3002',
+      description:
+        '\u72ec\u7acb\u5904\u7406\u4f18\u60e0\u5238\u3001\u8bd5\u7b97\u3001\u79d2\u6740\u4e0e\u62fc\u56e2\u4efb\u52a1\u3002',
       userId: '\u7528\u6237\u7f16\u53f7',
       coupon: '\u4f18\u60e0\u5238',
       couponId: '\u4f18\u60e0\u5238 ID',
@@ -1225,18 +1233,23 @@ const messages = {
       joinGroupBuy: '\u52a0\u5165\u62fc\u56e2',
       appliedCoupons: '\u5df2\u5e94\u7528\u4f18\u60e0\u5238',
       positiveValueRequired: '\u8bf7\u8f93\u5165\u5927\u4e8e 0 \u7684\u6570\u503c',
-      couponCodeAndOrderRequired: '\u8bf7\u540c\u65f6\u8f93\u5165\u4f18\u60e0\u5238\u7801\u548c\u8ba2\u5355 ID',
+      couponCodeAndOrderRequired:
+        '\u8bf7\u540c\u65f6\u8f93\u5165\u4f18\u60e0\u5238\u7801\u548c\u8ba2\u5355 ID',
       idempotencyKeyRequired: '\u8bf7\u8f93\u5165\u5e42\u7b49\u952e',
     },
     admin: {
       title: '\u95e8\u5e97\u8fd0\u8425',
-      description: '\u7edf\u4e00\u7ba1\u7406\u5546\u54c1\u3001\u8ba2\u5355\u5c65\u7ea6\u4e0e\u8ffd\u8e2a\u5ba1\u8ba1\u3002',
+      description:
+        '\u7edf\u4e00\u7ba1\u7406\u5546\u54c1\u3001\u8ba2\u5355\u5c65\u7ea6\u4e0e\u8ffd\u8e2a\u5ba1\u8ba1\u3002',
       catalog: '\u5546\u54c1\u76ee\u5f55',
-      catalogDescription: '\u521b\u5efa\u3001\u7f16\u8f91\u548c\u4e0b\u7ebf\u53ef\u552e\u5546\u54c1\u3002',
+      catalogDescription:
+        '\u521b\u5efa\u3001\u7f16\u8f91\u548c\u4e0b\u7ebf\u53ef\u552e\u5546\u54c1\u3002',
       fulfillment: '\u8ba2\u5355\u5c65\u7ea6',
-      fulfillmentDescription: '\u6bcf\u4e2a\u8ba2\u5355\u4ec5\u663e\u793a\u5f53\u524d\u53ef\u6267\u884c\u7684\u4e0b\u4e00\u6b65\u3002',
+      fulfillmentDescription:
+        '\u6bcf\u4e2a\u8ba2\u5355\u4ec5\u663e\u793a\u5f53\u524d\u53ef\u6267\u884c\u7684\u4e0b\u4e00\u6b65\u3002',
       audit: '\u5ba1\u8ba1\u8ffd\u8e2a',
-      auditDescription: '\u72ec\u7acb\u67e5\u8be2\u5173\u8054\u5ba1\u8ba1\u4e8b\u4ef6\uff0c\u4e0d\u963b\u585e\u95e8\u5e97\u64cd\u4f5c\u3002',
+      auditDescription:
+        '\u72ec\u7acb\u67e5\u8be2\u5173\u8054\u5ba1\u8ba1\u4e8b\u4ef6\uff0c\u4e0d\u963b\u585e\u95e8\u5e97\u64cd\u4f5c\u3002',
       createProduct: '\u521b\u5efa\u5546\u54c1',
       editProduct: '\u7f16\u8f91\u5546\u54c1',
       editProductNamed: '\u7f16\u8f91{name}',
@@ -1244,12 +1257,15 @@ const messages = {
       productSaved: '\u5546\u54c1\u5df2\u4fdd\u5b58',
       productDeleted: '\u5546\u54c1\u5df2\u5220\u9664',
       orderUpdated: '\u8ba2\u5355\u5df2\u66f4\u65b0',
+      refundCompleteReturnPending:
+        '\u9000\u6b3e\u5df2\u5b8c\u6210\uff0c\u9000\u8d27\u786e\u8ba4\u4ecd\u5f85\u5904\u7406\u3002\u8bf7\u91cd\u8bd5\u4ee5\u5b8c\u6210\u8ba2\u5355\u66f4\u65b0\u3002',
       searchTrace: '\u67e5\u8be2\u8ffd\u8e2a',
       traceId: '\u8ffd\u8e2a\u7f16\u53f7',
       noProducts: '\u6682\u65e0\u5546\u54c1',
       noOrders: '\u6682\u65e0\u5339\u914d\u8ba2\u5355',
       unsavedTitle: '\u653e\u5f03\u5546\u54c1\u4fee\u6539\u5417\uff1f',
-      unsavedContent: '\u5546\u54c1\u8868\u5355\u4e2d\u8fd8\u6709\u672a\u4fdd\u5b58\u7684\u4fee\u6539\u3002',
+      unsavedContent:
+        '\u5546\u54c1\u8868\u5355\u4e2d\u8fd8\u6709\u672a\u4fdd\u5b58\u7684\u4fee\u6539\u3002',
       nameRequired: '\u8bf7\u8f93\u5165\u5546\u54c1\u540d\u79f0',
       breedRequired: '\u8bf7\u8f93\u5165\u54c1\u79cd',
       priceRequired: '\u8bf7\u8f93\u5165\u5927\u4e8e 0 \u7684\u4ef7\u683c',
@@ -1258,7 +1274,8 @@ const messages = {
     dashboard: {
       dataCenter: '\u6570\u636e\u4e2d\u53f0',
       title: '\u5b9e\u65f6\u770b\u677f',
-      description: '\u5b9e\u5448\u73b0\u95e8\u5e97\u6d41\u91cf\u3001\u8f6c\u5316\u4e0e\u753b\u50cf\u4fe1\u53f7\u3002',
+      description:
+        '\u5b9e\u5448\u73b0\u95e8\u5e97\u6d41\u91cf\u3001\u8f6c\u5316\u4e0e\u753b\u50cf\u4fe1\u53f7\u3002',
       pausePolling: '\u6682\u505c\u8f6e\u8be2',
       resumePolling: '\u6062\u590d\u8f6e\u8be2',
       refreshNow: '\u7acb\u5373\u5237\u65b0',
@@ -1296,10 +1313,13 @@ const messages = {
     risk: {
       center: '\u98ce\u63a7\u4e2d\u5fc3',
       title: '\u98ce\u9669\u590d\u6838\u961f\u5217',
-      description: '\u8bc4\u4f30\u53ef\u7591\u884c\u4e3a\uff0c\u5e76\u5b89\u5168\u5b8c\u6210\u9ad8\u5f71\u54cd\u590d\u6838\u51b3\u7b56\u3002',
+      description:
+        '\u8bc4\u4f30\u53ef\u7591\u884c\u4e3a\uff0c\u5e76\u5b89\u5168\u5b8c\u6210\u9ad8\u5f71\u54cd\u590d\u6838\u51b3\u7b56\u3002',
       pending: '\u5f85\u5904\u7406',
       blocked: '\u5df2\u963b\u65ad',
       maxScore: '\u6700\u9ad8\u98ce\u9669\u5206',
+      priceBefore: '\u53d8\u66f4\u524d\u4ef7\u683c',
+      priceAfter: '\u53d8\u66f4\u540e\u4ef7\u683c',
       assessment: '\u98ce\u9669\u8bc4\u4f30',
       phone: '\u624b\u673a\u53f7',
       deviceFingerprint: '\u8bbe\u5907\u6307\u7eb9',
@@ -1360,16 +1380,19 @@ const messages = {
       reviewCaseTitle: '\u590d\u6838\u6848\u4ef6 #{id}',
       saveDecision: '\u4fdd\u5b58\u51b3\u7b56',
       resolutionRequired: '\u8bf7\u586b\u5199\u5904\u7f6e\u8bf4\u660e',
-      totpRequiredForBlock: '\u963b\u65ad\u64cd\u4f5c\u9700\u8981\u7ba1\u7406\u5458\u52a8\u6001\u7801',
+      totpRequiredForBlock:
+        '\u963b\u65ad\u64cd\u4f5c\u9700\u8981\u7ba1\u7406\u5458\u52a8\u6001\u7801',
       blockCaseTitle: '\u963b\u65ad\u98ce\u9669\u6848\u4ef6',
-      blockCaseConfirm: '\u786e\u5b9a\u963b\u65ad\u8be5\u7528\u6237\u5e76\u64a4\u9500\u5df2\u767b\u5f55\u4f1a\u8bdd\u5417\uff1f',
+      blockCaseConfirm:
+        '\u786e\u5b9a\u963b\u65ad\u8be5\u7528\u6237\u5e76\u64a4\u9500\u5df2\u767b\u5f55\u4f1a\u8bdd\u5417\uff1f',
       automaticActions: '\u81ea\u52a8\u5904\u7f6e',
       noAutomaticActions: '\u672a\u6267\u884c\u81ea\u52a8\u5904\u7f6e',
     },
     tenant: {
       operations: '\u79df\u6237\u8fd0\u8425',
       title: '\u79df\u6237\u6307\u6325\u53f0',
-      description: '\u96c6\u4e2d\u7ba1\u7406\u79df\u6237\u751f\u547d\u5468\u671f\u3001\u914d\u7f6e\u3001\u8d26\u5355\u4e0e\u52a0\u5bc6\u5bfc\u51fa\u3002',
+      description:
+        '\u96c6\u4e2d\u7ba1\u7406\u79df\u6237\u751f\u547d\u5468\u671f\u3001\u914d\u7f6e\u3001\u8d26\u5355\u4e0e\u52a0\u5bc6\u5bfc\u51fa\u3002',
       refresh: '\u5237\u65b0',
       createTenant: '\u521b\u5efa\u79df\u6237',
       createTenantTitle: '\u521b\u5efa\u65b0\u79df\u6237',

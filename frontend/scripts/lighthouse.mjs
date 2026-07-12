@@ -93,14 +93,14 @@ const mockApi = http.createServer((request, response) => {
           breed: 'Rhinopithecus roxellana',
           price: '128.00',
           description: 'Healthy and ready for browsing.',
-          imageUrl: '/images/default_product.png',
+          imageUrl: '/images/default_product.jpg',
           stock: 3,
         },
       ],
     })
     return
   }
-  if (request.url === '/images/default_product.png') {
+  if (request.url === '/images/default_product.jpg') {
     response.writeHead(200, { 'content-type': 'image/svg+xml' })
     response.end(
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 3"><rect width="4" height="3" fill="#d9e2ec"/></svg>',

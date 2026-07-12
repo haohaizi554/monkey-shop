@@ -31,7 +31,7 @@ test.beforeEach(async ({ page }) => {
             breed: 'Rhinopithecus roxellana',
             price: '128.00',
             description: 'Healthy and ready for browsing.',
-            imageUrl: '/images/default_product.png',
+            imageUrl: '/images/default_product.jpg',
             stock: 3,
           },
         ],
@@ -72,7 +72,7 @@ test.beforeEach(async ({ page }) => {
       }),
     })
   })
-  await page.route('**/images/default_product.png', async (route) => {
+  await page.route('**/images/default_product.jpg', async (route) => {
     await route.fulfill({
       contentType: 'image/svg+xml',
       body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 3"><rect width="4" height="3" fill="#d9e2ec"/></svg>',

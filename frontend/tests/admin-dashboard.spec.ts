@@ -4,7 +4,20 @@ function ok(data: unknown) {
   return { code: 'OK', message: 'ok', data, traceId: 'dashboard-test' }
 }
 
-async function installDashboardMocks(page: Page, onDashboardRequest: () => void) {
+interface DashboardMockOptions {
+  onDashboardRequest: () => void
+  resumeResponseGate: Promise<void>
+}
+
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+async function installDashboardMocks(page: Page, options: DashboardMockOptions) {
   await page.addInitScript(() => {
     localStorage.setItem('monkeyshop-locale', 'en')
     localStorage.setItem('monkeyshop-theme', 'light')
@@ -18,12 +31,13 @@ async function installDashboardMocks(page: Page, onDashboardRequest: () => void)
       data = { isLogin: true, identity: 'ADMIN', username: 'admin' }
     } else if (pathname === '/tracking/dashboard') {
       dashboardRequest += 1
-      onDashboardRequest()
+      const requestNumber = dashboardRequest
+      options.onDashboardRequest()
       if (dashboardRequest > 1) {
-        await new Promise((resolve) => setTimeout(resolve, 350))
+        await options.resumeResponseGate
       }
       data = {
-        pageViews: dashboardRequest === 1 ? 128 : 144,
+        pageViews: requestNumber === 1 ? 128 : 144,
         uniqueVisitors: 42,
         orderCount: 9,
         paymentAmount: '8200.00',
@@ -63,10 +77,17 @@ async function installDashboardMocks(page: Page, onDashboardRequest: () => void)
   })
 }
 
-test('dashboard sleeps while hidden and preserves metrics during one resume refresh', async ({ page }) => {
+test('dashboard sleeps while hidden and preserves metrics during one resume refresh', async ({
+  page,
+}) => {
   let requests = 0
-  await installDashboardMocks(page, () => {
-    requests += 1
+  const resumeResponse = deferred()
+  await page.clock.install()
+  await installDashboardMocks(page, {
+    onDashboardRequest: () => {
+      requests += 1
+    },
+    resumeResponseGate: resumeResponse.promise,
   })
   await page.goto('/dashboard')
   await expect(page.getByText('128', { exact: true })).toBeVisible()
@@ -76,18 +97,22 @@ test('dashboard sleeps while hidden and preserves metrics during one resume refr
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
     document.dispatchEvent(new Event('visibilitychange'))
   })
-  await page.waitForTimeout(5200)
+  await page.clock.fastForward(5200)
   expect(requests).toBe(1)
 
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
     document.dispatchEvent(new Event('visibilitychange'))
   })
+  await expect.poll(() => requests).toBe(2)
   await expect(page.getByText('Updating')).toBeVisible()
   await expect(page.getByText('128', { exact: true })).toBeVisible()
+  resumeResponse.resolve()
   await expect(page.getByText('144', { exact: true })).toBeVisible()
   expect(requests).toBe(2)
 
   await expect(page.locator('html')).not.toHaveJSProperty('scrollWidth', 0)
-  expect(await page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth + 1)).toBe(true)
+  expect(
+    await page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth + 1),
+  ).toBe(true)
 })

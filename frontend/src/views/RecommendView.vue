@@ -71,15 +71,13 @@ async function saveProfile() {
 }
 
 async function openRecommendation(item: Recommendation) {
-  try {
-    await searchApi.recordSearchConversion({
+  void searchApi
+    .recordSearchConversion({
       productId: item.productId,
       keyword: item.reason,
       source: 'recommendation',
     })
-  } catch (caught) {
-    notify.fromApiError(caught, 'recommend.unableToLoad')
-  }
+    .catch(() => undefined)
   await router.push(`/shop/${item.productId}`)
 }
 

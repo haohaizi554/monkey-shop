@@ -72,6 +72,7 @@ function showNotice(level: NoticeLevel, message: string) {
 const {
   openingCheckoutId,
   submittingOrder,
+  savingAddress,
   checkoutOpen,
   addresses,
   selectedMonkey,
@@ -111,7 +112,7 @@ function catalogSpuToMonkey(spu: CatalogSpu, catalog: Monkey[]): Monkey {
     breed: spu.title,
     price: firstSku?.memberPrice ?? spu.memberPrice ?? firstSku?.originalPrice ?? spu.originalPrice,
     description,
-    imageUrl: spu.imageUrl || purchasableMonkey?.imageUrl || '/images/default_product.png',
+    imageUrl: spu.imageUrl || purchasableMonkey?.imageUrl || '/images/default_product.jpg',
     stock: purchasableMonkey?.stock ?? spu.skus.filter((sku) => sku.active).length,
     categoryId: spu.categoryId,
     status: spu.status,
@@ -138,6 +139,9 @@ function buyCurrentProduct() {
 }
 
 async function validateAndSaveAddress() {
+  if (savingAddress.value) {
+    return
+  }
   const valid = await addressFormRef.value
     ?.validate()
     .then(() => true)
@@ -163,10 +167,7 @@ watch(product, () => {
 
 <template>
   <div class="route-view product-detail-view">
-    <PageHeader
-      :title="product?.name || $t('common.product')"
-      :eyebrow="product?.breed"
-    >
+    <PageHeader :title="product?.name || $t('common.product')" :eyebrow="product?.breed">
       <template #actions>
         <RouterLink to="/shop" class="secondary-button">
           <el-icon><ArrowLeft /></el-icon>
@@ -251,6 +252,9 @@ watch(product, () => {
       v-model="checkoutOpen"
       :title="$t('shop.checkout')"
       width="min(720px, 94vw)"
+      :close-on-click-modal="!submittingOrder"
+      :close-on-press-escape="!submittingOrder"
+      :show-close="!submittingOrder"
       @closed="clearAddressValidation"
     >
       <div v-if="selectedMonkey" class="checkout-summary">
@@ -262,7 +266,11 @@ watch(product, () => {
         </div>
       </div>
 
-      <el-radio-group v-model="selectedAddressId" class="address-list">
+      <el-radio-group
+        v-model="selectedAddressId"
+        class="address-list"
+        :disabled="submittingOrder || savingAddress"
+      >
         <el-radio v-for="address in addresses" :key="address.id" :value="address.id" border>
           {{ address.receiverName }} - {{ address.phone }} - {{ address.detailAddress }}
         </el-radio>
@@ -277,21 +285,39 @@ watch(product, () => {
         label-position="top"
       >
         <el-form-item :label="$t('common.receiver')" prop="receiverName">
-          <el-input v-model="newAddress.receiverName" :placeholder="$t('common.receiver')" />
+          <el-input
+            v-model="newAddress.receiverName"
+            :disabled="submittingOrder || savingAddress"
+            :placeholder="$t('common.receiver')"
+          />
         </el-form-item>
         <el-form-item :label="$t('auth.phone')" prop="phone">
-          <el-input v-model="newAddress.phone" :placeholder="$t('auth.phone')" />
+          <el-input
+            v-model="newAddress.phone"
+            :disabled="submittingOrder || savingAddress"
+            :placeholder="$t('auth.phone')"
+          />
         </el-form-item>
         <el-form-item :label="$t('common.address')" prop="detailAddress">
-          <el-input v-model="newAddress.detailAddress" :placeholder="$t('common.address')" />
+          <el-input
+            v-model="newAddress.detailAddress"
+            :disabled="submittingOrder || savingAddress"
+            :placeholder="$t('common.address')"
+          />
         </el-form-item>
-        <el-button class="address-form__save" plain @click="validateAndSaveAddress">
+        <el-button
+          class="address-form__save"
+          plain
+          :loading="savingAddress"
+          :disabled="savingAddress || submittingOrder"
+          @click="validateAndSaveAddress"
+        >
           {{ $t('common.save') }}
         </el-button>
       </el-form>
 
       <template #footer>
-        <el-button @click="checkoutOpen = false">
+        <el-button :disabled="submittingOrder" @click="checkoutOpen = false">
           {{ $t('common.cancel') }}
         </el-button>
         <el-button

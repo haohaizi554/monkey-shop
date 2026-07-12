@@ -3,7 +3,7 @@ import { Warning } from '@element-plus/icons-vue'
 import { onErrorCaptured, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
-import { getUiErrorReference } from '@/utils/reportUiError'
+import { getUiErrorReference, reportUiError } from '@/utils/reportUiError'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -11,9 +11,11 @@ const error = ref<Error | null>(null)
 const errorReference = ref('')
 const retryKey = ref(0)
 
-onErrorCaptured((err) => {
+onErrorCaptured((err, _instance, info) => {
   error.value = err instanceof Error ? err : new Error(String(err))
-  errorReference.value = getUiErrorReference(err)
+  const reference = getUiErrorReference(err)
+  errorReference.value = reportUiError(err, info, reference)
+  return false
 })
 
 function retry() {

@@ -21,7 +21,7 @@ interface AccountData {
   addresses: Address[]
 }
 
-const defaultAvatar = '/images/default_avatar.png'
+const defaultAvatar = '/images/default_avatar.jpg'
 const userCaptchaUrl = ref(captchaUrl('user'))
 const captchaConfig = ref<CaptchaConfig>({ provider: 'local', siteKey: '' })
 const turnstileEnabled = computed(() => captchaConfig.value.provider === 'turnstile')
@@ -437,7 +437,7 @@ onMounted(() => {
                 :aria-label="$t('common.refreshCaptcha')"
                 @click="userCaptchaUrl = captchaUrl('user')"
               >
-                <img :src="userCaptchaUrl" alt="Captcha" />
+                <img :src="userCaptchaUrl" :alt="$t('auth.captchaImageAlt')" />
               </button>
               <el-button
                 :icon="Refresh"
@@ -531,6 +531,7 @@ onMounted(() => {
               <template #default="{ row }">
                 <el-switch
                   :model-value="row.isDefault === 1"
+                  :aria-label="`${$t('common.default')} ${maskName(row.receiverName)}`"
                   :loading="defaultAddressIds.has(row.id)"
                   :disabled="defaultAddressIds.has(row.id)"
                   @update:model-value="(value: boolean) => setDefaultAddress(row.id, value)"

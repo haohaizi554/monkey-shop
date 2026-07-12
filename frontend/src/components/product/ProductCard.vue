@@ -58,11 +58,7 @@ const actionDisabled = computed(() => props.disabled || props.pending || soldOut
       </p>
 
       <div class="product-card__actions product-actions">
-        <span
-          v-if="hasStock"
-          class="stock-pill"
-          :class="{ 'stock-pill-muted': soldOut }"
-        >
+        <span v-if="hasStock" class="stock-pill" :class="{ 'stock-pill-muted': soldOut }">
           {{ t('common.stock') }} {{ product.stock }}
         </span>
         <el-button

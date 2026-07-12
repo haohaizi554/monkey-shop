@@ -210,20 +210,28 @@ onMounted(() => {
         <div class="account-summary__level">
           <span>{{ $t('membership.growthValue') }}</span>
           <strong>{{ levelLabel(profile?.level || 'BASIC') }}</strong>
-          <el-progress :percentage="progress" :stroke-width="8" />
+          <el-progress
+            :percentage="progress"
+            :stroke-width="8"
+            :aria-label="$t('membership.growthValue')"
+          />
         </div>
         <dl class="account-summary__metrics">
           <div>
             <dt>{{ $t('membership.pointsBalance') }}</dt>
-            <dd>{{ wallet?.balance ?? 0 }}</dd>
-            <small>{{
-              $t('membership.moneyEquivalent', { amount: wallet?.moneyEquivalent ?? 0 })
-            }}</small>
+            <dd>
+              {{ wallet?.balance ?? 0 }}
+              <small>{{
+                $t('membership.moneyEquivalent', { amount: wallet?.moneyEquivalent ?? 0 })
+              }}</small>
+            </dd>
           </div>
           <div>
             <dt>{{ $t('membership.totalEarned') }}</dt>
-            <dd>{{ wallet?.totalEarned ?? 0 }}</dd>
-            <small>{{ $t('membership.totalSpent', { spent: wallet?.totalSpent ?? 0 }) }}</small>
+            <dd>
+              {{ wallet?.totalEarned ?? 0 }}
+              <small>{{ $t('membership.totalSpent', { spent: wallet?.totalSpent ?? 0 }) }}</small>
+            </dd>
           </div>
         </dl>
       </section>
@@ -518,9 +526,16 @@ onMounted(() => {
 }
 
 .account-summary__metrics dd {
+  display: grid;
+  gap: 4px;
   margin: 0;
   font-size: 1.5rem;
   font-weight: 700;
+}
+
+.account-summary__metrics dd small {
+  font-size: var(--text-sm);
+  font-weight: 400;
 }
 
 .task-section {

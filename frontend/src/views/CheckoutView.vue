@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Check, Refresh, Tickets } from '@element-plus/icons-vue'
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { checkoutCart, getCart, previewCartCheckout } from '@/api/cart'
@@ -10,6 +10,7 @@ import PageHeader from '@/components/ui/PageHeader.vue'
 import type { AsyncStatus } from '@/composables/useAsyncState'
 import { useNotify } from '@/composables/useNotify'
 import type { Cart, CartCheckout, CartCheckoutRequest } from '@/types'
+import { getIdempotencyIntent } from '@/utils/idempotencyIntent'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -24,21 +25,59 @@ const cartError = ref<string | null>(null)
 const previewStatus = ref<AsyncStatus>('idle')
 const previewError = ref<string | null>(null)
 const submitting = ref(false)
+const activePreviewRequestId = ref<number | null>(null)
+const previewSnapshotKey = ref<string | null>(null)
+let previewRequestSequence = 0
 
-function requestBody(): CartCheckoutRequest | null {
-  if (!addressId.value) {
-    notify.warning(t('checkout.selectAddressFirst'), { key: 'checkout:address-required' })
-    return null
-  }
+interface CheckoutInputSnapshot {
+  addressId: number | null
+  province: string
+  couponCodes: string[]
+}
+
+function captureInputSnapshot(): CheckoutInputSnapshot {
   return {
     addressId: addressId.value,
-    province: province.value || undefined,
+    province: province.value.trim(),
     couponCodes: couponText.value
       .split(',')
       .map((value) => value.trim())
       .filter(Boolean),
   }
 }
+
+function snapshotKey(snapshot: CheckoutInputSnapshot): string {
+  return JSON.stringify([snapshot.addressId, snapshot.province, snapshot.couponCodes])
+}
+
+function requestBody(snapshot: CheckoutInputSnapshot): CartCheckoutRequest | null {
+  if (!snapshot.addressId) {
+    notify.warning(t('checkout.selectAddressFirst'), { key: 'checkout:address-required' })
+    return null
+  }
+  return {
+    addressId: snapshot.addressId,
+    province: snapshot.province || undefined,
+    couponCodes: snapshot.couponCodes,
+  }
+}
+
+const currentPreview = computed(() => {
+  const currentKey = snapshotKey(captureInputSnapshot())
+  return previewSnapshotKey.value === currentKey ? preview.value : null
+})
+
+const previewPending = computed(() => activePreviewRequestId.value !== null)
+
+function invalidatePreview() {
+  preview.value = null
+  previewSnapshotKey.value = null
+  previewError.value = null
+  previewStatus.value = 'idle'
+  activePreviewRequestId.value = null
+}
+
+watch([addressId, province, couponText], invalidatePreview, { flush: 'sync' })
 
 async function loadCart() {
   const hadCart = cart.value !== null
@@ -59,20 +98,40 @@ async function loadCart() {
 }
 
 async function runPreview() {
-  if (previewStatus.value === 'loading' || previewStatus.value === 'updating') {
+  if (previewPending.value || submitting.value) {
     return
   }
-  const body = requestBody()
+  const snapshot = captureInputSnapshot()
+  const body = requestBody(snapshot)
   if (!body) {
     return
   }
-  const hadPreview = preview.value !== null
+  const key = snapshotKey(snapshot)
+  const requestId = ++previewRequestSequence
+  const hadPreview = currentPreview.value !== null
+  activePreviewRequestId.value = requestId
   previewStatus.value = hadPreview ? 'updating' : 'loading'
   previewError.value = null
   try {
-    preview.value = await previewCartCheckout(body)
+    const result = await previewCartCheckout(body)
+    if (
+      activePreviewRequestId.value !== requestId ||
+      snapshotKey(captureInputSnapshot()) !== key ||
+      submitting.value
+    ) {
+      return
+    }
+    preview.value = result
+    previewSnapshotKey.value = key
     previewStatus.value = 'success'
   } catch (error) {
+    if (
+      activePreviewRequestId.value !== requestId ||
+      snapshotKey(captureInputSnapshot()) !== key ||
+      submitting.value
+    ) {
+      return
+    }
     if (hadPreview) {
       previewStatus.value = 'success'
       notify.fromApiError(error, 'checkout.previewFailed')
@@ -80,24 +139,31 @@ async function runPreview() {
       previewStatus.value = 'error'
       previewError.value = 'checkout.previewFailed'
     }
+  } finally {
+    if (activePreviewRequestId.value === requestId) {
+      activePreviewRequestId.value = null
+    }
   }
 }
 
 async function submitCheckout() {
-  if (submitting.value) {
+  if (submitting.value || previewPending.value) {
     return
   }
-  const body = requestBody()
+  const snapshot = captureInputSnapshot()
+  const body = requestBody(snapshot)
   if (!body) {
     return
   }
+  const submittedSnapshotKey = snapshotKey(snapshot)
   submitting.value = true
+  previewRequestSequence += 1
+  activePreviewRequestId.value = null
   try {
-    const key =
-      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID()
-        : `checkout-${Date.now()}`
-    preview.value = await checkoutCart(body, key)
+    const intent = getIdempotencyIntent('cart:checkout', body)
+    preview.value = await checkoutCart(body, intent.key)
+    intent.complete()
+    previewSnapshotKey.value = submittedSnapshotKey
     previewStatus.value = 'success'
     await loadCart()
     notify.success(t('checkout.submitSuccess'), { key: 'checkout:submitted' })
@@ -159,6 +225,7 @@ onMounted(loadCart)
               class="checkout-preview-button"
               :icon="Refresh"
               :loading="previewStatus === 'loading' || previewStatus === 'updating'"
+              :disabled="submitting"
               @click="runPreview"
             >
               {{ $t('checkout.preview') }}
@@ -168,11 +235,7 @@ onMounted(loadCart)
 
         <section class="checkout-preview-section" :aria-label="$t('checkout.stockReservation')">
           <h2>{{ $t('checkout.stockReservation') }}</h2>
-          <AsyncStateView
-            :status="previewStatus"
-            :error="previewError"
-            @retry="runPreview"
-          >
+          <AsyncStateView :status="previewStatus" :error="previewError" @retry="runPreview">
             <template #idle>
               <div class="checkout-empty">
                 <el-icon aria-hidden="true"><Tickets /></el-icon>
@@ -180,9 +243,9 @@ onMounted(loadCart)
               </div>
             </template>
 
-            <div v-if="preview?.subOrders.length" class="suborder-list">
+            <div v-if="currentPreview?.subOrders.length" class="suborder-list">
               <section
-                v-for="subOrder in preview.subOrders"
+                v-for="subOrder in currentPreview.subOrders"
                 :key="subOrder.id"
                 class="suborder-section"
               >
@@ -235,8 +298,14 @@ onMounted(loadCart)
                     >
                       <strong>{{ row.productName }}</strong>
                       <dl>
-                        <div><dt>SKU</dt><dd>{{ row.skuId }}</dd></div>
-                        <div><dt>{{ $t('checkout.quantity') }}</dt><dd>{{ row.quantity }}</dd></div>
+                        <div>
+                          <dt>SKU</dt>
+                          <dd>{{ row.skuId }}</dd>
+                        </div>
+                        <div>
+                          <dt>{{ $t('checkout.quantity') }}</dt>
+                          <dd>{{ row.quantity }}</dd>
+                        </div>
                         <div>
                           <dt>{{ $t('checkout.originalAmount') }}</dt>
                           <dd>{{ row.originalAmount }}</dd>
@@ -251,7 +320,9 @@ onMounted(loadCart)
                         </div>
                         <div>
                           <dt>{{ $t('checkout.stockReservation') }}</dt>
-                          <dd>{{ row.warehouseId ? row.reservationKey : $t('checkout.previewing') }}</dd>
+                          <dd>
+                            {{ row.warehouseId ? row.reservationKey : $t('checkout.previewing') }}
+                          </dd>
                         </div>
                       </dl>
                     </article>
@@ -274,22 +345,22 @@ onMounted(loadCart)
           </div>
           <div class="checkout-summary__metric">
             <span>{{ $t('checkout.originalAmount') }}</span>
-            <strong>{{ preview?.originalAmount ?? cart?.selectedAmount ?? '0.00' }}</strong>
+            <strong>{{ currentPreview?.originalAmount ?? cart?.selectedAmount ?? '0.00' }}</strong>
           </div>
           <div class="checkout-summary__metric">
             <span>{{ $t('checkout.discount') }}</span>
-            <strong>{{ preview?.discountAmount ?? '0.00' }}</strong>
+            <strong>{{ currentPreview?.discountAmount ?? '0.00' }}</strong>
           </div>
           <div class="checkout-summary__metric">
             <span>{{ $t('checkout.payable') }}</span>
-            <strong>{{ preview?.payableAmount ?? cart?.selectedAmount ?? '0.00' }}</strong>
+            <strong>{{ currentPreview?.payableAmount ?? cart?.selectedAmount ?? '0.00' }}</strong>
           </div>
           <el-button
             class="checkout-submit"
             type="primary"
             :icon="Check"
             :loading="submitting"
-            :disabled="submitting"
+            :disabled="submitting || previewPending"
             @click="submitCheckout"
           >
             {{ $t('checkout.submit') }}

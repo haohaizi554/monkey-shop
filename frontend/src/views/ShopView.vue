@@ -45,6 +45,7 @@ async function loadMonkeys() {
 const {
   openingCheckoutId,
   submittingOrder,
+  savingAddress,
   checkoutOpen,
   addresses,
   selectedMonkey,
@@ -193,6 +194,9 @@ onMounted(() => {
       v-model="checkoutOpen"
       :title="$t('shop.checkout')"
       width="min(720px, 94vw)"
+      :close-on-click-modal="!submittingOrder"
+      :close-on-press-escape="!submittingOrder"
+      :show-close="!submittingOrder"
     >
       <div v-if="selectedMonkey" class="checkout-summary">
         <ProductImage :src="selectedMonkey.imageUrl" :alt="selectedMonkey.name" />
@@ -203,7 +207,11 @@ onMounted(() => {
         </div>
       </div>
 
-      <el-radio-group v-model="selectedAddressId" class="address-list">
+      <el-radio-group
+        v-model="selectedAddressId"
+        class="address-list"
+        :disabled="submittingOrder || savingAddress"
+      >
         <el-radio v-for="address in addresses" :key="address.id" :value="address.id" border>
           {{ addressLabel(address) }}
         </el-radio>
@@ -211,16 +219,36 @@ onMounted(() => {
 
       <el-divider>{{ $t('shop.addAddress') }}</el-divider>
       <div class="inline-form">
-        <el-input v-model="newAddress.receiverName" :placeholder="$t('common.receiver')" />
-        <el-input v-model="newAddress.phone" :placeholder="$t('auth.phone')" />
-        <el-input v-model="newAddress.detailAddress" :placeholder="$t('common.address')" />
-        <el-button plain @click="saveAddress">
+        <el-input
+          v-model="newAddress.receiverName"
+          :disabled="submittingOrder || savingAddress"
+          :aria-label="$t('common.receiver')"
+          :placeholder="$t('common.receiver')"
+        />
+        <el-input
+          v-model="newAddress.phone"
+          :disabled="submittingOrder || savingAddress"
+          :aria-label="$t('auth.phone')"
+          :placeholder="$t('auth.phone')"
+        />
+        <el-input
+          v-model="newAddress.detailAddress"
+          :disabled="submittingOrder || savingAddress"
+          :aria-label="$t('common.address')"
+          :placeholder="$t('common.address')"
+        />
+        <el-button
+          plain
+          :loading="savingAddress"
+          :disabled="savingAddress || submittingOrder"
+          @click="saveAddress"
+        >
           {{ $t('common.save') }}
         </el-button>
       </div>
 
       <template #footer>
-        <el-button @click="checkoutOpen = false">
+        <el-button :disabled="submittingOrder" @click="checkoutOpen = false">
           {{ $t('common.cancel') }}
         </el-button>
         <el-button

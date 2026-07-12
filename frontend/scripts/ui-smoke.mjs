@@ -16,10 +16,19 @@ const viewports = [
   {
     name: 'desktop',
     options: {
-      viewport: { width: 1366, height: 768 },
+      viewport: { width: 1440, height: 900 },
       deviceScaleFactor: 1,
       isMobile: false,
       hasTouch: false,
+    },
+  },
+  {
+    name: 'tablet',
+    options: {
+      viewport: { width: 768, height: 1024 },
+      deviceScaleFactor: 1,
+      isMobile: false,
+      hasTouch: true,
     },
   },
   {
@@ -61,7 +70,7 @@ const product = {
   breed: 'Rhinopithecus roxellana',
   price: '128.00',
   description: 'Healthy catalog item used for UI smoke checks.',
-  imageUrl: '/images/default_product.png',
+  imageUrl: '/images/default_product.jpg',
   stock: 8,
   categoryId: 10,
   categoryName: 'Featured',
@@ -98,7 +107,7 @@ const order = {
   orderNo: 'MS202607050001',
   userId: 1,
   buyerName: 'Codex User',
-  buyerAvatar: '/images/default_avatar.png',
+  buyerAvatar: '/images/default_avatar.jpg',
   productId: product.id,
   productName: product.name,
   productImage: product.imageUrl,
@@ -447,7 +456,7 @@ function apiFixture(pathname, method, authenticated) {
           isLogin: true,
           identity: 'ADMIN',
           username: 'codex_ui_admin',
-          avatar: '/images/default_avatar.png',
+          avatar: '/images/default_avatar.jpg',
           maskedPhone: '138****8000',
           passwordChangeRequired: false,
         }
@@ -464,7 +473,7 @@ function apiFixture(pathname, method, authenticated) {
   if (pathname.startsWith('/monkeys/')) return null
   if (pathname === '/monkeys/add' || pathname === '/monkeys/update') return product
   if (pathname === '/uploads') {
-    return { path: '/images/default_product.png', cropped: true, variants: {} }
+    return { path: '/images/default_product.jpg', cropped: true, variants: {} }
   }
   if (pathname === '/catalog/categories/tree') {
     return [{ id: 10, parentId: null, level: 1, code: 'featured', name: 'Featured', children: [] }]
@@ -490,7 +499,7 @@ function apiFixture(pathname, method, authenticated) {
             skuId: 101,
             rating: 5,
             content: 'Stable UI smoke review.',
-            imageUrls: ['/images/default_product.png'],
+            imageUrls: ['/images/default_product.jpg'],
             anonymous: false,
             createTime: now,
           },

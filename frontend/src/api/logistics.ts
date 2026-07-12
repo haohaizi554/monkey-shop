@@ -9,11 +9,15 @@ import type {
   ParsedAddress,
 } from '@/types'
 
-export function createShipment(payload: ShipmentCreateRequest): Promise<LogisticsTracking> {
+export function createShipment(
+  payload: ShipmentCreateRequest,
+  idempotencyKey?: string,
+): Promise<LogisticsTracking> {
   return request<LogisticsTracking>({
     url: '/logistics/shipments',
     method: 'POST',
     data: payload,
+    headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
   })
 }
 

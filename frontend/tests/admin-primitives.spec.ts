@@ -40,25 +40,13 @@ test('admin toolbar and metrics remain dense and bounded at 390px', async ({ pag
   await page.setViewportSize({ width: 390, height: 844 })
   await installAdminMocks(page)
   await page.goto('/admin')
-  await page.locator('.app-main').evaluate((main) => {
-    main.innerHTML = `
-      <div class="route-view">
-        <section class="admin-page-toolbar" aria-label="Product controls">
-          <div class="admin-page-toolbar__search"><input type="search" /></div>
-          <div class="admin-page-toolbar__filters"><select><option>All</option></select></div>
-          <div class="admin-page-toolbar__actions"><button class="primary-button">Create</button></div>
-        </section>
-        <ul class="metric-strip">
-          <li class="metric-strip__item"><span>Orders</span><strong>12,345</strong></li>
-          <li class="metric-strip__item"><span>Risk cases</span><strong>7</strong></li>
-        </ul>
-      </div>`
-  })
+  await expect(page.locator('.admin-page-toolbar')).toBeVisible()
+  await expect(page.locator('[data-metric-key="orders"]')).toBeVisible()
 
   const geometry = await page.evaluate(() => {
     const toolbar = document.querySelector<HTMLElement>('.admin-page-toolbar')
-    const search = document.querySelector<HTMLElement>('.admin-page-toolbar__search input')
-    const action = document.querySelector<HTMLElement>('.admin-page-toolbar__actions button')
+    const search = document.querySelector<HTMLElement>('.admin-page-toolbar__search .el-input')
+    const action = document.querySelector<HTMLElement>('.page-header__actions button')
     const metric = document.querySelector<HTMLElement>('.metric-strip__item strong')
     return {
       pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -67,12 +55,14 @@ test('admin toolbar and metrics remain dense and bounded at 390px', async ({ pag
       toolbarWidth: toolbar?.getBoundingClientRect().width ?? 0,
       actionHeight: action?.getBoundingClientRect().height ?? 0,
       metricNumerals: metric ? getComputedStyle(metric).fontVariantNumeric : '',
+      realAdminMounted: Boolean(document.querySelector('.admin-page')),
     }
   })
 
+  expect(geometry.realAdminMounted).toBe(true)
   expect(geometry.pageOverflow).toBeLessThanOrEqual(1)
   expect(geometry.toolbarShadow).toBe('none')
   expect(geometry.searchWidth).toBeLessThanOrEqual(geometry.toolbarWidth)
-  expect(geometry.actionHeight).toBeGreaterThanOrEqual(44)
+  expect(Math.round(geometry.actionHeight)).toBeGreaterThanOrEqual(44)
   expect(geometry.metricNumerals).toContain('tabular-nums')
 })

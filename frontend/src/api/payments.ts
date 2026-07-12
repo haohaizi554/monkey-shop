@@ -8,11 +8,15 @@ import type {
   PaymentResponse,
 } from '@/types'
 
-export function createPayment(payload: PaymentCreateRequest): Promise<PaymentResponse> {
+export function createPayment(
+  payload: PaymentCreateRequest,
+  idempotencyKey?: string,
+): Promise<PaymentResponse> {
   return request<PaymentResponse>({
     url: '/payments/pay',
     method: 'POST',
     data: payload,
+    headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
   })
 }
 
@@ -20,11 +24,31 @@ export function paymentForOrder(orderId: number): Promise<PaymentResponse> {
   return request<PaymentResponse>({ url: `/payments/orders/${orderId}` })
 }
 
-export function refundPayment(payload: PaymentRefundRequest): Promise<PaymentRefundResponse> {
+export function adminPaymentForOrder(orderId: number): Promise<PaymentResponse> {
+  return request<PaymentResponse>({ url: `/payments/admin/orders/${orderId}` })
+}
+
+export function refundPayment(
+  payload: PaymentRefundRequest,
+  idempotencyKey?: string,
+): Promise<PaymentRefundResponse> {
   return request<PaymentRefundResponse>({
     url: '/payments/refund',
     method: 'POST',
     data: payload,
+    headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+  })
+}
+
+export function adminRefundPayment(
+  payload: PaymentRefundRequest,
+  idempotencyKey?: string,
+): Promise<PaymentRefundResponse> {
+  return request<PaymentRefundResponse>({
+    url: '/payments/admin/refund',
+    method: 'POST',
+    data: payload,
+    headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
   })
 }
 

@@ -31,4 +31,14 @@ describe('reportUiError', () => {
 
     expect(trackEvent).toHaveBeenCalledOnce()
   })
+
+  it('uses the boundary support reference for primitive render errors', () => {
+    const reference = getUiErrorReference('primitive render failure')
+
+    expect(reportUiError('primitive render failure', 'render function', reference)).toBe(reference)
+    expect(trackEvent).toHaveBeenCalledWith(
+      'UI_ERROR',
+      expect.objectContaining({ traceId: reference }),
+    )
+  })
 })

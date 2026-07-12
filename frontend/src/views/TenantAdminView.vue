@@ -30,11 +30,19 @@ interface TenantDetails {
   exports: TenantExportJob[]
 }
 
+interface TenantConfigDraft {
+  provider: string
+  enabled: boolean
+  settingsText: string
+  dirty: boolean
+}
+
 type TenantStatus = Tenant['status']
 type BillStatus = TenantBill['status']
+type ExportType = TenantExportJob['exportType']
 type ExportStatus = TenantExportJob['status']
 
-const { t } = useI18n()
+const { locale, t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const notify = useNotify()
@@ -47,7 +55,14 @@ const createFormRef = ref<FormInstance>()
 const mobileDetailVisible = ref(false)
 const pendingKeys = ref(new Set<string>())
 const configError = ref('')
+const tenantDashboardLastSuccessAt = ref<Date>()
+const activeConfigTenantId = ref<number>()
+const activeConfigType = ref<TenantConfigType>('PAYMENT')
+const configDrafts = new Map<string, TenantConfigDraft>()
+const selectedConfigTypeByTenant = new Map<number, TenantConfigType>()
+const configTypes: TenantConfigType[] = ['PAYMENT', 'LOGISTICS', 'MARKETING', 'ROLLOUT']
 let detailRequestVersion = 0
+let syncingConfigForm = false
 
 const createForm = reactive({
   code: '',
@@ -75,6 +90,7 @@ const tenantList = computed(() => dashboard.value?.tenants ?? [])
 const selectedTenant = computed(() =>
   tenantList.value.find((tenant) => tenant.id === selectedTenantId.value),
 )
+const tenantMutationPending = computed(() => pendingKeys.value.size > 0)
 const configs = computed(() => detailsState.data.value?.configs ?? [])
 const bills = computed(() => detailsState.data.value?.bills ?? [])
 const exports = computed(() => detailsState.data.value?.exports ?? [])
@@ -132,6 +148,11 @@ const exportStatusLabels = computed<Record<ExportStatus, string>>(() => ({
   COMPLETED: t('tenant.exportStatusCompleted'),
   FAILED: t('tenant.exportStatusFailed'),
 }))
+const exportTypeLabels = computed<Record<ExportType, string>>(() => ({
+  FULL: t('tenant.exportFull'),
+  ORDERS: t('tenant.exportOrders'),
+  USERS: t('tenant.exportUsers'),
+}))
 
 function firstQueryValue(value: unknown): string {
   return Array.isArray(value) ? String(value[0] ?? '') : String(value ?? '')
@@ -142,24 +163,119 @@ function queryTenantId(): number | undefined {
   return Number.isInteger(value) && value > 0 ? value : undefined
 }
 
+function formatSuccessfulRefresh(value?: Date): string {
+  if (!value) return '-'
+  return new Intl.DateTimeFormat(locale.value, {
+    dateStyle: 'short',
+    timeStyle: 'medium',
+  }).format(value)
+}
+
+function configDraftKey(tenantId: number, configType: TenantConfigType): string {
+  return `${tenantId}:${configType}`
+}
+
+function configDraftFromServer(
+  configType: TenantConfigType,
+  rows: TenantConfig[],
+): TenantConfigDraft {
+  const saved = rows.find((row) => row.configType === configType)
+  if (!saved) {
+    return {
+      provider: configType === 'PAYMENT' ? 'wechat' : '',
+      enabled: true,
+      settingsText: configType === 'PAYMENT' ? '{\n  "merchantId": "demo"\n}' : '{}',
+      dirty: false,
+    }
+  }
+  return {
+    provider: saved.provider,
+    enabled: saved.enabled,
+    settingsText: JSON.stringify(saved.settings ?? {}, null, 2),
+    dirty: false,
+  }
+}
+
+function renderConfigDraft(
+  tenantId: number,
+  configType: TenantConfigType,
+  draft: TenantConfigDraft,
+) {
+  syncingConfigForm = true
+  activeConfigTenantId.value = tenantId
+  activeConfigType.value = configType
+  configForm.configType = configType
+  configForm.provider = draft.provider
+  configForm.enabled = draft.enabled
+  configForm.settingsText = draft.settingsText
+  configError.value = ''
+  syncingConfigForm = false
+}
+
+function persistActiveConfigDraft() {
+  const tenantId = activeConfigTenantId.value
+  if (!tenantId) return
+  configDrafts.set(configDraftKey(tenantId, activeConfigType.value), {
+    provider: configForm.provider,
+    enabled: configForm.enabled,
+    settingsText: configForm.settingsText,
+    dirty: true,
+  })
+}
+
+function prepareTenantConfigDraft(tenantId: number) {
+  const configType = selectedConfigTypeByTenant.get(tenantId) ?? 'PAYMENT'
+  const draft = configDrafts.get(configDraftKey(tenantId, configType))
+  renderConfigDraft(tenantId, configType, draft ?? configDraftFromServer(configType, []))
+}
+
+function initializeTenantConfigDrafts(tenantId: number, rows: TenantConfig[]) {
+  for (const configType of configTypes) {
+    const key = configDraftKey(tenantId, configType)
+    const current = configDrafts.get(key)
+    if (!current?.dirty) {
+      configDrafts.set(key, configDraftFromServer(configType, rows))
+    }
+  }
+  const configType = selectedConfigTypeByTenant.get(tenantId) ?? 'PAYMENT'
+  selectedConfigTypeByTenant.set(tenantId, configType)
+  const draft = configDrafts.get(configDraftKey(tenantId, configType))
+  if (draft) renderConfigDraft(tenantId, configType, draft)
+}
+
+function selectConfigType(value: string | number | boolean | undefined) {
+  const configType = value as TenantConfigType
+  const tenantId = selectedTenantId.value
+  if (!tenantId || !configTypes.includes(configType)) return
+  selectedConfigTypeByTenant.set(tenantId, configType)
+  const key = configDraftKey(tenantId, configType)
+  const draft = configDrafts.get(key) ?? configDraftFromServer(configType, configs.value)
+  configDrafts.set(key, draft)
+  renderConfigDraft(tenantId, configType, draft)
+}
+
 function planLabel(plan: TenantPlan): string {
-  return planLabels.value[plan] ?? plan
+  return planLabels.value[plan] ?? t('common.unknown')
 }
 
 function tenantStatusLabel(status: TenantStatus): string {
-  return tenantStatusLabels.value[status] ?? status
+  return tenantStatusLabels.value[status] ?? t('common.unknown')
 }
 
 function configTypeLabel(type: TenantConfigType): string {
-  return configTypeLabels.value[type] ?? type
+  return configTypeLabels.value[type] ?? t('common.unknown')
 }
 
 function billStatusLabel(status: BillStatus): string {
-  return billStatusLabels.value[status] ?? status
+  return billStatusLabels.value[status] ?? t('common.unknown')
 }
 
 function exportStatusLabel(status: ExportStatus): string {
-  return exportStatusLabels.value[status] ?? status
+  return exportStatusLabels.value[status] ?? t('common.unknown')
+}
+
+function exportTypeLabel(type: ExportType): string {
+  return exportTypeLabels.value[type] ?? t('common.unknown')
 }
 
 function tenantStatusType(status: TenantStatus): 'success' | 'warning' | 'danger' | 'info' {
@@ -178,7 +294,20 @@ function isPending(key: string): boolean {
   return pendingKeys.value.has(key)
 }
 
+function hasPendingForTenant(tenantId: number): boolean {
+  const prefix = `tenant:${tenantId}:`
+  return [...pendingKeys.value].some((key) => key.startsWith(prefix))
+}
+
 function setPending(key: string, value: boolean) {
+  if (value) {
+    listState.cancel()
+    const tenantId = Number.parseInt(key.match(/^tenant:(\d+):/)?.[1] ?? '', 10)
+    if (Number.isInteger(tenantId) && selectedTenantId.value === tenantId) {
+      detailRequestVersion += 1
+      detailsState.cancel()
+    }
+  }
   const next = new Set(pendingKeys.value)
   if (value) next.add(key)
   else next.delete(key)
@@ -194,6 +323,7 @@ function patchTenant(nextTenant: Tenant) {
 }
 
 async function loadTenantList() {
+  if (tenantMutationPending.value) return
   const result = await listState.load(async () => {
     const nextDashboard = await tenantApi.tenantDashboard()
     if (!nextDashboard.tenants.length) {
@@ -201,7 +331,9 @@ async function loadTenantList() {
     }
     return nextDashboard
   })
-  if (!result?.tenants.length) return
+  if (!result) return
+  tenantDashboardLastSuccessAt.value = new Date()
+  if (!result.tenants.length) return
 
   const requestedId = queryTenantId()
   const requestedTenant = result.tenants.find((tenant) => tenant.id === requestedId)
@@ -211,9 +343,10 @@ async function loadTenantList() {
 }
 
 async function loadTenantDetails(tenantId: number) {
+  if (hasPendingForTenant(tenantId)) return
   const requestVersion = ++detailRequestVersion
   detailsState.reset()
-  await detailsState.load(
+  const result = await detailsState.load(
     async () => {
       const [nextConfigs, nextBills, nextExports] = await Promise.all([
         tenantApi.tenantConfigs(tenantId),
@@ -227,6 +360,9 @@ async function loadTenantDetails(tenantId: number) {
     },
     { preserveData: false },
   )
+  if (result && selectedTenantId.value === tenantId && requestVersion === detailRequestVersion) {
+    initializeTenantConfigDrafts(tenantId, result.configs)
+  }
 }
 
 async function selectTenant(
@@ -234,6 +370,7 @@ async function selectTenant(
   options: { revealMobile?: boolean; syncUrl?: boolean } = {},
 ) {
   selectedTenantId.value = tenant.id
+  prepareTenantConfigDraft(tenant.id)
   mobileDetailVisible.value = options.revealMobile ?? true
   if (options.syncUrl !== false && firstQueryValue(route.query.tenant) !== String(tenant.id)) {
     await router.replace({ query: { ...route.query, tenant: String(tenant.id) } })
@@ -242,11 +379,7 @@ async function selectTenant(
 }
 
 async function refreshAll() {
-  const currentId = selectedTenantId.value
   await loadTenantList()
-  if (currentId && selectedTenantId.value === currentId) {
-    await loadTenantDetails(currentId)
-  }
 }
 
 async function submitCreateTenant() {
@@ -308,10 +441,10 @@ async function downgradeSelected() {
   }
 }
 
-function parseSettings(): Record<string, string> | null {
+function parseSettings(settingsText = configForm.settingsText): Record<string, string> | null {
   configError.value = ''
   try {
-    const parsed = JSON.parse(configForm.settingsText) as unknown
+    const parsed = JSON.parse(settingsText) as unknown
     if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error()
     return Object.fromEntries(
       Object.entries(parsed as Record<string, unknown>).map(([key, value]) => [key, String(value)]),
@@ -324,18 +457,29 @@ function parseSettings(): Record<string, string> | null {
 
 async function saveConfig() {
   const tenantId = selectedTenantId.value
-  const settings = parseSettings()
+  const configType = activeConfigType.value
+  const snapshot = {
+    provider: configForm.provider.trim(),
+    enabled: configForm.enabled,
+    settingsText: configForm.settingsText,
+  }
+  const settings = parseSettings(snapshot.settingsText)
   if (!tenantId || !settings) return
   const key = `tenant:${tenantId}:config`
   setPending(key, true)
   try {
     const saved = await tenantApi.upsertTenantConfig(tenantId, {
-      configType: configForm.configType,
-      provider: configForm.provider.trim(),
-      enabled: configForm.enabled,
+      configType,
+      provider: snapshot.provider,
+      enabled: snapshot.enabled,
       settings,
     })
-    const rows = detailsState.data.value?.configs
+    const savedDraft = configDraftFromServer(configType, [saved])
+    configDrafts.set(configDraftKey(tenantId, configType), savedDraft)
+    if (activeConfigTenantId.value === tenantId && activeConfigType.value === configType) {
+      renderConfigDraft(tenantId, configType, savedDraft)
+    }
+    const rows = selectedTenantId.value === tenantId ? detailsState.data.value?.configs : undefined
     if (rows) {
       const index = rows.findIndex((row) => row.configType === saved.configType)
       if (index >= 0) rows.splice(index, 1, saved)
@@ -358,7 +502,7 @@ async function generateBill() {
     const bill = await tenantApi.generateTenantBill(tenantId, {
       billingMonth: billForm.billingMonth,
     })
-    const rows = detailsState.data.value?.bills
+    const rows = selectedTenantId.value === tenantId ? detailsState.data.value?.bills : undefined
     if (rows) {
       const index = rows.findIndex((row) => row.id === bill.id)
       if (index >= 0) rows.splice(index, 1, bill)
@@ -381,7 +525,9 @@ async function requestExport() {
     const job = await tenantApi.requestTenantExport(tenantId, {
       exportType: exportForm.exportType,
     })
-    detailsState.data.value?.exports.unshift(job)
+    if (selectedTenantId.value === tenantId) {
+      detailsState.data.value?.exports.unshift(job)
+    }
     notify.success(t('tenant.exportSubmitted'), { key: 'tenant:export:success' })
   } catch (error) {
     notify.fromApiError(error, 'tenant.exportSubmitFailed')
@@ -389,6 +535,14 @@ async function requestExport() {
     setPending(key, false)
   }
 }
+
+watch(
+  () => [configForm.provider, configForm.enabled, configForm.settingsText] as const,
+  () => {
+    if (!syncingConfigForm) persistActiveConfigDraft()
+  },
+  { flush: 'sync' },
+)
 
 watch(
   () => route.query.tenant,
@@ -411,222 +565,289 @@ onMounted(loadTenantList)
       :description="t('tenant.description')"
     >
       <template #actions>
-        <el-button :icon="Refresh" :loading="listState.isLoading.value" @click="refreshAll">
+        <el-button
+          :icon="Refresh"
+          :loading="listState.isLoading.value"
+          :disabled="tenantMutationPending"
+          @click="refreshAll"
+        >
           {{ t('tenant.refresh') }}
         </el-button>
-        <el-button type="primary" :icon="Plus" @click="createDialogOpen = true">
+        <el-button
+          type="primary"
+          :icon="Plus"
+          :disabled="tenantMutationPending"
+          @click="createDialogOpen = true"
+        >
           {{ t('tenant.createTenant') }}
         </el-button>
       </template>
     </PageHeader>
 
-    <MetricStrip v-if="dashboard" :items="metrics" />
-
     <AsyncStateView
-      v-if="!dashboard"
       :status="listState.status.value"
       :error="listState.error.value"
+      :preserve-content-on-error="Boolean(dashboard)"
       @retry="loadTenantList"
-    />
-
-    <div
-      v-else
-      class="tenant-workspace"
-      :class="{ 'tenant-workspace--detail': mobileDetailVisible }"
     >
-      <section class="tenant-master" :aria-labelledby="'tenant-list-title'">
-        <div class="section-heading">
-          <div>
-            <h2 id="tenant-list-title">{{ t('tenant.tenantList') }}</h2>
-            <p>{{ tenantList.length }}</p>
+      <MetricStrip v-if="dashboard" :items="metrics" />
+      <p
+        v-if="tenantDashboardLastSuccessAt"
+        class="data-freshness"
+        :class="{ 'is-stale': listState.status.value === 'error' }"
+        data-testid="tenant-dashboard-last-success"
+      >
+        {{
+          t('dashboard.lastUpdated', {
+            time: formatSuccessfulRefresh(tenantDashboardLastSuccessAt),
+          })
+        }}
+      </p>
+
+      <div
+        v-if="dashboard"
+        class="tenant-workspace"
+        :class="{ 'tenant-workspace--detail': mobileDetailVisible }"
+      >
+        <section class="tenant-master" :aria-labelledby="'tenant-list-title'">
+          <div class="section-heading">
+            <div>
+              <h2 id="tenant-list-title">{{ t('tenant.tenantList') }}</h2>
+              <p>{{ tenantList.length }}</p>
+            </div>
           </div>
-        </div>
-        <DataTableShell
-          :aria-label="t('tenant.tenantList')"
-          :empty="tenantList.length === 0"
-          :busy="listState.status.value === 'updating'"
-        >
-          <template #empty>{{ t('tenant.noTenants') }}</template>
-          <el-table :data="tenantList" row-key="id" :highlight-current-row="true">
-            <el-table-column :label="t('tenant.name')" min-width="180">
-              <template #default="{ row }">
-                <button
-                  class="tenant-select-button"
-                  :class="{ 'is-selected': row.id === selectedTenantId }"
-                  :aria-label="t('tenant.openTenant', { name: tenantDisplayName(row.name) })"
-                  @click="selectTenant(row)"
-                >
-                  <strong>{{ tenantDisplayName(row.name) }}</strong>
-                  <span>{{ row.code }}</span>
-                </button>
-              </template>
-            </el-table-column>
-            <el-table-column :label="t('tenant.plan')" width="120">
-              <template #default="{ row }">{{ planLabel(row.plan) }}</template>
-            </el-table-column>
-            <el-table-column :label="t('tenant.status')" width="130">
-              <template #default="{ row }">
-                <el-tag :type="tenantStatusType(row.status)" effect="plain">
-                  {{ tenantStatusLabel(row.status) }}
-                </el-tag>
-              </template>
-            </el-table-column>
-          </el-table>
-        </DataTableShell>
-      </section>
+          <DataTableShell
+            :aria-label="t('tenant.tenantList')"
+            :empty="tenantList.length === 0"
+            :busy="listState.status.value === 'updating'"
+          >
+            <template #empty>{{ t('tenant.noTenants') }}</template>
+            <el-table :data="tenantList" row-key="id" :highlight-current-row="true">
+              <el-table-column :label="t('tenant.name')" min-width="180">
+                <template #default="{ row }">
+                  <button
+                    class="tenant-select-button"
+                    :class="{ 'is-selected': row.id === selectedTenantId }"
+                    :aria-label="t('tenant.openTenant', { name: tenantDisplayName(row.name) })"
+                    :disabled="hasPendingForTenant(row.id)"
+                    @click="selectTenant(row)"
+                  >
+                    <strong>{{ tenantDisplayName(row.name) }}</strong>
+                    <span>{{ row.code }}</span>
+                  </button>
+                </template>
+              </el-table-column>
+              <el-table-column :label="t('tenant.plan')" width="120">
+                <template #default="{ row }">{{ planLabel(row.plan) }}</template>
+              </el-table-column>
+              <el-table-column :label="t('tenant.status')" width="130">
+                <template #default="{ row }">
+                  <el-tag :type="tenantStatusType(row.status)" effect="plain">
+                    {{ tenantStatusLabel(row.status) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+            </el-table>
+          </DataTableShell>
+        </section>
 
-      <section class="tenant-detail" :aria-labelledby="'tenant-detail-title'">
-        <el-button
-          class="tenant-back-button"
-          text
-          :icon="ArrowLeft"
-          @click="mobileDetailVisible = false"
-        >
-          {{ t('tenant.backToList') }}
-        </el-button>
+        <section class="tenant-detail" :aria-labelledby="'tenant-detail-title'">
+          <el-button
+            class="tenant-back-button"
+            text
+            :icon="ArrowLeft"
+            @click="mobileDetailVisible = false"
+          >
+            {{ t('tenant.backToList') }}
+          </el-button>
 
-        <div v-if="selectedTenant" class="section-heading tenant-detail-heading">
-          <div>
-            <h2 id="tenant-detail-title">{{ tenantDisplayName(selectedTenant.name) }}</h2>
-            <p>{{ selectedTenant.code }} · {{ planLabel(selectedTenant.plan) }}</p>
+          <div v-if="selectedTenant" class="section-heading tenant-detail-heading">
+            <div>
+              <h2 id="tenant-detail-title">{{ tenantDisplayName(selectedTenant.name) }}</h2>
+              <p>{{ selectedTenant.code }} · {{ planLabel(selectedTenant.plan) }}</p>
+            </div>
+            <div class="tenant-actions">
+              <el-tag :type="tenantStatusType(selectedTenant.status)" effect="plain">
+                {{ tenantStatusLabel(selectedTenant.status) }}
+              </el-tag>
+              <el-button
+                :loading="isPending(`tenant:${selectedTenant.id}:renew`)"
+                :disabled="hasPendingForTenant(selectedTenant.id)"
+                @click="renewSelected"
+              >
+                {{ t('tenant.renew') }}
+              </el-button>
+              <el-button
+                type="warning"
+                plain
+                :loading="isPending(`tenant:${selectedTenant.id}:downgrade`)"
+                :disabled="hasPendingForTenant(selectedTenant.id)"
+                @click="downgradeSelected"
+              >
+                {{ t('tenant.downgrade') }}
+              </el-button>
+            </div>
           </div>
-          <div class="tenant-actions">
-            <el-tag :type="tenantStatusType(selectedTenant.status)" effect="plain">
-              {{ tenantStatusLabel(selectedTenant.status) }}
-            </el-tag>
-            <el-button
-              :loading="isPending(`tenant:${selectedTenant.id}:renew`)"
-              @click="renewSelected"
-            >
-              {{ t('tenant.renew') }}
-            </el-button>
-            <el-button
-              type="warning"
-              plain
-              :loading="isPending(`tenant:${selectedTenant.id}:downgrade`)"
-              @click="downgradeSelected"
-            >
-              {{ t('tenant.downgrade') }}
-            </el-button>
-          </div>
-        </div>
 
-        <div v-else class="tenant-placeholder" role="status">{{ t('tenant.selectTenant') }}</div>
+          <div v-else class="tenant-placeholder" role="status">{{ t('tenant.selectTenant') }}</div>
 
-        <AsyncStateView
-          v-if="selectedTenant"
-          :status="detailsState.status.value"
-          :error="detailsState.error.value"
-          @retry="loadTenantDetails(selectedTenant.id)"
-        >
-          <el-tabs v-model="activeTab" class="tenant-tabs">
-            <el-tab-pane :label="t('tenant.config')" name="config">
-              <div class="tenant-task-form">
-                <el-select v-model="configForm.configType" :aria-label="t('tenant.type')">
-                  <el-option :label="t('tenant.configTypePayment')" value="PAYMENT" />
-                  <el-option :label="t('tenant.configTypeLogistics')" value="LOGISTICS" />
-                  <el-option :label="t('tenant.configTypeMarketing')" value="MARKETING" />
-                  <el-option :label="t('tenant.configTypeRollout')" value="ROLLOUT" />
-                </el-select>
-                <el-input v-model="configForm.provider" :placeholder="t('tenant.provider')" />
-                <el-input
-                  v-model="configForm.settingsText"
-                  type="textarea"
-                  :rows="5"
-                  resize="vertical"
-                  :aria-label="t('tenant.settingsJson')"
-                  @input="configError = ''"
-                />
-                <p v-if="configError" class="inline-form-error" role="alert">{{ configError }}</p>
-                <el-switch
-                  v-model="configForm.enabled"
-                  :active-text="t('tenant.enabled')"
-                  :inactive-text="t('tenant.disabled')"
-                />
-                <el-button
-                  type="primary"
-                  :loading="isPending(`tenant:${selectedTenant.id}:config`)"
-                  @click="saveConfig"
-                >
-                  {{ t('tenant.saveConfig') }}
-                </el-button>
-              </div>
-              <DataTableShell :empty="configs.length === 0" :aria-label="t('tenant.config')">
-                <template #empty>{{ t('tenant.noConfigs') }}</template>
-                <el-table :data="configs" row-key="id" size="small">
-                  <el-table-column :label="t('tenant.type')" width="130">
-                    <template #default="{ row }">{{ configTypeLabel(row.configType) }}</template>
-                  </el-table-column>
-                  <el-table-column prop="provider" :label="t('tenant.provider')" min-width="150" />
-                  <el-table-column :label="t('tenant.status')" width="110">
-                    <template #default="{ row }">
-                      {{ row.enabled ? t('tenant.enabled') : t('tenant.disabled') }}
-                    </template>
-                  </el-table-column>
-                  <el-table-column prop="updatedAt" :label="t('tenant.updatedAt')" min-width="180" />
-                </el-table>
-              </DataTableShell>
-            </el-tab-pane>
+          <AsyncStateView
+            v-if="selectedTenant"
+            :status="detailsState.status.value"
+            :error="detailsState.error.value"
+            @retry="loadTenantDetails(selectedTenant.id)"
+          >
+            <el-tabs v-model="activeTab" class="tenant-tabs">
+              <el-tab-pane :label="t('tenant.config')" name="config">
+                <div class="tenant-task-form">
+                  <el-select
+                    :model-value="configForm.configType"
+                    :aria-label="t('tenant.type')"
+                    :disabled="hasPendingForTenant(selectedTenant.id)"
+                    @update:model-value="selectConfigType"
+                  >
+                    <el-option :label="t('tenant.configTypePayment')" value="PAYMENT" />
+                    <el-option :label="t('tenant.configTypeLogistics')" value="LOGISTICS" />
+                    <el-option :label="t('tenant.configTypeMarketing')" value="MARKETING" />
+                    <el-option :label="t('tenant.configTypeRollout')" value="ROLLOUT" />
+                  </el-select>
+                  <el-input
+                    v-model="configForm.provider"
+                    :placeholder="t('tenant.provider')"
+                    :disabled="hasPendingForTenant(selectedTenant.id)"
+                  />
+                  <el-input
+                    v-model="configForm.settingsText"
+                    type="textarea"
+                    :rows="5"
+                    resize="vertical"
+                    :aria-label="t('tenant.settingsJson')"
+                    :disabled="hasPendingForTenant(selectedTenant.id)"
+                    @input="configError = ''"
+                  />
+                  <p v-if="configError" class="inline-form-error" role="alert">{{ configError }}</p>
+                  <el-switch
+                    v-model="configForm.enabled"
+                    :aria-label="t('tenant.enabled')"
+                    :active-text="t('tenant.enabled')"
+                    :inactive-text="t('tenant.disabled')"
+                    :disabled="hasPendingForTenant(selectedTenant.id)"
+                  />
+                  <el-button
+                    type="primary"
+                    :loading="isPending(`tenant:${selectedTenant.id}:config`)"
+                    :disabled="hasPendingForTenant(selectedTenant.id)"
+                    @click="saveConfig"
+                  >
+                    {{ t('tenant.saveConfig') }}
+                  </el-button>
+                </div>
+                <DataTableShell :empty="configs.length === 0" :aria-label="t('tenant.config')">
+                  <template #empty>{{ t('tenant.noConfigs') }}</template>
+                  <el-table :data="configs" row-key="id" size="small">
+                    <el-table-column :label="t('tenant.type')" width="130">
+                      <template #default="{ row }">{{ configTypeLabel(row.configType) }}</template>
+                    </el-table-column>
+                    <el-table-column
+                      prop="provider"
+                      :label="t('tenant.provider')"
+                      min-width="150"
+                    />
+                    <el-table-column :label="t('tenant.status')" width="110">
+                      <template #default="{ row }">
+                        {{ row.enabled ? t('tenant.enabled') : t('tenant.disabled') }}
+                      </template>
+                    </el-table-column>
+                    <el-table-column
+                      prop="updatedAt"
+                      :label="t('tenant.updatedAt')"
+                      min-width="180"
+                    />
+                  </el-table>
+                </DataTableShell>
+              </el-tab-pane>
 
-            <el-tab-pane :label="t('tenant.bill')" name="bill">
-              <div class="tenant-task-form tenant-task-form--inline">
-                <el-input v-model="billForm.billingMonth" :placeholder="t('tenant.billingMonth')" />
-                <el-button
-                  type="primary"
-                  :loading="isPending(`tenant:${selectedTenant.id}:bill`)"
-                  @click="generateBill"
-                >
-                  {{ t('tenant.generateBill') }}
-                </el-button>
-              </div>
-              <DataTableShell :empty="bills.length === 0" :aria-label="t('tenant.bill')">
-                <template #empty>{{ t('tenant.noBills') }}</template>
-                <el-table :data="bills" row-key="id" size="small">
-                  <el-table-column prop="billingMonth" :label="t('tenant.month')" width="110" />
-                  <el-table-column prop="orderCount" :label="t('tenant.orderCount')" width="110" />
-                  <el-table-column :label="t('tenant.totalAmount')" min-width="130">
-                    <template #default="{ row }">{{ money(row.totalAmount) }}</template>
-                  </el-table-column>
-                  <el-table-column :label="t('tenant.status')" width="130">
-                    <template #default="{ row }">{{ billStatusLabel(row.status) }}</template>
-                  </el-table-column>
-                </el-table>
-              </DataTableShell>
-            </el-tab-pane>
+              <el-tab-pane :label="t('tenant.bill')" name="bill">
+                <div class="tenant-task-form tenant-task-form--inline">
+                  <el-input
+                    v-model="billForm.billingMonth"
+                    :placeholder="t('tenant.billingMonth')"
+                  />
+                  <el-button
+                    type="primary"
+                    :loading="isPending(`tenant:${selectedTenant.id}:bill`)"
+                    @click="generateBill"
+                  >
+                    {{ t('tenant.generateBill') }}
+                  </el-button>
+                </div>
+                <DataTableShell :empty="bills.length === 0" :aria-label="t('tenant.bill')">
+                  <template #empty>{{ t('tenant.noBills') }}</template>
+                  <el-table :data="bills" row-key="id" size="small">
+                    <el-table-column prop="billingMonth" :label="t('tenant.month')" width="110" />
+                    <el-table-column
+                      prop="orderCount"
+                      :label="t('tenant.orderCount')"
+                      width="110"
+                    />
+                    <el-table-column :label="t('tenant.totalAmount')" min-width="130">
+                      <template #default="{ row }">{{ money(row.totalAmount) }}</template>
+                    </el-table-column>
+                    <el-table-column :label="t('tenant.status')" width="130">
+                      <template #default="{ row }">{{ billStatusLabel(row.status) }}</template>
+                    </el-table-column>
+                  </el-table>
+                </DataTableShell>
+              </el-tab-pane>
 
-            <el-tab-pane :label="t('tenant.export')" name="export">
-              <div class="tenant-task-form tenant-task-form--inline">
-                <el-select v-model="exportForm.exportType" :aria-label="t('tenant.type')">
-                  <el-option :label="t('tenant.exportFull')" value="FULL" />
-                  <el-option :label="t('tenant.exportOrders')" value="ORDERS" />
-                  <el-option :label="t('tenant.exportUsers')" value="USERS" />
-                </el-select>
-                <el-button
-                  type="primary"
-                  :loading="isPending(`tenant:${selectedTenant.id}:export`)"
-                  @click="requestExport"
-                >
-                  {{ t('tenant.submitExport') }}
-                </el-button>
-              </div>
-              <DataTableShell :empty="exports.length === 0" :aria-label="t('tenant.export')">
-                <template #empty>{{ t('tenant.noExports') }}</template>
-                <el-table :data="exports" row-key="id" size="small">
-                  <el-table-column prop="exportType" :label="t('tenant.type')" width="120" />
-                  <el-table-column :label="t('tenant.status')" width="130">
-                    <template #default="{ row }">{{ exportStatusLabel(row.status) }}</template>
-                  </el-table-column>
-                  <el-table-column prop="encryptedArchivePath" :label="t('tenant.archivePath')" min-width="220" />
-                  <el-table-column prop="requestedAt" :label="t('tenant.requestedAt')" min-width="180" />
-                </el-table>
-              </DataTableShell>
-            </el-tab-pane>
-          </el-tabs>
-        </AsyncStateView>
-      </section>
-    </div>
+              <el-tab-pane :label="t('tenant.export')" name="export">
+                <div class="tenant-task-form tenant-task-form--inline">
+                  <el-select v-model="exportForm.exportType" :aria-label="t('tenant.type')">
+                    <el-option :label="t('tenant.exportFull')" value="FULL" />
+                    <el-option :label="t('tenant.exportOrders')" value="ORDERS" />
+                    <el-option :label="t('tenant.exportUsers')" value="USERS" />
+                  </el-select>
+                  <el-button
+                    type="primary"
+                    :loading="isPending(`tenant:${selectedTenant.id}:export`)"
+                    @click="requestExport"
+                  >
+                    {{ t('tenant.submitExport') }}
+                  </el-button>
+                </div>
+                <DataTableShell :empty="exports.length === 0" :aria-label="t('tenant.export')">
+                  <template #empty>{{ t('tenant.noExports') }}</template>
+                  <el-table :data="exports" row-key="id" size="small">
+                    <el-table-column :label="t('tenant.type')" width="120">
+                      <template #default="{ row }">{{ exportTypeLabel(row.exportType) }}</template>
+                    </el-table-column>
+                    <el-table-column :label="t('tenant.status')" width="130">
+                      <template #default="{ row }">{{ exportStatusLabel(row.status) }}</template>
+                    </el-table-column>
+                    <el-table-column
+                      prop="encryptedArchivePath"
+                      :label="t('tenant.archivePath')"
+                      min-width="220"
+                    />
+                    <el-table-column
+                      prop="requestedAt"
+                      :label="t('tenant.requestedAt')"
+                      min-width="180"
+                    />
+                  </el-table>
+                </DataTableShell>
+              </el-tab-pane>
+            </el-tabs>
+          </AsyncStateView>
+        </section>
+      </div>
+    </AsyncStateView>
 
-    <el-dialog v-model="createDialogOpen" :title="t('tenant.createTenantTitle')" width="min(520px, 92vw)">
+    <el-dialog
+      v-model="createDialogOpen"
+      :title="t('tenant.createTenantTitle')"
+      width="min(520px, 92vw)"
+    >
       <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-position="top">
         <div class="create-form-grid">
           <el-form-item :label="t('tenant.code')" prop="code">
@@ -668,6 +889,17 @@ onMounted(loadTenantList)
   display: grid;
   gap: var(--space-5);
   min-width: 0;
+}
+
+.data-freshness {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  text-align: right;
+}
+
+.data-freshness.is-stale {
+  color: var(--color-danger);
 }
 
 .tenant-workspace {

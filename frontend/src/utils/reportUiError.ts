@@ -32,8 +32,11 @@ export function getUiErrorReference(error: unknown): string {
   return reference
 }
 
-export function reportUiError(error: unknown, info = ''): string {
-  const reference = getUiErrorReference(error)
+export function reportUiError(
+  error: unknown,
+  info = '',
+  reference = getUiErrorReference(error),
+): string {
   const candidate = errorObject(error)
   if (candidate && reported.has(candidate)) {
     return reference

@@ -39,7 +39,7 @@ export default defineConfig({
         target: 'http://localhost:8888',
         changeOrigin: true,
       },
-      '/images': {
+      '^/images/(?!default_(?:product|avatar)\\.jpg(?:\\?|$))': {
         target: 'http://localhost:8888',
         changeOrigin: true,
       },

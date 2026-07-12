@@ -3,6 +3,7 @@ import { Refresh } from '@element-plus/icons-vue'
 import { ElAlert, ElButton } from 'element-plus'
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { loadTurnstile } from '@/utils/loadTurnstile'
 
 const props = defineProps<{
   action: string
@@ -20,48 +21,6 @@ const widgetHost = ref<HTMLElement | null>(null)
 const loadError = ref('')
 const retrying = ref(false)
 let widgetId: string | undefined
-let loader: Promise<void> | null = null
-
-type TurnstileApi = {
-  render: (element: HTMLElement, options: Record<string, unknown>) => string
-  remove: (widgetId?: string) => void
-}
-
-declare global {
-  interface Window {
-    turnstile?: TurnstileApi
-  }
-}
-
-function loadTurnstile(): Promise<void> {
-  if (window.turnstile) {
-    return Promise.resolve()
-  }
-  if (loader) {
-    return loader
-  }
-  loader = new Promise((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>('script[data-turnstile-api="true"]')
-    if (existing) {
-      existing.addEventListener('load', () => resolve(), { once: true })
-      existing.addEventListener('error', () => reject(new Error('turnstile unavailable')), {
-        once: true,
-      })
-      return
-    }
-    const script = document.createElement('script')
-    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
-    script.async = true
-    script.defer = true
-    script.dataset.turnstileApi = 'true'
-    script.addEventListener('load', () => resolve(), { once: true })
-    script.addEventListener('error', () => reject(new Error('turnstile unavailable')), {
-      once: true,
-    })
-    document.head.appendChild(script)
-  })
-  return loader
-}
 
 async function renderWidget() {
   if (!widgetHost.value) {

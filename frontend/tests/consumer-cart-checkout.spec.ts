@@ -167,6 +167,9 @@ test('cart restores a failed quantity and limits pending state to that line acti
 
   await expect(firstQuantity).toHaveValue('4')
   await expect(firstQuantity).toBeDisabled()
+  await expect(firstRow.getByRole('switch')).toBeDisabled()
+  await expect(firstRow.getByRole('button', { name: 'Delete Curious Capuchin' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeDisabled()
   await expect(secondQuantity).toBeEnabled()
 
   releaseUpdate()
@@ -176,6 +179,117 @@ test('cart restores a failed quantity and limits pending state to that line acti
   await expect(page.locator('body')).not.toContainText('RAW_BACKEND_STOCK_FAILURE')
   await expect(page.locator('body')).not.toContainText('quantity rejected by inventory internals')
   await expect(page.locator('.el-message')).toHaveCount(0)
+})
+
+test('cart serializes full-snapshot writes from different rows', async ({ page }) => {
+  let releaseFirst!: () => void
+  const firstGate = new Promise<void>((resolve) => {
+    releaseFirst = resolve
+  })
+  let firstCalls = 0
+  let secondCalls = 0
+
+  await page.route('**/api/v1/cart/items/101', async (route) => {
+    if (route.request().method() !== 'PATCH') {
+      await route.fallback()
+      return
+    }
+    firstCalls += 1
+    await firstGate
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        ok({
+          ...cart,
+          items: cart.items.map((item) => (item.skuId === 101 ? { ...item, quantity: 4 } : item)),
+        }),
+      ),
+    })
+  })
+  await page.route('**/api/v1/cart/items/202', async (route) => {
+    if (route.request().method() !== 'PATCH') {
+      await route.fallback()
+      return
+    }
+    secondCalls += 1
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        ok({
+          ...cart,
+          items: cart.items.map((item) =>
+            item.skuId === 101
+              ? { ...item, quantity: 4 }
+              : item.skuId === 202
+                ? { ...item, quantity: 3 }
+                : item,
+          ),
+        }),
+      ),
+    })
+  })
+
+  await page.goto('/cart')
+  const firstQuantity = page
+    .locator('.cart-table .el-table__row')
+    .filter({ hasText: 'Curious Capuchin' })
+    .getByRole('spinbutton')
+  const secondQuantity = page
+    .locator('.cart-table .el-table__row')
+    .filter({ hasText: 'Gentle Macaque' })
+    .getByRole('spinbutton')
+
+  await firstQuantity.fill('4')
+  await firstQuantity.press('Enter')
+  await expect.poll(() => firstCalls).toBe(1)
+  await secondQuantity.fill('3')
+  await secondQuantity.press('Enter')
+  await page.waitForTimeout(100)
+  expect(secondCalls).toBe(0)
+
+  releaseFirst()
+  await expect.poll(() => secondCalls).toBe(1)
+  await expect(firstQuantity).toHaveValue('4')
+  await expect(secondQuantity).toHaveValue('3')
+})
+
+test('cart blocks writes while a refresh snapshot is in flight', async ({ page }) => {
+  let getCalls = 0
+  let releaseRefresh!: () => void
+  const refreshGate = new Promise<void>((resolve) => {
+    releaseRefresh = resolve
+  })
+
+  await page.route('**/api/v1/cart', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fallback()
+      return
+    }
+    getCalls += 1
+    if (getCalls > 1) {
+      await refreshGate
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(ok(cart)),
+    })
+  })
+
+  await page.goto('/cart')
+  await page.getByPlaceholder('SKU').fill('303')
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await expect.poll(() => getCalls).toBe(2)
+
+  const firstRow = page
+    .locator('.cart-table .el-table__row')
+    .filter({ hasText: 'Curious Capuchin' })
+  await expect(firstRow.getByRole('spinbutton')).toBeDisabled()
+  await expect(firstRow.getByRole('switch')).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Add to cart', exact: true })).toBeDisabled()
+  releaseRefresh()
 })
 
 test('checkout sends one request while submit is pending', async ({ page }) => {
@@ -235,9 +349,7 @@ test('mobile cart uses labeled line items and keeps its summary above navigation
     .poll(async () => {
       const summaryBox = await summary.boundingBox()
       const navigationBox = await navigation.boundingBox()
-      return (
-        (summaryBox?.y ?? 0) + (summaryBox?.height ?? 0) - (navigationBox?.y ?? 0)
-      )
+      return (summaryBox?.y ?? 0) + (summaryBox?.height ?? 0) - (navigationBox?.y ?? 0)
     })
     .toBeLessThanOrEqual(1)
   const overflow = await page.evaluate(
@@ -295,9 +407,7 @@ test('mobile checkout preserves its form and preview after a sanitized submit fa
     .poll(async () => {
       const summaryBox = await summary.boundingBox()
       const navigationBox = await navigation.boundingBox()
-      return (
-        (summaryBox?.y ?? 0) + (summaryBox?.height ?? 0) - (navigationBox?.y ?? 0)
-      )
+      return (summaryBox?.y ?? 0) + (summaryBox?.height ?? 0) - (navigationBox?.y ?? 0)
     })
     .toBeLessThanOrEqual(1)
   await expect(page.locator('body')).not.toContainText('RAW_CHECKOUT_ENGINE_FAILURE')

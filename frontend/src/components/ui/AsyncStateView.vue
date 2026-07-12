@@ -11,12 +11,14 @@ const props = withDefaults(
     loadingLines?: number
     emptyTitle?: string
     emptyDescription?: string
+    preserveContentOnError?: boolean
   }>(),
   {
     error: null,
     loadingLines: 3,
     emptyTitle: undefined,
     emptyDescription: undefined,
+    preserveContentOnError: false,
   },
 )
 
@@ -48,6 +50,17 @@ const errorMessage = computed(() => {
           aria-hidden="true"
         />
       </slot>
+    </div>
+
+    <div v-else-if="status === 'error' && preserveContentOnError" class="async-state-view__content">
+      <div class="async-state-view__stale-error" role="alert">
+        <el-icon aria-hidden="true"><Warning /></el-icon>
+        <p>{{ errorMessage }}</p>
+        <el-button class="async-state-view__retry" text @click="$emit('retry')">
+          {{ t('common.retry') }}
+        </el-button>
+      </div>
+      <slot />
     </div>
 
     <div v-else-if="status === 'error'" class="async-state-view__error" role="alert">

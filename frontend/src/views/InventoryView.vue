@@ -61,6 +61,7 @@ const reservationKey = ref('')
 const reserveQuantity = ref(1)
 const reservationError = ref('')
 const pendingKeys = ref(new Set<string>())
+const mutationSkuByKey = new Map<string, number>()
 let stockLoadTimer: ReturnType<typeof setTimeout> | undefined
 
 const stocks = computed(() => stocksState.data.value ?? [])
@@ -78,6 +79,14 @@ const totalAvailable = computed(() =>
 const totalLocked = computed(() =>
   filteredStocks.value.reduce((sum, stock) => sum + stock.lockedQuantity, 0),
 )
+const inventoryMutationPending = computed(() => pendingKeys.value.size > 0)
+const currentStockMutationPending = computed(() => {
+  const skuId = query.skuId
+  return (
+    skuId !== null &&
+    [...pendingKeys.value].some((pendingKey) => mutationSkuByKey.get(pendingKey) === skuId)
+  )
+})
 const reconciliation = computed(() => reconciliationState.data.value)
 const discrepancies = computed(() => reconciliation.value?.discrepancies ?? [])
 const metrics = computed<MetricItem[]>(() => [
@@ -122,7 +131,9 @@ function isPending(key: string): boolean {
   return pendingKeys.value.has(key)
 }
 
-function setPending(key: string, value: boolean) {
+function setPending(key: string, value: boolean, skuId?: number) {
+  if (value && skuId !== undefined) mutationSkuByKey.set(key, skuId)
+  else if (!value) mutationSkuByKey.delete(key)
   const next = new Set(pendingKeys.value)
   if (value) next.add(key)
   else next.delete(key)
@@ -145,7 +156,7 @@ function patchReservation(nextReservation: InventoryReservation) {
   )
   if (index >= 0) reservations.value.splice(index, 1, nextReservation)
   else reservations.value.unshift(nextReservation)
-  patchStock(nextReservation.stock)
+  if (query.skuId === nextReservation.skuId) patchStock(nextReservation.stock)
 }
 
 function mergeDiscrepancies(
@@ -156,7 +167,9 @@ function mergeDiscrepancies(
   const merged = previous.filter((row) => nextKeys.has(`${row.skuId}:${row.warehouseId}`))
   for (const row of next) {
     const key = `${row.skuId}:${row.warehouseId}`
-    const index = merged.findIndex((candidate) => `${candidate.skuId}:${candidate.warehouseId}` === key)
+    const index = merged.findIndex(
+      (candidate) => `${candidate.skuId}:${candidate.warehouseId}` === key,
+    )
     if (index >= 0) merged.splice(index, 1, row)
     else merged.push(row)
   }
@@ -164,6 +177,7 @@ function mergeDiscrepancies(
 }
 
 async function loadStocks() {
+  if (currentStockMutationPending.value) return
   if (!query.skuId) {
     stocksState.reset()
     return
@@ -184,6 +198,7 @@ function scheduleStockLoad() {
 }
 
 async function searchStocks() {
+  if (currentStockMutationPending.value) return
   if (stockLoadTimer) {
     clearTimeout(stockLoadTimer)
     stockLoadTimer = undefined
@@ -194,17 +209,20 @@ async function searchStocks() {
 
 async function reserveCurrentSku() {
   const keyValue = reservationKey.value.trim()
+  const skuId = query.skuId
   reservationError.value = ''
-  if (!query.skuId || !keyValue) {
+  if (!skuId || !keyValue) {
     reservationError.value = t('inventory.reservationKeyRequired')
     return
   }
   const pendingKey = `reserve:${keyValue}`
   if (isPending(pendingKey)) return
-  setPending(pendingKey, true)
+  setPending(pendingKey, true, skuId)
   try {
+    stocksState.cancel()
+    reconciliationState.cancel()
     const reservation = await reserveInventory({
-      skuId: query.skuId,
+      skuId,
       province: query.region.trim() || undefined,
       quantity: reserveQuantity.value,
       reservationKey: keyValue,
@@ -222,8 +240,10 @@ async function reserveCurrentSku() {
 async function releaseReservation(reservation: InventoryReservation) {
   const pendingKey = `release:${reservation.reservationKey}`
   if (isPending(pendingKey) || reservation.status !== 'RESERVED') return
-  setPending(pendingKey, true)
+  setPending(pendingKey, true, reservation.skuId)
   try {
+    if (query.skuId === reservation.skuId) stocksState.cancel()
+    reconciliationState.cancel()
     patchReservation(await releaseInventory(reservation.reservationKey))
     notify.success(t('inventory.released'), { key: 'inventory:release:success' })
   } catch (error) {
@@ -234,6 +254,7 @@ async function releaseReservation(reservation: InventoryReservation) {
 }
 
 async function runReconciliation() {
+  if (inventoryMutationPending.value) return
   const previous = reconciliation.value?.discrepancies ?? []
   await reconciliationState.load(async () => {
     const next = await reconcileInventory()
@@ -288,6 +309,7 @@ onBeforeUnmount(() => {
           type="primary"
           :icon="Search"
           :loading="stocksState.isLoading.value"
+          :disabled="currentStockMutationPending"
           @click="searchStocks"
         >
           {{ t('common.search') }}
@@ -295,6 +317,7 @@ onBeforeUnmount(() => {
         <el-button
           :icon="Refresh"
           :loading="reconciliationState.isLoading.value"
+          :disabled="inventoryMutationPending"
           @click="runReconciliation"
         >
           {{ t('inventory.reconcile') }}
@@ -322,9 +345,17 @@ onBeforeUnmount(() => {
         >
           <template #empty>{{ t('common.noData') }}</template>
           <el-table :data="filteredStocks" row-key="warehouseId" size="small">
-            <el-table-column prop="warehouseCode" :label="t('inventory.warehouse')" min-width="140" />
+            <el-table-column
+              prop="warehouseCode"
+              :label="t('inventory.warehouse')"
+              min-width="140"
+            />
             <el-table-column prop="province" :label="t('inventory.region')" min-width="120" />
-            <el-table-column prop="availableQuantity" :label="t('inventory.available')" width="110" />
+            <el-table-column
+              prop="availableQuantity"
+              :label="t('inventory.available')"
+              width="110"
+            />
             <el-table-column prop="lockedQuantity" :label="t('inventory.locked')" width="100" />
             <el-table-column prop="deductedQuantity" :label="t('inventory.deducted')" width="110" />
             <el-table-column prop="totalQuantity" :label="t('inventory.total')" width="100" />
@@ -335,7 +366,9 @@ onBeforeUnmount(() => {
                     <WarningFilled v-if="row.belowSafetyStock" />
                     <CircleCheck v-else />
                   </el-icon>
-                  {{ row.belowSafetyStock ? t('inventory.safetyLow') : t('inventory.safetyHealthy') }}
+                  {{
+                    row.belowSafetyStock ? t('inventory.safetyLow') : t('inventory.safetyHealthy')
+                  }}
                   · {{ row.safetyStock }}
                 </span>
               </template>
@@ -368,7 +401,11 @@ onBeforeUnmount(() => {
             :aria-label="t('inventory.quantity')"
           />
         </div>
-        <el-button type="primary" :loading="isPending(`reserve:${reservationKey.trim()}`)" @click="reserveCurrentSku">
+        <el-button
+          type="primary"
+          :loading="isPending(`reserve:${reservationKey.trim()}`)"
+          @click="reserveCurrentSku"
+        >
           {{ t('inventory.reserve') }}
         </el-button>
         <p v-if="reservationError" class="inline-form-error" role="alert">{{ reservationError }}</p>
@@ -376,7 +413,11 @@ onBeforeUnmount(() => {
       <DataTableShell :empty="reservations.length === 0" :aria-label="t('inventory.reservations')">
         <template #empty>{{ t('inventory.noReservations') }}</template>
         <el-table :data="reservations" row-key="reservationKey" size="small">
-          <el-table-column prop="reservationKey" :label="t('inventory.reservationKey')" min-width="180" />
+          <el-table-column
+            prop="reservationKey"
+            :label="t('inventory.reservationKey')"
+            min-width="180"
+          />
           <el-table-column prop="quantity" :label="t('inventory.quantity')" width="100" />
           <el-table-column :label="t('common.status')" width="120">
             <template #default="{ row }">
@@ -405,15 +446,30 @@ onBeforeUnmount(() => {
 
     <section v-if="reconciliation" class="inventory-section" :aria-labelledby="'discrepancy-title'">
       <h2 id="discrepancy-title">{{ t('inventory.discrepancies') }}</h2>
-      <DataTableShell :empty="discrepancies.length === 0" :aria-label="t('inventory.discrepancies')">
+      <DataTableShell
+        :empty="discrepancies.length === 0"
+        :aria-label="t('inventory.discrepancies')"
+      >
         <template #empty>{{ t('inventory.noDiscrepancies') }}</template>
         <el-table :data="discrepancies" row-key="warehouseId" size="small">
           <el-table-column prop="skuId" label="SKU" width="100" />
           <el-table-column prop="warehouseId" :label="t('inventory.warehouse')" width="120" />
           <el-table-column prop="actualLocked" :label="t('inventory.actualLocked')" width="120" />
-          <el-table-column prop="expectedLocked" :label="t('inventory.expectedLocked')" width="130" />
-          <el-table-column prop="actualDeducted" :label="t('inventory.actualDeducted')" width="130" />
-          <el-table-column prop="expectedDeducted" :label="t('inventory.expectedDeducted')" width="140" />
+          <el-table-column
+            prop="expectedLocked"
+            :label="t('inventory.expectedLocked')"
+            width="130"
+          />
+          <el-table-column
+            prop="actualDeducted"
+            :label="t('inventory.actualDeducted')"
+            width="130"
+          />
+          <el-table-column
+            prop="expectedDeducted"
+            :label="t('inventory.expectedDeducted')"
+            width="140"
+          />
         </el-table>
       </DataTableShell>
     </section>

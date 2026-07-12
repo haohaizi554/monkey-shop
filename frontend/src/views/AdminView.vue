@@ -7,14 +7,14 @@ import type { LocationQuery, LocationQueryRaw } from 'vue-router'
 import { auditTrace, stats as fetchStats, type AuditTraceEvent } from '@/api/admin'
 import { addMonkey, deleteMonkey, listMonkeys, updateMonkey, uploadImage } from '@/api/catalog'
 import * as ordersApi from '@/api/orders'
-import { paymentForOrder, refundPayment } from '@/api/payments'
+import { adminPaymentForOrder, adminRefundPayment } from '@/api/payments'
 import ProductImage from '@/components/ProductImage.vue'
 import AdminPageToolbar from '@/components/admin/AdminPageToolbar.vue'
 import MetricStrip, { type MetricItem } from '@/components/admin/MetricStrip.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import DataTableShell from '@/components/ui/DataTableShell.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
-import { useAsyncState, type AsyncState, type AsyncStatus } from '@/composables/useAsyncState'
+import { useAsyncState } from '@/composables/useAsyncState'
 import { useNotify } from '@/composables/useNotify'
 import { useRouteQueryState, type RouteQuerySchema } from '@/composables/useRouteQueryState'
 import type { Monkey, MonkeyRequest, Order, Stats } from '@/types'
@@ -48,6 +48,7 @@ const productDialog = ref(false)
 const uploadingProductImage = ref(false)
 const productFormRef = ref<FormInstance>()
 const traceKeyword = ref('')
+const refundKeys = new Map<number, string>()
 let productSnapshot = ''
 
 const productForm = reactive<MonkeyRequest>({
@@ -106,14 +107,7 @@ const metrics = computed<MetricItem[]>(() => [
   { key: 'returns', label: t('common.returnRate'), value: stats.value?.returnRate ?? '0%' },
 ])
 const productDirty = computed(() => serializeProductForm() !== productSnapshot)
-const productsDisplayStatus = computed(() => displayStatus(productsState))
-const ordersDisplayStatus = computed(() => displayStatus(ordersState))
-const statsDisplayStatus = computed(() => displayStatus(statsState))
-
-function displayStatus<T>(state: AsyncState<T>): AsyncStatus {
-  return state.data.value !== null && state.status.value === 'error' ? 'success' : state.status.value
-}
-
+const adminMutationPending = computed(() => pendingKeys.value.size > 0)
 function isPending(key: string): boolean {
   return pendingKeys.value.has(key)
 }
@@ -138,10 +132,12 @@ function serializeProductForm(): string {
 }
 
 async function loadStats() {
+  if (adminMutationPending.value) return
   await statsState.load(() => fetchStats(), { preserveData: true })
 }
 
 async function loadProducts() {
+  if (adminMutationPending.value) return
   await productsState.load(() => listMonkeys(), {
     preserveData: true,
     isEmpty: (rows) => rows.length === 0,
@@ -149,6 +145,7 @@ async function loadProducts() {
 }
 
 async function loadOrders() {
+  if (adminMutationPending.value) return
   await ordersState.load(() => ordersApi.allOrders(), {
     preserveData: true,
     isEmpty: (rows) => rows.length === 0,
@@ -156,6 +153,7 @@ async function loadOrders() {
 }
 
 function refreshAdmin() {
+  if (adminMutationPending.value) return
   void Promise.allSettled([loadStats(), loadProducts(), loadOrders()])
 }
 
@@ -226,7 +224,11 @@ async function saveProduct() {
   if (isPending(key)) return
   setPending(key, true)
   try {
-    const saved = productForm.id ? await updateMonkey({ ...productForm }) : await addMonkey({ ...productForm })
+    statsState.cancel()
+    productsState.cancel()
+    const saved = productForm.id
+      ? await updateMonkey({ ...productForm })
+      : await addMonkey({ ...productForm })
     patchProduct(saved)
     productSnapshot = serializeProductForm()
     productDialog.value = false
@@ -239,15 +241,18 @@ async function saveProduct() {
 }
 
 async function removeProduct(product: Monkey) {
-  const confirmed = await notify.confirm({
-    content: t('common.deleteProductConfirm'),
-    confirmText: t('common.ok'),
-    type: 'warning',
-  })
-  if (!confirmed) return
   const key = `product:delete:${product.id}`
+  if (isPending(key)) return
   setPending(key, true)
   try {
+    const confirmed = await notify.confirm({
+      content: t('common.deleteProductConfirm'),
+      confirmText: t('common.ok'),
+      type: 'warning',
+    })
+    if (!confirmed) return
+    statsState.cancel()
+    productsState.cancel()
     await deleteMonkey(product.id)
     const rows = productsState.data.value
     const index = rows?.findIndex((row) => row.id === product.id) ?? -1
@@ -271,6 +276,8 @@ async function runOrderAction(action: string, order: Order, operation: () => Pro
   if (isPending(key)) return
   setPending(key, true)
   try {
+    statsState.cancel()
+    ordersState.cancel()
     patchOrder(await operation())
     notify.success(t('admin.orderUpdated'), { key: `admin:order:${order.id}` })
   } catch (error) {
@@ -281,25 +288,64 @@ async function runOrderAction(action: string, order: Order, operation: () => Pro
 }
 
 async function refundAndConfirm(order: Order) {
-  const confirmed = await notify.confirm({
-    content: t('common.refund'),
-    confirmText: t('common.refund'),
-    type: 'warning',
-  })
-  if (!confirmed) return
-  await runOrderAction('refund', order, async () => {
-    const payment = await paymentForOrder(order.id)
+  const key = `refund:${order.id}`
+  if (isPending(key)) return
+  setPending(key, true)
+  try {
+    const confirmed = await notify.confirm({
+      content: t('common.refund'),
+      confirmText: t('common.refund'),
+      type: 'warning',
+    })
+    if (!confirmed) return
+
+    statsState.cancel()
+    ordersState.cancel()
+    const payment = await adminPaymentForOrder(order.id)
+    let refundCompleted = payment.status === 'REFUNDED'
     if (payment.paymentNo) {
-      await refundPayment({
-        paymentNo: payment.paymentNo,
-        amount: payment.amount ?? order.price,
-        reason: t('common.refund'),
-      })
+      if (!refundCompleted) {
+        const idempotencyKey = refundKeys.get(order.id) ?? createRefundKey(order.id)
+        refundKeys.set(order.id, idempotencyKey)
+        await adminRefundPayment(
+          {
+            paymentNo: payment.paymentNo,
+            amount: payment.amount ?? order.price,
+            reason: t('common.refund'),
+          },
+          idempotencyKey,
+        )
+        refundCompleted = true
+      }
     } else {
       notify.warning(t('common.noPaymentToRefund'), { key: `admin:refund:none:${order.id}` })
     }
-    return ordersApi.confirmReturn(order.id)
-  })
+
+    try {
+      patchOrder(await ordersApi.confirmReturn(order.id))
+    } catch (error) {
+      if (refundCompleted) {
+        notify.warning(t('admin.refundCompleteReturnPending'), {
+          key: `admin:refund:pending:${order.id}`,
+        })
+        return
+      }
+      throw error
+    }
+    refundKeys.delete(order.id)
+    notify.success(t('admin.orderUpdated'), { key: `admin:order:${order.id}` })
+  } catch (error) {
+    notify.fromApiError(error, 'common.unableToUpdateOrder')
+  } finally {
+    setPending(key, false)
+  }
+}
+
+function createRefundKey(orderId: number): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `admin-refund:${orderId}:${crypto.randomUUID()}`
+  }
+  return `admin-refund:${orderId}:${Date.now().toString(36)}`
 }
 
 async function loadTrace() {
@@ -315,7 +361,10 @@ async function loadTrace() {
 }
 
 function auditEventLabel(eventType: string): string {
-  const normalized = eventType.replace(/[_:-]+/g, ' ').trim().toLocaleLowerCase()
+  const normalized = eventType
+    .replace(/[_:-]+/g, ' ')
+    .trim()
+    .toLocaleLowerCase()
   return normalized ? normalized.charAt(0).toLocaleUpperCase() + normalized.slice(1) : eventType
 }
 
@@ -332,7 +381,12 @@ refreshAdmin()
       <template #actions>
         <el-button
           :icon="Refresh"
-          :loading="statsState.isLoading.value || productsState.isLoading.value || ordersState.isLoading.value"
+          :loading="
+            statsState.isLoading.value ||
+            productsState.isLoading.value ||
+            ordersState.isLoading.value
+          "
+          :disabled="adminMutationPending"
           @click="refreshAdmin"
         >
           {{ t('common.refresh') }}
@@ -340,7 +394,12 @@ refreshAdmin()
       </template>
     </PageHeader>
 
-    <AsyncStateView :status="statsDisplayStatus" :error="statsState.error.value" @retry="loadStats">
+    <AsyncStateView
+      :status="statsState.status.value"
+      :error="statsState.error.value"
+      :preserve-content-on-error="statsState.data.value !== null"
+      @retry="loadStats"
+    >
       <MetricStrip :items="metrics" />
     </AsyncStateView>
 
@@ -350,10 +409,21 @@ refreshAdmin()
           <h2 id="catalog-title">{{ t('admin.catalog') }}</h2>
           <p>{{ t('admin.catalogDescription') }}</p>
         </div>
-        <el-button type="primary" @click="openProductDialog()">{{ t('admin.createProduct') }}</el-button>
+        <el-button type="primary" @click="openProductDialog()">{{
+          t('admin.createProduct')
+        }}</el-button>
       </div>
-      <AsyncStateView :status="productsDisplayStatus" :error="productsState.error.value" @retry="loadProducts">
-        <DataTableShell class="product-table" :empty="products.length === 0" :aria-label="t('admin.catalog')">
+      <AsyncStateView
+        :status="productsState.status.value"
+        :error="productsState.error.value"
+        :preserve-content-on-error="productsState.data.value !== null"
+        @retry="loadProducts"
+      >
+        <DataTableShell
+          class="product-table"
+          :empty="products.length === 0"
+          :aria-label="t('admin.catalog')"
+        >
           <template #empty>{{ t('admin.noProducts') }}</template>
           <el-table :data="products" row-key="id" size="small">
             <el-table-column width="76">
@@ -370,7 +440,11 @@ refreshAdmin()
             <el-table-column prop="stock" :label="t('common.stock')" width="100" />
             <el-table-column :label="t('common.action')" width="190" fixed="right">
               <template #default="{ row }">
-                <el-button size="small" :aria-label="t('admin.editProductNamed', { name: row.name })" @click="openProductDialog(row)">
+                <el-button
+                  size="small"
+                  :aria-label="t('admin.editProductNamed', { name: row.name })"
+                  @click="openProductDialog(row)"
+                >
                   {{ t('common.edit') }}
                 </el-button>
                 <el-button
@@ -407,8 +481,17 @@ refreshAdmin()
           />
         </template>
       </AdminPageToolbar>
-      <AsyncStateView :status="ordersDisplayStatus" :error="ordersState.error.value" @retry="loadOrders">
-        <DataTableShell class="order-table" :empty="filteredOrders.length === 0" :aria-label="t('admin.fulfillment')">
+      <AsyncStateView
+        :status="ordersState.status.value"
+        :error="ordersState.error.value"
+        :preserve-content-on-error="ordersState.data.value !== null"
+        @retry="loadOrders"
+      >
+        <DataTableShell
+          class="order-table"
+          :empty="filteredOrders.length === 0"
+          :aria-label="t('admin.fulfillment')"
+        >
           <template #empty>{{ t('admin.noOrders') }}</template>
           <el-table :data="filteredOrders" row-key="id" size="small">
             <el-table-column prop="orderNo" :label="t('common.order')" min-width="160" />
@@ -419,7 +502,9 @@ refreshAdmin()
             </el-table-column>
             <el-table-column :label="t('common.status')" width="140">
               <template #default="{ row }">
-                <el-tag :type="statusType(row.status)" effect="plain">{{ orderStatusLabel(row.status) }}</el-tag>
+                <el-tag :type="statusType(row.status)" effect="plain">{{
+                  orderStatusLabel(row.status)
+                }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column :label="t('common.action')" width="180" fixed="right">
@@ -437,7 +522,9 @@ refreshAdmin()
                   v-if="orderStatusKey(row.status) === 'RETURN_REQUESTED'"
                   size="small"
                   :loading="isPending(`approve-return:${row.id}`)"
-                  @click="runOrderAction('approve-return', row, () => ordersApi.approveReturn(row.id))"
+                  @click="
+                    runOrderAction('approve-return', row, () => ordersApi.approveReturn(row.id))
+                  "
                 >
                   {{ t('common.approveReturn') }}
                 </el-button>
@@ -479,7 +566,13 @@ refreshAdmin()
           :placeholder="t('common.traceIdPlaceholder')"
           @keyup.enter="loadTrace"
         />
-        <el-button type="primary" :icon="Search" :loading="traceState.isLoading.value" :aria-label="t('admin.searchTrace')" @click="loadTrace">
+        <el-button
+          type="primary"
+          :icon="Search"
+          :loading="traceState.isLoading.value"
+          :aria-label="t('admin.searchTrace')"
+          @click="loadTrace"
+        >
           {{ t('common.search') }}
         </el-button>
       </div>
@@ -489,7 +582,9 @@ refreshAdmin()
         :empty-title="t('common.noTraceData')"
         @retry="loadTrace"
       >
-        <template #idle><p class="trace-empty">{{ t('common.noTraceData') }}</p></template>
+        <template #idle
+          ><p class="trace-empty">{{ t('common.noTraceData') }}</p></template
+        >
         <el-timeline class="trace-timeline">
           <el-timeline-item
             v-for="event in traceEvents"
@@ -513,12 +608,22 @@ refreshAdmin()
     >
       <el-form ref="productFormRef" :model="productForm" :rules="productRules" label-position="top">
         <div class="product-form-grid">
-          <el-form-item :label="t('common.name')" prop="name"><el-input v-model="productForm.name" /></el-form-item>
-          <el-form-item :label="t('common.breed')" prop="breed"><el-input v-model="productForm.breed" /></el-form-item>
-          <el-form-item :label="t('common.price')" prop="price"><el-input v-model="productForm.price" type="number" /></el-form-item>
-          <el-form-item :label="t('common.stock')" prop="stock"><el-input v-model.number="productForm.stock" type="number" /></el-form-item>
+          <el-form-item :label="t('common.name')" prop="name"
+            ><el-input v-model="productForm.name"
+          /></el-form-item>
+          <el-form-item :label="t('common.breed')" prop="breed"
+            ><el-input v-model="productForm.breed"
+          /></el-form-item>
+          <el-form-item :label="t('common.price')" prop="price"
+            ><el-input v-model="productForm.price" type="number"
+          /></el-form-item>
+          <el-form-item :label="t('common.stock')" prop="stock"
+            ><el-input v-model.number="productForm.stock" type="number"
+          /></el-form-item>
         </div>
-        <el-form-item :label="t('common.description')"><el-input v-model="productForm.description" type="textarea" :rows="3" /></el-form-item>
+        <el-form-item :label="t('common.description')"
+          ><el-input v-model="productForm.description" type="textarea" :rows="3"
+        /></el-form-item>
         <el-form-item :label="t('common.image')">
           <div class="product-image-editor">
             <label class="file-picker" for="product-image-input">
@@ -532,13 +637,21 @@ refreshAdmin()
                 @change="uploadProductImage"
               />
             </label>
-            <ProductImage v-if="productForm.imageUrl" :src="productForm.imageUrl" :alt="productForm.name || t('common.product')" />
+            <ProductImage
+              v-if="productForm.imageUrl"
+              :src="productForm.imageUrl"
+              :alt="productForm.name || t('common.product')"
+            />
           </div>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="closeProductDialog">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="isPending(`product:save:${productForm.id ?? 'new'}`)" @click="saveProduct">
+        <el-button
+          type="primary"
+          :loading="isPending(`product:save:${productForm.id ?? 'new'}`)"
+          @click="saveProduct"
+        >
           {{ t('common.save') }}
         </el-button>
       </template>

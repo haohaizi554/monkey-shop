@@ -15,13 +15,15 @@ export function allOrders(): Promise<Order[]> {
   return request<Order[]>({ url: '/orders/all' })
 }
 
-export function createOrder(monkeyId: number, addressId: number): Promise<Order> {
+export function createOrder(
+  monkeyId: number,
+  addressId: number,
+  idempotencyKey?: string,
+): Promise<Order> {
   return request<Order>({
     url: '/orders/create',
     method: 'POST',
-    headers: {
-      'Idempotency-Key': crypto.randomUUID(),
-    },
+    headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
     data: { monkeyId, addressId },
   })
 }
@@ -46,8 +48,17 @@ export function shipOrder(id: number): Promise<Order> {
   return request<Order>({ url: `/orders/ship/${id}`, method: 'POST' })
 }
 
-export function createShipment(id: number, payload: OrderShipmentRequest): Promise<OrderShipment> {
-  return request<OrderShipment>({ url: `/orders/shipments/${id}`, method: 'POST', data: payload })
+export function createShipment(
+  id: number,
+  payload: OrderShipmentRequest,
+  idempotencyKey?: string,
+): Promise<OrderShipment> {
+  return request<OrderShipment>({
+    url: `/orders/shipments/${id}`,
+    method: 'POST',
+    data: payload,
+    headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+  })
 }
 
 export function orderShipments(id: number): Promise<OrderShipment[]> {

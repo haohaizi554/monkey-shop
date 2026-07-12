@@ -105,9 +105,7 @@ test('orders localize fulfillment states and confirm a single return request', a
   await expect(page.getByText('Awaiting payment', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('In transit', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('Completed', { exact: true }).first()).toBeVisible()
-  await expect(page.locator('body')).not.toContainText(
-    /PAYMENT_PENDING|IN_TRANSIT|COMPLETED/,
-  )
+  await expect(page.locator('body')).not.toContainText(/PAYMENT_PENDING|IN_TRANSIT|COMPLETED/)
 
   const completedOrder = page.locator('.order-row').filter({ hasText: 'Completed monkey' })
   const returnButton = completedOrder.getByRole('button', { name: 'Return', exact: true })
@@ -128,7 +126,7 @@ test('orders localize fulfillment states and confirm a single return request', a
   await expect(page.getByText('\u5f85\u652f\u4ed8', { exact: true }).first()).toBeVisible()
 })
 
-test('payment keeps refund failure local and independent from payment creation', async ({ page }) => {
+test('payment serializes refund with creation and keeps the failure local', async ({ page }) => {
   let refundCalls = 0
   let releaseRefund!: () => void
   const refundGate = new Promise<void>((resolve) => {
@@ -181,18 +179,188 @@ test('payment keeps refund failure local and independent from payment creation',
 
   await expect.poll(() => refundCalls).toBe(1)
   await expect(refundButton).toBeDisabled()
-  await expect(
-    page.getByRole('button', { name: 'Submit payment', exact: true }),
-  ).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Submit payment', exact: true })).toBeDisabled()
+  await expect(page.getByLabel('TOTP code')).toBeDisabled()
+  await expect(page.getByLabel('Order ID')).toBeDisabled()
+  await expect(refundForm.getByRole('spinbutton')).toBeDisabled()
+  await expect(refundForm.getByLabel('Refund reason')).toBeDisabled()
   await refundButton.evaluate((button) => (button as HTMLButtonElement).click())
   expect(refundCalls).toBe(1)
 
   releaseRefund()
   await expect(refundForm.locator('.task-error')).toContainText('Unable to submit refund')
+  await expect(page.getByRole('button', { name: 'Submit payment', exact: true })).toBeEnabled()
   await expect(page.locator('body')).not.toContainText('ledger exploded')
 })
 
-test('logistics localizes tracking and isolates quote errors from shipment data', async ({ page }) => {
+test('payment creation freezes refund and lookup controls until it settles', async ({ page }) => {
+  let createCalls = 0
+  let releaseCreate!: () => void
+  const createGate = new Promise<void>((resolve) => {
+    releaseCreate = resolve
+  })
+  const payment = {
+    id: 11,
+    paymentNo: 'PAY-101',
+    orderId: 101,
+    userId: 7,
+    method: 'WECHAT',
+    amount: '288.00',
+    paidAmount: '288.00',
+    refundedAmount: '0.00',
+    status: 'PAID',
+    createTime: '2026-07-12T08:05:00Z',
+  }
+
+  await installFulfillmentMocks(page, async (route, pathname) => {
+    if (pathname === '/payments/orders/101') {
+      await fulfillOk(route, payment)
+      return true
+    }
+    if (pathname === '/payments/pay') {
+      createCalls += 1
+      await createGate
+      await fulfillOk(route, { ...payment, paymentNo: 'PAY-NEW' })
+      return true
+    }
+    return false
+  })
+
+  await page.goto('/payment/101')
+  const refundForm = page.locator('.refund-task')
+  await refundForm.getByRole('spinbutton').fill('20')
+  await page.getByRole('button', { name: 'Submit payment', exact: true }).click()
+  await expect.poll(() => createCalls).toBe(1)
+
+  await expect(page.getByLabel('Order ID')).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Search', exact: true })).toBeDisabled()
+  await expect(page.getByLabel('TOTP code')).toBeDisabled()
+  await expect(refundForm.getByRole('spinbutton')).toBeDisabled()
+  await expect(refundForm.getByLabel('Refund reason')).toBeDisabled()
+  await expect(refundForm.getByRole('button', { name: 'Refund', exact: true })).toBeDisabled()
+
+  releaseCreate()
+  await expect(page.getByRole('button', { name: 'Submit payment', exact: true })).toBeEnabled()
+  await expect(refundForm.getByRole('spinbutton')).toBeEnabled()
+})
+
+test('refund confirmation freezes the selected payment and lookup controls', async ({ page }) => {
+  let refundedPaymentNo = ''
+  const payment = {
+    id: 11,
+    paymentNo: 'PAY-101',
+    orderId: 101,
+    userId: 7,
+    method: 'WECHAT',
+    amount: '288.00',
+    paidAmount: '288.00',
+    refundedAmount: '0.00',
+    status: 'PAID',
+    createTime: '2026-07-12T08:05:00Z',
+  }
+
+  await installFulfillmentMocks(page, async (route, pathname) => {
+    if (pathname === '/payments/orders/101') {
+      await fulfillOk(route, payment)
+      return true
+    }
+    if (pathname === '/payments/refund') {
+      refundedPaymentNo = (route.request().postDataJSON() as { paymentNo: string }).paymentNo
+      await fulfillOk(route, {
+        ledgerId: 1,
+        paymentNo: refundedPaymentNo,
+        amount: '20.00',
+        refundedAmount: '20.00',
+        paymentStatus: 'PARTIALLY_REFUNDED',
+        ledgerStatus: 'SUCCESS',
+        createTime: '2026-07-12T09:00:00Z',
+      })
+      return true
+    }
+    return false
+  })
+
+  await page.goto('/payment/101')
+  const refundForm = page.locator('.refund-task')
+  await refundForm.getByRole('spinbutton').fill('20')
+  await refundForm.getByRole('button', { name: 'Refund', exact: true }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+
+  const lookup = page.locator('.lookup-task')
+  await expect(lookup.getByRole('spinbutton', { name: 'Order ID' })).toBeDisabled()
+  await expect(lookup.getByRole('button', { name: 'Search', exact: true })).toBeDisabled()
+  await page.getByRole('button', { name: 'OK', exact: true }).click()
+  await expect.poll(() => refundedPaymentNo).toBe('PAY-101')
+})
+
+test('a failed refund retry reuses the same business idempotency key', async ({ page }) => {
+  const keys: string[] = []
+  let calls = 0
+  const payment = {
+    id: 11,
+    paymentNo: 'PAY-101',
+    orderId: 101,
+    userId: 7,
+    method: 'WECHAT',
+    amount: '288.00',
+    paidAmount: '288.00',
+    refundedAmount: '0.00',
+    status: 'PAID',
+    createTime: '2026-07-12T08:05:00Z',
+  }
+
+  await installFulfillmentMocks(page, async (route, pathname) => {
+    if (pathname === '/payments/orders/101') {
+      await fulfillOk(route, payment)
+      return true
+    }
+    if (pathname === '/payments/refund') {
+      calls += 1
+      keys.push((await route.request().allHeaders())['idempotency-key'] ?? '')
+      if (calls === 1) {
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/problem+json',
+          body: JSON.stringify({ title: 'response lost', status: 503 }),
+        })
+      } else {
+        await fulfillOk(route, {
+          ledgerId: 1,
+          paymentNo: 'PAY-101',
+          amount: '20.00',
+          refundedAmount: '20.00',
+          paymentStatus: 'PARTIALLY_REFUNDED',
+          ledgerStatus: 'SUCCESS',
+          createTime: '2026-07-12T09:00:00Z',
+        })
+      }
+      return true
+    }
+    return false
+  })
+
+  await page.goto('/payment/101')
+  const refundForm = page.locator('.refund-task')
+  await refundForm.getByRole('spinbutton').fill('20')
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await refundForm.getByRole('button', { name: 'Refund', exact: true }).click()
+    await page
+      .locator('.el-message-box:visible')
+      .getByRole('button', { name: 'OK', exact: true })
+      .click()
+    await expect.poll(() => calls).toBe(attempt + 1)
+    if (attempt === 0) {
+      await expect(refundForm.getByRole('button', { name: 'Refund', exact: true })).toBeEnabled()
+    }
+  }
+
+  expect(keys[0]).not.toBe('')
+  expect(keys[1]).toBe(keys[0])
+})
+
+test('logistics localizes tracking and isolates quote errors from shipment data', async ({
+  page,
+}) => {
   let quoteCalls = 0
   const tracking = {
     id: 21,
@@ -255,6 +423,88 @@ test('logistics localizes tracking and isolates quote errors from shipment data'
   await expect(page.locator('body')).not.toContainText('carrier stack trace')
   await page.getByLabel('Full address').fill('100 Wenyi Road')
   await expect(page.getByRole('button', { name: 'Parse address', exact: true })).toBeEnabled()
+})
+
+test('address parsing freezes its input snapshot until the response is applied', async ({
+  page,
+}) => {
+  let releaseParse!: () => void
+  const parseGate = new Promise<void>((resolve) => {
+    releaseParse = resolve
+  })
+
+  await installFulfillmentMocks(page, async (route, pathname) => {
+    if (pathname === '/logistics/orders/101') {
+      await fulfillOk(route, null)
+      return true
+    }
+    if (pathname === '/logistics/address/parse') {
+      await parseGate
+      await fulfillOk(route, {
+        province: 'Zhejiang',
+        city: 'Hangzhou',
+        district: 'Xihu',
+        detail: '100 Wenyi Road',
+      })
+      return true
+    }
+    return false
+  })
+
+  await page.goto('/logistics/101')
+  await page.getByLabel('Full address').fill('100 Wenyi Road')
+  await page.getByRole('button', { name: 'Parse address', exact: true }).click()
+
+  await expect(page.getByLabel('Full address')).toBeDisabled()
+  await expect(page.getByPlaceholder('Province')).toBeDisabled()
+  releaseParse()
+  await expect(page.getByPlaceholder('Province')).toHaveValue('Zhejiang')
+})
+
+test('a failed shipment retry reuses the same business idempotency key', async ({ page }) => {
+  const keys: string[] = []
+  let calls = 0
+
+  await installFulfillmentMocks(page, async (route, pathname) => {
+    if (pathname === '/logistics/orders/101') {
+      await fulfillOk(route, null)
+      return true
+    }
+    if (pathname === '/logistics/shipments') {
+      calls += 1
+      keys.push((await route.request().allHeaders())['idempotency-key'] ?? '')
+      if (calls === 1) {
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/problem+json',
+          body: JSON.stringify({ title: 'response lost', status: 503 }),
+        })
+      } else {
+        await fulfillOk(route, {
+          id: 21,
+          trackingNo: 'SF-101',
+          orderId: 101,
+          userId: 7,
+          carrier: 'SF',
+          status: 'ORDERED',
+          freightAmount: '12.00',
+          createTime: '2026-07-12T08:30:00Z',
+          events: [],
+        })
+      }
+      return true
+    }
+    return false
+  })
+
+  await page.goto('/logistics/101')
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await page.getByRole('button', { name: 'Create shipment', exact: true }).click()
+    await expect.poll(() => calls).toBe(attempt + 1)
+  }
+
+  expect(keys[0]).not.toBe('')
+  expect(keys[1]).toBe(keys[0])
 })
 
 test('review upload leaves content editable and review submission is single-flight', async ({
@@ -339,12 +589,7 @@ test('review upload leaves content editable and review submission is single-flig
 })
 
 test('fulfillment views use shared surfaces and app feedback only', async () => {
-  const viewFiles = [
-    'OrdersView.vue',
-    'PaymentView.vue',
-    'LogisticsView.vue',
-    'ReviewView.vue',
-  ]
+  const viewFiles = ['OrdersView.vue', 'PaymentView.vue', 'LogisticsView.vue', 'ReviewView.vue']
 
   for (const file of viewFiles) {
     const source = await readFile(resolve(process.cwd(), 'src/views', file), 'utf8')

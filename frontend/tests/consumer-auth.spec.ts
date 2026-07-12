@@ -90,3 +90,44 @@ test('mobile auth is form-first, touch-safe, and uses the bundled image', async 
   expect(imageSource).not.toContain('/images/monkey.png')
   expect(overflow).toBeLessThanOrEqual(1)
 })
+
+test('verification retries with a fresh provider script after the first load fails', async ({
+  page,
+}) => {
+  let scriptRequests = 0
+
+  await page.route('**/api/v1/auth/captcha/config', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(ok({ provider: 'turnstile', siteKey: 'test-site-key' })),
+    })
+  })
+  await page.route('https://challenges.cloudflare.com/turnstile/v0/api.js**', async (route) => {
+    scriptRequests += 1
+    if (scriptRequests === 1) {
+      await route.abort('failed')
+      return
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/javascript',
+      body: `window.turnstile = {
+        render(element, options) {
+          element.textContent = 'Verification ready'
+          options.callback('verified-token')
+          return 'test-widget'
+        },
+        remove() {}
+      }`,
+    })
+  })
+
+  await page.goto('/login')
+  const loginPanel = page.getByRole('tabpanel', { name: 'Sign in' })
+  await expect(loginPanel.locator('.turnstile-error')).toBeVisible()
+  await loginPanel.getByRole('button', { name: /Retry/i }).click()
+
+  await expect(loginPanel.locator('.turnstile-widget')).toContainText('Verification ready')
+  expect(scriptRequests).toBe(2)
+})

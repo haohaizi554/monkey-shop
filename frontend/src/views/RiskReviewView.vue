@@ -32,14 +32,15 @@ interface RiskQuery {
 const reviewStatuses = new Set<RiskReviewStatus>(['PENDING', 'APPROVED', 'REJECTED', 'BLOCKED'])
 const riskQuerySchema: RouteQuerySchema<RiskQuery> = {
   parse(query: LocationQuery) {
-    const rawStatus = String(Array.isArray(query.status) ? query.status[0] ?? '' : query.status ?? '')
-      .toUpperCase() as RiskReviewStatus
+    const rawStatus = String(
+      Array.isArray(query.status) ? (query.status[0] ?? '') : (query.status ?? ''),
+    ).toUpperCase() as RiskReviewStatus
     const rawMin = Number.parseInt(
-      String(Array.isArray(query.minScore) ? query.minScore[0] ?? '' : query.minScore ?? ''),
+      String(Array.isArray(query.minScore) ? (query.minScore[0] ?? '') : (query.minScore ?? '')),
       10,
     )
     const rawMax = Number.parseInt(
-      String(Array.isArray(query.maxScore) ? query.maxScore[0] ?? '' : query.maxScore ?? ''),
+      String(Array.isArray(query.maxScore) ? (query.maxScore[0] ?? '') : (query.maxScore ?? '')),
       10,
     )
     return {
@@ -94,7 +95,12 @@ const filteredReviews = computed(() =>
   }),
 )
 const assessment = computed(() => assessmentState.data.value)
-const pendingCount = computed(() => reviews.value.filter((item) => item.status === 'PENDING').length)
+const pendingCount = computed(
+  () => reviews.value.filter((item) => item.status === 'PENDING').length,
+)
+const reviewMutationPending = computed(
+  () => pendingKeys.value.size > 0 || assessmentState.isLoading.value,
+)
 const blockCount = computed(() => reviews.value.filter((item) => item.status === 'BLOCKED').length)
 const maxScore = computed(() => reviews.value.reduce((max, item) => Math.max(max, item.score), 0))
 const metrics = computed<MetricItem[]>(() => [
@@ -138,15 +144,15 @@ function setPending(key: string, value: boolean) {
 }
 
 function decisionLabel(decision?: RiskDecision): string {
-  return decision ? (decisionLabels.value[decision] ?? decision) : '-'
+  return decision ? (decisionLabels.value[decision] ?? t('common.unknown')) : '-'
 }
 
 function statusLabel(status: RiskReviewStatus): string {
-  return statusLabels.value[status] ?? status
+  return statusLabels.value[status] ?? t('common.unknown')
 }
 
 function signalLabel(type: RiskSignalType): string {
-  return signalLabels.value[type] ?? type
+  return signalLabels.value[type] ?? t('common.unknown')
 }
 
 function decisionType(decision?: RiskDecision): 'success' | 'warning' | 'danger' | 'info' {
@@ -163,6 +169,7 @@ function statusType(status: RiskReviewStatus): 'success' | 'warning' | 'danger' 
 }
 
 async function loadReviews() {
+  if (reviewMutationPending.value) return
   await reviewsState.load(() => riskApi.riskReviews(), {
     preserveData: true,
     isEmpty: (rows) => rows.length === 0,
@@ -170,17 +177,18 @@ async function loadReviews() {
 }
 
 async function assessRisk() {
-  const result = await assessmentState.load(
-    () =>
-      riskApi.assessRisk({
-        ...assessmentForm,
-        orderId: assessmentForm.orderId || undefined,
-        seckillActivityId: assessmentForm.seckillActivityId || undefined,
-        sellerUserId: assessmentForm.sellerUserId || undefined,
-        totpCode: assessmentForm.totpCode.trim() || undefined,
-      }),
-    { preserveData: true },
-  )
+  if (assessmentState.isLoading.value) return
+  const payload = {
+    ...assessmentForm,
+    orderId: assessmentForm.orderId || undefined,
+    seckillActivityId: assessmentForm.seckillActivityId || undefined,
+    sellerUserId: assessmentForm.sellerUserId || undefined,
+    totpCode: assessmentForm.totpCode.trim() || undefined,
+  }
+  reviewsState.cancel()
+  const result = await assessmentState.load(() => riskApi.assessRisk(payload), {
+    preserveData: true,
+  })
   if (result) {
     notify.success(t('risk.decisionMessage', { decision: decisionLabel(result.decision) }), {
       key: 'risk:assessment',
@@ -201,6 +209,8 @@ function openDecision(item: RiskReviewCase, status: RiskReviewResolveRequest['st
 async function saveDecision() {
   const item = activeReview.value
   if (!item || item.status !== 'PENDING') return
+  const pendingKey = `review:${item.id}`
+  if (isPending(pendingKey)) return
   decisionError.value = ''
   if (!decisionForm.resolution.trim()) {
     decisionError.value = t('risk.resolutionRequired')
@@ -210,34 +220,37 @@ async function saveDecision() {
     decisionError.value = t('risk.totpRequiredForBlock')
     return
   }
-  if (decisionForm.status === 'BLOCKED') {
-    const confirmed = await notify.confirm({
-      title: t('risk.blockCaseTitle'),
-      content: t('risk.blockCaseConfirm'),
-      confirmText: t('risk.block'),
-      type: 'warning',
-    })
-    if (!confirmed) return
-  }
 
-  const key = `review:${item.id}:${decisionForm.status}`
-  setPending(key, true)
+  const status = decisionForm.status
+  const resolution = decisionForm.resolution.trim()
+  const totpCode = status === 'BLOCKED' ? decisionForm.totpCode.trim() : undefined
+  setPending(pendingKey, true)
   try {
+    if (status === 'BLOCKED') {
+      const confirmed = await notify.confirm({
+        title: t('risk.blockCaseTitle'),
+        content: t('risk.blockCaseConfirm'),
+        confirmText: t('risk.block'),
+        type: 'warning',
+      })
+      if (!confirmed) return
+    }
+    reviewsState.cancel()
     const updated = await riskApi.resolveRiskReview(item.id, {
-      status: decisionForm.status,
-      resolution: decisionForm.resolution.trim(),
-      totpCode: decisionForm.status === 'BLOCKED' ? decisionForm.totpCode.trim() : undefined,
+      status,
+      resolution,
+      totpCode,
     })
     const index = reviews.value.findIndex((review) => review.id === updated.id)
     if (index >= 0) reviews.value.splice(index, 1, updated)
-    activeReview.value = updated
+    if (activeReview.value?.id === updated.id) activeReview.value = updated
     notify.success(t('risk.reviewUpdated', { status: statusLabel(updated.status) }), {
       key: `risk:review:${updated.id}`,
     })
   } catch (error) {
     notify.fromApiError(error, 'risk.reviewUpdateFailed')
   } finally {
-    setPending(key, false)
+    setPending(pendingKey, false)
   }
 }
 
@@ -252,7 +265,12 @@ void loadReviews()
       :description="t('risk.description')"
     >
       <template #actions>
-        <el-button :icon="Refresh" :loading="reviewsState.isLoading.value" @click="loadReviews">
+        <el-button
+          :icon="Refresh"
+          :loading="reviewsState.isLoading.value"
+          :disabled="reviewMutationPending"
+          @click="loadReviews"
+        >
           {{ t('common.refresh') }}
         </el-button>
       </template>
@@ -264,17 +282,78 @@ void loadReviews()
       <div class="assessment-tool">
         <h2 id="assessment-title">{{ t('risk.assessment') }}</h2>
         <div class="assessment-form">
-          <el-input v-model="assessmentForm.phone" :placeholder="t('risk.phone')" />
-          <el-input v-model="assessmentForm.deviceFingerprint" :placeholder="t('risk.deviceFingerprint')" />
-          <el-input v-model="assessmentForm.clientIp" :placeholder="t('risk.clientIp')" />
-          <el-input-number v-model="assessmentForm.productId" :min="1" />
-          <el-input-number v-model="assessmentForm.orderId" :min="1" :placeholder="t('risk.order')" />
-          <el-input-number v-model="assessmentForm.seckillActivityId" :min="1" :placeholder="t('risk.seckillActivity')" />
-          <el-input-number v-model="assessmentForm.sellerUserId" :min="1" :placeholder="t('risk.seller')" />
-          <el-input-number v-model="assessmentForm.priceBefore" :min="0" :step="10" />
-          <el-input-number v-model="assessmentForm.priceAfter" :min="0" :step="10" />
-          <el-input v-model="assessmentForm.totpCode" :placeholder="t('risk.adminTotp')" />
-          <el-button type="primary" :loading="assessmentState.isLoading.value" :icon="Warning" @click="assessRisk">
+          <el-input
+            v-model="assessmentForm.phone"
+            :disabled="assessmentState.isLoading.value"
+            :aria-label="t('risk.phone')"
+            :placeholder="t('risk.phone')"
+          />
+          <el-input
+            v-model="assessmentForm.deviceFingerprint"
+            :disabled="assessmentState.isLoading.value"
+            :aria-label="t('risk.deviceFingerprint')"
+            :placeholder="t('risk.deviceFingerprint')"
+          />
+          <el-input
+            v-model="assessmentForm.clientIp"
+            :disabled="assessmentState.isLoading.value"
+            :aria-label="t('risk.clientIp')"
+            :placeholder="t('risk.clientIp')"
+          />
+          <el-input-number
+            v-model="assessmentForm.productId"
+            :disabled="assessmentState.isLoading.value"
+            :min="1"
+            :aria-label="t('risk.product')"
+          />
+          <el-input-number
+            v-model="assessmentForm.orderId"
+            :disabled="assessmentState.isLoading.value"
+            :min="1"
+            :aria-label="t('risk.order')"
+            :placeholder="t('risk.order')"
+          />
+          <el-input-number
+            v-model="assessmentForm.seckillActivityId"
+            :disabled="assessmentState.isLoading.value"
+            :min="1"
+            :aria-label="t('risk.seckillActivity')"
+            :placeholder="t('risk.seckillActivity')"
+          />
+          <el-input-number
+            v-model="assessmentForm.sellerUserId"
+            :disabled="assessmentState.isLoading.value"
+            :min="1"
+            :aria-label="t('risk.seller')"
+            :placeholder="t('risk.seller')"
+          />
+          <el-input-number
+            v-model="assessmentForm.priceBefore"
+            :disabled="assessmentState.isLoading.value"
+            :min="0"
+            :step="10"
+            :aria-label="t('risk.priceBefore')"
+          />
+          <el-input-number
+            v-model="assessmentForm.priceAfter"
+            :disabled="assessmentState.isLoading.value"
+            :min="0"
+            :step="10"
+            :aria-label="t('risk.priceAfter')"
+          />
+          <el-input
+            v-model="assessmentForm.totpCode"
+            :disabled="assessmentState.isLoading.value"
+            :aria-label="t('risk.adminTotp')"
+            :placeholder="t('risk.adminTotp')"
+          />
+          <el-button
+            type="primary"
+            :loading="assessmentState.isLoading.value"
+            :disabled="assessmentState.isLoading.value"
+            :icon="Warning"
+            @click="assessRisk"
+          >
             {{ t('risk.assess') }}
           </el-button>
         </div>
@@ -287,7 +366,9 @@ void loadReviews()
           :error="assessmentState.error.value"
           @retry="assessRisk"
         >
-          <template #idle><p class="empty-copy">{{ t('risk.noAssessment') }}</p></template>
+          <template #idle
+            ><p class="empty-copy">{{ t('risk.noAssessment') }}</p></template
+          >
           <div v-if="assessment" class="assessment-summary">
             <div class="score-display">
               <strong>{{ assessment.score }}</strong>
@@ -321,7 +402,9 @@ void loadReviews()
     </section>
 
     <section class="review-section" :aria-labelledby="'review-list-title'">
-      <div class="section-heading"><h2 id="review-list-title">{{ t('risk.manualReview') }}</h2></div>
+      <div class="section-heading">
+        <h2 id="review-list-title">{{ t('risk.manualReview') }}</h2>
+      </div>
       <AdminPageToolbar :aria-label="t('risk.manualReview')">
         <template #filters>
           <el-select v-model="filters.status" :aria-label="t('risk.status')" clearable>
@@ -331,8 +414,18 @@ void loadReviews()
             <el-option :label="t('risk.statusRejected')" value="REJECTED" />
             <el-option :label="t('risk.statusBlocked')" value="BLOCKED" />
           </el-select>
-          <el-input-number v-model="filters.minScore" :min="0" :max="100" :aria-label="t('risk.minScore')" />
-          <el-input-number v-model="filters.maxScore" :min="0" :max="100" :aria-label="t('risk.maxScoreFilter')" />
+          <el-input-number
+            v-model="filters.minScore"
+            :min="0"
+            :max="100"
+            :aria-label="t('risk.minScore')"
+          />
+          <el-input-number
+            v-model="filters.maxScore"
+            :min="0"
+            :max="100"
+            :aria-label="t('risk.maxScoreFilter')"
+          />
         </template>
       </AdminPageToolbar>
 
@@ -356,22 +449,48 @@ void loadReviews()
             <el-table-column prop="score" :label="t('risk.score')" width="90" />
             <el-table-column :label="t('risk.status')" width="120">
               <template #default="{ row }">
-                <el-tag :type="statusType(row.status)" effect="plain">{{ statusLabel(row.status) }}</el-tag>
+                <el-tag :type="statusType(row.status)" effect="plain">{{
+                  statusLabel(row.status)
+                }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="detail" :label="t('risk.detail')" min-width="220" />
             <el-table-column :label="t('risk.action')" width="250" fixed="right">
               <template #default="{ row }">
                 <div v-if="row.status === 'PENDING'" class="wide-review-actions">
-                  <el-button size="small" :aria-label="t('risk.approveCase', { id: row.id })" @click="openDecision(row, 'APPROVED')">{{ t('risk.approve') }}</el-button>
-                  <el-button size="small" :aria-label="t('risk.rejectCase', { id: row.id })" @click="openDecision(row, 'REJECTED')">{{ t('risk.reject') }}</el-button>
-                  <el-button size="small" type="danger" plain :aria-label="t('risk.blockCase', { id: row.id })" @click="openDecision(row, 'BLOCKED')">{{ t('risk.block') }}</el-button>
+                  <el-button
+                    size="small"
+                    :aria-label="t('risk.approveCase', { id: row.id })"
+                    :disabled="isPending(`review:${row.id}`)"
+                    @click="openDecision(row, 'APPROVED')"
+                  >
+                    {{ t('risk.approve') }}
+                  </el-button>
+                  <el-button
+                    size="small"
+                    :aria-label="t('risk.rejectCase', { id: row.id })"
+                    :disabled="isPending(`review:${row.id}`)"
+                    @click="openDecision(row, 'REJECTED')"
+                  >
+                    {{ t('risk.reject') }}
+                  </el-button>
+                  <el-button
+                    size="small"
+                    type="danger"
+                    plain
+                    :aria-label="t('risk.blockCase', { id: row.id })"
+                    :disabled="isPending(`review:${row.id}`)"
+                    @click="openDecision(row, 'BLOCKED')"
+                  >
+                    {{ t('risk.block') }}
+                  </el-button>
                 </div>
                 <el-button
                   v-if="row.status === 'PENDING'"
                   class="mobile-review-action"
                   size="small"
                   :aria-label="t('risk.reviewAction', { id: row.id })"
+                  :disabled="isPending(`review:${row.id}`)"
                   @click="openDecision(row, 'APPROVED')"
                 >
                   {{ t('risk.action') }}
@@ -397,7 +516,10 @@ void loadReviews()
           </el-tag>
           <span>{{ t('risk.score') }}: {{ activeReview.score }}</span>
         </div>
-        <el-radio-group v-model="decisionForm.status" :disabled="activeReview.status !== 'PENDING'">
+        <el-radio-group
+          v-model="decisionForm.status"
+          :disabled="activeReview.status !== 'PENDING' || isPending(`review:${activeReview.id}`)"
+        >
           <el-radio-button value="APPROVED">{{ t('risk.approve') }}</el-radio-button>
           <el-radio-button value="REJECTED">{{ t('risk.reject') }}</el-radio-button>
           <el-radio-button value="BLOCKED">{{ t('risk.block') }}</el-radio-button>
@@ -409,7 +531,7 @@ void loadReviews()
             type="textarea"
             :rows="4"
             :aria-label="t('risk.resolutionNote')"
-            :disabled="activeReview.status !== 'PENDING'"
+            :disabled="activeReview.status !== 'PENDING' || isPending(`review:${activeReview.id}`)"
             @input="decisionError = ''"
           />
         </div>
@@ -419,7 +541,7 @@ void loadReviews()
             v-model="decisionForm.totpCode"
             :aria-label="t('risk.totpCode')"
             autocomplete="one-time-code"
-            :disabled="activeReview.status !== 'PENDING'"
+            :disabled="activeReview.status !== 'PENDING' || isPending(`review:${activeReview.id}`)"
             @input="decisionError = ''"
           />
         </div>
@@ -427,8 +549,8 @@ void loadReviews()
         <el-button
           type="primary"
           :icon="decisionForm.status === 'BLOCKED' ? Lock : CircleCheck"
-          :loading="isPending(`review:${activeReview.id}:${decisionForm.status}`)"
-          :disabled="activeReview.status !== 'PENDING'"
+          :loading="isPending(`review:${activeReview.id}`)"
+          :disabled="activeReview.status !== 'PENDING' || isPending(`review:${activeReview.id}`)"
           @click="saveDecision"
         >
           {{ t('risk.saveDecision') }}

@@ -155,8 +155,18 @@ async function runQuote() {
 }
 
 async function runSeckill() {
-  if (!validate('seckill', seckillActivityId.value > 0 && seckillQuantity.value > 0, 'marketing.positiveValueRequired')) return
-  if (!validate('seckill', Boolean(seckillOrderKey.value.trim()), 'marketing.idempotencyKeyRequired')) return
+  if (
+    !validate(
+      'seckill',
+      seckillActivityId.value > 0 && seckillQuantity.value > 0,
+      'marketing.positiveValueRequired',
+    )
+  )
+    return
+  if (
+    !validate('seckill', Boolean(seckillOrderKey.value.trim()), 'marketing.idempotencyKeyRequired')
+  )
+    return
   const key = 'seckill'
   setPending(key, true)
   try {
@@ -206,7 +216,9 @@ async function runJoinGroup() {
 
     <div class="marketing-task-grid">
       <section class="marketing-tool" :aria-labelledby="'coupon-task-title'">
-        <h2 id="coupon-task-title"><el-icon aria-hidden="true"><PriceTag /></el-icon>{{ t('marketing.coupon') }}</h2>
+        <h2 id="coupon-task-title">
+          <el-icon aria-hidden="true"><PriceTag /></el-icon>{{ t('marketing.coupon') }}
+        </h2>
         <div class="task-form-grid">
           <div class="field-control">
             <span>{{ t('marketing.couponId') }}</span>
@@ -237,7 +249,11 @@ async function runJoinGroup() {
             <el-button :loading="isPending('coupon:redeem')" @click="runRedeemCoupon">
               {{ t('marketing.redeem') }}
             </el-button>
-            <el-button :icon="RefreshRight" :loading="isPending('coupon:return')" @click="runReturnCoupon">
+            <el-button
+              :icon="RefreshRight"
+              :loading="isPending('coupon:return')"
+              @click="runReturnCoupon"
+            >
               {{ t('marketing.return') }}
             </el-button>
           </div>
@@ -250,7 +266,9 @@ async function runJoinGroup() {
       </section>
 
       <section class="marketing-tool" :aria-labelledby="'quote-task-title'">
-        <h2 id="quote-task-title"><el-icon aria-hidden="true"><PriceTag /></el-icon>{{ t('marketing.priceQuote') }}</h2>
+        <h2 id="quote-task-title">
+          <el-icon aria-hidden="true"><PriceTag /></el-icon>{{ t('marketing.priceQuote') }}
+        </h2>
         <div class="task-form-grid">
           <div class="field-control">
             <span>{{ t('marketing.orderAmount') }}</span>
@@ -271,18 +289,28 @@ async function runJoinGroup() {
         </div>
         <p v-if="taskErrors.quote" class="task-error" role="alert">{{ taskErrors.quote }}</p>
         <div v-if="latestQuote" class="quote-result" role="status">
-          <span>{{ t('marketing.originalAmount', { amount: money(latestQuote.originalAmount) }) }}</span>
-          <span>{{ t('marketing.discountAmount', { amount: money(latestQuote.discountAmount) }) }}</span>
-          <strong>{{ t('marketing.payableAmount', { amount: money(latestQuote.payableAmount) }) }}</strong>
+          <span>{{
+            t('marketing.originalAmount', { amount: money(latestQuote.originalAmount) })
+          }}</span>
+          <span>{{
+            t('marketing.discountAmount', { amount: money(latestQuote.discountAmount) })
+          }}</span>
+          <strong>{{
+            t('marketing.payableAmount', { amount: money(latestQuote.payableAmount) })
+          }}</strong>
           <div class="applied-coupons">
             <span>{{ t('marketing.appliedCoupons') }}</span>
-            <el-tag v-for="code in latestQuote.appliedCoupons" :key="code" effect="plain">{{ code }}</el-tag>
+            <el-tag v-for="code in latestQuote.appliedCoupons" :key="code" effect="plain">{{
+              code
+            }}</el-tag>
           </div>
         </div>
       </section>
 
       <section class="marketing-tool" :aria-labelledby="'seckill-task-title'">
-        <h2 id="seckill-task-title"><el-icon aria-hidden="true"><Lightning /></el-icon>{{ t('marketing.seckill') }}</h2>
+        <h2 id="seckill-task-title">
+          <el-icon aria-hidden="true"><Lightning /></el-icon>{{ t('marketing.seckill') }}
+        </h2>
         <div class="task-form-grid">
           <div class="field-control">
             <span>{{ t('marketing.activityId') }}</span>
@@ -322,7 +350,9 @@ async function runJoinGroup() {
       </section>
 
       <section class="marketing-tool" :aria-labelledby="'group-task-title'">
-        <h2 id="group-task-title"><el-icon aria-hidden="true"><UserFilled /></el-icon>{{ t('marketing.groupBuy') }}</h2>
+        <h2 id="group-task-title">
+          <el-icon aria-hidden="true"><UserFilled /></el-icon>{{ t('marketing.groupBuy') }}
+        </h2>
         <div class="task-form-grid">
           <div class="field-control">
             <span>{{ t('marketing.activityId') }}</span>

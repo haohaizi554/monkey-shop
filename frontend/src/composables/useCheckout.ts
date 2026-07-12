@@ -8,6 +8,7 @@ import { addAddress, addresses as fetchAddresses } from '@/api/user'
 import { useNotify } from '@/composables/useNotify'
 import { useAuthStore } from '@/stores/auth'
 import type { Address, AddressRequest, Monkey, RiskDecision } from '@/types'
+import { getIdempotencyIntent } from '@/utils/idempotencyIntent'
 
 type NoticeLevel = 'error' | 'success' | 'warning'
 
@@ -32,6 +33,7 @@ export function useCheckout(options: CheckoutOptions = {}) {
   const appNotify = useNotify()
   const openingCheckoutId = ref<number | null>(null)
   const submittingOrder = ref(false)
+  const savingAddress = ref(false)
   const checkoutOpen = ref(false)
   const addresses = ref<Address[]>([])
   const selectedMonkey = ref<Monkey | null>(null)
@@ -81,13 +83,20 @@ export function useCheckout(options: CheckoutOptions = {}) {
   }
 
   async function saveAddress() {
+    if (savingAddress.value || submittingOrder.value) {
+      return
+    }
+    const payload = { ...newAddress }
+    savingAddress.value = true
     try {
-      const saved = await addAddress(newAddress)
+      const saved = await addAddress(payload)
       addresses.value = await fetchAddresses()
       selectedAddressId.value = saved.id
       Object.assign(newAddress, { receiverName: '', phone: '', detailAddress: '' })
     } catch (error) {
       notifyApiError(error, 'checkout.saveAddressFailed')
+    } finally {
+      savingAddress.value = false
     }
   }
 
@@ -95,14 +104,19 @@ export function useCheckout(options: CheckoutOptions = {}) {
     if (submittingOrder.value) {
       return
     }
-    if (!selectedMonkey.value || !selectedAddressId.value) {
+    const monkey = selectedMonkey.value
+    const addressId = selectedAddressId.value
+    if (!monkey || !addressId) {
       notify('warning', t('checkout.selectAddressFirst'))
       return
     }
     submittingOrder.value = true
     try {
-      await ensureRiskAllowed(selectedMonkey.value)
-      await createOrder(selectedMonkey.value.id, selectedAddressId.value)
+      const payload = { monkeyId: monkey.id, addressId }
+      await ensureRiskAllowed(payload.monkeyId)
+      const intent = getIdempotencyIntent('order:create', payload)
+      await createOrder(payload.monkeyId, payload.addressId, intent.key)
+      intent.complete()
       notify('success', t('checkout.orderCreated'))
       checkoutOpen.value = false
       await options.afterOrderCreated?.()
@@ -118,10 +132,10 @@ export function useCheckout(options: CheckoutOptions = {}) {
     }
   }
 
-  async function ensureRiskAllowed(monkey: Monkey) {
+  async function ensureRiskAllowed(monkeyId: number) {
     const assessment = await assessRisk({
       deviceFingerprint: browserDeviceFingerprint(),
-      productId: monkey.id,
+      productId: monkeyId,
     })
     if (assessment.decision !== 'ALLOW') {
       throw new CheckoutRiskError(assessment.decision)
@@ -145,6 +159,7 @@ export function useCheckout(options: CheckoutOptions = {}) {
   return {
     openingCheckoutId,
     submittingOrder,
+    savingAddress,
     checkoutOpen,
     addresses,
     selectedMonkey,

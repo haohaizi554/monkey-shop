@@ -35,9 +35,7 @@ const supportedSorts = new Set<SearchRouteState['sort']>([
 ])
 const supportedSizes = new Set<SearchRouteState['size']>([12, 24, 48])
 
-function first(
-  value: LocationQueryValue | LocationQueryValue[] | undefined,
-): string {
+function first(value: LocationQueryValue | LocationQueryValue[] | undefined): string {
   return Array.isArray(value) ? (value[0] ?? '') : (value ?? '')
 }
 

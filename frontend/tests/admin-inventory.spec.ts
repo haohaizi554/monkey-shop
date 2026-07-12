@@ -32,10 +32,7 @@ async function installInventoryMocks(page: Page) {
     if (pathname === '/users/me') {
       data = { isLogin: true, identity: 'ADMIN', username: 'admin' }
     } else if (pathname === '/inventory/skus/7/stocks') {
-      data = [
-        stock(12),
-        { ...stock(6), warehouseId: 2, warehouseCode: 'WEST-1', province: 'West' },
-      ]
+      data = [stock(12), { ...stock(6), warehouseId: 2, warehouseCode: 'WEST-1', province: 'West' }]
     } else if (pathname === '/inventory/reservations' && request.method() === 'POST') {
       const body = request.postDataJSON() as { reservationKey: string }
       data = {

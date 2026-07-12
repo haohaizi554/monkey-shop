@@ -104,7 +104,7 @@ async function installAccountMocks(page: Page, options: AccountMockOptions = {})
     },
   ]
 
-  await page.route('**/images/default_avatar.png', async (route) => {
+  await page.route('**/images/default_avatar.jpg', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'image/svg+xml',
@@ -259,7 +259,11 @@ test('required password updates use a blocking alert with a direct focus action'
   page,
 }) => {
   await installAccountMocks(page, { passwordChangeRequired: true })
+  const profileRequested = page.waitForRequest((request) =>
+    new URL(request.url()).pathname.endsWith('/api/v1/users/profile'),
+  )
   await page.goto('/profile')
+  await profileRequested
 
   await expect(page.getByRole('heading', { name: 'Profile', level: 1 })).toBeVisible()
   const alert = page.locator('.el-alert[role="alert"]')

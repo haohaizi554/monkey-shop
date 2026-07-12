@@ -8,18 +8,8 @@ import ProductCard from '@/components/product/ProductCard.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
-import { useNotify } from '@/composables/useNotify'
-import {
-  searchRouteQuerySchema,
-  useRouteQueryState,
-} from '@/composables/useRouteQueryState'
-import type {
-  HotKeyword,
-  Monkey,
-  SearchPage,
-  SearchProduct,
-  SearchSuggestion,
-} from '@/types'
+import { searchRouteQuerySchema, useRouteQueryState } from '@/composables/useRouteQueryState'
+import type { HotKeyword, Monkey, SearchPage, SearchProduct, SearchSuggestion } from '@/types'
 
 interface SearchCardEntry {
   source: SearchProduct
@@ -28,14 +18,13 @@ interface SearchCardEntry {
 
 const router = useRouter()
 const { t } = useI18n()
-const notify = useNotify()
 const { state: query, replaceNow } = useRouteQueryState(searchRouteQuerySchema)
 const resultState = useAsyncState<SearchPage>({ timeoutMs: 20000 })
 const suggestionState = useAsyncState<SearchSuggestion[]>({ timeoutMs: 10000 })
 const hotKeywordState = useAsyncState<HotKeyword[]>({ timeoutMs: 10000 })
 const resultHeadingRef = ref<HTMLElement>()
 let searchTimer: ReturnType<typeof setTimeout> | undefined
-let focusResultsAfterLoad = false
+let searchRequestVersion = 0
 
 const products = computed(() => resultState.data.value?.content ?? [])
 const suggestions = computed(() => suggestionState.data.value ?? [])
@@ -102,8 +91,8 @@ function sortLabel(sort: typeof query.sort): string {
   return t(keys[sort])
 }
 
-function categoryId(): number | undefined {
-  const parsed = Number.parseInt(query.category, 10)
+function categoryId(category: string): number | undefined {
+  const parsed = Number.parseInt(category, 10)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
 }
 
@@ -113,34 +102,37 @@ async function loadHotKeywords() {
   })
 }
 
-async function loadSuggestions() {
-  if (!query.keyword.trim()) {
+async function loadSuggestions(keyword: string) {
+  if (!keyword) {
     suggestionState.reset()
     return
   }
-  await suggestionState.load(() => searchApi.searchSuggestions(query.keyword.trim()), {
+  await suggestionState.load(() => searchApi.searchSuggestions(keyword), {
     isEmpty: (items) => items.length === 0,
   })
 }
 
-async function searchProducts() {
-  const resultPromise = resultState.load(
-    () =>
-      searchApi.searchProducts({
-        keyword: query.keyword.trim(),
-        categoryId: categoryId(),
-        attributeKey: query.attribute.trim(),
-        attributeValue: query.value.trim(),
-        sort: query.sort,
-        page: query.page,
-        size: query.size,
-      }),
-    { isEmpty: (page) => page.content.length === 0 },
-  )
+async function searchProducts(options: { focusResults?: boolean } = {}) {
+  const requestVersion = ++searchRequestVersion
+  const keyword = query.keyword.trim()
+  const params = {
+    keyword,
+    categoryId: categoryId(query.category),
+    attributeKey: query.attribute.trim(),
+    attributeValue: query.value.trim(),
+    sort: query.sort,
+    page: query.page,
+    size: query.size,
+  }
+  const resultPromise = resultState.load(() => searchApi.searchProducts(params), {
+    isEmpty: (page) => page.content.length === 0,
+  })
 
-  await Promise.all([resultPromise, loadSuggestions()])
-  if (focusResultsAfterLoad) {
-    focusResultsAfterLoad = false
+  await Promise.all([resultPromise, loadSuggestions(keyword)])
+  if (requestVersion !== searchRequestVersion) {
+    return
+  }
+  if (options.focusResults) {
     await nextTick()
     resultHeadingRef.value?.focus({ preventScroll: true })
   }
@@ -162,13 +154,13 @@ function scheduleSearch() {
 }
 
 async function runSearchNow(options: { focusResults?: boolean; resetPage?: boolean } = {}) {
-  clearScheduledSearch()
   if (options.resetPage) {
     query.page = 0
   }
-  focusResultsAfterLoad = options.focusResults ?? false
+  clearScheduledSearch()
   await replaceNow().catch(() => false)
-  await searchProducts()
+  clearScheduledSearch()
+  await searchProducts({ focusResults: options.focusResults })
 }
 
 async function clearFilters() {
@@ -194,15 +186,13 @@ function resetPage() {
 }
 
 async function openProduct(product: SearchProduct) {
-  try {
-    await searchApi.recordSearchConversion({
+  void searchApi
+    .recordSearchConversion({
       keyword: query.keyword,
       productId: product.productId,
       source: 'search-result',
     })
-  } catch (caught) {
-    notify.fromApiError(caught, 'search.unableToSearch')
-  }
+    .catch(() => undefined)
   await router.push(`/shop/${product.productId}`)
 }
 
@@ -211,7 +201,7 @@ async function onPageChange(page: number) {
   await runSearchNow({ focusResults: true })
 }
 
-watch(query, scheduleSearch, { deep: true })
+watch(query, scheduleSearch, { deep: true, flush: 'sync' })
 
 onMounted(() => {
   void Promise.all([loadHotKeywords(), searchProducts()])
@@ -261,11 +251,7 @@ onBeforeUnmount(clearScheduledSearch)
         clearable
         @update:model-value="resetPage"
       />
-      <el-select
-        v-model="query.sort"
-        :aria-label="$t('search.sort')"
-        @change="resetPage"
-      >
+      <el-select v-model="query.sort" :aria-label="$t('search.sort')" @change="resetPage">
         <el-option :label="$t('search.sortRelevance')" value="RELEVANCE" />
         <el-option :label="$t('search.sortPriceAsc')" value="PRICE_ASC" />
         <el-option :label="$t('search.sortPriceDesc')" value="PRICE_DESC" />
@@ -287,11 +273,7 @@ onBeforeUnmount(clearScheduledSearch)
       </div>
     </form>
 
-    <div
-      v-if="hotKeywords.length"
-      class="keyword-strip"
-      :aria-label="$t('search.hotKeywords')"
-    >
+    <div v-if="hotKeywords.length" class="keyword-strip" :aria-label="$t('search.hotKeywords')">
       <button
         v-for="item in hotKeywords"
         :key="item.keyword"
@@ -368,10 +350,7 @@ onBeforeUnmount(clearScheduledSearch)
         </div>
       </AsyncStateView>
 
-      <div
-        v-if="resultState.status.value !== 'error' && total > query.size"
-        class="pagination-bar"
-      >
+      <div v-if="resultState.status.value !== 'error' && total > query.size" class="pagination-bar">
         <el-pagination
           :current-page="currentPage"
           :page-size="query.size"

@@ -11,7 +11,7 @@ const props = withDefaults(
   }>(),
   {
     src: '',
-    fallback: '/images/default_product.png',
+    fallback: '/images/default_product.jpg',
   },
 )
 

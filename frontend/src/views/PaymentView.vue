@@ -11,6 +11,7 @@ import { useAsyncState } from '@/composables/useAsyncState'
 import { useNotify } from '@/composables/useNotify'
 import type { PaymentMethod, PaymentResponse } from '@/types'
 import { dateTime, money } from '@/utils/format'
+import { getIdempotencyIntent } from '@/utils/idempotencyIntent'
 
 const route = useRoute()
 const { locale, t } = useI18n()
@@ -32,6 +33,10 @@ const form = reactive({
 })
 
 const payment = computed(() => paymentResource.data.value)
+const fundsOperationPending = computed(() => createPending.value || refundPending.value)
+const paymentControlsLocked = computed(
+  () => fundsOperationPending.value || paymentResource.isLoading.value,
+)
 const refundable = computed(() => {
   if (!payment.value) {
     return 0
@@ -51,7 +56,9 @@ function safePaymentMethod(method: string): string {
     BANK_CARD: ['Bank card', '\u94f6\u884c\u5361'],
   }
   const label = labels[method]
-  return label ? localized(label[0], label[1]) : localized('Other method', '\u5176\u4ed6\u65b9\u5f0f')
+  return label
+    ? localized(label[0], label[1])
+    : localized('Other method', '\u5176\u4ed6\u65b9\u5f0f')
 }
 
 function safePaymentStatus(status: string): string {
@@ -81,6 +88,13 @@ function paymentStatusType(status: string): 'success' | 'warning' | 'info' | 'da
 }
 
 async function loadPayment() {
+  if (fundsOperationPending.value) {
+    return
+  }
+  await fetchPayment()
+}
+
+async function fetchPayment() {
   if (!form.orderId) {
     paymentResource.reset()
     return
@@ -100,21 +114,26 @@ async function setCurrentPayment(result: PaymentResponse) {
 }
 
 async function submitPayment() {
-  if (!form.orderId || createPending.value) {
+  if (!form.orderId || paymentControlsLocked.value) {
     return
   }
 
+  const payload = {
+    orderId: form.orderId,
+    method: form.method,
+    bankCardNo: form.method === 'BANK_CARD' ? form.bankCardNo : undefined,
+    totpCode: form.totpCode || undefined,
+  }
   createPending.value = true
   createError.value = ''
   try {
-    const created = await paymentsApi.createPayment({
-      orderId: form.orderId,
-      method: form.method,
-      bankCardNo: form.method === 'BANK_CARD' ? form.bankCardNo : undefined,
-      totpCode: form.totpCode || undefined,
-    })
+    paymentResource.cancel()
+    const intent = getIdempotencyIntent('payment:create', payload)
+    const created = await paymentsApi.createPayment(payload, intent.key)
+    intent.complete()
+    createPending.value = false
     await setCurrentPayment(created)
-    notify.success(t('payment.paymentCreated'), { key: `payment:${form.orderId}:created` })
+    notify.success(t('payment.paymentCreated'), { key: `payment:${payload.orderId}:created` })
   } catch {
     createError.value = t('payment.createFailed')
   } finally {
@@ -123,10 +142,16 @@ async function submitPayment() {
 }
 
 async function submitRefund() {
-  if (!payment.value || refundAmount.value <= 0 || refundPending.value) {
+  const targetPayment = payment.value
+  if (!targetPayment || refundAmount.value <= 0 || paymentControlsLocked.value) {
     return
   }
 
+  const payload = {
+    paymentNo: targetPayment.paymentNo,
+    amount: refundAmount.value,
+    reason: refundReason.value || undefined,
+  }
   refundPending.value = true
   refundError.value = ''
   try {
@@ -139,17 +164,17 @@ async function submitRefund() {
       return
     }
 
-    await paymentsApi.refundPayment({
-      paymentNo: payment.value.paymentNo,
-      amount: refundAmount.value,
-      reason: refundReason.value || undefined,
-    })
+    paymentResource.cancel()
+    const intent = getIdempotencyIntent('payment:refund', payload)
+    await paymentsApi.refundPayment(payload, intent.key)
+    intent.complete()
     notify.success(t('payment.refundSubmitted'), {
-      key: `payment:${payment.value.paymentNo}:refunded`,
+      key: `payment:${targetPayment.paymentNo}:refunded`,
     })
     refundAmount.value = 0
     refundReason.value = ''
-    await loadPayment()
+    refundPending.value = false
+    await fetchPayment()
   } catch {
     refundError.value = t('payment.refundFailed')
   } finally {
@@ -169,7 +194,7 @@ onMounted(() => {
         <el-button
           :icon="RefreshRight"
           :loading="paymentResource.status.value === 'updating'"
-          :disabled="!form.orderId"
+          :disabled="paymentControlsLocked || !form.orderId"
           @click="loadPayment"
         >
           {{ $t('common.refresh') }}
@@ -187,6 +212,7 @@ onMounted(() => {
           v-model="form.orderId"
           :min="1"
           controls-position="right"
+          :disabled="paymentControlsLocked"
           :aria-label="$t('payment.orderId')"
           :placeholder="$t('payment.orderId')"
         />
@@ -194,7 +220,7 @@ onMounted(() => {
           type="primary"
           native-type="submit"
           :loading="paymentResource.status.value === 'loading'"
-          :disabled="!form.orderId"
+          :disabled="paymentControlsLocked || !form.orderId"
         >
           {{ $t('common.search') }}
         </el-button>
@@ -215,6 +241,7 @@ onMounted(() => {
             { label: $t('payment.bankCard'), value: 'BANK_CARD' },
           ]"
           :aria-label="$t('payment.paymentMethod')"
+          :disabled="paymentControlsLocked"
         />
         <el-input
           v-if="form.method === 'BANK_CARD'"
@@ -222,12 +249,14 @@ onMounted(() => {
           :prefix-icon="CreditCard"
           autocomplete="off"
           inputmode="numeric"
+          :disabled="paymentControlsLocked"
           :aria-label="$t('payment.bankCardNo')"
           :placeholder="$t('payment.bankCardNo')"
         />
         <el-input
           v-model="form.totpCode"
           autocomplete="one-time-code"
+          :disabled="paymentControlsLocked"
           :aria-label="$t('payment.totpCode')"
           :placeholder="$t('payment.totpCode')"
         />
@@ -236,7 +265,7 @@ onMounted(() => {
           type="primary"
           native-type="submit"
           :loading="createPending"
-          :disabled="createPending || !form.orderId"
+          :disabled="paymentControlsLocked || !form.orderId"
         >
           {{ $t('payment.submitPayment') }}
         </el-button>
@@ -311,10 +340,12 @@ onMounted(() => {
               :max="refundable"
               :precision="2"
               controls-position="right"
+              :disabled="paymentControlsLocked"
               :aria-label="$t('payment.paymentAmount')"
             />
             <el-input
               v-model="refundReason"
+              :disabled="paymentControlsLocked"
               :aria-label="$t('payment.refundReason')"
               :placeholder="$t('payment.refundReason')"
             />
@@ -323,7 +354,7 @@ onMounted(() => {
               type="warning"
               native-type="submit"
               :loading="refundPending"
-              :disabled="refundPending || refundAmount <= 0 || refundable <= 0"
+              :disabled="paymentControlsLocked || refundAmount <= 0 || refundable <= 0"
             >
               {{ $t('common.refund') }}
             </el-button>

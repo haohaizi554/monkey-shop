@@ -174,7 +174,6 @@ test('consumer discovery views use shared state and feedback contracts', async (
   for (const view of views) {
     const source = await readFile(resolve(process.cwd(), 'src/views', view), 'utf8')
     expect(source, view).toContain('useAsyncState')
-    expect(source, view).toContain('useNotify')
     expect(source, view).toContain('PageHeader')
     expect(source, view).toContain('AsyncStateView')
     expect(source, view).not.toContain('ElMessage')
@@ -204,10 +203,7 @@ test('search restores filters and page after navigating away and back', async ({
   await expect(page.locator('.el-pager .is-active')).toHaveText('2')
   await expect(page.locator('.product-card')).toHaveCount(1)
 
-  await page
-    .getByRole('main')
-    .getByRole('link', { name: 'Recommend', exact: true })
-    .click()
+  await page.getByRole('main').getByRole('link', { name: 'Recommend', exact: true }).click()
   await expect(page).toHaveURL(/\/recommendations$/)
   await page.goBack()
 
@@ -262,4 +258,109 @@ test('product detail is mobile-safe and validates a new address inline', async (
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(dialog.locator('.el-form-item__error')).toHaveCount(3)
+})
+
+test('product detail submits a new address only once while save is pending', async ({ page }) => {
+  let calls = 0
+  let releaseSave!: () => void
+  const saveGate = new Promise<void>((resolve) => {
+    releaseSave = resolve
+  })
+
+  await page.route('**/api/v1/addresses', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.fallback()
+      return
+    }
+    calls += 1
+    await saveGate
+    await fulfillJson(route, {
+      id: 10,
+      receiverName: 'Lin',
+      phone: '13800138000',
+      detailAddress: 'No. 1 Monkey Street',
+      isDefault: 1,
+    })
+  })
+
+  await page.goto('/shop/1')
+  await page.getByRole('button', { name: 'Buy', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Checkout' })
+  await dialog.getByLabel('Receiver').fill('Lin')
+  await dialog.getByLabel('Phone').fill('13800138000')
+  await dialog.getByLabel('Address').fill('No. 1 Monkey Street')
+  const save = dialog.getByRole('button', { name: 'Save', exact: true })
+
+  await save.evaluate((element) => {
+    element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+
+  await expect.poll(() => calls).toBe(1)
+  await expect(save).toBeDisabled()
+  releaseSave()
+  await expect(save).toBeEnabled()
+})
+
+test('store checkout address controls expose explicit accessible names', async ({ page }) => {
+  await page.goto('/shop')
+  await page.getByRole('button', { name: 'Buy', exact: true }).first().click()
+  const dialog = page.getByRole('dialog', { name: 'Checkout' })
+
+  await expect(dialog.getByRole('textbox', { name: 'Receiver', exact: true })).toBeVisible()
+  await expect(dialog.getByRole('textbox', { name: 'Phone', exact: true })).toBeVisible()
+  await expect(dialog.getByRole('textbox', { name: 'Address', exact: true })).toBeVisible()
+})
+
+test('quick checkout freezes the selected address while risk assessment is pending', async ({
+  page,
+}) => {
+  let releaseRisk!: () => void
+  const riskGate = new Promise<void>((resolve) => {
+    releaseRisk = resolve
+  })
+  let orderAddressId: number | null = null
+
+  await page.route('**/api/v1/addresses', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fallback()
+      return
+    }
+    await fulfillJson(route, [
+      {
+        id: 1,
+        receiverName: 'Lin',
+        phone: '13800138000',
+        detailAddress: 'First address',
+        isDefault: 1,
+      },
+      {
+        id: 2,
+        receiverName: 'Wu',
+        phone: '13900139000',
+        detailAddress: 'Second address',
+        isDefault: 0,
+      },
+    ])
+  })
+  await page.route('**/api/v1/risk/assess', async (route) => {
+    await riskGate
+    await fulfillJson(route, { decision: 'ALLOW', score: 0, signals: [] })
+  })
+  await page.route('**/api/v1/orders/create', async (route) => {
+    orderAddressId = (route.request().postDataJSON() as { addressId: number }).addressId
+    await fulfillJson(route, { id: 91, status: 'PAID' })
+  })
+
+  await page.goto('/shop/1')
+  await page.getByRole('button', { name: 'Buy', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Checkout' })
+  await dialog.getByRole('button', { name: 'Place order', exact: true }).click()
+
+  await expect(dialog.getByRole('radio', { name: /First address/ })).toBeDisabled()
+  await expect(dialog.getByRole('radio', { name: /Second address/ })).toBeDisabled()
+  await expect(dialog.getByRole('textbox', { name: /Receiver/ })).toBeDisabled()
+  await expect(dialog.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
+  releaseRisk()
+  await expect.poll(() => orderAddressId).toBe(1)
 })

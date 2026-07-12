@@ -17,18 +17,17 @@ const cartStatus = ref<AsyncStatus>('idle')
 const cartError = ref<string | null>(null)
 const adding = ref(false)
 const pendingMutations = reactive(new Set<string>())
+const pendingRows = reactive(new Set<number>())
 const rowErrors = reactive(new Map<number, string>())
 const skuId = ref<number | null>(null)
 const shopId = ref<number | null>(1)
 const quantity = ref(1)
 const selected = ref(true)
-const cartBusy = computed(
-  () =>
-    cartStatus.value === 'loading' ||
-    cartStatus.value === 'updating' ||
-    adding.value ||
-    pendingMutations.size > 0,
+const cartReadPending = computed(
+  () => cartStatus.value === 'loading' || cartStatus.value === 'updating',
 )
+const cartBusy = computed(() => cartReadPending.value || adding.value || pendingMutations.size > 0)
+let mutationQueue: Promise<void> = Promise.resolve()
 
 type MutationAction = 'quantity' | 'select' | 'remove'
 
@@ -40,6 +39,19 @@ function mutationPending(action: MutationAction, rowSkuId: number) {
   return pendingMutations.has(mutationKey(action, rowSkuId))
 }
 
+function rowMutationPending(rowSkuId: number) {
+  return pendingRows.has(rowSkuId)
+}
+
+function enqueueCartMutation<T>(operation: () => Promise<T>): Promise<T> {
+  const result = mutationQueue.then(operation, operation)
+  mutationQueue = result.then(
+    () => undefined,
+    () => undefined,
+  )
+  return result
+}
+
 function replaceCart(nextCart: Cart) {
   cart.value = nextCart
   cartStatus.value = nextCart.items.length === 0 ? 'empty' : 'success'
@@ -47,6 +59,9 @@ function replaceCart(nextCart: Cart) {
 }
 
 async function loadCart() {
+  if (cartReadPending.value || adding.value || pendingMutations.size > 0) {
+    return
+  }
   const hadCart = cart.value !== null
   cartStatus.value = hadCart ? 'updating' : 'loading'
   cartError.value = null
@@ -64,19 +79,18 @@ async function loadCart() {
 }
 
 async function addCurrentItem() {
-  if (!skuId.value || !shopId.value || adding.value) {
+  if (!skuId.value || !shopId.value || cartBusy.value) {
     return
+  }
+  const payload = {
+    skuId: skuId.value,
+    shopId: shopId.value,
+    quantity: quantity.value,
+    selected: selected.value,
   }
   adding.value = true
   try {
-    replaceCart(
-      await addCartItem({
-        skuId: skuId.value,
-        shopId: shopId.value,
-        quantity: quantity.value,
-        selected: selected.value,
-      }),
-    )
+    await enqueueCartMutation(async () => replaceCart(await addCartItem(payload)))
     notify.success(t('cart.updated'), { key: 'cart:updated' })
   } catch (error) {
     notify.fromApiError(error, 'cart.updateFailed')
@@ -87,71 +101,101 @@ async function addCurrentItem() {
 
 async function updateQuantity(rowSkuId: number, nextQuantity: number) {
   const key = mutationKey('quantity', rowSkuId)
-  const row = cart.value?.items.find((item) => item.skuId === rowSkuId)
-  if (!row || pendingMutations.has(key) || row.quantity === nextQuantity) {
+  const currentRow = cart.value?.items.find((item) => item.skuId === rowSkuId)
+  if (
+    !currentRow ||
+    cartReadPending.value ||
+    adding.value ||
+    rowMutationPending(rowSkuId) ||
+    currentRow.quantity === nextQuantity
+  ) {
     return
   }
 
-  const previousQuantity = row.quantity
   rowErrors.delete(rowSkuId)
+  pendingRows.add(rowSkuId)
   pendingMutations.add(key)
-  row.quantity = nextQuantity
   try {
-    replaceCart(await updateCartItem(rowSkuId, { quantity: nextQuantity }))
+    await enqueueCartMutation(async () => {
+      const row = cart.value?.items.find((item) => item.skuId === rowSkuId)
+      if (!row || row.quantity === nextQuantity) return
+      const previousQuantity = row.quantity
+      row.quantity = nextQuantity
+      try {
+        replaceCart(await updateCartItem(rowSkuId, { quantity: nextQuantity }))
+      } catch (error) {
+        const latestRow = cart.value?.items.find((item) => item.skuId === rowSkuId)
+        if (latestRow) latestRow.quantity = previousQuantity
+        throw error
+      }
+    })
   } catch {
-    const currentRow = cart.value?.items.find((item) => item.skuId === rowSkuId)
-    if (currentRow) {
-      currentRow.quantity = previousQuantity
-    }
     rowErrors.set(rowSkuId, t('cart.quantityUpdateFailed'))
   } finally {
     pendingMutations.delete(key)
+    pendingRows.delete(rowSkuId)
   }
 }
 
 async function updateSelection(rowSkuId: number, nextSelected: boolean) {
   const key = mutationKey('select', rowSkuId)
-  const row = cart.value?.items.find((item) => item.skuId === rowSkuId)
-  if (!row || pendingMutations.has(key) || row.selected === nextSelected) {
+  const currentRow = cart.value?.items.find((item) => item.skuId === rowSkuId)
+  if (
+    !currentRow ||
+    cartReadPending.value ||
+    adding.value ||
+    rowMutationPending(rowSkuId) ||
+    currentRow.selected === nextSelected
+  ) {
     return
   }
 
-  const previousSelected = row.selected
   rowErrors.delete(rowSkuId)
+  pendingRows.add(rowSkuId)
   pendingMutations.add(key)
-  row.selected = nextSelected
   try {
-    replaceCart(await selectCartItem(rowSkuId, { selected: nextSelected }))
+    await enqueueCartMutation(async () => {
+      const row = cart.value?.items.find((item) => item.skuId === rowSkuId)
+      if (!row || row.selected === nextSelected) return
+      const previousSelected = row.selected
+      row.selected = nextSelected
+      try {
+        replaceCart(await selectCartItem(rowSkuId, { selected: nextSelected }))
+      } catch (error) {
+        const latestRow = cart.value?.items.find((item) => item.skuId === rowSkuId)
+        if (latestRow) latestRow.selected = previousSelected
+        throw error
+      }
+    })
   } catch {
-    const currentRow = cart.value?.items.find((item) => item.skuId === rowSkuId)
-    if (currentRow) {
-      currentRow.selected = previousSelected
-    }
     rowErrors.set(rowSkuId, t('cart.selectUpdateFailed'))
   } finally {
     pendingMutations.delete(key)
+    pendingRows.delete(rowSkuId)
   }
 }
 
 async function removeItem(rowSkuId: number) {
   const key = mutationKey('remove', rowSkuId)
-  if (pendingMutations.has(key)) {
+  if (cartReadPending.value || adding.value || rowMutationPending(rowSkuId)) {
     return
   }
 
   rowErrors.delete(rowSkuId)
+  pendingRows.add(rowSkuId)
   pendingMutations.add(key)
   try {
-    replaceCart(await removeCartItem(rowSkuId))
+    await enqueueCartMutation(async () => replaceCart(await removeCartItem(rowSkuId)))
   } catch {
     rowErrors.set(rowSkuId, t('cart.removeFailed'))
   } finally {
     pendingMutations.delete(key)
+    pendingRows.delete(rowSkuId)
   }
 }
 
 function guardCheckout(event: MouseEvent) {
-  if (!cart.value?.selectedQuantity) {
+  if (cartBusy.value || !cart.value?.selectedQuantity) {
     event.preventDefault()
   }
 }
@@ -167,6 +211,7 @@ onMounted(loadCart)
           <el-button
             :icon="Refresh"
             :loading="cartStatus === 'loading' || cartStatus === 'updating'"
+            :disabled="cartBusy"
             @click="loadCart"
           >
             {{ $t('common.refresh') }}
@@ -185,31 +230,29 @@ onMounted(loadCart)
         </div>
         <RouterLink
           class="checkout-link"
-          :class="{ 'is-disabled': !cart?.selectedQuantity }"
+          :class="{ 'is-disabled': cartBusy || !cart?.selectedQuantity }"
           to="/checkout"
-          :aria-disabled="!cart?.selectedQuantity ? 'true' : undefined"
+          :aria-disabled="cartBusy || !cart?.selectedQuantity ? 'true' : undefined"
           @click="guardCheckout"
         >
           {{ $t('cart.checkout') }}
         </RouterLink>
       </div>
 
-      <DataTableShell
-        :aria-label="t('nav.cart')"
-        :busy="cartBusy"
-        :empty="cartStatus === 'empty'"
-      >
+      <DataTableShell :aria-label="t('nav.cart')" :busy="cartBusy" :empty="cartStatus === 'empty'">
         <template #toolbar>
           <div class="cart-toolbar">
             <el-input-number
               v-model="skuId"
               :min="1"
+              :disabled="cartBusy"
               controls-position="right"
               :placeholder="$t('cart.skuPlaceholder')"
             />
             <el-input-number
               v-model="shopId"
               :min="1"
+              :disabled="cartBusy"
               controls-position="right"
               :placeholder="$t('cart.shopPlaceholder')"
             />
@@ -218,18 +261,20 @@ onMounted(loadCart)
               :aria-label="$t('common.quantity')"
               :min="1"
               :max="999"
+              :disabled="cartBusy"
               controls-position="right"
             />
             <el-switch
               v-model="selected"
               :aria-label="$t('cart.selected')"
               :active-text="$t('cart.selected')"
+              :disabled="cartBusy"
             />
             <el-button
               type="primary"
               :icon="ShoppingCart"
               :loading="adding"
-              :disabled="!skuId || !shopId"
+              :disabled="cartBusy || !skuId || !shopId"
               @click="addCurrentItem"
             >
               {{ $t('common.addToCart') }}
@@ -251,22 +296,14 @@ onMounted(loadCart)
                 <el-switch
                   :model-value="row.selected"
                   :aria-label="`${t('cart.selected')} ${row.productName}`"
-                  :disabled="mutationPending('select', row.skuId)"
+                  :disabled="cartReadPending || adding || rowMutationPending(row.skuId)"
                   @change="(value: boolean) => updateSelection(row.skuId, value)"
                 />
               </template>
             </el-table-column>
-            <el-table-column
-              prop="productName"
-              :label="$t('common.productName')"
-              min-width="180"
-            />
+            <el-table-column prop="productName" :label="$t('common.productName')" min-width="180" />
             <el-table-column prop="skuId" label="SKU" min-width="100" />
-            <el-table-column
-              prop="shopId"
-              :label="$t('cart.shopPlaceholder')"
-              min-width="100"
-            />
+            <el-table-column prop="shopId" :label="$t('cart.shopPlaceholder')" min-width="100" />
             <el-table-column prop="unitPrice" :label="$t('common.price')" min-width="100" />
             <el-table-column :label="$t('common.quantity')" min-width="170">
               <template #default="{ row }">
@@ -276,7 +313,7 @@ onMounted(loadCart)
                     :aria-label="`${t('common.quantity')} ${row.productName}`"
                     :min="1"
                     :max="999"
-                    :disabled="mutationPending('quantity', row.skuId)"
+                    :disabled="cartReadPending || adding || rowMutationPending(row.skuId)"
                     controls-position="right"
                     @change="(value: number | undefined) => updateQuantity(row.skuId, value ?? 1)"
                   />
@@ -293,6 +330,7 @@ onMounted(loadCart)
                   :aria-label="`${t('common.delete')} ${row.productName}`"
                   :icon="Delete"
                   :loading="mutationPending('remove', row.skuId)"
+                  :disabled="cartReadPending || adding || rowMutationPending(row.skuId)"
                   circle
                   text
                   type="danger"
@@ -310,6 +348,7 @@ onMounted(loadCart)
                   :aria-label="`${t('common.delete')} ${row.productName}`"
                   :icon="Delete"
                   :loading="mutationPending('remove', row.skuId)"
+                  :disabled="cartReadPending || adding || rowMutationPending(row.skuId)"
                   circle
                   text
                   type="danger"
@@ -317,10 +356,22 @@ onMounted(loadCart)
                 />
               </header>
               <dl class="cart-mobile-item__facts">
-                <div><dt>SKU</dt><dd>{{ row.skuId }}</dd></div>
-                <div><dt>{{ $t('cart.shopPlaceholder') }}</dt><dd>{{ row.shopId }}</dd></div>
-                <div><dt>{{ $t('common.price') }}</dt><dd>{{ row.unitPrice }}</dd></div>
-                <div><dt>{{ $t('common.subtotal') }}</dt><dd>{{ row.lineAmount }}</dd></div>
+                <div>
+                  <dt>SKU</dt>
+                  <dd>{{ row.skuId }}</dd>
+                </div>
+                <div>
+                  <dt>{{ $t('cart.shopPlaceholder') }}</dt>
+                  <dd>{{ row.shopId }}</dd>
+                </div>
+                <div>
+                  <dt>{{ $t('common.price') }}</dt>
+                  <dd>{{ row.unitPrice }}</dd>
+                </div>
+                <div>
+                  <dt>{{ $t('common.subtotal') }}</dt>
+                  <dd>{{ row.lineAmount }}</dd>
+                </div>
               </dl>
               <div class="cart-mobile-item__controls">
                 <div class="cart-mobile-item__control">
@@ -328,7 +379,7 @@ onMounted(loadCart)
                   <el-switch
                     :model-value="row.selected"
                     :aria-label="`${t('cart.selected')} ${row.productName}`"
-                    :disabled="mutationPending('select', row.skuId)"
+                    :disabled="cartReadPending || adding || rowMutationPending(row.skuId)"
                     @change="(value: boolean) => updateSelection(row.skuId, value)"
                   />
                 </div>
@@ -339,7 +390,7 @@ onMounted(loadCart)
                     :aria-label="`${t('common.quantity')} ${row.productName}`"
                     :min="1"
                     :max="999"
-                    :disabled="mutationPending('quantity', row.skuId)"
+                    :disabled="cartReadPending || adding || rowMutationPending(row.skuId)"
                     controls-position="right"
                     @change="(value: number | undefined) => updateQuantity(row.skuId, value ?? 1)"
                   />

@@ -92,6 +92,25 @@ describe('AsyncStateView', () => {
     expect(host.querySelector('.async-state-view__updating')).not.toBeNull()
     expect(host.querySelector('.async-state-view__loading')).toBeNull()
   })
+
+  it('keeps stale content visible with an explicit refresh failure', () => {
+    const retry = vi.fn()
+    const host = mount(
+      AsyncStateView,
+      {
+        status: 'error',
+        error: 'common.requestFailed',
+        preserveContentOnError: true,
+        onRetry: retry,
+      },
+      { default: () => h('p', { class: 'stale-content' }, 'Previous valid result') },
+    )
+
+    expect(host.querySelector('.stale-content')?.textContent).toBe('Previous valid result')
+    expect(host.querySelector('.async-state-view__stale-error')).not.toBeNull()
+    host.querySelector<HTMLButtonElement>('.async-state-view__retry')?.click()
+    expect(retry).toHaveBeenCalledOnce()
+  })
 })
 
 describe('DataTableShell', () => {

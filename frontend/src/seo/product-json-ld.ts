@@ -4,7 +4,7 @@ const siteOrigin = 'https://monkeyshop.example.com'
 
 function absoluteUrl(value?: string): string {
   if (!value) {
-    return `${siteOrigin}/images/default_product.png`
+    return `${siteOrigin}/images/default_product.jpg`
   }
   if (value.startsWith('https://') || value.startsWith('http://')) {
     return value

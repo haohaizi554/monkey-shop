@@ -4,7 +4,7 @@ function ok(data: unknown) {
   return { code: 'OK', message: 'ok', data, traceId: 'marketing-test' }
 }
 
-async function installMarketingMocks(page: Page) {
+async function installMarketingMocks(page: Page, claimGate: Promise<void>) {
   await page.addInitScript(() => {
     localStorage.setItem('monkeyshop-locale', 'en')
     localStorage.setItem('monkeyshop-theme', 'light')
@@ -16,7 +16,7 @@ async function installMarketingMocks(page: Page) {
     if (pathname === '/users/me') {
       data = { isLogin: true, identity: 'ADMIN', username: 'admin' }
     } else if (pathname === '/marketing/coupons/claim') {
-      await new Promise((resolve) => setTimeout(resolve, 450))
+      await claimGate
       data = {
         id: 1,
         couponId: 2400000000001,
@@ -65,7 +65,11 @@ async function installMarketingMocks(page: Page) {
 }
 
 test('marketing tasks keep independent pending and result surfaces', async ({ page }) => {
-  await installMarketingMocks(page)
+  let releaseClaim!: () => void
+  const claimGate = new Promise<void>((resolve) => {
+    releaseClaim = resolve
+  })
+  await installMarketingMocks(page, claimGate)
   await page.goto('/marketing')
 
   await page.getByRole('button', { name: 'Claim', exact: true }).click()
@@ -75,8 +79,10 @@ test('marketing tasks keep independent pending and result surfaces', async ({ pa
   await expect(page.getByRole('button', { name: 'Join group buy' })).toBeEnabled()
 
   await page.getByRole('button', { name: 'Quote', exact: true }).click()
-  await expect(page.getByText(/Payable.*108/)).toBeVisible()
-  await expect(page.getByText('PLATFORM-20', { exact: true })).toBeVisible()
+  const quoteTask = page.getByLabel('Price quote')
+  await expect(quoteTask.getByText(/Payable.*108/)).toBeVisible()
+  await expect(quoteTask.getByText('PLATFORM-20', { exact: true })).toBeVisible()
+  releaseClaim()
   await expect(page.getByText(/Claimed/)).toBeVisible()
   await expect(page.locator('body')).not.toContainText('锛')
 })

@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { LocationQuery } from 'vue-router'
-import {
-  parseSearchQuery,
-  serializeSearchQuery,
-  type SearchRouteState,
-} from './useRouteQueryState'
+import { parseSearchQuery, serializeSearchQuery, type SearchRouteState } from './useRouteQueryState'
 
 describe('search route query state', () => {
   it('serializes only non-default discovery state', () => {

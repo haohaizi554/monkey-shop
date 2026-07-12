@@ -17,7 +17,7 @@ function currentLocale(): 'en' | 'zh' {
 function localizedLabel(map: Record<string, [string, string]>, key: string): string {
   const entry = map[key]
   if (!entry) {
-    return key
+    return currentLocale() === 'en' ? 'Unknown' : '未知'
   }
   return currentLocale() === 'en' ? entry[1] : entry[0]
 }
@@ -90,7 +90,7 @@ export function statusType(status: string): 'primary' | 'success' | 'warning' | 
 
 export function paymentMethodLabel(method: string): string {
   const labels: Record<string, [string, string]> = {
-    WECHAT: ['微信', 'WeChat Pay'],
+    WECHAT: ['微信支付', 'WeChat Pay'],
     ALIPAY: ['支付宝', 'Alipay'],
     BANK_CARD: ['银行卡', 'Bank card'],
   }

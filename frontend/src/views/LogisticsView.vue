@@ -17,6 +17,7 @@ import type {
   TrackingEvent,
 } from '@/types'
 import { money } from '@/utils/format'
+import { getIdempotencyIntent } from '@/utils/idempotencyIntent'
 
 const route = useRoute()
 const { locale, t } = useI18n()
@@ -71,7 +72,9 @@ function safeCarrier(carrier: string): string {
     YTO: ['YTO Express', '\u5706\u901a\u901f\u9012'],
   }
   const label = carriers[carrier]
-  return label ? localized(label[0], label[1]) : localized('Delivery carrier', '\u7269\u6d41\u627f\u8fd0\u5546')
+  return label
+    ? localized(label[0], label[1])
+    : localized('Delivery carrier', '\u7269\u6d41\u627f\u8fd0\u5546')
 }
 
 async function setTracking(result: LogisticsTracking) {
@@ -84,6 +87,7 @@ async function setTracking(result: LogisticsTracking) {
 }
 
 async function loadByOrder() {
+  if (shipmentPending.value) return
   if (!form.orderId) {
     trackingResource.reset()
     return
@@ -99,7 +103,7 @@ async function loadByOrder() {
 }
 
 async function loadByTrackingNo() {
-  if (!trackingNo.value.trim()) {
+  if (shipmentPending.value || !trackingNo.value.trim()) {
     return
   }
 
@@ -116,14 +120,16 @@ async function loadByTrackingNo() {
 }
 
 async function submitAddressParse() {
-  if (!addressText.value.trim() || addressParsePending.value) {
+  const input = addressText.value.trim()
+  if (!input || addressParsePending.value || shipmentPending.value) {
     return
   }
 
   addressParsePending.value = true
   addressParseError.value = ''
   try {
-    const parsed = await logisticsApi.parseAddress({ text: addressText.value.trim() })
+    const parsed = await logisticsApi.parseAddress({ text: input })
+    if (addressText.value.trim() !== input) return
     form.province = parsed.province
     form.city = parsed.city
     form.district = parsed.district
@@ -162,21 +168,25 @@ async function submitShipment() {
     return
   }
 
+  const payload = {
+    orderId: form.orderId,
+    carrier: form.carrier,
+    recipientPhone: form.recipientPhone || undefined,
+    province: form.province || undefined,
+    city: form.city || undefined,
+    district: form.district || undefined,
+    detail: form.detail || undefined,
+    addressText: addressText.value.trim() || undefined,
+    weightKg: form.weightKg,
+    itemCount: form.itemCount,
+  }
   shipmentPending.value = true
   shipmentError.value = ''
   try {
-    const result = await logisticsApi.createShipment({
-      orderId: form.orderId,
-      carrier: form.carrier,
-      recipientPhone: form.recipientPhone || undefined,
-      province: form.province || undefined,
-      city: form.city || undefined,
-      district: form.district || undefined,
-      detail: form.detail || undefined,
-      addressText: addressText.value || undefined,
-      weightKg: form.weightKg,
-      itemCount: form.itemCount,
-    })
+    trackingResource.cancel()
+    const intent = getIdempotencyIntent('logistics:shipment:create', payload)
+    const result = await logisticsApi.createShipment(payload, intent.key)
+    intent.complete()
     await setTracking(result)
     notify.success(t('logistics.shipmentCreated'), {
       key: `logistics:${result.trackingNo}:created`,
@@ -230,7 +240,7 @@ onMounted(() => {
         <el-button
           :icon="RefreshRight"
           :loading="trackingResource.status.value === 'updating'"
-          :disabled="!form.orderId"
+          :disabled="shipmentPending || !form.orderId"
           @click="loadByOrder"
         >
           {{ $t('common.refresh') }}
@@ -249,13 +259,14 @@ onMounted(() => {
             v-model="form.orderId"
             :min="1"
             controls-position="right"
+            :disabled="shipmentPending"
             :aria-label="$t('logistics.orderId')"
             :placeholder="$t('logistics.orderId')"
           />
           <el-button
             type="primary"
             native-type="submit"
-            :disabled="!form.orderId"
+            :disabled="shipmentPending || !form.orderId"
             :loading="trackingResource.status.value === 'loading'"
           >
             {{ $t('common.search') }}
@@ -264,13 +275,14 @@ onMounted(() => {
         <form class="task-form task-form--inline" @submit.prevent="loadByTrackingNo">
           <el-input
             v-model="trackingNo"
+            :disabled="shipmentPending"
             :aria-label="$t('logistics.trackingNo')"
             :placeholder="$t('logistics.trackingNoPlaceholder')"
           />
           <el-button
             type="primary"
             native-type="submit"
-            :disabled="!trackingNo.trim()"
+            :disabled="shipmentPending || !trackingNo.trim()"
             :loading="trackingResource.status.value === 'loading'"
           >
             {{ $t('common.search') }}
@@ -286,6 +298,7 @@ onMounted(() => {
           v-model="addressText"
           type="textarea"
           :rows="2"
+          :disabled="addressParsePending || shipmentPending"
           :aria-label="$t('logistics.fullAddress')"
           :placeholder="$t('logistics.fullAddress')"
         />
@@ -293,7 +306,7 @@ onMounted(() => {
           plain
           native-type="submit"
           :loading="addressParsePending"
-          :disabled="addressParsePending || !addressText.trim()"
+          :disabled="addressParsePending || shipmentPending || !addressText.trim()"
         >
           {{ $t('common.parseAddress') }}
         </el-button>
@@ -302,10 +315,30 @@ onMounted(() => {
         </p>
       </form>
       <div class="address-grid">
-        <el-input v-model="form.province" :placeholder="$t('logistics.province')" />
-        <el-input v-model="form.city" :placeholder="$t('logistics.city')" />
-        <el-input v-model="form.district" :placeholder="$t('logistics.district')" />
-        <el-input v-model="form.detail" :placeholder="$t('logistics.detailAddress')" />
+        <el-input
+          v-model="form.province"
+          :disabled="addressParsePending || shipmentPending"
+          :aria-label="$t('logistics.province')"
+          :placeholder="$t('logistics.province')"
+        />
+        <el-input
+          v-model="form.city"
+          :disabled="addressParsePending || shipmentPending"
+          :aria-label="$t('logistics.city')"
+          :placeholder="$t('logistics.city')"
+        />
+        <el-input
+          v-model="form.district"
+          :disabled="addressParsePending || shipmentPending"
+          :aria-label="$t('logistics.district')"
+          :placeholder="$t('logistics.district')"
+        />
+        <el-input
+          v-model="form.detail"
+          :disabled="addressParsePending || shipmentPending"
+          :aria-label="$t('logistics.detailAddress')"
+          :placeholder="$t('logistics.detailAddress')"
+        />
       </div>
     </section>
 
@@ -320,6 +353,7 @@ onMounted(() => {
             { label: safeCarrier('YTO'), value: 'YTO' },
           ]"
           :aria-label="$t('logistics.carrier')"
+          :disabled="shipmentPending"
         />
         <el-input-number
           v-model="form.weightKg"
@@ -327,6 +361,7 @@ onMounted(() => {
           :step="0.01"
           :precision="2"
           controls-position="right"
+          :disabled="shipmentPending"
           :aria-label="$t('logistics.weight')"
           :placeholder="$t('logistics.weight')"
         />
@@ -334,10 +369,16 @@ onMounted(() => {
           v-model="form.itemCount"
           :min="1"
           controls-position="right"
+          :disabled="shipmentPending"
           :aria-label="$t('logistics.itemCount')"
           :placeholder="$t('logistics.itemCount')"
         />
-        <el-button plain native-type="submit" :loading="quotePending" :disabled="quotePending">
+        <el-button
+          plain
+          native-type="submit"
+          :loading="quotePending"
+          :disabled="quotePending || shipmentPending"
+        >
           {{ $t('common.quote') }}
         </el-button>
         <p v-if="quoteError" class="task-error" role="alert">{{ quoteError }}</p>
@@ -372,6 +413,7 @@ onMounted(() => {
           v-model="form.recipientPhone"
           autocomplete="off"
           inputmode="tel"
+          :disabled="shipmentPending"
           :aria-label="$t('logistics.recipientPhone')"
           :placeholder="$t('logistics.recipientPhone')"
         />

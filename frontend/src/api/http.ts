@@ -6,11 +6,26 @@ const unsafeMethods = new Set(['post', 'put', 'patch', 'delete'])
 const traceIdHeader = 'X-Trace-Id'
 const idempotencyKeyHeader = 'Idempotency-Key'
 const deviceFingerprintHeader = 'X-Device-Fingerprint'
+const refreshLockName = 'monkeyshop:auth-refresh:v1'
+const refreshGenerationStorageKey = 'monkeyshop:auth-refresh-generation:v1'
+const refreshLeaseStorageKey = 'monkeyshop:auth-refresh-lease:v1'
+const refreshLeaseDurationMs = 30_000
+const refreshLeasePollMs = 25
 let fallbackTraceCounter = 0
 let pageDeviceFingerprint: string | undefined
+let sessionRefreshPromise: Promise<void> | null = null
 
 interface RetriableConfig extends InternalAxiosRequestConfig {
   _retry?: boolean
+}
+
+interface RefreshLease {
+  owner: string
+  expiresAt: number
+}
+
+interface LockManagerLike {
+  request<T>(name: string, callback: () => Promise<T>): Promise<T>
 }
 
 export class ApiError extends Error {
@@ -182,16 +197,198 @@ http.interceptors.response.use(
     ) {
       config._retry = true
       try {
-        await http.post('/auth/refresh')
+        await refreshSession()
         return http(config)
       } catch (refreshError) {
-        await handleSessionExpired()
         return Promise.reject(refreshError)
       }
     }
     return Promise.reject(error)
   },
 )
+
+function refreshSession(): Promise<void> {
+  if (!sessionRefreshPromise) {
+    sessionRefreshPromise = coordinateSessionRefresh()
+      .catch(async (error: unknown) => {
+        await handleSessionExpired()
+        throw error
+      })
+      .finally(() => {
+        sessionRefreshPromise = null
+      })
+  }
+  return sessionRefreshPromise
+}
+
+async function coordinateSessionRefresh(): Promise<void> {
+  const observedGeneration = readSharedStorage(refreshGenerationStorageKey)
+  try {
+    const lockManager = browserLockManager()
+    if (lockManager) {
+      let enteredCriticalSection = false
+      try {
+        await lockManager.request(refreshLockName, async () => {
+          enteredCriticalSection = true
+          if (refreshGenerationChanged(observedGeneration)) {
+            return
+          }
+          await performSessionRefresh()
+        })
+        return
+      } catch (error) {
+        if (enteredCriticalSection) {
+          throw error
+        }
+      }
+    }
+    await refreshWithStorageLease(observedGeneration)
+  } catch (error) {
+    if (refreshGenerationChanged(observedGeneration)) {
+      return
+    }
+    throw error
+  }
+}
+
+function browserLockManager(): LockManagerLike | undefined {
+  if (typeof navigator === 'undefined') {
+    return undefined
+  }
+  const candidate = (navigator as Navigator & { locks?: LockManagerLike }).locks
+  return candidate && typeof candidate.request === 'function' ? candidate : undefined
+}
+
+async function performSessionRefresh(): Promise<void> {
+  await http.post('/auth/refresh')
+  writeSharedStorage(refreshGenerationStorageKey, `${Date.now()}:${createTraceId()}`)
+}
+
+async function refreshWithStorageLease(
+  observedGeneration: string | null | undefined,
+): Promise<void> {
+  if (observedGeneration === undefined) {
+    await performSessionRefresh()
+    return
+  }
+
+  const owner = createTraceId()
+  while (true) {
+    if (refreshGenerationChanged(observedGeneration)) {
+      return
+    }
+
+    const now = Date.now()
+    const lease = readRefreshLease()
+    if (!lease || lease.expiresAt <= now) {
+      const candidate: RefreshLease = {
+        owner,
+        expiresAt: now + refreshLeaseDurationMs,
+      }
+      if (!writeSharedStorage(refreshLeaseStorageKey, JSON.stringify(candidate))) {
+        await performSessionRefresh()
+        return
+      }
+
+      await pause(0)
+      if (readRefreshLease()?.owner === owner) {
+        const heartbeat = setInterval(() => renewRefreshLease(owner), refreshLeaseDurationMs / 3)
+        try {
+          if (!refreshGenerationChanged(observedGeneration)) {
+            await performSessionRefresh()
+          }
+          return
+        } finally {
+          clearInterval(heartbeat)
+          releaseRefreshLease(owner)
+        }
+      }
+    }
+
+    const currentLease = readRefreshLease()
+    const waitMs = currentLease
+      ? Math.max(1, Math.min(refreshLeasePollMs, currentLease.expiresAt - Date.now()))
+      : 1
+    await pause(waitMs)
+  }
+}
+
+function refreshGenerationChanged(observedGeneration: string | null | undefined): boolean {
+  if (observedGeneration === undefined) {
+    return false
+  }
+  const currentGeneration = readSharedStorage(refreshGenerationStorageKey)
+  return currentGeneration !== undefined && currentGeneration !== observedGeneration
+}
+
+function readRefreshLease(): RefreshLease | null {
+  const raw = readSharedStorage(refreshLeaseStorageKey)
+  if (!raw) {
+    return null
+  }
+  try {
+    const lease = JSON.parse(raw) as Partial<RefreshLease>
+    if (
+      typeof lease.owner === 'string' &&
+      lease.owner.length > 0 &&
+      typeof lease.expiresAt === 'number' &&
+      Number.isFinite(lease.expiresAt)
+    ) {
+      return { owner: lease.owner, expiresAt: lease.expiresAt }
+    }
+  } catch {
+    // Invalid or stale entries are replaced by the next contender.
+  }
+  return null
+}
+
+function renewRefreshLease(owner: string): void {
+  if (readRefreshLease()?.owner !== owner) {
+    return
+  }
+  writeSharedStorage(
+    refreshLeaseStorageKey,
+    JSON.stringify({ owner, expiresAt: Date.now() + refreshLeaseDurationMs }),
+  )
+}
+
+function releaseRefreshLease(owner: string): void {
+  if (readRefreshLease()?.owner !== owner || typeof localStorage === 'undefined') {
+    return
+  }
+  try {
+    localStorage.removeItem(refreshLeaseStorageKey)
+  } catch {
+    // Storage can be disabled while the page is open; the lease expires on its own.
+  }
+}
+
+function readSharedStorage(key: string): string | null | undefined {
+  if (typeof localStorage === 'undefined') {
+    return undefined
+  }
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return undefined
+  }
+}
+
+function writeSharedStorage(key: string, value: string): boolean {
+  if (typeof localStorage === 'undefined') {
+    return false
+  }
+  try {
+    localStorage.setItem(key, value)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function pause(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs))
+}
 
 async function handleSessionExpired(): Promise<void> {
   if (typeof window === 'undefined') {

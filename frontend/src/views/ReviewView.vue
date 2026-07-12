@@ -137,7 +137,11 @@ onMounted(() => {
           />
         </div>
 
-        <el-switch v-model="form.anonymous" :active-text="$t('common.anonymous')" />
+        <el-switch
+          v-model="form.anonymous"
+          :aria-label="$t('common.anonymous')"
+          :active-text="$t('common.anonymous')"
+        />
 
         <div class="review-images">
           <div v-for="(image, index) in form.imageUrls" :key="image" class="review-image">

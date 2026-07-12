@@ -40,7 +40,11 @@ async function installRiskMocks(page: Page) {
       ]
     } else if (pathname === '/risk/reviews/101/resolve') {
       await new Promise((resolve) => setTimeout(resolve, 250))
-      const body = request.postDataJSON() as { status: string; resolution: string; totpCode: string }
+      const body = request.postDataJSON() as {
+        status: string
+        resolution: string
+        totpCode: string
+      }
       data = {
         id: 101,
         userId: 7,

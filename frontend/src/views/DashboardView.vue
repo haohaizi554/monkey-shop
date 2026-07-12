@@ -7,7 +7,7 @@ import MetricStrip, { type MetricItem } from '@/components/admin/MetricStrip.vue
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import DataTableShell from '@/components/ui/DataTableShell.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
-import { useAsyncState, type AsyncState, type AsyncStatus } from '@/composables/useAsyncState'
+import { useAsyncState } from '@/composables/useAsyncState'
 import { usePageVisibility } from '@/composables/usePageVisibility'
 import type { ProductProfile, RealtimeDashboard, TrackingEventType, UserProfileTag } from '@/types'
 import { money } from '@/utils/format'
@@ -21,6 +21,10 @@ const productState = useAsyncState<ProductProfile>()
 const visibility = usePageVisibility()
 const polling = ref(true)
 const productId = ref(1)
+const loadedProductId = ref<number>()
+const dashboardLastSuccessAt = ref<Date>()
+const profileLastSuccessAt = ref<Date>()
+const productLastSuccessAt = ref<Date>()
 
 const dashboard = computed(() => dashboardState.data.value)
 const myProfile = computed(() => profileState.data.value)
@@ -73,23 +77,23 @@ const eventLabels = computed<Record<TrackingEventType, string>>(() => ({
   UI_ERROR: t('dashboard.eventUiError'),
 }))
 
-function displayStatus<T>(state: AsyncState<T>): AsyncStatus {
-  if (state.data.value !== null && state.status.value === 'error') {
-    return 'success'
-  }
-  return state.status.value
-}
-
-const dashboardDisplayStatus = computed(() => displayStatus(dashboardState))
-const profileDisplayStatus = computed(() => displayStatus(profileState))
-const productDisplayStatus = computed(() => displayStatus(productState))
-
 function eventLabel(eventType: TrackingEventType): string {
   return eventLabels.value[eventType] ?? humanize(eventType)
 }
 
+function formatSuccessfulRefresh(value?: Date): string {
+  if (!value) return '-'
+  return new Intl.DateTimeFormat(locale.value, {
+    dateStyle: 'short',
+    timeStyle: 'medium',
+  }).format(value)
+}
+
 function humanize(value: string): string {
-  const normalized = value.replace(/[_:-]+/g, ' ').trim().toLowerCase()
+  const normalized = value
+    .replace(/[_:-]+/g, ' ')
+    .trim()
+    .toLowerCase()
   return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : value
 }
 
@@ -126,15 +130,26 @@ function tagLabel(tag: string): string {
 }
 
 async function loadDashboard() {
-  await dashboardState.load(() => trackingDashboard(5), { preserveData: true })
+  const result = await dashboardState.load(() => trackingDashboard(5), { preserveData: true })
+  if (result) dashboardLastSuccessAt.value = new Date()
 }
 
 async function loadProfile() {
-  await profileState.load(() => currentTrackingProfile(), { preserveData: true })
+  const result = await profileState.load(() => currentTrackingProfile(), { preserveData: true })
+  if (result) profileLastSuccessAt.value = new Date()
 }
 
 async function loadProductProfile() {
-  await productState.load(() => trackingProductProfile(productId.value), { preserveData: true })
+  const requestedProductId = productId.value
+  const isCurrentProduct = loadedProductId.value === requestedProductId
+  if (!isCurrentProduct) productLastSuccessAt.value = undefined
+  const result = await productState.load(() => trackingProductProfile(requestedProductId), {
+    preserveData: isCurrentProduct,
+  })
+  if (result) {
+    loadedProductId.value = requestedProductId
+    productLastSuccessAt.value = new Date()
+  }
 }
 
 function togglePolling() {
@@ -181,19 +196,23 @@ onMounted(async () => {
       </template>
     </PageHeader>
 
-    <el-alert
-      v-if="dashboardState.data.value && dashboardState.status.value === 'error'"
-      type="error"
-      :closable="false"
-      :title="t(dashboardState.error.value || 'common.requestFailed')"
-      show-icon
-    />
-
     <AsyncStateView
-      :status="dashboardDisplayStatus"
+      :status="dashboardState.status.value"
       :error="dashboardState.error.value"
+      :preserve-content-on-error="Boolean(dashboard)"
       @retry="loadDashboard"
     >
+      <p
+        v-if="dashboardLastSuccessAt"
+        class="data-freshness"
+        :class="{ 'is-stale': dashboardState.status.value === 'error' }"
+      >
+        {{
+          t('dashboard.lastUpdated', {
+            time: formatSuccessfulRefresh(dashboardLastSuccessAt),
+          })
+        }}
+      </p>
       <MetricStrip :items="metrics" />
 
       <section class="dashboard-section" :aria-labelledby="'dashboard-funnel-title'">
@@ -228,13 +247,31 @@ onMounted(async () => {
       <section class="dashboard-section profile-section" :aria-labelledby="'user-profile-title'">
         <div class="section-heading">
           <h2 id="user-profile-title">{{ t('dashboard.userProfile') }}</h2>
-          <time v-if="myProfile?.lastEventAt" :datetime="myProfile.lastEventAt">
-            {{ new Date(myProfile.lastEventAt).toLocaleString(locale) }}
-          </time>
+          <el-button
+            text
+            :icon="Refresh"
+            :loading="profileState.isLoading.value"
+            :aria-label="t('dashboard.refreshNow')"
+            @click="loadProfile"
+          />
         </div>
+        <time
+          v-if="profileLastSuccessAt"
+          class="data-freshness"
+          :class="{ 'is-stale': profileState.status.value === 'error' }"
+          :datetime="profileLastSuccessAt.toISOString()"
+          data-testid="user-profile-last-success"
+        >
+          {{
+            t('dashboard.lastUpdated', {
+              time: formatSuccessfulRefresh(profileLastSuccessAt),
+            })
+          }}
+        </time>
         <AsyncStateView
-          :status="profileDisplayStatus"
+          :status="profileState.status.value"
           :error="profileState.error.value"
+          :preserve-content-on-error="Boolean(myProfile)"
           @retry="loadProfile"
         >
           <p class="profile-summary">{{ normalizeProfileText(myProfile?.profileSummary) }}</p>
@@ -261,11 +298,32 @@ onMounted(async () => {
               :aria-label="t('dashboard.productId')"
               @change="loadProductProfile"
             />
+            <el-button
+              text
+              :icon="Refresh"
+              :loading="productState.isLoading.value"
+              :aria-label="t('dashboard.refreshNow')"
+              @click="loadProductProfile"
+            />
           </div>
         </div>
+        <time
+          v-if="productLastSuccessAt"
+          class="data-freshness"
+          :class="{ 'is-stale': productState.status.value === 'error' }"
+          :datetime="productLastSuccessAt.toISOString()"
+          data-testid="product-profile-last-success"
+        >
+          {{
+            t('dashboard.lastUpdated', {
+              time: formatSuccessfulRefresh(productLastSuccessAt),
+            })
+          }}
+        </time>
         <AsyncStateView
-          :status="productDisplayStatus"
+          :status="productState.status.value"
           :error="productState.error.value"
+          :preserve-content-on-error="Boolean(productProfile)"
           @retry="loadProductProfile"
         >
           <p class="profile-summary">
@@ -298,6 +356,17 @@ onMounted(async () => {
   display: grid;
   gap: var(--space-3);
   min-width: 0;
+}
+
+.data-freshness {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  text-align: right;
+}
+
+.data-freshness.is-stale {
+  color: var(--color-danger);
 }
 
 .section-heading {
