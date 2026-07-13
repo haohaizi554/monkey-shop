@@ -2,6 +2,7 @@ package com.example.monkey.user.infrastructure;
 
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
+import com.example.monkey.user.application.dto.PasswordPolicyResponseDto;
 import com.example.monkey.user.domain.PasswordCompromiseChecker;
 import com.example.monkey.user.domain.UserPasswordPolicy;
 import com.example.monkey.user.domain.UserPasswordPolicy.PasswordPolicyResult;
@@ -42,6 +43,10 @@ public class PasswordPolicy implements UserPasswordPolicy {
     PasswordPolicy(PasswordCompromiseChecker compromiseChecker, PasswordValidator validator) {
         this.compromiseChecker = compromiseChecker;
         this.validator = validator;
+    }
+
+    public PasswordPolicyResponseDto metadata() {
+        return new PasswordPolicyResponseDto(MIN_LENGTH, true, true, true, true, true);
     }
 
     @Override

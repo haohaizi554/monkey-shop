@@ -201,6 +201,8 @@ public class SecurityConfig {
                                 "/api/v1/auth/captcha",
                                 "/api/auth/captcha/config",
                                 "/api/v1/auth/captcha/config",
+                                "/api/auth/password-policy",
+                                "/api/v1/auth/password-policy",
                                 "/api/auth/register",
                                 "/api/v1/auth/register",
                                 "/api/auth/login",

@@ -8,6 +8,10 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import com.example.monkey.shared.application.security.SessionTokenPair;
 import com.example.monkey.shared.application.storage.UploadFileContent;
@@ -27,6 +31,8 @@ import com.example.monkey.user.application.RefreshTokenApplicationService.Refres
 import com.example.monkey.user.application.RefreshTokenApplicationService.RefreshTokenResult;
 import com.example.monkey.user.application.RegistrationApplicationService;
 import com.example.monkey.user.application.dto.AuthLoginResponseDto;
+import com.example.monkey.user.application.dto.PasswordPolicyResponseDto;
+import com.example.monkey.user.infrastructure.PasswordPolicy;
 import com.example.monkey.user.interfaces.dto.LoginRequestDto;
 import com.example.monkey.user.interfaces.dto.PasswordResetChallengeRequestDto;
 import com.example.monkey.user.interfaces.dto.PasswordResetRequestDto;
@@ -39,6 +45,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.multipart.MultipartFile;
 
 @ExtendWith(MockitoExtension.class)
@@ -62,6 +69,20 @@ class AuthControllerTest {
 
     @Mock
     private PasswordResetApplicationService passwordResetService;
+
+    @Mock
+    private PasswordPolicy passwordPolicy;
+
+    @Test
+    void returnsPasswordPolicyMetadata() throws Exception {
+        MockMvc mockMvc = standaloneSetup(newController()).build();
+        when(passwordPolicy.metadata()).thenReturn(new PasswordPolicyResponseDto(10, true, true, true, true, true));
+
+        mockMvc.perform(get("/api/v1/auth/password-policy"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.minLength").value(10))
+                .andExpect(jsonPath("$.data.requireSpecial").value(true));
+    }
 
     @Test
     void registerPropagatesApplicationCaptchaFailure() {
@@ -350,6 +371,7 @@ class AuthControllerTest {
                 refreshTokenService,
                 tokenTransport,
                 passwordResetService,
-                new AuthResponseService());
+                new AuthResponseService(),
+                passwordPolicy);
     }
 }

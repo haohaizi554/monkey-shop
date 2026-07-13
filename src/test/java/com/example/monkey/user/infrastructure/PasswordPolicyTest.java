@@ -5,11 +5,20 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
+import com.example.monkey.user.application.dto.PasswordPolicyResponseDto;
 import com.example.monkey.user.domain.PasswordCompromiseChecker;
 import com.example.monkey.user.domain.UserPasswordPolicy.PasswordPolicyResult;
 import org.junit.jupiter.api.Test;
 
 class PasswordPolicyTest {
+
+    @Test
+    void publishesPasswordPolicyMetadata() {
+        PasswordPolicy passwordPolicy = new PasswordPolicy();
+
+        assertThat(passwordPolicy.metadata())
+                .isEqualTo(new PasswordPolicyResponseDto(10, true, true, true, true, true));
+    }
 
     @Test
     void acceptsPasswordWithRequiredComplexity() {

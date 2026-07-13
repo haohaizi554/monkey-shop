@@ -14,6 +14,8 @@ import com.example.monkey.user.application.RefreshTokenApplicationService.Refres
 import com.example.monkey.user.application.RegistrationApplicationService;
 import com.example.monkey.user.application.dto.AuthLoginResponseDto;
 import com.example.monkey.user.application.dto.CaptchaConfigResponseDto;
+import com.example.monkey.user.application.dto.PasswordPolicyResponseDto;
+import com.example.monkey.user.infrastructure.PasswordPolicy;
 import com.example.monkey.user.interfaces.dto.LoginRequestDto;
 import com.example.monkey.user.interfaces.dto.PasswordResetChallengeRequestDto;
 import com.example.monkey.user.interfaces.dto.PasswordResetRequestDto;
@@ -46,6 +48,7 @@ public class AuthController {
     private final SessionTokenTransport tokenTransport;
     private final PasswordResetApplicationService passwordResetService;
     private final AuthResponseService authResponseService;
+    private final PasswordPolicy passwordPolicy;
 
     public AuthController(
             CaptchaService captchaService,
@@ -54,7 +57,8 @@ public class AuthController {
             RefreshTokenApplicationService refreshTokenService,
             SessionTokenTransport tokenTransport,
             PasswordResetApplicationService passwordResetService,
-            AuthResponseService authResponseService) {
+            AuthResponseService authResponseService,
+            PasswordPolicy passwordPolicy) {
         this.captchaService = captchaService;
         this.registrationService = registrationService;
         this.loginService = loginService;
@@ -62,6 +66,7 @@ public class AuthController {
         this.tokenTransport = tokenTransport;
         this.passwordResetService = passwordResetService;
         this.authResponseService = authResponseService;
+        this.passwordPolicy = passwordPolicy;
     }
 
     @GetMapping("/captcha")
@@ -74,6 +79,12 @@ public class AuthController {
     @PreAuthorize("permitAll()")
     public Result<CaptchaConfigResponseDto> getCaptchaConfig() {
         return Result.success(authResponseService.captchaConfig(captchaService.provider(), captchaService.siteKey()));
+    }
+
+    @GetMapping("/password-policy")
+    @PreAuthorize("permitAll()")
+    public Result<PasswordPolicyResponseDto> passwordPolicy() {
+        return Result.success(passwordPolicy.metadata());
     }
 
     @PostMapping("/register")
