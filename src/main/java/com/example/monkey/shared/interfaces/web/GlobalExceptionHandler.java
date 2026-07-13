@@ -67,8 +67,11 @@ public class GlobalExceptionHandler {
     }
 
     private static FieldViolation fieldViolation(FieldError fieldError) {
-        return new FieldViolation(
-                fieldError.getField(), stableFieldErrorCode(fieldError), fieldErrorMessage(fieldError));
+        String code = stableFieldErrorCode(fieldError);
+        String message = "typeMismatch".equals(code)
+                ? ErrorCode.REQUEST_MALFORMED.defaultMessage()
+                : fieldErrorMessage(fieldError);
+        return new FieldViolation(fieldError.getField(), code, message);
     }
 
     private static String stableFieldErrorCode(FieldError fieldError) {

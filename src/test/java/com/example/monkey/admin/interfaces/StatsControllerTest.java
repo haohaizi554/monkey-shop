@@ -1,6 +1,8 @@
 package com.example.monkey.admin.interfaces;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -93,6 +95,9 @@ class StatsControllerTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("REQUEST_MALFORMED"))
                 .andExpect(jsonPath("$.fieldErrors[0].field").value("start"))
-                .andExpect(jsonPath("$.fieldErrors[0].code").value("typeMismatch"));
+                .andExpect(jsonPath("$.fieldErrors[0].code").value("typeMismatch"))
+                .andExpect(content().string(not(containsString("java.time.LocalDate"))))
+                .andExpect(content().string(not(containsString("Failed to convert property value"))))
+                .andExpect(content().string(not(containsString("not-a-date"))));
     }
 }
