@@ -2,9 +2,9 @@ package com.example.monkey.user.infrastructure;
 
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
-import com.example.monkey.user.application.dto.PasswordPolicyResponseDto;
 import com.example.monkey.user.domain.PasswordCompromiseChecker;
 import com.example.monkey.user.domain.UserPasswordPolicy;
+import com.example.monkey.user.domain.UserPasswordPolicy.PasswordPolicyMetadata;
 import com.example.monkey.user.domain.UserPasswordPolicy.PasswordPolicyResult;
 import java.util.ArrayList;
 import java.util.List;
@@ -45,8 +45,9 @@ public class PasswordPolicy implements UserPasswordPolicy {
         this.validator = validator;
     }
 
-    public PasswordPolicyResponseDto metadata() {
-        return new PasswordPolicyResponseDto(MIN_LENGTH, true, true, true, true, true);
+    @Override
+    public PasswordPolicyMetadata metadata() {
+        return new PasswordPolicyMetadata(MIN_LENGTH, true, true, true, true, true);
     }
 
     @Override

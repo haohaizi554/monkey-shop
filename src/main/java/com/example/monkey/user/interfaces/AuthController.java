@@ -8,6 +8,7 @@ import com.example.monkey.shared.interfaces.web.SessionTokenTransport;
 import com.example.monkey.user.application.AuthResponseService;
 import com.example.monkey.user.application.CaptchaService;
 import com.example.monkey.user.application.LoginApplicationService;
+import com.example.monkey.user.application.PasswordPolicyQueryService;
 import com.example.monkey.user.application.PasswordResetApplicationService;
 import com.example.monkey.user.application.RefreshTokenApplicationService;
 import com.example.monkey.user.application.RefreshTokenApplicationService.RefreshTokenFailure;
@@ -15,7 +16,6 @@ import com.example.monkey.user.application.RegistrationApplicationService;
 import com.example.monkey.user.application.dto.AuthLoginResponseDto;
 import com.example.monkey.user.application.dto.CaptchaConfigResponseDto;
 import com.example.monkey.user.application.dto.PasswordPolicyResponseDto;
-import com.example.monkey.user.infrastructure.PasswordPolicy;
 import com.example.monkey.user.interfaces.dto.LoginRequestDto;
 import com.example.monkey.user.interfaces.dto.PasswordResetChallengeRequestDto;
 import com.example.monkey.user.interfaces.dto.PasswordResetRequestDto;
@@ -48,7 +48,7 @@ public class AuthController {
     private final SessionTokenTransport tokenTransport;
     private final PasswordResetApplicationService passwordResetService;
     private final AuthResponseService authResponseService;
-    private final PasswordPolicy passwordPolicy;
+    private final PasswordPolicyQueryService passwordPolicyQueryService;
 
     public AuthController(
             CaptchaService captchaService,
@@ -58,7 +58,7 @@ public class AuthController {
             SessionTokenTransport tokenTransport,
             PasswordResetApplicationService passwordResetService,
             AuthResponseService authResponseService,
-            PasswordPolicy passwordPolicy) {
+            PasswordPolicyQueryService passwordPolicyQueryService) {
         this.captchaService = captchaService;
         this.registrationService = registrationService;
         this.loginService = loginService;
@@ -66,7 +66,7 @@ public class AuthController {
         this.tokenTransport = tokenTransport;
         this.passwordResetService = passwordResetService;
         this.authResponseService = authResponseService;
-        this.passwordPolicy = passwordPolicy;
+        this.passwordPolicyQueryService = passwordPolicyQueryService;
     }
 
     @GetMapping("/captcha")
@@ -84,7 +84,7 @@ public class AuthController {
     @GetMapping("/password-policy")
     @PreAuthorize("permitAll()")
     public Result<PasswordPolicyResponseDto> passwordPolicy() {
-        return Result.success(passwordPolicy.metadata());
+        return Result.success(passwordPolicyQueryService.metadata());
     }
 
     @PostMapping("/register")

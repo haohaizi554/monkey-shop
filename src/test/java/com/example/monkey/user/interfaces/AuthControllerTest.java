@@ -24,6 +24,7 @@ import com.example.monkey.user.application.AuthResponseService;
 import com.example.monkey.user.application.CaptchaService;
 import com.example.monkey.user.application.LoginApplicationService;
 import com.example.monkey.user.application.LoginApplicationService.LoginResult;
+import com.example.monkey.user.application.PasswordPolicyQueryService;
 import com.example.monkey.user.application.PasswordResetApplicationService;
 import com.example.monkey.user.application.PasswordResetApplicationService.PasswordResetResult;
 import com.example.monkey.user.application.RefreshTokenApplicationService;
@@ -32,7 +33,6 @@ import com.example.monkey.user.application.RefreshTokenApplicationService.Refres
 import com.example.monkey.user.application.RegistrationApplicationService;
 import com.example.monkey.user.application.dto.AuthLoginResponseDto;
 import com.example.monkey.user.application.dto.PasswordPolicyResponseDto;
-import com.example.monkey.user.infrastructure.PasswordPolicy;
 import com.example.monkey.user.interfaces.dto.LoginRequestDto;
 import com.example.monkey.user.interfaces.dto.PasswordResetChallengeRequestDto;
 import com.example.monkey.user.interfaces.dto.PasswordResetRequestDto;
@@ -71,12 +71,13 @@ class AuthControllerTest {
     private PasswordResetApplicationService passwordResetService;
 
     @Mock
-    private PasswordPolicy passwordPolicy;
+    private PasswordPolicyQueryService passwordPolicyQueryService;
 
     @Test
     void returnsPasswordPolicyMetadata() throws Exception {
         MockMvc mockMvc = standaloneSetup(newController()).build();
-        when(passwordPolicy.metadata()).thenReturn(new PasswordPolicyResponseDto(10, true, true, true, true, true));
+        when(passwordPolicyQueryService.metadata())
+                .thenReturn(new PasswordPolicyResponseDto(10, true, true, true, true, true));
 
         mockMvc.perform(get("/api/v1/auth/password-policy"))
                 .andExpect(status().isOk())
@@ -372,6 +373,6 @@ class AuthControllerTest {
                 tokenTransport,
                 passwordResetService,
                 new AuthResponseService(),
-                passwordPolicy);
+                passwordPolicyQueryService);
     }
 }

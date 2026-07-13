@@ -18,6 +18,7 @@ import com.example.monkey.user.domain.UserAccountStore.UserAccount;
 import com.example.monkey.user.domain.UserMfaVerifier;
 import com.example.monkey.user.domain.UserPasswordHasher;
 import com.example.monkey.user.domain.UserPasswordPolicy;
+import com.example.monkey.user.domain.UserPasswordPolicy.PasswordPolicyMetadata;
 import com.example.monkey.user.domain.UserRoles;
 import java.lang.reflect.Method;
 import java.time.LocalDateTime;
@@ -465,6 +466,11 @@ class UserServiceTest {
 
     private static UserPasswordPolicy testPasswordPolicy() {
         return new UserPasswordPolicy() {
+            @Override
+            public PasswordPolicyMetadata metadata() {
+                return new PasswordPolicyMetadata(10, true, true, true, true, true);
+            }
+
             @Override
             public PasswordPolicyResult validate(String password) {
                 if ("Password1".equals(password)) {

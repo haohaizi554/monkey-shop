@@ -8,10 +8,20 @@ public interface UserPasswordPolicy {
 
     void validateOrThrow(String password);
 
+    PasswordPolicyMetadata metadata();
+
     record PasswordPolicyResult(boolean valid, List<String> violations) {
 
         public PasswordPolicyResult {
             violations = violations == null ? List.of() : List.copyOf(violations);
         }
     }
+
+    record PasswordPolicyMetadata(
+            int minLength,
+            boolean requireUppercase,
+            boolean requireLowercase,
+            boolean requireDigit,
+            boolean requireSpecial,
+            boolean forbidWhitespace) {}
 }
