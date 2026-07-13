@@ -152,6 +152,13 @@ public class PiiCryptoService {
         return hmacHex(normalizeBlindIndexValue(value));
     }
 
+    public String blindIndexText(String value) {
+        if (!StringUtils.hasText(value) || hmacKey == null) {
+            return null;
+        }
+        return hmacHex(value.trim().toLowerCase(Locale.ROOT));
+    }
+
     public boolean encryptionEnabled() {
         return encryptionEnabled;
     }

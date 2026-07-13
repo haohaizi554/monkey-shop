@@ -13,8 +13,12 @@ import com.example.monkey.shared.application.security.ApiRateLimitResult;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -29,6 +33,19 @@ class ApiRateLimitFilterTest {
     @AfterEach
     void clearSecurityContext() {
         SecurityContextHolder.clearContext();
+    }
+
+    @Test
+    void springContextUsesProductionConstructorWhenTestClockConstructorExists() {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(ApiRateLimitApplicationService.class, () -> rateLimitService);
+            context.registerBean(ObjectMapper.class, () -> new ObjectMapper());
+            context.register(ApiRateLimitFilter.class);
+
+            context.refresh();
+
+            assertThat(context.getBean(ApiRateLimitFilter.class)).isNotNull();
+        }
     }
 
     @Test
@@ -350,6 +367,10 @@ class ApiRateLimitFilterTest {
 
     @Test
     void rejectedRequestReturnsTooManyRequestsAndRetryAfter() throws Exception {
+        ApiRateLimitFilter fixedClockFilter = new ApiRateLimitFilter(
+                rateLimitService,
+                new ObjectMapper(),
+                Clock.fixed(Instant.parse("2026-07-14T00:00:00Z"), ZoneOffset.UTC));
         when(rateLimitService.consume(ApiRateLimitOperation.SEARCH, "127.0.0.1", "anonymous"))
                 .thenReturn(new ApiRateLimitResult(false, 12));
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/monkeys");
@@ -357,11 +378,13 @@ class ApiRateLimitFilterTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
         FilterChain chain = mock(FilterChain.class);
 
-        filter.doFilter(request, response, chain);
+        fixedClockFilter.doFilter(request, response, chain);
 
         assertThat(response.getStatus()).isEqualTo(429);
         assertThat(response.getHeader(HttpHeaders.RETRY_AFTER)).isEqualTo("12");
         assertThat(response.getContentAsString()).contains("\"code\":\"RATE_LIMIT\"");
+        assertThat(response.getContentAsString()).contains("\"retryAfterSeconds\":12");
+        assertThat(response.getContentAsString()).contains("\"retryAt\":\"2026-07-14T00:00:12Z\"");
         verify(chain, never()).doFilter(request, response);
     }
 

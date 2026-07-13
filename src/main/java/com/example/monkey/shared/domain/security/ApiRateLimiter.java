@@ -4,9 +4,26 @@ public interface ApiRateLimiter {
 
     RateLimitDecision consume(RateLimitPolicy policy, String clientIp, String userKey);
 
+    RateLimitDecision consumeRegistrationIdentity(RegistrationIdentity identity, String rawIdentity);
+
     boolean isBlocked(String clientIp);
 
     void blockForHoneypot(String clientIp);
+
+    enum RegistrationIdentity {
+        USERNAME("username"),
+        PHONE("phone");
+
+        private final String key;
+
+        RegistrationIdentity(String key) {
+            this.key = key;
+        }
+
+        public String key() {
+            return key;
+        }
+    }
 
     record RateLimitDecision(boolean allowed, RateLimitPolicy policy, long retryAfterSeconds) {
         public static RateLimitDecision allowedDecision() {

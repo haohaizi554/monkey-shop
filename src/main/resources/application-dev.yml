@@ -15,6 +15,14 @@ server:
       cookie:
         secure: ${SESSION_COOKIE_SECURE:false}
 
+monkeyshop:
+  rate-limit:
+    register:
+      edge-capacity: ${MONKEYSHOP_RATE_LIMIT_REGISTER_EDGE_CAPACITY:120}
+      edge-window: ${MONKEYSHOP_RATE_LIMIT_REGISTER_EDGE_WINDOW:1h}
+      identity-capacity: ${MONKEYSHOP_RATE_LIMIT_REGISTER_IDENTITY_CAPACITY:120}
+      identity-window: ${MONKEYSHOP_RATE_LIMIT_REGISTER_IDENTITY_WINDOW:1h}
+
 app:
   security:
     csp:

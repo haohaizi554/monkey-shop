@@ -2,6 +2,7 @@ package com.example.monkey.shared.interfaces.web;
 
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
+import com.example.monkey.shared.domain.exception.RateLimitExceededException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import java.util.Comparator;
@@ -23,6 +24,13 @@ public class GlobalExceptionHandler {
                     FieldViolation::field, Comparator.nullsFirst(Comparator.naturalOrder()))
             .thenComparing(FieldViolation::code, Comparator.nullsFirst(Comparator.naturalOrder()))
             .thenComparing(FieldViolation::message, Comparator.nullsFirst(Comparator.naturalOrder()));
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    ResponseEntity<ProblemDetail> handleRateLimitExceeded(
+            RateLimitExceededException exception, HttpServletRequest request) {
+        return ProblemDetails.rateLimitResponse(
+                exception.errorCode(), exception.getMessage(), request, exception.retryAfterSeconds());
+    }
 
     @ExceptionHandler(BusinessException.class)
     ResponseEntity<ProblemDetail> handleBusinessException(BusinessException exception, HttpServletRequest request) {

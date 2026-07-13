@@ -12,14 +12,101 @@ import static org.mockito.Mockito.when;
 
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
+import com.example.monkey.shared.domain.security.ApiRateLimiter;
 import com.example.monkey.shared.domain.security.ApiRateLimiter.RateLimitDecision;
 import com.example.monkey.shared.domain.security.RateLimitPolicy;
+import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
 class ApiRateLimitServiceTest {
+
+    @Test
+    void defaultRegistrationEdgePolicyAllowsOneHundredTwentyRequestsPerHour() {
+        assertThat(RateLimitPolicy.REGISTER.capacity()).isEqualTo(120);
+        assertThat(RateLimitPolicy.REGISTER.window()).isEqualTo(Duration.ofHours(1));
+    }
+
+    @Test
+    void registrationEdgeUsesTypedCapacityAndWindow() {
+        RateLimitProperties properties = new RateLimitProperties(
+                new RateLimitProperties.Register(2, Duration.ofMinutes(15), 5, Duration.ofHours(1)));
+        ApiRateLimitService service =
+                new ApiRateLimitService(null, true, false, Duration.ofHours(24), properties, null);
+
+        assertThat(service.consume(RateLimitPolicy.REGISTER, "203.0.113.10", "anonymous")
+                        .allowed())
+                .isTrue();
+        assertThat(service.consume(RateLimitPolicy.REGISTER, "203.0.113.10", "anonymous")
+                        .allowed())
+                .isTrue();
+        RateLimitDecision rejected = service.consume(RateLimitPolicy.REGISTER, "203.0.113.10", "anonymous");
+        assertThat(rejected.allowed()).isFalse();
+        assertThat(rejected.retryAfterSeconds())
+                .isBetween(1L, Duration.ofMinutes(15).toSeconds());
+    }
+
+    @Test
+    void registrationIdentityQuotaIsTypedAndIndependentPerIdentity() {
+        PiiCryptoService piiCryptoService = mock(PiiCryptoService.class);
+        when(piiCryptoService.blindIndexText("alice1")).thenReturn("username-hmac");
+        when(piiCryptoService.blindIndexPhone("13800138000")).thenReturn("phone-hmac");
+        RateLimitProperties properties = new RateLimitProperties(
+                new RateLimitProperties.Register(20, Duration.ofMinutes(15), 2, Duration.ofHours(1)));
+        ApiRateLimitService service =
+                new ApiRateLimitService(null, true, false, Duration.ofHours(24), properties, piiCryptoService);
+
+        assertThat(service.consumeRegistrationIdentity(ApiRateLimiter.RegistrationIdentity.USERNAME, "alice1")
+                        .allowed())
+                .isTrue();
+        assertThat(service.consumeRegistrationIdentity(ApiRateLimiter.RegistrationIdentity.USERNAME, "alice1")
+                        .allowed())
+                .isTrue();
+        assertThat(service.consumeRegistrationIdentity(ApiRateLimiter.RegistrationIdentity.USERNAME, "alice1")
+                        .allowed())
+                .isFalse();
+        assertThat(service.consumeRegistrationIdentity(ApiRateLimiter.RegistrationIdentity.PHONE, "13800138000")
+                        .allowed())
+                .isTrue();
+    }
+
+    @Test
+    void retryAfterRoundsPartialSecondsUp() {
+        assertThat(ApiRateLimitService.ceilRetryAfterSeconds(1L)).isEqualTo(1L);
+        assertThat(ApiRateLimitService.ceilRetryAfterSeconds(1_000_000_000L)).isEqualTo(1L);
+        assertThat(ApiRateLimitService.ceilRetryAfterSeconds(1_000_000_001L)).isEqualTo(2L);
+    }
+
+    @Test
+    void redisRegistrationIdentityKeysContainOnlyHmacValues() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        ValueOperations<String, String> values = mockRedisValues(redisTemplate);
+        when(values.increment(org.mockito.ArgumentMatchers.startsWith("api:rate:register:")))
+                .thenReturn(1L, 1L);
+        PiiCryptoService piiCryptoService = mock(PiiCryptoService.class);
+        String usernameHmac = "a".repeat(64);
+        String phoneHmac = "b".repeat(64);
+        when(piiCryptoService.blindIndexText("Alice1")).thenReturn(usernameHmac);
+        when(piiCryptoService.blindIndexPhone("13800138000")).thenReturn(phoneHmac);
+        RateLimitProperties properties = new RateLimitProperties(
+                new RateLimitProperties.Register(20, Duration.ofMinutes(15), 5, Duration.ofHours(1)));
+        ApiRateLimitService service =
+                new ApiRateLimitService(redisTemplate, true, true, Duration.ofHours(24), properties, piiCryptoService);
+
+        service.consumeRegistrationIdentity(ApiRateLimiter.RegistrationIdentity.USERNAME, "Alice1");
+        service.consumeRegistrationIdentity(ApiRateLimiter.RegistrationIdentity.PHONE, "13800138000");
+
+        ArgumentCaptor<String> keys = ArgumentCaptor.forClass(String.class);
+        verify(values, times(2)).increment(keys.capture());
+        assertThat(keys.getAllValues())
+                .containsExactly("api:rate:register:username:" + usernameHmac, "api:rate:register:phone:" + phoneHmac)
+                .allSatisfy(key -> assertThat(key).doesNotContain("Alice1", "alice1", "13800138000"));
+        verify(redisTemplate, times(2))
+                .expire(org.mockito.ArgumentMatchers.startsWith("api:rate:register:"), eq(Duration.ofHours(1)));
+    }
 
     @Test
     void disabledServiceAndNullPolicyAllowRequests() {
@@ -48,6 +135,21 @@ class ApiRateLimitServiceTest {
         assertThat(rejected.allowed()).isFalse();
         assertThat(rejected.policy()).isEqualTo(RateLimitPolicy.LOGIN);
         assertThat(rejected.retryAfterSeconds()).isPositive();
+    }
+
+    @Test
+    void registerEdgeQuotaAllowsOneHundredTwentyRequestsPerHour() {
+        ApiRateLimitService service = new ApiRateLimitService(null, true, false, Duration.ofHours(24));
+
+        for (int i = 0; i < 120; i++) {
+            assertThat(service.consume(RateLimitPolicy.REGISTER, "127.0.0.1", "anonymous")
+                            .allowed())
+                    .isTrue();
+        }
+
+        assertThat(service.consume(RateLimitPolicy.REGISTER, "127.0.0.1", "anonymous")
+                        .allowed())
+                .isFalse();
     }
 
     @Test

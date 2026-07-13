@@ -140,6 +140,17 @@ class PiiCryptoServiceTest {
     }
 
     @Test
+    void textBlindIndexNormalizesCaseWithoutCollapsingUsernameDigits() {
+        PiiCryptoService service = enabledService();
+        String alice = service.blindIndexText(" Alice1 ");
+        String normalizedAlice = service.blindIndexText("alice1");
+        String bob = service.blindIndexText("bob1");
+        assertThat(alice).isEqualTo(normalizedAlice);
+        assertThat(alice).isNotEqualTo(bob);
+        assertThat(alice).doesNotContain("alice1");
+    }
+
+    @Test
     void blindIndexReturnsNullWithoutHmacKey() {
         PiiCryptoService service = new PiiCryptoService(true, new SecretKeySpec(new byte[32], "AES"), null, "v1", true);
 

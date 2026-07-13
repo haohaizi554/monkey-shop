@@ -9,8 +9,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
@@ -19,6 +21,7 @@ import com.example.monkey.shared.application.security.SessionTokenPair;
 import com.example.monkey.shared.application.storage.UploadFileContent;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
+import com.example.monkey.shared.domain.exception.RateLimitExceededException;
 import com.example.monkey.shared.interfaces.dto.Result;
 import com.example.monkey.shared.interfaces.web.CaptchaHttp;
 import com.example.monkey.shared.interfaces.web.GlobalExceptionHandler;
@@ -117,6 +120,29 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.fieldErrors[0].field").exists())
                 .andExpect(jsonPath("$.fieldErrors[0].code").value("NotBlank"));
+    }
+
+    @Test
+    void registrationIdentityLimitReturnsRetryHeaderAndAbsoluteMetadata() throws Exception {
+        MockMvc mockMvc = standaloneSetup(newController())
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+        doThrow(new RateLimitExceededException(12))
+                .when(registrationService)
+                .register("alice", "StrongPass1!", "18888888888", "alice@example.com", null, "1234", "127.0.0.1", null);
+
+        mockMvc.perform(multipart("/api/v1/auth/register")
+                        .param("username", "alice")
+                        .param("password", "StrongPass1!")
+                        .param("phone", "18888888888")
+                        .param("email", "alice@example.com")
+                        .param("captcha", "1234"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "12"))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("RATE_LIMIT"))
+                .andExpect(jsonPath("$.retryAfterSeconds").value(12))
+                .andExpect(jsonPath("$.retryAt").isString());
     }
 
     @Test

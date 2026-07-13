@@ -4,7 +4,9 @@ import com.example.monkey.shared.application.observability.TraceIds;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
+import java.time.Instant;
 import java.util.List;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 
@@ -24,8 +26,26 @@ public final class ProblemDetails {
         return problem;
     }
 
+    public static ProblemDetail from(
+            ErrorCode code, String detail, HttpServletRequest request, long retryAfterSeconds, Instant retryAt) {
+        ProblemDetail problem = from(code, detail, request);
+        problem.setProperty("retryAfterSeconds", Math.max(1L, retryAfterSeconds));
+        problem.setProperty("retryAt", retryAt.toString());
+        return problem;
+    }
+
     public static ResponseEntity<ProblemDetail> response(ErrorCode code, String detail, HttpServletRequest request) {
         return ResponseEntity.status(ErrorHttpStatuses.forCode(code)).body(from(code, detail, request));
+    }
+
+    public static ResponseEntity<ProblemDetail> rateLimitResponse(
+            ErrorCode code, String detail, HttpServletRequest request, long retryAfterSeconds) {
+        long safeRetryAfterSeconds = Math.max(1L, retryAfterSeconds);
+        ProblemDetail problem =
+                from(code, detail, request, safeRetryAfterSeconds, Instant.now().plusSeconds(safeRetryAfterSeconds));
+        return ResponseEntity.status(ErrorHttpStatuses.forCode(code))
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(safeRetryAfterSeconds))
+                .body(problem);
     }
 
     public static ResponseEntity<ProblemDetail> response(

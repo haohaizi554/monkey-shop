@@ -16,7 +16,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.Locale;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.lang.NonNull;
@@ -32,10 +35,17 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
 
     private final ApiRateLimitApplicationService rateLimitService;
     private final ObjectMapper objectMapper;
+    private final Clock clock;
 
+    @Autowired
     public ApiRateLimitFilter(ApiRateLimitApplicationService rateLimitService, ObjectMapper objectMapper) {
+        this(rateLimitService, objectMapper, Clock.systemUTC());
+    }
+
+    ApiRateLimitFilter(ApiRateLimitApplicationService rateLimitService, ObjectMapper objectMapper, Clock clock) {
         this.rateLimitService = rateLimitService;
         this.objectMapper = objectMapper;
+        this.clock = clock;
     }
 
     @Override
@@ -81,13 +91,28 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
             String detail,
             Long retryAfterSeconds)
             throws IOException {
-        if (retryAfterSeconds != null) {
-            response.setHeader(RETRY_AFTER, Long.toString(Math.max(1L, retryAfterSeconds)));
-        }
         response.setStatus(ErrorHttpStatuses.forCode(errorCode).value());
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-        objectMapper.writeValue(response.getWriter(), ProblemDetails.from(errorCode, detail, request));
+        if (retryAfterSeconds != null) {
+            long safeRetryAfterSeconds = Math.max(1L, retryAfterSeconds);
+            response.setHeader(RETRY_AFTER, Long.toString(safeRetryAfterSeconds));
+            writeProblemBody(
+                    response,
+                    ProblemDetails.from(
+                            errorCode,
+                            detail,
+                            request,
+                            safeRetryAfterSeconds,
+                            Instant.now(clock).plusSeconds(safeRetryAfterSeconds)));
+            return;
+        }
+        writeProblemBody(response, ProblemDetails.from(errorCode, detail, request));
+    }
+
+    private void writeProblemBody(HttpServletResponse response, org.springframework.http.ProblemDetail problem)
+            throws IOException {
+        objectMapper.writeValue(response.getWriter(), problem);
     }
 
     private static boolean isApiRequest(HttpServletRequest request) {

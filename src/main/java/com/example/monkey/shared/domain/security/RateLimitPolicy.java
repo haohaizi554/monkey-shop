@@ -4,7 +4,7 @@ import java.time.Duration;
 
 public enum RateLimitPolicy {
     LOGIN("login", 5, Duration.ofMinutes(1)),
-    REGISTER("register", 3, Duration.ofHours(1)),
+    REGISTER("register", 120, Duration.ofHours(1)),
     ORDER("order", 10, Duration.ofMinutes(1)),
     SECKILL("seckill", 60, Duration.ofMinutes(1)),
     CART("cart", 10, Duration.ofSeconds(1)),

@@ -5,6 +5,11 @@ import com.example.monkey.shared.application.storage.UploadFileContent;
 import com.example.monkey.shared.application.storage.dto.UploadResponseDto;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
+import com.example.monkey.shared.domain.exception.RateLimitExceededException;
+import com.example.monkey.shared.domain.security.ApiRateLimiter;
+import com.example.monkey.shared.domain.security.ApiRateLimiter.RateLimitDecision;
+import com.example.monkey.shared.domain.security.ApiRateLimiter.RegistrationIdentity;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -16,12 +21,23 @@ public class RegistrationApplicationService {
     private final UserService userService;
     private final CaptchaService captchaService;
     private final FileService fileService;
+    private final ApiRateLimiter rateLimiter;
 
     public RegistrationApplicationService(
             UserService userService, CaptchaService captchaService, FileService fileService) {
+        this(userService, captchaService, fileService, null);
+    }
+
+    @Autowired
+    public RegistrationApplicationService(
+            UserService userService,
+            CaptchaService captchaService,
+            FileService fileService,
+            ApiRateLimiter rateLimiter) {
         this.userService = userService;
         this.captchaService = captchaService;
         this.fileService = fileService;
+        this.rateLimiter = rateLimiter;
     }
 
     public void register(
@@ -36,12 +52,26 @@ public class RegistrationApplicationService {
         if (!captchaService.validate(captchaChallengeId, captcha, ACTION_REGISTER, clientIp)) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, REGISTRATION_CAPTCHA_INVALID);
         }
+        consumeIdentityQuotas(username, phone);
 
         String avatarPath = null;
         if (avatarFile != null && !avatarFile.isEmpty()) {
             avatarPath = uploadAvatar(avatarFile);
         }
         userService.register(username, password, phone, email, avatarPath);
+    }
+
+    private void consumeIdentityQuotas(String username, String phone) {
+        if (rateLimiter == null) {
+            return;
+        }
+        RateLimitDecision usernameDecision =
+                rateLimiter.consumeRegistrationIdentity(RegistrationIdentity.USERNAME, username);
+        RateLimitDecision phoneDecision = rateLimiter.consumeRegistrationIdentity(RegistrationIdentity.PHONE, phone);
+        if (!usernameDecision.allowed() || !phoneDecision.allowed()) {
+            throw new RateLimitExceededException(
+                    Math.max(usernameDecision.retryAfterSeconds(), phoneDecision.retryAfterSeconds()));
+        }
     }
 
     private String uploadAvatar(UploadFileContent avatarFile) {

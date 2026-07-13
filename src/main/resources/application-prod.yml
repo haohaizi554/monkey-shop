@@ -25,6 +25,14 @@ management:
     env:
       show-values: NEVER
 
+monkeyshop:
+  rate-limit:
+    register:
+      edge-capacity: ${MONKEYSHOP_RATE_LIMIT_REGISTER_EDGE_CAPACITY:20}
+      edge-window: ${MONKEYSHOP_RATE_LIMIT_REGISTER_EDGE_WINDOW:15m}
+      identity-capacity: ${MONKEYSHOP_RATE_LIMIT_REGISTER_IDENTITY_CAPACITY:5}
+      identity-window: ${MONKEYSHOP_RATE_LIMIT_REGISTER_IDENTITY_WINDOW:1h}
+
 otel:
   traces:
     exporter: ${OTEL_TRACES_EXPORTER:otlp}
