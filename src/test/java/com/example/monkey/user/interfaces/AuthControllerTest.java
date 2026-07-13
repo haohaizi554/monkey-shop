@@ -225,7 +225,9 @@ class AuthControllerTest {
         assertThat(result.code()).isEqualTo("OK");
         assertThat(result.data().role()).isEqualTo("USER");
         assertThat(result.data().passwordChangeRequired()).isFalse();
-        assertThat(request.getSession(false).getId()).isNotEqualTo(originalSessionId);
+        var rotatedSession = request.getSession(false);
+        assertThat(rotatedSession).isNotNull();
+        assertThat(rotatedSession.getId()).isNotEqualTo(originalSessionId);
         verify(tokenTransport).applyTokenCookies(response, tokenPair);
     }
 
