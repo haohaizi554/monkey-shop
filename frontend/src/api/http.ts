@@ -1,5 +1,10 @@
-import axios, { AxiosError, type AxiosRequestConfig, type InternalAxiosRequestConfig } from 'axios'
-import type { ApiResult, ProblemDetail } from '@/types'
+import axios, {
+  AxiosError,
+  AxiosHeaders,
+  type AxiosRequestConfig,
+  type InternalAxiosRequestConfig,
+} from 'axios'
+import type { ApiProblem, ApiResult, FieldViolation } from '@/types'
 import { csrfHeader } from '@/utils/csrf'
 
 const unsafeMethods = new Set(['post', 'put', 'patch', 'delete'])
@@ -28,17 +33,49 @@ interface LockManagerLike {
   request<T>(name: string, callback: () => Promise<T>): Promise<T>
 }
 
+function normalizeResponseHeaders(headers: unknown): AxiosHeaders | undefined {
+  if (!headers || typeof headers !== 'object') {
+    return undefined
+  }
+  if (headers instanceof AxiosHeaders) {
+    return new AxiosHeaders(headers)
+  }
+
+  const normalized = new AxiosHeaders()
+  for (const [name, value] of Object.entries(headers)) {
+    if (value !== null && value !== undefined) {
+      normalized.set(name, String(value))
+    }
+  }
+  return normalized
+}
+
 export class ApiError extends Error {
   readonly status?: number
   readonly traceId?: string
   readonly code?: string
+  readonly fieldErrors?: readonly FieldViolation[]
+  readonly retryAfterSeconds?: number
+  readonly retryAt?: string
+  readonly headers?: AxiosHeaders
 
-  constructor(message: string, status?: number, traceId?: string, code?: string) {
+  constructor(
+    message: string,
+    status?: number,
+    traceId?: string,
+    code?: string,
+    problem?: ApiProblem,
+    headers?: AxiosHeaders,
+  ) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.traceId = traceId
     this.code = code
+    this.fieldErrors = problem?.fieldErrors ? [...problem.fieldErrors] : undefined
+    this.retryAfterSeconds = problem?.retryAfterSeconds
+    this.retryAt = problem?.retryAt
+    this.headers = headers
   }
 }
 
@@ -186,7 +223,7 @@ http.interceptors.request.use((config) => {
 
 http.interceptors.response.use(
   (response) => response,
-  async (error: AxiosError<ProblemDetail>) => {
+  async (error: AxiosError<ApiProblem>) => {
     const config = error.config as RetriableConfig | undefined
     if (
       error.response?.status === 401 &&
@@ -422,7 +459,7 @@ export async function request<T>(config: AxiosRequestConfig): Promise<T> {
       result?.code,
     )
   } catch (error) {
-    if (axios.isAxiosError<ProblemDetail>(error)) {
+    if (axios.isAxiosError<ApiProblem>(error)) {
       const detail = error.response?.data
       throw new ApiError(
         friendlyMessage(
@@ -433,6 +470,8 @@ export async function request<T>(config: AxiosRequestConfig): Promise<T> {
         error.response?.status,
         detail?.traceId,
         detail?.code,
+        detail,
+        normalizeResponseHeaders(error.response?.headers),
       )
     }
     throw error

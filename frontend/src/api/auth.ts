@@ -3,6 +3,7 @@ import type {
   LoginRequest,
   LoginResponse,
   CaptchaConfig,
+  PasswordPolicy,
   PasswordResetChallenge,
   PasswordResetRequest,
   RegisterRequest,
@@ -19,6 +20,13 @@ export function captchaUrl(scope: 'auth' | 'user' = 'auth'): string {
 export async function captchaConfig(): Promise<CaptchaConfig> {
   return request<CaptchaConfig>({
     url: '/auth/captcha/config',
+    method: 'GET',
+  })
+}
+
+export async function passwordPolicy(): Promise<PasswordPolicy> {
+  return request<PasswordPolicy>({
+    url: '/auth/password-policy',
     method: 'GET',
   })
 }

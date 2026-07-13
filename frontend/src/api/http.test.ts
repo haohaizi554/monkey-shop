@@ -1,6 +1,6 @@
 import { AxiosError, AxiosHeaders, type AxiosAdapter, type InternalAxiosRequestConfig } from 'axios'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { http } from '@/api/http'
+import { ApiError, http, request } from '@/api/http'
 
 const clearLocalSession = vi.fn()
 const refreshGenerationStorageKey = 'monkeyshop:auth-refresh-generation:v1'
@@ -227,5 +227,80 @@ describe('HTTP authentication recovery', () => {
     await expect(pendingRequest).resolves.toMatchObject({ status: 200 })
     expect(protectedAttempts).toBe(2)
     expect(clearLocalSession).not.toHaveBeenCalled()
+  })
+
+  it('preserves field violations from a 422 problem on ApiError', async () => {
+    const fieldErrors = [{ field: 'username', code: 'Unique', message: 'Username exists' }]
+    http.defaults.adapter = async (config) => {
+      throw new AxiosError('Validation Failed', AxiosError.ERR_BAD_REQUEST, config, undefined, {
+        config,
+        data: {
+          title: 'Validation Failed',
+          detail: 'Request validation failed',
+          status: 422,
+          code: 'VALIDATION_FAILED',
+          traceId: 'trace-validation',
+          fieldErrors,
+        },
+        headers: new AxiosHeaders(),
+        status: 422,
+        statusText: 'Unprocessable Entity',
+      })
+    }
+
+    let caught: unknown
+    try {
+      await request({ url: '/auth/register', method: 'POST' })
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBeInstanceOf(ApiError)
+    expect(caught).toMatchObject({
+      status: 422,
+      code: 'VALIDATION_FAILED',
+      traceId: 'trace-validation',
+      fieldErrors,
+    })
+    expect((caught as ApiError).retryAfterSeconds).toBeUndefined()
+  })
+
+  it('preserves retry metadata and response headers from a 429 problem', async () => {
+    const retryAt = '2099-01-01T00:00:00Z'
+    http.defaults.adapter = async (config) => {
+      throw new AxiosError('Too Many Requests', AxiosError.ERR_BAD_REQUEST, config, undefined, {
+        config,
+        data: {
+          title: 'Too Many Requests',
+          detail: 'Too many attempts',
+          status: 429,
+          code: 'RATE_LIMIT',
+          traceId: 'trace-rate-limit',
+          retryAfterSeconds: 12,
+          retryAt,
+        },
+        headers: new AxiosHeaders({ 'Retry-After': '9' }),
+        status: 429,
+        statusText: 'Too Many Requests',
+      })
+    }
+
+    let caught: unknown
+    try {
+      await request({ url: '/auth/login', method: 'POST' })
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBeInstanceOf(ApiError)
+    expect(caught).toMatchObject({
+      status: 429,
+      code: 'RATE_LIMIT',
+      traceId: 'trace-rate-limit',
+      retryAfterSeconds: 12,
+      retryAt,
+    })
+    expect((caught as ApiError).fieldErrors).toBeUndefined()
+    expect((caught as ApiError).headers?.get('retry-after')).toBe('9')
   })
 })

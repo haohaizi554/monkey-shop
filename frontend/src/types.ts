@@ -7,12 +7,34 @@ export interface ApiResult<T> {
   traceId?: string
 }
 
-export interface ProblemDetail {
+export interface FieldViolation {
+  field: string
+  code: string
+  message: string
+}
+
+export interface ApiProblem {
+  type?: string
   title?: string
   detail?: string
   status?: number
+  instance?: string
   code?: string
   traceId?: string
+  fieldErrors?: FieldViolation[]
+  retryAfterSeconds?: number
+  retryAt?: string
+}
+
+export type ProblemDetail = ApiProblem
+
+export interface PasswordPolicy {
+  minLength: number
+  requireUppercase: boolean
+  requireLowercase: boolean
+  requireDigit: boolean
+  requireSpecial: boolean
+  forbidWhitespace: boolean
 }
 
 export interface UserProfile {
