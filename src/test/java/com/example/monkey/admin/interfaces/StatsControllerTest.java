@@ -3,6 +3,11 @@ package com.example.monkey.admin.interfaces;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import com.example.monkey.admin.application.StatsService;
 import com.example.monkey.admin.application.dto.StatsResponseDto;
@@ -11,6 +16,7 @@ import com.example.monkey.admin.interfaces.dto.StatsQueryRequestDto;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.observability.dto.AuditTraceEventDto;
 import com.example.monkey.shared.interfaces.dto.Result;
+import com.example.monkey.shared.interfaces.web.GlobalExceptionHandler;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -20,6 +26,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
 
 @ExtendWith(MockitoExtension.class)
 class StatsControllerTest {
@@ -72,5 +80,19 @@ class StatsControllerTest {
         assertThat(result.code()).isEqualTo("OK");
         assertThat(result.data()).isSameAs(stats);
         verify(statsService).getStats(start, end);
+    }
+
+    @Test
+    void invalidStatsDateReturnsMalformedProblemWithTypeMismatchCode() throws Exception {
+        MockMvc mockMvc = standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        mockMvc.perform(get("/api/v1/stats/data").param("start", "not-a-date"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("REQUEST_MALFORMED"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("start"))
+                .andExpect(jsonPath("$.fieldErrors[0].code").value("typeMismatch"));
     }
 }

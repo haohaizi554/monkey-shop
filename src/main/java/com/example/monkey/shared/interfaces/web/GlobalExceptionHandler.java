@@ -36,7 +36,10 @@ public class GlobalExceptionHandler {
                 .map(GlobalExceptionHandler::fieldViolation)
                 .sorted(Comparator.comparing(FieldViolation::field))
                 .toList();
-        return problem(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage(), request, fieldErrors);
+        ErrorCode code = fieldErrors.stream().anyMatch(fieldError -> "typeMismatch".equals(fieldError.code()))
+                ? ErrorCode.REQUEST_MALFORMED
+                : ErrorCode.VALIDATION_FAILED;
+        return problem(code, code.defaultMessage(), request, fieldErrors);
     }
 
     @ExceptionHandler(ConstraintViolationException.class)
@@ -64,7 +67,18 @@ public class GlobalExceptionHandler {
     }
 
     private static FieldViolation fieldViolation(FieldError fieldError) {
-        return new FieldViolation(fieldError.getField(), fieldError.getCode(), fieldErrorMessage(fieldError));
+        return new FieldViolation(
+                fieldError.getField(), stableFieldErrorCode(fieldError), fieldErrorMessage(fieldError));
+    }
+
+    private static String stableFieldErrorCode(FieldError fieldError) {
+        String[] codes = fieldError.getCodes();
+        if (codes != null && codes.length > 0) {
+            String code = codes[0];
+            int separator = code.indexOf('.');
+            return separator < 0 ? code : code.substring(0, separator);
+        }
+        return fieldError.getCode();
     }
 
     private static String fieldErrorMessage(FieldError fieldError) {
