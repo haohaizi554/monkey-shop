@@ -2,7 +2,7 @@ package com.example.monkey.user.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
-import static org.mockito.Mockito.doThrow;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -12,6 +12,8 @@ import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionTokenPair;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
+import com.example.monkey.shared.domain.exception.RateLimitExceededException;
+import com.example.monkey.user.domain.LoginAttemptState;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,6 +45,7 @@ class LoginApplicationServiceTest {
 
     @BeforeEach
     void setUp() {
+        when(loginAttemptService.evaluate(anyString(), anyString())).thenReturn(LoginAttemptState.allowed(false));
         loginService = new LoginApplicationService(
                 authenticationService,
                 captchaService,
@@ -54,14 +57,12 @@ class LoginApplicationServiceTest {
 
     @Test
     void loginDeniedByRateLimiterDoesNotAuthenticateOrIssueTokens() {
-        doThrow(new BusinessException(ErrorCode.RATE_LIMIT, "too many login attempts"))
-                .when(loginAttemptService)
-                .enforceAllowed("alice", "127.0.0.1");
+        when(loginAttemptService.evaluate("alice", "127.0.0.1")).thenReturn(LoginAttemptState.locked(false, 12));
 
-        assertThatExceptionOfType(BusinessException.class)
+        assertThatExceptionOfType(RateLimitExceededException.class)
                 .isThrownBy(() -> loginService.login("alice", "bad-password", null, null, null, "127.0.0.1"))
-                .withMessage("too many login attempts")
-                .satisfies(exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.RATE_LIMIT));
+                .satisfies(
+                        exception -> assertThat(exception.retryAfterSeconds()).isEqualTo(12L));
 
         verify(auditService)
                 .record(
@@ -91,7 +92,7 @@ class LoginApplicationServiceTest {
 
     @Test
     void loginRequiresCaptchaWhenRepeatedFailuresCrossThreshold() {
-        when(loginAttemptService.requiresCaptcha("alice", "127.0.0.1")).thenReturn(true);
+        when(loginAttemptService.evaluate("alice", "127.0.0.1")).thenReturn(LoginAttemptState.allowed(true));
 
         assertThatExceptionOfType(BusinessException.class)
                 .isThrownBy(() -> loginService.login("alice", "StrongPass1!", null, null, null, "127.0.0.1"))
@@ -103,7 +104,7 @@ class LoginApplicationServiceTest {
 
     @Test
     void loginRejectsInvalidCaptchaBeforeAuthentication() {
-        when(loginAttemptService.requiresCaptcha("alice", "127.0.0.1")).thenReturn(true);
+        when(loginAttemptService.evaluate("alice", "127.0.0.1")).thenReturn(LoginAttemptState.allowed(true));
         when(captchaService.validate(CAPTCHA_CHALLENGE_ID, "bad", "login", "127.0.0.1"))
                 .thenReturn(false);
 
@@ -121,7 +122,7 @@ class LoginApplicationServiceTest {
     void loginAuthenticatesAfterRequiredCaptchaPasses() {
         SessionTokenPair tokenPair =
                 new SessionTokenPair("access-token", "refresh-token", "access-id", "refresh-id", 900, 604800);
-        when(loginAttemptService.requiresCaptcha("alice", "127.0.0.1")).thenReturn(true);
+        when(loginAttemptService.evaluate("alice", "127.0.0.1")).thenReturn(LoginAttemptState.allowed(true));
         when(captchaService.validate(CAPTCHA_CHALLENGE_ID, "1234", "login", "127.0.0.1"))
                 .thenReturn(true);
         when(authenticationService.authenticate("alice", "StrongPass1!"))

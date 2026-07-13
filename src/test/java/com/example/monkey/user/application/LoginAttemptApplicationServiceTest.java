@@ -5,6 +5,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.user.domain.LoginAttemptPolicy;
+import com.example.monkey.user.domain.LoginAttemptState;
 import org.junit.jupiter.api.Test;
 
 class LoginAttemptApplicationServiceTest {
@@ -14,15 +15,14 @@ class LoginAttemptApplicationServiceTest {
 
     @Test
     void delegatesLoginAttemptPolicyOperations() {
-        when(loginAttemptPolicy.requiresCaptcha("alice", "127.0.0.1")).thenReturn(true);
+        LoginAttemptState state = LoginAttemptState.allowed(true);
+        when(loginAttemptPolicy.evaluate("alice", "127.0.0.1")).thenReturn(state);
 
-        service.enforceAllowed("alice", "127.0.0.1");
-        assertThat(service.requiresCaptcha("alice", "127.0.0.1")).isTrue();
+        assertThat(service.evaluate("alice", "127.0.0.1")).isEqualTo(state);
         service.recordFailure("alice", "127.0.0.1");
         service.recordSuccess("alice", "127.0.0.1");
 
-        verify(loginAttemptPolicy).enforceAllowed("alice", "127.0.0.1");
-        verify(loginAttemptPolicy).requiresCaptcha("alice", "127.0.0.1");
+        verify(loginAttemptPolicy).evaluate("alice", "127.0.0.1");
         verify(loginAttemptPolicy).recordFailure("alice", "127.0.0.1");
         verify(loginAttemptPolicy).recordSuccess("alice", "127.0.0.1");
     }

@@ -3,9 +3,8 @@ package com.example.monkey.user.infrastructure;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.startsWith;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -13,254 +12,257 @@ import static org.mockito.Mockito.when;
 
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
+import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
+import com.example.monkey.user.domain.LoginAttemptState;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Locale;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.script.RedisScript;
 
 class LoginAttemptServiceTest {
 
-    @Test
-    void deniesMoreThanFiveAttemptsPerMinuteForSameUsernameAndIp() {
-        LoginAttemptService service =
-                new LoginAttemptService(null, 5, Duration.ofMinutes(1), 5, Duration.ofMinutes(15));
+    private static final String IP_A = "203.0.113.10";
+    private static final String IP_B = "203.0.113.11";
+    private static final Clock FIXED_CLOCK = Clock.fixed(Instant.parse("2026-07-14T00:00:00Z"), ZoneOffset.UTC);
 
-        for (int i = 0; i < 5; i++) {
-            service.enforceAllowed("Alice", "203.0.113.10");
+    @Test
+    void twoPairFailuresDoNotRequireCaptchaOrLock() {
+        LoginAttemptService service = localService(FIXED_CLOCK);
+
+        service.recordFailure("alice", IP_A);
+        service.recordFailure("alice", IP_A);
+
+        assertThat(service.evaluate("alice", IP_A)).isEqualTo(LoginAttemptState.allowed(false));
+    }
+
+    @Test
+    void captchaBeginsAfterThreePairFailures() {
+        LoginAttemptService service = localService(FIXED_CLOCK);
+
+        for (int i = 0; i < 3; i++) {
+            service.recordFailure("alice", IP_A);
         }
 
-        assertRateLimit(() -> service.enforceAllowed("alice", "203.0.113.10"), "too many login attempts");
+        assertThat(service.evaluate("Alice", IP_A)).isEqualTo(LoginAttemptState.allowed(true));
     }
 
     @Test
-    void invalidThresholdsAndDurationsFallBackToSafeMinimums() {
-        LoginAttemptService service = new LoginAttemptService(null, 0, Duration.ZERO, 0, Duration.ZERO);
+    void tenPairFailuresCreateTenMinutePairLockWithRemainingRetry() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-14T00:00:00Z"));
+        LoginAttemptService service = localService(clock);
 
-        service.enforceAllowed("alice", "203.0.113.10");
+        for (int i = 0; i < 10; i++) {
+            service.recordFailure("alice", IP_A);
+        }
+        clock.advance(Duration.ofSeconds(90));
 
-        assertRateLimit(() -> service.enforceAllowed("alice", "203.0.113.10"), "too many login attempts");
+        assertThat(service.evaluate("alice", IP_A)).isEqualTo(LoginAttemptState.locked(true, 510));
     }
 
     @Test
-    void successClearsUsernameLockButPreservesSharedIpLock() {
-        LoginAttemptService service =
-                new LoginAttemptService(null, 10, Duration.ofMinutes(1), 5, Duration.ofMinutes(15));
+    void pairLockDoesNotAffectSameUsernameOrIpInOtherPairs() {
+        LoginAttemptService service = localService(FIXED_CLOCK);
 
-        for (int i = 0; i < 5; i++) {
-            service.recordFailure("alice", "203.0.113.10");
+        for (int i = 0; i < 10; i++) {
+            service.recordFailure("alice", IP_A);
         }
 
-        assertRateLimit(() -> service.enforceAllowed("alice", "203.0.113.10"), "login temporarily locked");
-
-        service.recordSuccess("alice", "203.0.113.10");
-
-        service.enforceAllowed("alice", "203.0.113.11");
-        assertRateLimit(() -> service.enforceAllowed("bob", "203.0.113.10"), "login temporarily locked");
+        assertThat(service.evaluate("alice", IP_A).locked()).isTrue();
+        assertThat(service.evaluate("alice", IP_B)).isEqualTo(LoginAttemptState.allowed(false));
+        assertThat(service.evaluate("bob", IP_A)).isEqualTo(LoginAttemptState.allowed(false));
     }
 
     @Test
-    void throttlesAttemptsByUsernameAcrossDifferentIps() {
-        LoginAttemptService service =
-                new LoginAttemptService(null, 2, Duration.ofMinutes(1), 5, Duration.ofMinutes(15));
+    void pairWindowAllowsTenAttemptsThenReturnsRemainingTtl() {
+        LoginAttemptService service = localService(FIXED_CLOCK, 100, 10);
 
-        service.enforceAllowed("alice", "203.0.113.10");
-        service.enforceAllowed("alice", "203.0.113.11");
+        for (int i = 0; i < 10; i++) {
+            assertThat(service.evaluate("alice", IP_A).locked()).isFalse();
+        }
 
-        assertRateLimit(() -> service.enforceAllowed("alice", "203.0.113.12"), "too many login attempts");
+        assertThat(service.evaluate("alice", IP_A)).isEqualTo(LoginAttemptState.locked(false, 300));
     }
 
     @Test
-    void throttlesAttemptsByIpAcrossDifferentUsernames() {
-        LoginAttemptService service =
-                new LoginAttemptService(null, 2, Duration.ofMinutes(1), 5, Duration.ofMinutes(15));
+    void sharedIpWindowAllowsThirtyAttemptsAcrossDifferentUsernames() {
+        LoginAttemptService service = localService(FIXED_CLOCK);
 
-        service.enforceAllowed("alice", "203.0.113.10");
-        service.enforceAllowed("bob", "203.0.113.10");
+        for (int i = 0; i < 30; i++) {
+            assertThat(service.evaluate("user-" + i, IP_A).locked()).isFalse();
+        }
 
-        assertRateLimit(() -> service.enforceAllowed("carol", "203.0.113.10"), "too many login attempts");
+        assertThat(service.evaluate("user-31", IP_A)).isEqualTo(LoginAttemptState.locked(false, 300));
     }
 
     @Test
-    void locksUsernameAfterFailuresAcrossDifferentIps() {
-        LoginAttemptService service =
-                new LoginAttemptService(null, 10, Duration.ofMinutes(1), 3, Duration.ofMinutes(15));
+    void successfulLoginClearsPairStateAndDecrementsSharedIpCounter() {
+        LoginAttemptService service = localService(FIXED_CLOCK, 2, 10);
 
-        service.recordFailure("alice", "203.0.113.10");
-        service.recordFailure("alice", "203.0.113.11");
-        service.recordFailure("alice", "203.0.113.12");
+        assertThat(service.evaluate("alice", IP_A).locked()).isFalse();
+        assertThat(service.evaluate("bob", IP_A).locked()).isFalse();
+        service.recordFailure("alice", IP_A);
+        service.recordFailure("alice", IP_A);
+        service.recordSuccess("alice", IP_A);
 
-        assertRateLimit(() -> service.enforceAllowed("alice", "203.0.113.13"), "login temporarily locked");
+        assertThat(service.evaluate("carol", IP_A).locked()).isFalse();
+        assertThat(service.evaluate("alice", IP_A).captchaRequired()).isFalse();
+        assertThat(service.evaluate("dave", IP_A).locked()).isTrue();
     }
 
     @Test
-    void requiresCaptchaAfterFailuresFromSameIpAcrossDifferentUsernames() {
-        LoginAttemptService service =
-                new LoginAttemptService(null, 10, Duration.ofMinutes(1), 5, 3, Duration.ofMinutes(15));
+    void redisEvaluationUsesAtomicIncrementTtlAndHmacOnlyKeys() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        PiiCryptoService piiCryptoService = hmacService();
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class)))
+                .thenReturn("0|0|0");
+        LoginAttemptService service = redisService(redisTemplate, piiCryptoService, false);
 
-        service.recordFailure("alice", "203.0.113.10");
-        service.recordFailure("bob", "203.0.113.10");
+        assertThat(service.evaluate("Alice", IP_A)).isEqualTo(LoginAttemptState.allowed(false));
 
-        assertThat(service.requiresCaptcha("carol", "203.0.113.10")).isFalse();
-
-        service.recordFailure("carol", "203.0.113.10");
-
-        assertThat(service.requiresCaptcha("dave", "203.0.113.10")).isTrue();
+        RedisExecution execution = captureExecution(redisTemplate);
+        assertThat(execution.script().getScriptAsString())
+                .contains("redis.call('incr'", "redis.call('pexpire'", "redis.call('pttl'");
+        String expectedUsernameHmac = testHmac("alice");
+        assertThat(execution.keys())
+                .hasSize(4)
+                .anySatisfy(key -> assertThat(key).contains(expectedUsernameHmac))
+                .allSatisfy(key -> assertThat(key).doesNotContain("Alice", "alice", IP_A));
     }
 
     @Test
-    void successClearsUsernameCaptchaButPreservesSharedIpCaptcha() {
-        LoginAttemptService service =
-                new LoginAttemptService(null, 10, Duration.ofMinutes(1), 5, 3, Duration.ofMinutes(15));
+    void redisRetryAfterRoundsRemainingMillisecondsUp() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class)))
+                .thenReturn("1|0|7001");
+        LoginAttemptService service = redisService(redisTemplate, hmacService(), false);
 
-        service.recordFailure("alice", "203.0.113.10");
-        service.recordFailure("alice", "203.0.113.10");
+        assertThat(service.evaluate("alice", IP_A)).isEqualTo(LoginAttemptState.locked(false, 8));
+    }
 
-        assertThat(service.requiresCaptcha("alice", "203.0.113.10")).isFalse();
+    @Test
+    void redisFailureAndSuccessTransitionsAreAtomicScripts() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class)))
+                .thenReturn("3", "0");
+        LoginAttemptService service = redisService(redisTemplate, hmacService(), false);
 
-        service.recordFailure("alice", "203.0.113.10");
+        service.recordFailure("alice", IP_A);
+        service.recordSuccess("alice", IP_A);
 
-        assertThat(service.requiresCaptcha("Alice", "203.0.113.10")).isTrue();
+        @SuppressWarnings("rawtypes")
+        ArgumentCaptor<RedisScript> scripts = ArgumentCaptor.forClass(RedisScript.class);
+        verify(redisTemplate, times(2)).execute(scripts.capture(), anyList(), any(Object[].class));
+        assertThat(scripts.getAllValues().get(0).getScriptAsString())
+                .contains("redis.call('incr'", "redis.call('pexpire'", "redis.call('psetex'");
+        assertThat(scripts.getAllValues().get(1).getScriptAsString()).contains("redis.call('decr'", "redis.call('del'");
+    }
 
-        service.recordSuccess("alice", "203.0.113.10");
+    @Test
+    void requiredRedisStateFailsClosedWhenScriptExecutionFails() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class)))
+                .thenThrow(new RuntimeException("redis unavailable"));
+        LoginAttemptService service = redisService(redisTemplate, hmacService(), true);
 
-        assertThat(service.requiresCaptcha("alice", "203.0.113.11")).isFalse();
-        assertThat(service.requiresCaptcha("dave", "203.0.113.10")).isTrue();
+        assertServiceUnavailable(() -> service.evaluate("alice", IP_A));
+    }
+
+    @Test
+    void missingHmacMaterialFailsClosedWithoutBuildingPlainUsernameKey() {
+        PiiCryptoService piiCryptoService = mock(PiiCryptoService.class);
+        LoginAttemptService service = redisService(mock(StringRedisTemplate.class), piiCryptoService, false);
+
+        assertServiceUnavailable(() -> service.evaluate("alice", IP_A));
     }
 
     @Test
     void requiredRedisStateRejectsMissingRedisTemplate() {
         assertThatExceptionOfType(IllegalStateException.class)
-                .isThrownBy(
-                        () -> new LoginAttemptService(null, true, 10, Duration.ofMinutes(1), 5, Duration.ofMinutes(15)))
+                .isThrownBy(() -> new LoginAttemptService(
+                        null,
+                        true,
+                        30,
+                        Duration.ofMinutes(5),
+                        10,
+                        Duration.ofMinutes(5),
+                        3,
+                        10,
+                        Duration.ofMinutes(10),
+                        hmacService(),
+                        FIXED_CLOCK))
                 .withMessage("authentication state store unavailable");
     }
 
-    @Test
-    void requiredRedisStateConsumesRedisCountersInsteadOfLocalBuckets() {
-        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        ValueOperations<String, String> redisValues = mockRedisValues(redisTemplate);
-        when(redisValues.increment(anyString())).thenReturn(1L);
-
-        LoginAttemptService service =
-                new LoginAttemptService(redisTemplate, true, 10, Duration.ofMinutes(1), 5, Duration.ofMinutes(15));
-
-        service.enforceAllowed("alice", "203.0.113.10");
-
-        verify(redisValues, times(3)).increment(startsWith("login:window:"));
-        verify(redisTemplate, times(3)).expire(startsWith("login:window:"), any(Duration.class));
+    private static LoginAttemptService localService(Clock clock) {
+        return localService(clock, 30, 10);
     }
 
-    @Test
-    void requiredRedisStateRecordsCaptchaAndLockKeysForFailures() {
-        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        ValueOperations<String, String> redisValues = mockRedisValues(redisTemplate);
-        when(redisValues.increment(anyString())).thenReturn(5L);
-
-        LoginAttemptService service =
-                new LoginAttemptService(redisTemplate, true, 10, Duration.ofMinutes(1), 5, Duration.ofMinutes(15));
-
-        service.recordFailure("alice", "203.0.113.10");
-
-        verify(redisValues, times(3)).increment(startsWith("login:failure:"));
-        verify(redisValues, times(3))
-                .set(startsWith("login:captcha:"), org.mockito.ArgumentMatchers.eq("1"), any(Duration.class));
-        verify(redisValues, times(3))
-                .set(startsWith("login:lock:"), org.mockito.ArgumentMatchers.eq("1"), any(Duration.class));
+    private static LoginAttemptService localService(Clock clock, int ipCapacity, int pairCapacity) {
+        return new LoginAttemptService(
+                null,
+                false,
+                ipCapacity,
+                Duration.ofMinutes(5),
+                pairCapacity,
+                Duration.ofMinutes(5),
+                3,
+                10,
+                Duration.ofMinutes(10),
+                hmacService(),
+                clock);
     }
 
-    @Test
-    void requiredRedisStateFailsClosedWhenFailureStateWriteFails() {
-        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        ValueOperations<String, String> redisValues = mockRedisValues(redisTemplate);
-        when(redisValues.increment(anyString())).thenReturn(5L);
-        doThrow(new RuntimeException("redis unavailable"))
-                .when(redisValues)
-                .set(startsWith("login:captcha:"), org.mockito.ArgumentMatchers.eq("1"), any(Duration.class));
-
-        LoginAttemptService service =
-                new LoginAttemptService(redisTemplate, true, 10, Duration.ofMinutes(1), 5, Duration.ofMinutes(15));
-
-        assertServiceUnavailable(() -> service.recordFailure("alice", "203.0.113.10"));
+    private static LoginAttemptService redisService(
+            StringRedisTemplate redisTemplate, PiiCryptoService piiCryptoService, boolean requireRedisState) {
+        return new LoginAttemptService(
+                redisTemplate,
+                requireRedisState,
+                30,
+                Duration.ofMinutes(5),
+                10,
+                Duration.ofMinutes(5),
+                3,
+                10,
+                Duration.ofMinutes(10),
+                piiCryptoService,
+                FIXED_CLOCK);
     }
 
-    @Test
-    void requiredRedisStateClearsUsernameAndPairStateAfterSuccess() {
-        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        mockRedisValues(redisTemplate);
-
-        LoginAttemptService service =
-                new LoginAttemptService(redisTemplate, true, 10, Duration.ofMinutes(1), 5, Duration.ofMinutes(15));
-
-        service.recordSuccess("alice", "203.0.113.10");
-
-        verify(redisTemplate, times(8)).delete(anyString());
+    private static PiiCryptoService hmacService() {
+        PiiCryptoService piiCryptoService = mock(PiiCryptoService.class);
+        when(piiCryptoService.blindIndexText(anyString()))
+                .thenAnswer(invocation -> testHmac(invocation.getArgument(0, String.class)));
+        return piiCryptoService;
     }
 
-    @Test
-    void requiredRedisStateFailsClosedWhenClearingStateFails() {
-        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        mockRedisValues(redisTemplate);
-        doThrow(new RuntimeException("redis unavailable")).when(redisTemplate).delete(anyString());
-
-        LoginAttemptService service =
-                new LoginAttemptService(redisTemplate, true, 10, Duration.ofMinutes(1), 5, Duration.ofMinutes(15));
-
-        assertServiceUnavailable(() -> service.recordSuccess("alice", "203.0.113.10"));
+    private static String testHmac(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            String normalized = value.trim().toLowerCase(Locale.ROOT);
+            return HexFormat.of()
+                    .formatHex(digest.digest(("test-hmac|" + normalized).getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 
-    @Test
-    void requiredRedisStateReadsCaptchaRequirementFromRedisKeys() {
-        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        mockRedisValues(redisTemplate);
-        when(redisTemplate.hasKey(anyString())).thenReturn(false, true);
-
-        LoginAttemptService service =
-                new LoginAttemptService(redisTemplate, true, 10, Duration.ofMinutes(1), 5, Duration.ofMinutes(15));
-
-        assertThat(service.requiresCaptcha("alice", "203.0.113.10")).isTrue();
-    }
-
-    @Test
-    void requiredRedisStateReturnsFalseWhenNoCaptchaKeysExist() {
-        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        mockRedisValues(redisTemplate);
-        when(redisTemplate.hasKey(anyString())).thenReturn(false);
-
-        LoginAttemptService service =
-                new LoginAttemptService(redisTemplate, true, 10, Duration.ofMinutes(1), 5, Duration.ofMinutes(15));
-
-        assertThat(service.requiresCaptcha("alice", "203.0.113.10")).isFalse();
-    }
-
-    @Test
-    void requiredRedisStateFailsClosedWhenCounterStoreFails() {
-        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        ValueOperations<String, String> redisValues = mockRedisValues(redisTemplate);
-        when(redisValues.increment(anyString())).thenThrow(new RuntimeException("redis unavailable"));
-
-        LoginAttemptService service =
-                new LoginAttemptService(redisTemplate, true, 10, Duration.ofMinutes(1), 5, Duration.ofMinutes(15));
-
-        assertServiceUnavailable(() -> service.enforceAllowed("alice", "203.0.113.10"));
-    }
-
-    @Test
-    void requiredRedisStateFailsClosedWhenCaptchaLookupFails() {
-        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        mockRedisValues(redisTemplate);
-        when(redisTemplate.hasKey(anyString())).thenThrow(new RuntimeException("redis unavailable"));
-
-        LoginAttemptService service =
-                new LoginAttemptService(redisTemplate, true, 10, Duration.ofMinutes(1), 5, Duration.ofMinutes(15));
-
-        assertServiceUnavailable(() -> service.requiresCaptcha("alice", "203.0.113.10"));
-    }
-
-    private static void assertRateLimit(Runnable action, String message) {
-        assertThatExceptionOfType(BusinessException.class)
-                .isThrownBy(action::run)
-                .withMessage(message)
-                .satisfies(exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.RATE_LIMIT));
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static RedisExecution captureExecution(StringRedisTemplate redisTemplate) {
+        ArgumentCaptor<RedisScript> script = ArgumentCaptor.forClass(RedisScript.class);
+        ArgumentCaptor<List<String>> keys = ArgumentCaptor.forClass(List.class);
+        verify(redisTemplate).execute(script.capture(), keys.capture(), any(Object[].class));
+        return new RedisExecution(script.getValue(), keys.getValue());
     }
 
     private static void assertServiceUnavailable(Runnable action) {
@@ -270,10 +272,33 @@ class LoginAttemptServiceTest {
                 .satisfies(exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.SERVICE_UNAVAILABLE));
     }
 
-    @SuppressWarnings("unchecked")
-    private static ValueOperations<String, String> mockRedisValues(StringRedisTemplate redisTemplate) {
-        ValueOperations<String, String> redisValues = mock(ValueOperations.class);
-        when(redisTemplate.opsForValue()).thenReturn(redisValues);
-        return redisValues;
+    private record RedisExecution(RedisScript<?> script, List<String> keys) {}
+
+    private static final class MutableClock extends Clock {
+
+        private Instant instant;
+
+        private MutableClock(Instant instant) {
+            this.instant = instant;
+        }
+
+        private void advance(Duration duration) {
+            instant = instant.plus(duration);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return instant;
+        }
     }
 }

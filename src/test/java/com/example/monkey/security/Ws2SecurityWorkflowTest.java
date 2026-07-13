@@ -149,11 +149,16 @@ class Ws2SecurityWorkflowTest {
                 .contains("passwordResetService.resetPassword")
                 .contains("revokeUserTokens");
         assertThat(loginAttempts)
-                .contains("Bucket")
-                .contains("max-attempts-per-window:5")
-                .contains("failure-lock-threshold:5")
-                .contains("lock-seconds:900")
-                .contains("login:lock:");
+                .contains("EVALUATE_ATTEMPT")
+                .contains("RECORD_FAILURE")
+                .contains("RECORD_SUCCESS")
+                .contains("ip-capacity:30")
+                .contains("pair-capacity:10")
+                .contains("captcha-threshold:3")
+                .contains("failure-lock-threshold:10")
+                .contains("lock-seconds:600")
+                .contains("blindIndexText")
+                .contains("login:pair-lock:");
         assertThat(passwordPolicy)
                 .contains("MIN_LENGTH = 10")
                 .contains("LengthRule(MIN_LENGTH")

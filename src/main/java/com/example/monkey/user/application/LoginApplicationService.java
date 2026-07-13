@@ -4,7 +4,9 @@ import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionTokenPair;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
+import com.example.monkey.shared.domain.exception.RateLimitExceededException;
 import com.example.monkey.user.application.dto.AuthLoginResponseDto;
+import com.example.monkey.user.domain.LoginAttemptState;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -42,8 +44,9 @@ public class LoginApplicationService {
 
     public LoginResult login(
             String username, String password, String captcha, String totp, String captchaChallengeId, String clientIp) {
+        LoginAttemptState attemptState;
         try {
-            loginAttemptService.enforceAllowed(username, clientIp);
+            attemptState = loginAttemptService.evaluate(username, clientIp);
         } catch (BusinessException exception) {
             auditService.record(
                     AuditService.LOGIN_RATE_LIMITED,
@@ -55,7 +58,18 @@ public class LoginApplicationService {
                     "rate_limit");
             throw exception;
         }
-        if (captchaService.externalProviderEnabled() || loginAttemptService.requiresCaptcha(username, clientIp)) {
+        if (attemptState.locked()) {
+            auditService.record(
+                    AuditService.LOGIN_RATE_LIMITED,
+                    AuditService.OUTCOME_DENIED,
+                    null,
+                    null,
+                    username,
+                    clientIp,
+                    "rate_limit");
+            throw new RateLimitExceededException(attemptState.retryAfterSeconds());
+        }
+        if (captchaService.externalProviderEnabled() || attemptState.captchaRequired()) {
             requireValidCaptcha(username, captcha, captchaChallengeId, clientIp);
         }
 

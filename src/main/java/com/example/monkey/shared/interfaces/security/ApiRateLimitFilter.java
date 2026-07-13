@@ -71,6 +71,10 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
         }
 
         ApiRateLimitOperation operation = operationFor(request);
+        if (operation == ApiRateLimitOperation.LOGIN) {
+            filterChain.doFilter(request, response);
+            return;
+        }
         ApiRateLimitResult decision = rateLimitService.consume(operation, clientIp, authenticatedUserKey());
         if (!decision.allowed()) {
             writeProblem(

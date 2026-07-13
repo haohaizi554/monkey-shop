@@ -49,6 +49,23 @@ class ApiRateLimitFilterTest {
     }
 
     @Test
+    void loginUsesDedicatedPairScopedProtectionWithoutGenericEndpointQuota() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/auth/login");
+        request.setRemoteAddr("127.0.0.1");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain chain = mock(FilterChain.class);
+
+        filter.doFilter(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+        verify(rateLimitService, never())
+                .consume(
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
     void mapsOrderCreateToUserScopedOrderPolicy() throws Exception {
         when(rateLimitService.consume(ApiRateLimitOperation.ORDER, "203.0.113.10", "tenant:1:user:42"))
                 .thenReturn(new ApiRateLimitResult(true, 0));
@@ -68,8 +85,6 @@ class ApiRateLimitFilterTest {
 
     @Test
     void versionedApiPathsUseSameRateLimitPoliciesAsLegacyPaths() throws Exception {
-        when(rateLimitService.consume(ApiRateLimitOperation.LOGIN, "127.0.0.1", "anonymous"))
-                .thenReturn(new ApiRateLimitResult(true, 0));
         MockHttpServletRequest loginRequest = new MockHttpServletRequest("POST", "/api/v1/auth/login");
         loginRequest.setRemoteAddr("127.0.0.1");
         MockHttpServletResponse loginResponse = new MockHttpServletResponse();
@@ -78,7 +93,11 @@ class ApiRateLimitFilterTest {
         filter.doFilter(loginRequest, loginResponse, loginChain);
 
         verify(loginChain).doFilter(loginRequest, loginResponse);
-        verify(rateLimitService).consume(ApiRateLimitOperation.LOGIN, "127.0.0.1", "anonymous");
+        verify(rateLimitService, never())
+                .consume(
+                        org.mockito.ArgumentMatchers.eq(ApiRateLimitOperation.LOGIN),
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.anyString());
 
         when(rateLimitService.consume(ApiRateLimitOperation.ORDER, "127.0.0.1", "anonymous"))
                 .thenReturn(new ApiRateLimitResult(true, 0));
@@ -310,8 +329,6 @@ class ApiRateLimitFilterTest {
 
     @Test
     void mapsAuthAndUploadPoliciesAndPrincipalNameFallback() throws Exception {
-        when(rateLimitService.consume(ApiRateLimitOperation.LOGIN, "127.0.0.1", "principal:alice"))
-                .thenReturn(new ApiRateLimitResult(true, 0));
         SecurityContextHolder.getContext()
                 .setAuthentication(new UsernamePasswordAuthenticationToken("Alice", null, java.util.List.of()));
         MockHttpServletRequest loginRequest = new MockHttpServletRequest("POST", "/api/auth/login");
@@ -322,7 +339,11 @@ class ApiRateLimitFilterTest {
         filter.doFilter(loginRequest, loginResponse, loginChain);
 
         verify(loginChain).doFilter(loginRequest, loginResponse);
-        verify(rateLimitService).consume(ApiRateLimitOperation.LOGIN, "127.0.0.1", "principal:alice");
+        verify(rateLimitService, never())
+                .consume(
+                        org.mockito.ArgumentMatchers.eq(ApiRateLimitOperation.LOGIN),
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.anyString());
 
         when(rateLimitService.consume(ApiRateLimitOperation.REGISTER, "127.0.0.1", "anonymous"))
                 .thenReturn(new ApiRateLimitResult(true, 0));

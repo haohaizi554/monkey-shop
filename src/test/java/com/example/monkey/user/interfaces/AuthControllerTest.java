@@ -146,6 +146,45 @@ class AuthControllerTest {
     }
 
     @Test
+    void loginProtectionLimitReturnsRetryHeaderAndAbsoluteMetadata() throws Exception {
+        MockMvc mockMvc = standaloneSetup(newController())
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+        doThrow(new RateLimitExceededException(9))
+                .when(loginService)
+                .login("alice", "bad-password", null, null, null, "127.0.0.1");
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"alice\",\"password\":\"bad-password\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "9"))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("RATE_LIMIT"))
+                .andExpect(jsonPath("$.retryAfterSeconds").value(9))
+                .andExpect(jsonPath("$.retryAt").isString());
+    }
+
+    @Test
+    void badCredentialsRemainUnauthorizedWithoutRetryMetadata() throws Exception {
+        MockMvc mockMvc = standaloneSetup(newController())
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+        doThrow(new BusinessException(ErrorCode.UNAUTHORIZED, "username or password is incorrect"))
+                .when(loginService)
+                .login("alice", "bad-password", null, null, null, "127.0.0.1");
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"alice\",\"password\":\"bad-password\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().doesNotExist("Retry-After"))
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+                .andExpect(jsonPath("$.retryAfterSeconds").doesNotExist())
+                .andExpect(jsonPath("$.retryAt").doesNotExist());
+    }
+
+    @Test
     void registerPropagatesApplicationCaptchaFailure() {
         AuthController controller = newController();
         MockHttpServletRequest request = requestWithCaptcha();

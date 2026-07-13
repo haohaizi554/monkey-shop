@@ -13,6 +13,7 @@ import com.example.monkey.shared.interfaces.storage.dto.UploadFileRequestDto;
 import com.example.monkey.shared.interfaces.storage.dto.UploadRequestDto;
 import com.example.monkey.user.application.UserService;
 import com.example.monkey.user.domain.LoginAttemptPolicy;
+import com.example.monkey.user.domain.LoginAttemptState;
 import com.example.monkey.user.domain.PasswordResetChallengeService;
 import com.example.monkey.user.domain.UserPasswordPolicy;
 import com.example.monkey.user.interfaces.AuthController;
@@ -295,9 +296,9 @@ class ControllerContractBoundaryTest {
     @Test
     void loginAttemptPolicyDoesNotExposeStringBusinessContracts() throws NoSuchMethodException {
         assertThat(LoginAttemptPolicy.class
-                        .getDeclaredMethod("enforceAllowed", String.class, String.class)
+                        .getDeclaredMethod("evaluate", String.class, String.class)
                         .getReturnType())
-                .isEqualTo(Void.TYPE);
+                .isEqualTo(LoginAttemptState.class);
     }
 
     @Test
