@@ -45,6 +45,16 @@ class GlobalExceptionHandlerTest {
         MethodArgumentNotValidException exception = mock(MethodArgumentNotValidException.class);
         BeanPropertyBindingResult bindingResult = new BeanPropertyBindingResult(new Object(), "request");
         bindingResult.addError(new FieldError(
+                "request", "email", "email is invalid", false, new String[] {"Size"}, null, "email is invalid"));
+        bindingResult.addError(new FieldError(
+                "request",
+                "username",
+                "username is too long",
+                false,
+                new String[] {"Size"},
+                null,
+                "username is too long"));
+        bindingResult.addError(new FieldError(
                 "request",
                 "username",
                 "username is required",
@@ -52,8 +62,6 @@ class GlobalExceptionHandlerTest {
                 new String[] {"NotBlank"},
                 null,
                 "username is required"));
-        bindingResult.addError(new FieldError(
-                "request", "email", "email is invalid", false, new String[] {"Size"}, null, "email is invalid"));
         when(exception.getBindingResult()).thenReturn(bindingResult);
 
         ResponseEntity<ProblemDetail> response = handler.handleValidationException(exception, request);
@@ -63,7 +71,8 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody().getProperties()).containsEntry("code", "VALIDATION_FAILED");
         assertThat(response.getBody().getProperties().get("fieldErrors").toString())
                 .isEqualTo("[FieldViolation[field=email, code=Size, message=email is invalid], "
-                        + "FieldViolation[field=username, code=NotBlank, message=username is required]]");
+                        + "FieldViolation[field=username, code=NotBlank, message=username is required], "
+                        + "FieldViolation[field=username, code=Size, message=username is too long]]");
     }
 
     @Test

@@ -19,6 +19,11 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    private static final Comparator<FieldViolation> FIELD_VIOLATION_COMPARATOR = Comparator.comparing(
+                    FieldViolation::field, Comparator.nullsFirst(Comparator.naturalOrder()))
+            .thenComparing(FieldViolation::code, Comparator.nullsFirst(Comparator.naturalOrder()))
+            .thenComparing(FieldViolation::message, Comparator.nullsFirst(Comparator.naturalOrder()));
+
     @ExceptionHandler(BusinessException.class)
     ResponseEntity<ProblemDetail> handleBusinessException(BusinessException exception, HttpServletRequest request) {
         return problem(exception.errorCode(), exception.getMessage(), request);
@@ -34,7 +39,7 @@ public class GlobalExceptionHandler {
             MethodArgumentNotValidException exception, HttpServletRequest request) {
         List<FieldViolation> fieldErrors = exception.getBindingResult().getFieldErrors().stream()
                 .map(GlobalExceptionHandler::fieldViolation)
-                .sorted(Comparator.comparing(FieldViolation::field))
+                .sorted(FIELD_VIOLATION_COMPARATOR)
                 .toList();
         ErrorCode code = fieldErrors.stream().anyMatch(fieldError -> "typeMismatch".equals(fieldError.code()))
                 ? ErrorCode.REQUEST_MALFORMED
@@ -56,7 +61,7 @@ public class GlobalExceptionHandler {
                                         .annotationType()
                                         .getSimpleName(),
                                 violation.getMessage()))
-                        .sorted(Comparator.comparing(FieldViolation::field))
+                        .sorted(FIELD_VIOLATION_COMPARATOR)
                         .toList();
         return problem(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage(), request, fieldErrors);
     }
