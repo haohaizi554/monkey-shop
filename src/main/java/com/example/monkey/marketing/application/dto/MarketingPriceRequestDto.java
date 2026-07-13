@@ -10,4 +10,9 @@ public record MarketingPriceRequestDto(
         Long userId,
         Long categoryId,
         Long shopId,
-        List<String> couponCodes) {}
+        List<String> couponCodes) {
+
+    public MarketingPriceRequestDto withUserId(Long newUserId) {
+        return new MarketingPriceRequestDto(orderAmount, newUserId, categoryId, shopId, couponCodes);
+    }
+}

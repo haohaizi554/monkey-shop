@@ -8,6 +8,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.marketing.application.dto.CouponClaimRequestDto;
+import com.example.monkey.marketing.application.dto.CouponRedeemRequestDto;
+import com.example.monkey.marketing.application.dto.CouponReturnRequestDto;
 import com.example.monkey.marketing.application.dto.GroupBuyJoinRequestDto;
 import com.example.monkey.marketing.application.dto.MarketingPriceRequestDto;
 import com.example.monkey.marketing.application.dto.SeckillRequestDto;
@@ -52,11 +54,72 @@ class MarketingApplicationServiceTest {
         InMemoryMarketingStore store = seededStore();
         MarketingApplicationService service = service(store, null);
 
-        var first = service.claimCoupon(new CouponClaimRequestDto(1L, 7L, "claim-1"));
-        var duplicate = service.claimCoupon(new CouponClaimRequestDto(1L, 7L, "claim-1"));
+        var first = service.claimCoupon(new CouponClaimRequestDto(1L, "claim-1"), 7L);
+        var duplicate = service.claimCoupon(new CouponClaimRequestDto(1L, "claim-1"), 7L);
 
         assertThat(duplicate.id()).isEqualTo(first.id());
         assertThat(store.findCoupon(1L).orElseThrow().claimedCount()).isEqualTo(1);
+    }
+
+    @Test
+    void authenticatedCouponClaimUsesOnlyTheSessionOwner() {
+        InMemoryMarketingStore store = seededStore();
+        MarketingApplicationService service = service(store, null);
+
+        var claimed = service.claimCoupon(new CouponClaimRequestDto(1L, "claim-owner"), 7L);
+
+        assertThat(claimed.userId()).isEqualTo(7L);
+        assertThat(store.findUserCoupon(7L, 1L)).isPresent();
+    }
+
+    @Test
+    void authenticatedCouponMutationRejectsAnotherUsersCoupon() {
+        MarketingApplicationService service = service(seededStore(), null);
+        var coupon = service.claimCoupon(new CouponClaimRequestDto(1L, "claim-ownership"), 7L);
+
+        assertThatThrownBy(() -> service.redeemCoupon(new CouponRedeemRequestDto(coupon.couponCode(), 10L), 8L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("current user");
+
+        service.redeemCoupon(new CouponRedeemRequestDto(coupon.couponCode(), 10L), 7L);
+        assertThatThrownBy(() -> service.returnCoupon(new CouponReturnRequestDto(coupon.couponCode(), 10L), 8L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("current user");
+    }
+
+    @Test
+    void couponMutationRequiresAnAuthenticatedOwner() {
+        MarketingApplicationService redeemService = service(seededStore(), null);
+        var redeemCoupon = redeemService.claimCoupon(new CouponClaimRequestDto(1L, "claim-redeem-owner"), 7L);
+        assertThatThrownBy(() ->
+                        redeemService.redeemCoupon(new CouponRedeemRequestDto(redeemCoupon.couponCode(), 10L), null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("current user");
+
+        MarketingApplicationService returnService = service(seededStore(), null);
+        var returnCoupon = returnService.claimCoupon(new CouponClaimRequestDto(1L, "claim-return-owner"), 7L);
+        returnService.redeemCoupon(new CouponRedeemRequestDto(returnCoupon.couponCode(), 10L), 7L);
+        assertThatThrownBy(() ->
+                        returnService.returnCoupon(new CouponReturnRequestDto(returnCoupon.couponCode(), 10L), null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("current user");
+    }
+
+    @Test
+    void authenticatedMarketingRequestsRejectForeignBodyIdentity() {
+        MarketingApplicationService service = service(seededStore(), null);
+
+        assertThatThrownBy(() -> service.quotePrice(
+                        new MarketingPriceRequestDto(new BigDecimal("128.00"), 999L, null, 1L, List.of()), 7L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("current user");
+        assertThatThrownBy(() -> service.createSeckillOrder(
+                        new SeckillRequestDto(10L, 999L, null, 1, "foreign-seckill", null), 7L, "127.0.0.1"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("current user");
+        assertThatThrownBy(() -> service.joinGroupBuy(new GroupBuyJoinRequestDto(20L, 999L, null, "foreign-group"), 7L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("current user");
     }
 
     @Test

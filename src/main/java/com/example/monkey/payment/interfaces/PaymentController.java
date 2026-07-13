@@ -65,6 +65,7 @@ public class PaymentController {
     }
 
     @PostMapping("/callback")
+    @PreAuthorize("permitAll()")
     public Result<PaymentResponseDto> callback(
             @Valid @RequestBody PaymentCallbackRequestDto request, HttpServletRequest httpRequest) {
         return Result.success(paymentApplicationService.handleCallback(request, ClientIps.resolve(httpRequest)));

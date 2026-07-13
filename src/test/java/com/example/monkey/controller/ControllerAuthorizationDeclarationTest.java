@@ -58,6 +58,41 @@ class ControllerAuthorizationDeclarationTest {
         assertThat(weakDeclarations).isEmpty();
     }
 
+    @Test
+    void taskSixEndpointsDeclareTheExpectedMethodBoundary() {
+        assertThat(methodNamed(com.example.monkey.product.interfaces.CatalogController.class, "categoryTree")
+                        .getAnnotation(GetMapping.class)
+                        .value())
+                .containsExactlyInAnyOrder("/categories", "/categories/tree");
+        assertAuthorization(
+                com.example.monkey.product.interfaces.CatalogController.class, "categoryTree", "permitAll()");
+        assertAuthorization(com.example.monkey.product.interfaces.CatalogController.class, "getSpu", "permitAll()");
+        assertAuthorization(com.example.monkey.product.interfaces.CatalogController.class, "quotePrice", "permitAll()");
+        assertAuthorization(
+                com.example.monkey.product.interfaces.CatalogController.class,
+                "createSpu",
+                "hasAuthority('PRODUCT_MANAGE')");
+        assertAuthorization(
+                com.example.monkey.product.interfaces.CatalogController.class,
+                "transitionStatus",
+                "hasAuthority('PRODUCT_MANAGE')");
+        assertAuthorization(
+                com.example.monkey.inventory.interfaces.InventoryController.class,
+                "release",
+                "hasAuthority('ORDER_MANAGE')");
+        assertAuthorization(
+                com.example.monkey.inventory.interfaces.InventoryController.class,
+                "compensate",
+                "hasAuthority('ORDER_MANAGE')");
+        assertAuthorization(
+                com.example.monkey.marketing.interfaces.MarketingController.class,
+                "returnCoupon",
+                "hasAnyAuthority('ORDER_CREATE', 'ORDER_MANAGE')");
+        assertAuthorization(com.example.monkey.payment.interfaces.PaymentController.class, "callback", "permitAll()");
+        assertAuthorization(
+                com.example.monkey.logistics.interfaces.LogisticsController.class, "webhook", "permitAll()");
+    }
+
     private static boolean isMappedEndpoint(Method method) {
         return method.isAnnotationPresent(GetMapping.class)
                 || method.isAnnotationPresent(PostMapping.class)
@@ -70,19 +105,31 @@ class ControllerAuthorizationDeclarationTest {
     private static List<Class<?>> restControllers() {
         ClassPathScanningCandidateComponentProvider scanner = new ClassPathScanningCandidateComponentProvider(false);
         scanner.addIncludeFilter(new AnnotationTypeFilter(RestController.class));
-        return Stream.of(
-                        "com.example.monkey.controller",
-                        "com.example.monkey.admin.interfaces",
-                        "com.example.monkey.product.interfaces",
-                        "com.example.monkey.user.interfaces",
-                        "com.example.monkey.order.interfaces",
-                        "com.example.monkey.shared.interfaces")
+        return Stream.of("com.example.monkey")
                 .flatMap(basePackage -> scanner.findCandidateComponents(basePackage).stream())
                 .map(BeanDefinition::getBeanClassName)
                 .filter(Objects::nonNull)
+                .filter(className -> !className.contains("$"))
                 .map(ControllerAuthorizationDeclarationTest::loadClass)
                 .sorted(java.util.Comparator.comparing(Class::getName))
                 .toList();
+    }
+
+    private static void assertAuthorization(Class<?> controller, String methodName, String expected) {
+        Method method = methodNamed(controller, methodName);
+        assertThat(method.getAnnotation(PreAuthorize.class))
+                .as(controller.getSimpleName() + "#" + methodName + " authorization")
+                .isNotNull()
+                .extracting(PreAuthorize::value)
+                .isEqualTo(expected);
+    }
+
+    private static Method methodNamed(Class<?> controller, String methodName) {
+        List<Method> methods = Stream.of(controller.getDeclaredMethods())
+                .filter(method -> method.getName().equals(methodName))
+                .toList();
+        assertThat(methods).as(controller.getSimpleName() + "#" + methodName).hasSize(1);
+        return methods.getFirst();
     }
 
     private static Class<?> loadClass(String className) {

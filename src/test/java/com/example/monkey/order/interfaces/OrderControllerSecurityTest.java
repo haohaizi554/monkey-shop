@@ -53,7 +53,8 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
             OrderOwnershipService.class,
             OrderApplicationService.class,
             OrderService.class,
-            ApiRateLimitApplicationService.class
+            ApiRateLimitApplicationService.class,
+            com.example.monkey.shared.domain.security.TrustedProxyPolicy.class
         })
 class OrderControllerSecurityTest {
 

@@ -49,7 +49,8 @@ import org.springframework.test.web.servlet.MockMvc;
             VisitInterceptor.class,
             UserAccountStore.class,
             AuditService.class,
-            ApiRateLimitApplicationService.class
+            ApiRateLimitApplicationService.class,
+            com.example.monkey.shared.domain.security.TrustedProxyPolicy.class
         })
 class UploadControllerSecurityTest {
 

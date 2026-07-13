@@ -40,7 +40,7 @@ public class InventoryController {
     }
 
     @PostMapping("/reservations/{reservationKey}/release")
-    @PreAuthorize("hasAnyAuthority('ORDER_CREATE', 'ORDER_MANAGE')")
+    @PreAuthorize("hasAuthority('ORDER_MANAGE')")
     public Result<InventoryReservationResponseDto> release(@PathVariable String reservationKey) {
         return Result.success(inventoryApplicationService.release(reservationKey));
     }

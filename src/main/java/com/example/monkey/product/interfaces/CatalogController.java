@@ -29,7 +29,7 @@ public class CatalogController {
         this.catalogApplicationService = catalogApplicationService;
     }
 
-    @GetMapping("/categories/tree")
+    @GetMapping({"/categories", "/categories/tree"})
     @PreAuthorize("permitAll()")
     public Result<List<CategoryNodeResponseDto>> categoryTree() {
         return Result.success(catalogApplicationService.categoryTree());

@@ -68,7 +68,8 @@ import org.springframework.web.bind.annotation.RestController;
             VisitInterceptor.class,
             UserAccountStore.class,
             AuditService.class,
-            ApiRateLimitApplicationService.class
+            ApiRateLimitApplicationService.class,
+            com.example.monkey.shared.domain.security.TrustedProxyPolicy.class
         })
 class SecurityConfigTest {
 

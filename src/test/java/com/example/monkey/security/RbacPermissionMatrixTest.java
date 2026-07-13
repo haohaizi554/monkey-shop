@@ -90,6 +90,27 @@ class RbacPermissionMatrixTest {
         }
     }
 
+    @Test
+    void taskSixControllerBoundariesUseTheExistingPermissionCatalog() throws IOException {
+        String catalog = read("src/main/java/com/example/monkey/product/interfaces/CatalogController.java");
+        String inventory = read("src/main/java/com/example/monkey/inventory/interfaces/InventoryController.java");
+        String marketing = read("src/main/java/com/example/monkey/marketing/interfaces/MarketingController.java");
+
+        assertThat(between(catalog, "@PostMapping(\"/spus\")", "@PostMapping(\"/spus/{spuId}/status\")"))
+                .contains("hasAuthority('PRODUCT_MANAGE')");
+        assertThat(between(
+                        inventory,
+                        "@PostMapping(\"/reservations/{reservationKey}/release\")",
+                        "@PostMapping(\"/reservations/{reservationKey}/deduct\")"))
+                .contains("hasAuthority('ORDER_MANAGE')")
+                .doesNotContain("ORDER_CREATE");
+        assertThat(between(inventory, "@PostMapping(\"/compensations\")", "@GetMapping(\"/reconciliation\")"))
+                .contains("hasAuthority('ORDER_MANAGE')")
+                .doesNotContain("ORDER_CREATE");
+        assertThat(between(marketing, "@PostMapping(\"/coupons/return\")", "@PostMapping(\"/price/quote\")"))
+                .contains("hasAnyAuthority('ORDER_CREATE', 'ORDER_MANAGE')");
+    }
+
     private static String read(String path) throws IOException {
         return Files.readString(Path.of(path), StandardCharsets.UTF_8).replace("\r\n", "\n");
     }

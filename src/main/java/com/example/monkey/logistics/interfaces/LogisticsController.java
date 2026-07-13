@@ -69,6 +69,7 @@ public class LogisticsController {
     }
 
     @PostMapping("/webhook")
+    @PreAuthorize("permitAll()")
     public Result<LogisticsTrackingResponseDto> webhook(
             @Valid @RequestBody TrackingWebhookRequestDto request, HttpServletRequest httpRequest) {
         return Result.success(logisticsApplicationService.handleWebhook(request, ClientIps.resolve(httpRequest)));

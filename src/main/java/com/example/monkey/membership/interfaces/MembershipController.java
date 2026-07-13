@@ -58,7 +58,7 @@ public class MembershipController {
     }
 
     @PostMapping("/points/earn")
-    @PreAuthorize("hasAuthority('MEMBERSHIP_WRITE')")
+    @PreAuthorize("hasAuthority('MEMBERSHIP_ADMIN')")
     public Result<PointsLedgerEntryDto> earnPoints(
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody PointsEarnRequestDto request,
@@ -76,7 +76,7 @@ public class MembershipController {
     }
 
     @PostMapping("/level")
-    @PreAuthorize("hasAuthority('MEMBERSHIP_WRITE')")
+    @PreAuthorize("hasAuthority('MEMBERSHIP_ADMIN')")
     public Result<MembershipDashboardDto> changeLevel(
             @Valid @RequestBody LevelChangeRequestDto request, @AuthenticationPrincipal SessionUser currentUser) {
         return Result.success(membershipApplicationService.changeLevel(currentUser, request));

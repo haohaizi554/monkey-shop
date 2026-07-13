@@ -221,6 +221,15 @@ public class SecurityConfig {
                         .requestMatchers(
                                 HttpMethod.GET, "/api/monkeys", "/api/v1/monkeys", "/api/user/me", "/api/v1/users/me")
                         .permitAll()
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/catalog",
+                                "/api/catalog/**",
+                                "/api/v1/catalog",
+                                "/api/v1/catalog/**")
+                        .permitAll()
+                        .requestMatchers("/api/catalog/**", "/api/v1/catalog/**")
+                        .hasAuthority("PRODUCT_MANAGE")
                         .requestMatchers(HttpMethod.POST, "/api/upload/avatar", "/api/v1/uploads/avatar")
                         .hasAuthority("UPLOAD_AVATAR")
                         .requestMatchers(HttpMethod.POST, "/api/upload/product", "/api/v1/uploads/product")
@@ -256,7 +265,7 @@ public class SecurityConfig {
                         .hasAuthority("ORDER_CREATE")
                         .requestMatchers(
                                 "/api/inventory/reservations/*/release", "/api/v1/inventory/reservations/*/release")
-                        .hasAnyAuthority("ORDER_CREATE", "ORDER_MANAGE")
+                        .hasAuthority("ORDER_MANAGE")
                         .requestMatchers(
                                 HttpMethod.GET, "/api/inventory/skus/*/stocks", "/api/v1/inventory/skus/*/stocks")
                         .hasAnyAuthority("ORDER_CREATE", "ORDER_MANAGE", "PRODUCT_MANAGE")
@@ -274,6 +283,8 @@ public class SecurityConfig {
                                 "/api/marketing/group-buy/join",
                                 "/api/v1/marketing/group-buy/join")
                         .hasAuthority("ORDER_CREATE")
+                        .requestMatchers("/api/marketing/coupons/return", "/api/v1/marketing/coupons/return")
+                        .hasAnyAuthority("ORDER_CREATE", "ORDER_MANAGE")
                         .requestMatchers("/api/marketing/**", "/api/v1/marketing/**")
                         .hasAuthority("ORDER_MANAGE")
                         .requestMatchers("/api/cart/**", "/api/v1/cart/**")
@@ -304,7 +315,13 @@ public class SecurityConfig {
                         .hasAuthority("ORDER_CREATE")
                         .requestMatchers(HttpMethod.GET, "/api/membership/dashboard", "/api/v1/membership/dashboard")
                         .hasAuthority("MEMBERSHIP_READ")
-                        .requestMatchers("/api/membership/price-drops/scan", "/api/v1/membership/price-drops/scan")
+                        .requestMatchers(
+                                "/api/membership/points/earn",
+                                "/api/v1/membership/points/earn",
+                                "/api/membership/level",
+                                "/api/v1/membership/level",
+                                "/api/membership/price-drops/scan",
+                                "/api/v1/membership/price-drops/scan")
                         .hasAuthority("MEMBERSHIP_ADMIN")
                         .requestMatchers("/api/membership/**", "/api/v1/membership/**")
                         .hasAuthority("MEMBERSHIP_WRITE")

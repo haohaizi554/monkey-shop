@@ -40,7 +40,8 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
             UserAccountStore.class,
             VisitInterceptor.class,
             AuditService.class,
-            ApiRateLimitApplicationService.class
+            ApiRateLimitApplicationService.class,
+            com.example.monkey.shared.domain.security.TrustedProxyPolicy.class
         })
 class PaymentAdminControllerSecurityTest {
 

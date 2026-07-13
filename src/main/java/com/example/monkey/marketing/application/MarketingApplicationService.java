@@ -101,15 +101,19 @@ public class MarketingApplicationService {
 
     @WithSpan("marketing.coupon.claim")
     @Transactional
-    public CouponResponseDto claimCoupon(CouponClaimRequestDto request) {
+    public CouponResponseDto claimCoupon(CouponClaimRequestDto request, Long currentUserId) {
+        if (currentUserId == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Coupon claim requires the current user");
+        }
         String key = normalizeKey(request.idempotencyKey(), "idempotency key");
-        return lockManager.withCouponLock(request.couponId(), () -> claimCouponLocked(request, key));
+        return lockManager.withCouponLock(request.couponId(), () -> claimCouponLocked(request, key, currentUserId));
     }
 
     @WithSpan("marketing.coupon.redeem")
     @Transactional
-    public CouponResponseDto redeemCoupon(CouponRedeemRequestDto request) {
+    public CouponResponseDto redeemCoupon(CouponRedeemRequestDto request, Long currentUserId) {
         UserCoupon coupon = requireUserCoupon(request.couponCode());
+        requireCouponOwnership(coupon, currentUserId);
         UserCoupon saved = marketingStore.saveUserCoupon(coupon.redeem(request.orderId(), now()));
         audit(AuditService.MARKETING_COUPON_REDEEMED, saved.userId(), saved.couponCode(), "orderId=" + saved.orderId());
         return MarketingDtoAssembler.toResponse(saved);
@@ -117,8 +121,9 @@ public class MarketingApplicationService {
 
     @WithSpan("marketing.coupon.return")
     @Transactional
-    public CouponResponseDto returnCoupon(CouponReturnRequestDto request) {
+    public CouponResponseDto returnCoupon(CouponReturnRequestDto request, Long currentUserId) {
         UserCoupon coupon = requireUserCoupon(request.couponCode());
+        requireCouponOwnership(coupon, currentUserId);
         UserCoupon saved = marketingStore.saveUserCoupon(coupon.returnToWallet(request.orderId()));
         audit(
                 AuditService.MARKETING_COUPON_RETURNED,
@@ -128,10 +133,28 @@ public class MarketingApplicationService {
         return MarketingDtoAssembler.toResponse(saved);
     }
 
+    private void requireCouponOwnership(UserCoupon coupon, Long currentUserId) {
+        if (currentUserId == null || !currentUserId.equals(coupon.userId())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Coupon does not belong to the current user");
+        }
+    }
+
     @WithSpan("marketing.price.quote")
     @Transactional(readOnly = true)
     public MarketingPriceQuoteDto quotePrice(MarketingPriceRequestDto request) {
         return quotePrice(request, coupon -> coupon.matches(request.categoryId(), request.shopId()));
+    }
+
+    @WithSpan("marketing.price.quote")
+    @Transactional(readOnly = true)
+    public MarketingPriceQuoteDto quotePrice(MarketingPriceRequestDto request, Long currentUserId) {
+        if (currentUserId != null) {
+            if (request.userId() != null && !currentUserId.equals(request.userId())) {
+                throw new BusinessException(ErrorCode.FORBIDDEN, "Price quote must use the current user");
+            }
+            return quotePrice(request.withUserId(currentUserId));
+        }
+        return quotePrice(request);
     }
 
     @WithSpan("marketing.price.quote.platform")
@@ -186,12 +209,44 @@ public class MarketingApplicationService {
         return lockManager.withSeckillLock(request.activityId(), () -> createSeckillOrderLocked(request, key));
     }
 
+    @WithSpan("marketing.seckill.order")
+    @Transactional
+    public SeckillOrderResponseDto createSeckillOrder(SeckillRequestDto request, Long currentUserId, String clientIp) {
+        return createSeckillOrder(effectiveSeckillRequest(request, currentUserId), clientIp);
+    }
+
+    private SeckillRequestDto effectiveSeckillRequest(SeckillRequestDto request, Long currentUserId) {
+        if (currentUserId == null) {
+            return request;
+        }
+        if (request.userId() != null && !currentUserId.equals(request.userId())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Seckill order must belong to the current user");
+        }
+        return request.withUserId(currentUserId);
+    }
+
     @WithSpan("marketing.group-buy.join")
     @Transactional
     public GroupBuyTeamResponseDto joinGroupBuy(GroupBuyJoinRequestDto request) {
         Long lockKey = request.teamId() == null ? request.activityId() : request.teamId();
         String key = normalizeKey(request.idempotencyKey(), "idempotency key");
         return lockManager.withGroupBuyLock(lockKey, () -> joinGroupBuyLocked(request, key));
+    }
+
+    @WithSpan("marketing.group-buy.join")
+    @Transactional
+    public GroupBuyTeamResponseDto joinGroupBuy(GroupBuyJoinRequestDto request, Long currentUserId) {
+        return joinGroupBuy(effectiveGroupBuyRequest(request, currentUserId));
+    }
+
+    private GroupBuyJoinRequestDto effectiveGroupBuyRequest(GroupBuyJoinRequestDto request, Long currentUserId) {
+        if (currentUserId == null) {
+            return request;
+        }
+        if (request.userId() != null && !currentUserId.equals(request.userId())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Group buy must belong to the current user");
+        }
+        return request.withUserId(currentUserId);
     }
 
     @Scheduled(fixedDelayString = "${app.marketing.group-buy-expire-delay:PT1M}")
@@ -225,12 +280,12 @@ public class MarketingApplicationService {
         return expired;
     }
 
-    private CouponResponseDto claimCouponLocked(CouponClaimRequestDto request, String key) {
-        Optional<UserCoupon> existing = marketingStore.findUserCoupon(request.userId(), request.couponId());
+    private CouponResponseDto claimCouponLocked(CouponClaimRequestDto request, String key, Long claimOwner) {
+        Optional<UserCoupon> existing = marketingStore.findUserCoupon(claimOwner, request.couponId());
         if (existing.isPresent()) {
             return MarketingDtoAssembler.toResponse(existing.get());
         }
-        idempotencyStore.reserve("coupon:" + request.couponId(), request.userId(), key, "claim", IDEMPOTENCY_TTL);
+        idempotencyStore.reserve("coupon:" + request.couponId(), claimOwner, key, "claim", IDEMPOTENCY_TTL);
         CouponDefinition coupon = marketingStore
                 .findCoupon(request.couponId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Coupon does not exist"));
@@ -239,7 +294,7 @@ public class MarketingApplicationService {
                 idGenerator.nextId(),
                 savedCoupon.id(),
                 savedCoupon.code(),
-                request.userId(),
+                claimOwner,
                 com.example.monkey.marketing.domain.CouponStatus.CLAIMED,
                 null,
                 "coupon:" + key,
