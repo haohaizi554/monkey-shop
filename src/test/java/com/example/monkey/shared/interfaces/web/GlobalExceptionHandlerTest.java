@@ -6,12 +6,10 @@ import static org.mockito.Mockito.when;
 
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
-import jakarta.validation.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -34,8 +32,7 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void accessDeniedMapsToForbidden() {
-        ResponseEntity<ProblemDetail> response =
-                handler.handleAccessDenied(new AccessDeniedException("denied"), request);
+        ResponseEntity<ProblemDetail> response = handler.handleAccessDenied(request);
 
         assertThat(response.getStatusCode()).isEqualTo(ErrorHttpStatuses.forCode(ErrorCode.FORBIDDEN));
         assertThat(response.getBody()).isNotNull();
@@ -72,10 +69,8 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void constraintViolationAndBadRequestUseValidationError() {
-        ResponseEntity<ProblemDetail> constraintResponse =
-                handler.handleConstraintViolation(new ConstraintViolationException("bad", java.util.Set.of()), request);
-        ResponseEntity<ProblemDetail> badRequestResponse =
-                handler.handleBadRequest(new RuntimeException("bad"), request);
+        ResponseEntity<ProblemDetail> constraintResponse = handler.handleConstraintViolation(request);
+        ResponseEntity<ProblemDetail> badRequestResponse = handler.handleBadRequest(request);
 
         assertThat(constraintResponse.getStatusCode()).isEqualTo(ErrorHttpStatuses.forCode(ErrorCode.VALIDATION_ERROR));
         assertThat(constraintResponse.getBody()).isNotNull();

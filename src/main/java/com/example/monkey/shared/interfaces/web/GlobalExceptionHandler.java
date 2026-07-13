@@ -23,7 +23,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(AccessDeniedException.class)
-    ResponseEntity<ProblemDetail> handleAccessDenied(AccessDeniedException exception, HttpServletRequest request) {
+    ResponseEntity<ProblemDetail> handleAccessDenied(HttpServletRequest request) {
         return problem(ErrorCode.FORBIDDEN, ErrorCode.FORBIDDEN.defaultMessage(), request);
     }
 
@@ -34,13 +34,12 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(ConstraintViolationException.class)
-    ResponseEntity<ProblemDetail> handleConstraintViolation(
-            ConstraintViolationException exception, HttpServletRequest request) {
+    ResponseEntity<ProblemDetail> handleConstraintViolation(HttpServletRequest request) {
         return problem(ErrorCode.VALIDATION_ERROR, ErrorCode.VALIDATION_ERROR.defaultMessage(), request);
     }
 
     @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
-    ResponseEntity<ProblemDetail> handleBadRequest(Exception exception, HttpServletRequest request) {
+    ResponseEntity<ProblemDetail> handleBadRequest(HttpServletRequest request) {
         return problem(ErrorCode.VALIDATION_ERROR, ErrorCode.VALIDATION_ERROR.defaultMessage(), request);
     }
 
