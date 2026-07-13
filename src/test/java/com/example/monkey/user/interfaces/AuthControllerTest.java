@@ -332,7 +332,7 @@ class AuthControllerTest {
     void loginDelegatesToApplicationServiceAppliesJwtCookiesAndReturnsEnvelope() {
         AuthController controller = newController();
         MockHttpServletRequest request = requestWithCaptcha();
-        request.addHeader("X-Forwarded-For", "203.0.113.10, 127.0.0.1");
+        request.setRemoteAddr("203.0.113.10");
         String originalSessionId = request.getSession(true).getId();
         MockHttpServletResponse response = new MockHttpServletResponse();
         SessionTokenPair tokenPair =

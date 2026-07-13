@@ -73,7 +73,7 @@ class ApiRateLimitFilterTest {
                 .setAuthentication(new UsernamePasswordAuthenticationToken(
                         new SessionUser(42L, "USER"), null, java.util.List.of()));
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/orders/create");
-        request.addHeader("X-Forwarded-For", "203.0.113.10");
+        request.setRemoteAddr("203.0.113.10");
         MockHttpServletResponse response = new MockHttpServletResponse();
         FilterChain chain = mock(FilterChain.class);
 

@@ -31,7 +31,7 @@ spring:
 
 server:
   port: ${SERVER_PORT:8888}
-  forward-headers-strategy: ${SERVER_FORWARD_HEADERS_STRATEGY:framework}
+  forward-headers-strategy: none
   tomcat:
     connection-timeout: ${SERVER_TOMCAT_CONNECTION_TIMEOUT:5s}
     keep-alive-timeout: ${SERVER_TOMCAT_KEEP_ALIVE_TIMEOUT:15s}
@@ -97,6 +97,8 @@ app:
       webhook-secret: ${APP_PASSWORD_RESET_WEBHOOK_SECRET:}
       webhook-timeout-millis: ${APP_PASSWORD_RESET_WEBHOOK_TIMEOUT_MILLIS:3000}
   security:
+    client-ip:
+      trusted-proxy-cidrs: ${APP_SECURITY_TRUSTED_PROXY_CIDRS:}
     password:
       hibp:
         enabled: ${APP_PASSWORD_HIBP_ENABLED:true}

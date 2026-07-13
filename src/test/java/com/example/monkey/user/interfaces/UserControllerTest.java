@@ -119,8 +119,7 @@ class UserControllerTest {
     @Test
     void updatePasswordDelegatesChangeAndInvalidatesSession() {
         MockHttpServletRequest request = new MockHttpServletRequest();
-        request.setRemoteAddr("10.0.0.8");
-        request.addHeader("X-Forwarded-For", "203.0.113.10, 10.0.0.8");
+        request.setRemoteAddr("203.0.113.10");
         request.setCookies(new Cookie(CaptchaHttp.CAPTCHA_ID_COOKIE, CAPTCHA_CHALLENGE_ID));
         MockHttpServletResponse response = new MockHttpServletResponse();
         SessionUser currentUser = new SessionUser(7L, "USER");

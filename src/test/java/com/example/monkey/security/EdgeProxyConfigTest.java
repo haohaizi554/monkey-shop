@@ -32,6 +32,7 @@ class EdgeProxyConfigTest {
         assertThat(config).contains("proxy_set_header X-Forwarded-Host monkeyshop.example.com;");
         assertThat(config).contains("proxy_set_header X-Forwarded-Proto https;");
         assertThat(config).contains("proxy_set_header X-Forwarded-Port 443;");
+        assertThat(config).contains("proxy_set_header Forwarded \"\";");
         assertThat(config).contains("client_max_body_size 6m;");
         assertThat(config).contains("client_body_timeout 10s;");
         assertThat(config).contains("client_header_timeout 10s;");
@@ -43,13 +44,21 @@ class EdgeProxyConfigTest {
     }
 
     @Test
-    void productionProfilesTrustForwardedHeaders() throws IOException {
+    void productionProfilesDisableFrameworkTrustAndRequireExplicitProxyCidrs() throws IOException {
         String prod = Files.readString(Path.of("src/main/resources/application-prod.yml"), StandardCharsets.UTF_8);
         String staging =
                 Files.readString(Path.of("src/main/resources/application-staging.yml"), StandardCharsets.UTF_8);
+        String helmValues = Files.readString(Path.of("helm/monkeyshop/values.yaml"), StandardCharsets.UTF_8);
 
-        assertThat(prod).contains("forward-headers-strategy: framework");
-        assertThat(staging).contains("forward-headers-strategy: framework");
+        assertThat(prod)
+                .contains("forward-headers-strategy: none")
+                .contains("trusted-proxy-cidrs: ${APP_SECURITY_TRUSTED_PROXY_CIDRS:}");
+        assertThat(staging)
+                .contains("forward-headers-strategy: none")
+                .contains("trusted-proxy-cidrs: ${APP_SECURITY_TRUSTED_PROXY_CIDRS:}");
+        assertThat(helmValues)
+                .contains("SERVER_FORWARD_HEADERS_STRATEGY: none")
+                .contains("APP_SECURITY_TRUSTED_PROXY_CIDRS: \"\"");
     }
 
     @Test

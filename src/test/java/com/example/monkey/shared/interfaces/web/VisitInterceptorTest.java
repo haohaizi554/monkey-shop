@@ -21,7 +21,7 @@ class VisitInterceptorTest {
     void recordsResolvedClientIpAndContinuesRequest() {
         VisitInterceptor interceptor = new VisitInterceptor(visitMetricsService);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/shop");
-        request.addHeader("X-Forwarded-For", "203.0.113.10, 10.0.0.9");
+        ClientIps.setResolved(request, "203.0.113.10");
 
         boolean handled = interceptor.preHandle(request, new MockHttpServletResponse(), new Object());
 
