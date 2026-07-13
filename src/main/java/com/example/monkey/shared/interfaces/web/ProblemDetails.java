@@ -4,6 +4,7 @@ import com.example.monkey.shared.application.observability.TraceIds;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
+import java.util.List;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 
@@ -25,5 +26,12 @@ public final class ProblemDetails {
 
     public static ResponseEntity<ProblemDetail> response(ErrorCode code, String detail, HttpServletRequest request) {
         return ResponseEntity.status(ErrorHttpStatuses.forCode(code)).body(from(code, detail, request));
+    }
+
+    public static ResponseEntity<ProblemDetail> response(
+            ErrorCode code, String detail, HttpServletRequest request, List<FieldViolation> fieldErrors) {
+        ProblemDetail problem = from(code, detail, request);
+        problem.setProperty("fieldErrors", fieldErrors);
+        return ResponseEntity.status(ErrorHttpStatuses.forCode(code)).body(problem);
     }
 }

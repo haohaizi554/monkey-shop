@@ -9,6 +9,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
@@ -19,6 +21,7 @@ import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.interfaces.dto.Result;
 import com.example.monkey.shared.interfaces.web.CaptchaHttp;
+import com.example.monkey.shared.interfaces.web.GlobalExceptionHandler;
 import com.example.monkey.shared.interfaces.web.SessionTokenTransport;
 import com.example.monkey.user.application.AuthResponseService;
 import com.example.monkey.user.application.CaptchaService;
@@ -42,6 +45,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockMultipartFile;
@@ -83,6 +87,35 @@ class AuthControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.minLength").value(10))
                 .andExpect(jsonPath("$.data.requireSpecial").value(true));
+    }
+
+    @Test
+    void malformedLoginJsonReturnsMalformedProblem() throws Exception {
+        MockMvc mockMvc = standaloneSetup(newController())
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("REQUEST_MALFORMED"));
+    }
+
+    @Test
+    void invalidRegistrationReturnsStructuredValidationProblem() throws Exception {
+        MockMvc mockMvc = standaloneSetup(newController())
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.MULTIPART_FORM_DATA)
+                        .param("username", "x"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").exists());
     }
 
     @Test

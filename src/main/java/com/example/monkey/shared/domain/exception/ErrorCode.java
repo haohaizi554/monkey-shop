@@ -1,6 +1,8 @@
 package com.example.monkey.shared.domain.exception;
 
 public enum ErrorCode {
+    REQUEST_MALFORMED("REQUEST_MALFORMED", "\u8bf7\u6c42\u683c\u5f0f\u65e0\u6cd5\u89e3\u6790"),
+    VALIDATION_FAILED("VALIDATION_FAILED", "\u8bf7\u6c42\u53c2\u6570\u6821\u9a8c\u5931\u8d25"),
     UNAUTHORIZED("UNAUTHORIZED", "请登录后再试"),
     FORBIDDEN("FORBIDDEN", "当前账号没有权限执行这个操作"),
     RATE_LIMIT("RATE_LIMIT", "操作太频繁了，请稍后再试"),

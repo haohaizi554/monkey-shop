@@ -9,6 +9,8 @@ public final class ErrorHttpStatuses {
 
     public static HttpStatus forCode(ErrorCode code) {
         return switch (code) {
+            case REQUEST_MALFORMED -> HttpStatus.BAD_REQUEST;
+            case VALIDATION_FAILED -> HttpStatus.UNPROCESSABLE_ENTITY;
             case UNAUTHORIZED -> HttpStatus.UNAUTHORIZED;
             case FORBIDDEN -> HttpStatus.FORBIDDEN;
             case RATE_LIMIT -> HttpStatus.TOO_MANY_REQUESTS;
