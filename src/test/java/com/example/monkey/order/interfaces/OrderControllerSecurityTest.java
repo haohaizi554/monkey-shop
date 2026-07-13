@@ -1,8 +1,5 @@
 package com.example.monkey.order.interfaces;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
@@ -21,7 +18,6 @@ import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.ApiRateLimitApplicationService;
 import com.example.monkey.shared.application.security.ApiRateLimitResult;
 import com.example.monkey.shared.application.security.SessionUser;
-import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.infrastructure.config.SecurityConfig;
 import com.example.monkey.shared.interfaces.web.VisitInterceptor;
@@ -62,6 +58,7 @@ class OrderControllerSecurityTest {
     private final OrderOwnershipService orderOwnershipService;
     private final OrderApplicationService orderApplicationService;
     private final OrderService orderService;
+    private final RiskApplicationService riskApplicationService;
     private final ApiRateLimitApplicationService apiRateLimitService;
 
     @Autowired
@@ -70,11 +67,13 @@ class OrderControllerSecurityTest {
             OrderOwnershipService orderOwnershipService,
             OrderApplicationService orderApplicationService,
             OrderService orderService,
+            RiskApplicationService riskApplicationService,
             ApiRateLimitApplicationService apiRateLimitService) {
         this.mockMvc = mockMvc;
         this.orderOwnershipService = orderOwnershipService;
         this.orderApplicationService = orderApplicationService;
         this.orderService = orderService;
+        this.riskApplicationService = riskApplicationService;
         this.apiRateLimitService = apiRateLimitService;
     }
 
@@ -164,23 +163,20 @@ class OrderControllerSecurityTest {
     }
 
     @Test
-    void createOrderPropagatesMissingIdempotencyKeyFromApplicationService() throws Exception {
-        when(orderApplicationService.createOrder(any(SessionUser.class), eq(7L), eq(3L), eq(null)))
-                .thenThrow(new BusinessException(ErrorCode.VALIDATION_ERROR, "Idempotency-Key header is required"));
-
+    void createOrderRejectsMissingIdempotencyKeyBeforeApplicationService() throws Exception {
         mockMvc.perform(post("/api/orders/create")
                         .with(csrf())
                         .with(authenticatedUser(7L, "USER"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"monkeyId\":7,\"addressId\":3}"))
-                .andExpect(status().isUnprocessableEntity())
+                .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                .andExpect(jsonPath("$.status").value(422))
-                .andExpect(jsonPath("$.title").value(ErrorCode.VALIDATION_ERROR.defaultMessage()))
-                .andExpect(jsonPath("$.detail").value("Idempotency-Key header is required"))
-                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.title").value(ErrorCode.REQUEST_MALFORMED.defaultMessage()))
+                .andExpect(jsonPath("$.detail").value(ErrorCode.REQUEST_MALFORMED.defaultMessage()))
+                .andExpect(jsonPath("$.code").value("REQUEST_MALFORMED"));
 
-        verify(orderApplicationService).createOrder(any(SessionUser.class), eq(7L), eq(3L), eq(null));
+        verifyNoInteractions(riskApplicationService, orderApplicationService, orderService);
     }
 
     private static Stream<String> ownedOrderRoutes() {

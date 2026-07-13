@@ -38,15 +38,19 @@ class MonkeyControllerTest {
     }
 
     @Test
-    void getAllMonkeysDelegatesToService() {
+    void getMonkeysDelegatesToServiceWithDefaultPage() {
         MonkeyResponseDto monkey = response();
-        when(monkeyService.findAllMonkeys()).thenReturn(List.of(monkey));
+        PageRequest pageable = PageRequest.of(0, 20, Sort.by(Sort.Order.asc("id")));
+        PageResponseDto<MonkeyResponseDto> page = new PageResponseDto<>(List.of(monkey), 0, 20, 1, 1, true, true);
+        when(monkeyService.findMonkeys(any(ProductPageQuery.class))).thenReturn(page);
 
-        Result<List<MonkeyResponseDto>> result = controller.getAllMonkeys();
+        Result<PageResponseDto<MonkeyResponseDto>> result = controller.getMonkeys(pageable);
 
         assertThat(result.code()).isEqualTo("OK");
-        assertThat(result.data()).containsExactly(monkey);
-        verify(monkeyService).findAllMonkeys();
+        assertThat(result.data()).isSameAs(page);
+        ProductPageQuery pageQuery = capturePageQuery();
+        assertThat(pageQuery.page()).isZero();
+        assertThat(pageQuery.size()).isEqualTo(20);
     }
 
     @Test

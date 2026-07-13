@@ -44,16 +44,21 @@ class AddressControllerTest {
     }
 
     @Test
-    void myAddressesDelegatesCurrentUserScope() {
+    void myAddressesDelegatesCurrentUserScopeWithDefaultPage() {
         SessionUser currentUser = user(7L);
         AddressResponseDto address = response();
-        when(addressApplicationService.findAddresses(currentUser)).thenReturn(List.of(address));
+        PageRequest pageable = PageRequest.of(0, 20, Sort.by(Sort.Order.asc("id")));
+        PageResponseDto<AddressResponseDto> page = new PageResponseDto<>(List.of(address), 0, 20, 1, 1, true, true);
+        when(addressApplicationService.findAddresses(eq(currentUser), any(AddressPageQuery.class)))
+                .thenReturn(page);
 
-        Result<List<AddressResponseDto>> result = controller.myAddresses(currentUser);
+        Result<PageResponseDto<AddressResponseDto>> result = controller.myAddresses(pageable, currentUser);
 
         assertThat(result.code()).isEqualTo("OK");
-        assertThat(result.data()).containsExactly(address);
-        verify(addressApplicationService).findAddresses(currentUser);
+        assertThat(result.data()).isSameAs(page);
+        AddressPageQuery pageRequest = capturePageRequest(currentUser);
+        assertThat(pageRequest.page()).isZero();
+        assertThat(pageRequest.size()).isEqualTo(20);
     }
 
     @Test
@@ -80,14 +85,14 @@ class AddressControllerTest {
     void myAddressesPropagatesMissingAuthenticatedUserFromApplicationService() {
         doThrow(new BusinessException(ErrorCode.UNAUTHORIZED, "login required"))
                 .when(addressApplicationService)
-                .findAddresses((SessionUser) null);
+                .findAddresses(eq(null), any(AddressPageQuery.class));
 
-        assertThatThrownBy(() -> controller.myAddresses(null))
+        assertThatThrownBy(() -> controller.myAddresses(PageRequest.of(0, 20), null))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.UNAUTHORIZED));
 
-        verify(addressApplicationService).findAddresses((SessionUser) null);
+        verify(addressApplicationService).findAddresses(eq(null), any(AddressPageQuery.class));
     }
 
     @Test

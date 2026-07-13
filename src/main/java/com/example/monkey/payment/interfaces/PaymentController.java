@@ -15,6 +15,7 @@ import com.example.monkey.shared.interfaces.dto.Result;
 import com.example.monkey.shared.interfaces.web.ClientIps;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -41,7 +42,7 @@ public class PaymentController {
     @PostMapping("/pay")
     @PreAuthorize("hasAuthority('ORDER_CREATE')")
     public Result<PaymentResponseDto> createPayment(
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "Idempotency-Key") @NotBlank String idempotencyKey,
             @RequestHeader(value = "X-Device-Fingerprint", required = false) String deviceFingerprint,
             @Valid @RequestBody PaymentCreateRequestDto request,
             @AuthenticationPrincipal SessionUser currentUser,
@@ -74,7 +75,7 @@ public class PaymentController {
     @PostMapping("/refund")
     @PreAuthorize("hasAuthority('ORDER_READ_OWN')")
     public Result<PaymentRefundResponseDto> refund(
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "Idempotency-Key") @NotBlank String idempotencyKey,
             @Valid @RequestBody PaymentRefundRequestDto request,
             @AuthenticationPrincipal SessionUser currentUser) {
         return Result.success(paymentApplicationService.refund(currentUser, request, idempotencyKey));

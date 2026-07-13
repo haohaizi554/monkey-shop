@@ -1,4 +1,5 @@
 import { request } from './http'
+import { requestAllPageContent } from './page'
 import type { Address, AddressRequest, AvatarUpdateRequest, UserProfile } from '@/types'
 
 export function me(): Promise<UserProfile> {
@@ -10,7 +11,7 @@ export function profile(): Promise<UserProfile> {
 }
 
 export function addresses(): Promise<Address[]> {
-  return request<Address[]>({ url: '/addresses' })
+  return requestAllPageContent<Address>({ url: '/addresses' })
 }
 
 export function addAddress(payload: AddressRequest): Promise<Address> {

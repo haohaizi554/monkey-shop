@@ -7,14 +7,22 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Stream;
+import org.springframework.context.MessageSourceResolvable;
+import org.springframework.core.MethodParameter;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
+import org.springframework.validation.method.ParameterErrors;
+import org.springframework.validation.method.ParameterValidationResult;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @RestControllerAdvice
@@ -74,9 +82,45 @@ public class GlobalExceptionHandler {
         return problem(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage(), request, fieldErrors);
     }
 
-    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    ResponseEntity<ProblemDetail> handleMethodValidation(
+            HandlerMethodValidationException exception, HttpServletRequest request) {
+        if (exception.isForReturnValue()) {
+            return problem(ErrorCode.INTERNAL_ERROR, ErrorCode.INTERNAL_ERROR.defaultMessage(), request);
+        }
+        Stream<FieldViolation> parameterErrors = exception.getParameterValidationResults().stream()
+                .flatMap(GlobalExceptionHandler::methodValidationErrors);
+        Stream<FieldViolation> crossParameterErrors = exception.getCrossParameterValidationResults().stream()
+                .map(error -> resolvableViolation("request", error));
+        List<FieldViolation> fieldErrors = Stream.concat(parameterErrors, crossParameterErrors)
+                .sorted(FIELD_VIOLATION_COMPARATOR)
+                .toList();
+        return problem(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage(), request, fieldErrors);
+    }
+
+    @ExceptionHandler({
+        HttpMessageNotReadableException.class,
+        MethodArgumentTypeMismatchException.class,
+        MissingRequestHeaderException.class
+    })
     ResponseEntity<ProblemDetail> handleBadRequest(HttpServletRequest request) {
         return problem(ErrorCode.REQUEST_MALFORMED, ErrorCode.REQUEST_MALFORMED.defaultMessage(), request);
+    }
+
+    private static Stream<FieldViolation> methodValidationErrors(ParameterValidationResult result) {
+        if (result instanceof ParameterErrors errors) {
+            Stream<FieldViolation> fieldErrors =
+                    errors.getFieldErrors().stream().map(GlobalExceptionHandler::fieldViolation);
+            Stream<FieldViolation> globalErrors = errors.getGlobalErrors().stream()
+                    .map(error -> resolvableViolation(methodParameterName(result.getMethodParameter()), error));
+            return Stream.concat(fieldErrors, globalErrors);
+        }
+        String field = methodParameterName(result.getMethodParameter());
+        return result.getResolvableErrors().stream().map(error -> resolvableViolation(field, error));
+    }
+
+    private static FieldViolation resolvableViolation(String field, MessageSourceResolvable error) {
+        return new FieldViolation(field, stableErrorCode(error), resolvableErrorMessage(error));
     }
 
     private static FieldViolation fieldViolation(FieldError fieldError) {
@@ -88,13 +132,17 @@ public class GlobalExceptionHandler {
     }
 
     private static String stableFieldErrorCode(FieldError fieldError) {
-        String[] codes = fieldError.getCodes();
+        return stableErrorCode(fieldError);
+    }
+
+    private static String stableErrorCode(MessageSourceResolvable error) {
+        String[] codes = error.getCodes();
         if (codes != null && codes.length > 0) {
             String code = codes[0];
             int separator = code.indexOf('.');
             return separator < 0 ? code : code.substring(0, separator);
         }
-        return fieldError.getCode();
+        return ErrorCode.VALIDATION_FAILED.name();
     }
 
     private static String fieldErrorMessage(FieldError fieldError) {
@@ -103,6 +151,23 @@ public class GlobalExceptionHandler {
             message = ErrorCode.VALIDATION_FAILED.defaultMessage();
         }
         return message;
+    }
+
+    private static String resolvableErrorMessage(MessageSourceResolvable error) {
+        String message = error.getDefaultMessage();
+        return message == null || message.isBlank() ? ErrorCode.VALIDATION_FAILED.defaultMessage() : message;
+    }
+
+    private static String methodParameterName(MethodParameter parameter) {
+        RequestHeader requestHeader = parameter.getParameterAnnotation(RequestHeader.class);
+        if (requestHeader != null) {
+            String headerName = requestHeader.name().isBlank() ? requestHeader.value() : requestHeader.name();
+            if (!headerName.isBlank()) {
+                return headerName;
+            }
+        }
+        String parameterName = parameter.getParameterName();
+        return parameterName == null ? "arg" + parameter.getParameterIndex() : parameterName;
     }
 
     private static String fieldName(String propertyPath) {

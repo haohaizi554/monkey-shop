@@ -1,4 +1,5 @@
 import { request } from './http'
+import { requestAllPageContent } from './page'
 import type {
   Order,
   OrderReview,
@@ -8,11 +9,11 @@ import type {
 } from '@/types'
 
 export function myOrders(): Promise<Order[]> {
-  return request<Order[]>({ url: '/orders/my' })
+  return requestAllPageContent<Order>({ url: '/orders/my' })
 }
 
 export function allOrders(): Promise<Order[]> {
-  return request<Order[]>({ url: '/orders/all' })
+  return requestAllPageContent<Order>({ url: '/orders/all' })
 }
 
 export function createOrder(

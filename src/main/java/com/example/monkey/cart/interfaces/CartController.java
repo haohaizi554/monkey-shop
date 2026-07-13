@@ -14,6 +14,7 @@ import com.example.monkey.shared.interfaces.dto.Result;
 import com.example.monkey.shared.interfaces.web.ClientIps;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -87,7 +88,7 @@ public class CartController {
     @PostMapping("/checkout")
     @PreAuthorize("hasAuthority('ORDER_CREATE')")
     public Result<CartCheckoutResponseDto> checkout(
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "Idempotency-Key") @NotBlank String idempotencyKey,
             @RequestHeader(value = "X-Device-Fingerprint", required = false) String deviceFingerprint,
             @Valid @RequestBody CartCheckoutRequestDto request,
             @AuthenticationPrincipal SessionUser currentUser,

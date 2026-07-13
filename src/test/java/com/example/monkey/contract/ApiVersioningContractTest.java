@@ -2,11 +2,22 @@ package com.example.monkey.contract;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.monkey.cart.interfaces.CartController;
+import com.example.monkey.logistics.interfaces.LogisticsController;
+import com.example.monkey.membership.interfaces.MembershipController;
+import com.example.monkey.order.interfaces.OrderController;
+import com.example.monkey.payment.interfaces.PaymentAdminController;
+import com.example.monkey.payment.interfaces.PaymentController;
+import jakarta.validation.constraints.NotBlank;
 import java.io.IOException;
+import java.lang.reflect.Parameter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.bind.annotation.RequestHeader;
 
 class ApiVersioningContractTest {
 
@@ -26,7 +37,8 @@ class ApiVersioningContractTest {
         assertThat(openApiConfig)
                 .contains("@OpenAPIDefinition")
                 .contains("version = \"v1\"")
-                .contains("url = \"/api/v1\"");
+                .contains("url = \"/\"")
+                .doesNotContain("url = \"/api/v1\"");
     }
 
     @Test
@@ -78,6 +90,40 @@ class ApiVersioningContractTest {
         assertThat(read("src/main/java/com/example/monkey/user/application/AddressService.java"))
                 .contains("findAddressesForUser(Long userId, AddressPageQuery pageQuery)")
                 .doesNotContain("org.springframework.data.domain.Pageable");
+
+        assertThat(read("src/main/java/com/example/monkey/order/interfaces/OrderController.java"))
+                .contains("Result<PageResponseDto<OrderResponseDto>> myOrders(")
+                .contains("Result<PageResponseDto<OrderResponseDto>> getAllOrders(")
+                .doesNotContain("Result<List<OrderResponseDto>> myOrders(")
+                .doesNotContain("Result<List<OrderResponseDto>> getAllOrders(");
+        assertThat(read("src/main/java/com/example/monkey/product/interfaces/MonkeyController.java"))
+                .contains("Result<PageResponseDto<MonkeyResponseDto>> getMonkeys(")
+                .doesNotContain("Result<List<MonkeyResponseDto>> getAllMonkeys(");
+        assertThat(read("src/main/java/com/example/monkey/user/interfaces/AddressController.java"))
+                .contains("Result<PageResponseDto<AddressResponseDto>> myAddresses(")
+                .doesNotContain("Result<List<AddressResponseDto>> myAddresses(");
+    }
+
+    @Test
+    void idempotentMutationHeadersAreRequiredAndNonBlank() {
+        List<Parameter> headers = Stream.of(
+                        OrderController.class,
+                        PaymentController.class,
+                        PaymentAdminController.class,
+                        CartController.class,
+                        LogisticsController.class,
+                        MembershipController.class)
+                .flatMap(controller -> Stream.of(controller.getDeclaredMethods()))
+                .flatMap(method -> Stream.of(method.getParameters()))
+                .filter(parameter -> parameter.isAnnotationPresent(RequestHeader.class))
+                .filter(parameter -> "Idempotency-Key"
+                        .equals(parameter.getAnnotation(RequestHeader.class).value()))
+                .toList();
+
+        assertThat(headers).hasSize(9).allSatisfy(parameter -> {
+            assertThat(parameter.getAnnotation(RequestHeader.class).required()).isTrue();
+            assertThat(parameter.getAnnotation(NotBlank.class)).isNotNull();
+        });
     }
 
     private static String read(String path) throws IOException {

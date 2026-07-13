@@ -15,6 +15,7 @@ import com.example.monkey.membership.application.dto.RealNameVerifyRequestDto;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.interfaces.dto.Result;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -52,7 +53,7 @@ public class MembershipController {
     @PostMapping("/check-in")
     @PreAuthorize("hasAuthority('MEMBERSHIP_WRITE')")
     public Result<CheckInResponseDto> checkIn(
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "Idempotency-Key") @NotBlank String idempotencyKey,
             @AuthenticationPrincipal SessionUser currentUser) {
         return Result.success(membershipApplicationService.checkIn(currentUser, idempotencyKey));
     }
@@ -60,7 +61,7 @@ public class MembershipController {
     @PostMapping("/points/earn")
     @PreAuthorize("hasAuthority('MEMBERSHIP_ADMIN')")
     public Result<PointsLedgerEntryDto> earnPoints(
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "Idempotency-Key") @NotBlank String idempotencyKey,
             @Valid @RequestBody PointsEarnRequestDto request,
             @AuthenticationPrincipal SessionUser currentUser) {
         return Result.success(membershipApplicationService.earnPoints(currentUser, request, idempotencyKey));
@@ -69,7 +70,7 @@ public class MembershipController {
     @PostMapping("/points/redeem")
     @PreAuthorize("hasAuthority('MEMBERSHIP_WRITE')")
     public Result<PointsLedgerEntryDto> redeemPoints(
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "Idempotency-Key") @NotBlank String idempotencyKey,
             @Valid @RequestBody PointsRedeemRequestDto request,
             @AuthenticationPrincipal SessionUser currentUser) {
         return Result.success(membershipApplicationService.redeemPoints(currentUser, request, idempotencyKey));

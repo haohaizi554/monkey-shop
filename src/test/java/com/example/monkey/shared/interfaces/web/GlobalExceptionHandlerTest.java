@@ -14,6 +14,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 
 class GlobalExceptionHandlerTest {
 
@@ -101,5 +102,17 @@ class GlobalExceptionHandlerTest {
         assertThat(badRequestResponse.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(badRequestResponse.getBody()).isNotNull();
         assertThat(badRequestResponse.getBody().getProperties()).containsEntry("code", "REQUEST_MALFORMED");
+    }
+
+    @Test
+    void returnValueValidationFailureRemainsAnInternalServerError() {
+        HandlerMethodValidationException exception = mock(HandlerMethodValidationException.class);
+        when(exception.isForReturnValue()).thenReturn(true);
+
+        ResponseEntity<ProblemDetail> response = handler.handleMethodValidation(exception, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getProperties()).containsEntry("code", "INTERNAL_ERROR");
     }
 }

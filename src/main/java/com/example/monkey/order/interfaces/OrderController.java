@@ -19,7 +19,9 @@ import com.example.monkey.shared.interfaces.dto.Result;
 import com.example.monkey.shared.interfaces.web.ClientIps;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import java.util.List;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
@@ -54,7 +56,7 @@ public class OrderController {
     @PostMapping("/create")
     @PreAuthorize("hasAuthority('ORDER_CREATE')")
     public Result<OrderResponseDto> createOrder(
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "Idempotency-Key") @NotBlank String idempotencyKey,
             @RequestHeader(value = "X-Device-Fingerprint", required = false) String deviceFingerprint,
             @Valid @RequestBody CreateOrderRequestDto requestBody,
             @AuthenticationPrincipal SessionUser currentUser,
@@ -71,32 +73,18 @@ public class OrderController {
 
     @GetMapping("/my")
     @PreAuthorize("hasAuthority('ORDER_READ_OWN')")
-    public Result<List<OrderResponseDto>> myOrders(@AuthenticationPrincipal SessionUser currentUser) {
-        return Result.success(orderApplicationService.findOrders(currentUser));
-    }
-
-    @GetMapping(
-            value = "/my",
-            params = {"page", "size"})
-    @PreAuthorize("hasAuthority('ORDER_READ_OWN')")
     public Result<PageResponseDto<OrderResponseDto>> myOrders(
-            @PageableDefault(size = 20, sort = "createTime", direction = Sort.Direction.DESC) Pageable pageable,
+            @ParameterObject @PageableDefault(size = 20, sort = "createTime", direction = Sort.Direction.DESC)
+                    Pageable pageable,
             @AuthenticationPrincipal SessionUser currentUser) {
         return Result.success(orderApplicationService.findOrders(currentUser, toOrderPageQuery(pageable)));
     }
 
     @GetMapping("/all")
     @PreAuthorize("hasAuthority('ORDER_MANAGE')")
-    public Result<List<OrderResponseDto>> getAllOrders() {
-        return Result.success(orderService.findAllOrders());
-    }
-
-    @GetMapping(
-            value = "/all",
-            params = {"page", "size"})
-    @PreAuthorize("hasAuthority('ORDER_MANAGE')")
     public Result<PageResponseDto<OrderResponseDto>> getAllOrders(
-            @PageableDefault(size = 20, sort = "createTime", direction = Sort.Direction.DESC) Pageable pageable) {
+            @ParameterObject @PageableDefault(size = 20, sort = "createTime", direction = Sort.Direction.DESC)
+                    Pageable pageable) {
         return Result.success(orderService.findAllOrders(toOrderPageQuery(pageable)));
     }
 

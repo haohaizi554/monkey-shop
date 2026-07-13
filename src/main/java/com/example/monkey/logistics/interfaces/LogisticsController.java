@@ -13,6 +13,7 @@ import com.example.monkey.shared.interfaces.dto.Result;
 import com.example.monkey.shared.interfaces.web.ClientIps;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -36,7 +37,7 @@ public class LogisticsController {
     @PostMapping("/shipments")
     @PreAuthorize("hasAuthority('ORDER_READ_OWN')")
     public Result<LogisticsTrackingResponseDto> createShipment(
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "Idempotency-Key") @NotBlank String idempotencyKey,
             @Valid @RequestBody ShipmentCreateRequestDto request,
             @AuthenticationPrincipal SessionUser currentUser) {
         return Result.success(logisticsApplicationService.createShipment(currentUser, request, idempotencyKey));

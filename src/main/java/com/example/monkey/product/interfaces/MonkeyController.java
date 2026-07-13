@@ -10,6 +10,7 @@ import com.example.monkey.shared.application.dto.PageResponseDto;
 import com.example.monkey.shared.interfaces.dto.Result;
 import jakarta.validation.Valid;
 import java.util.List;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
@@ -34,14 +35,9 @@ public class MonkeyController {
 
     @GetMapping
     @PreAuthorize("permitAll()")
-    public Result<List<MonkeyResponseDto>> getAllMonkeys() {
-        return Result.success(monkeyService.findAllMonkeys());
-    }
-
-    @GetMapping(params = {"page", "size"})
-    @PreAuthorize("permitAll()")
     public Result<PageResponseDto<MonkeyResponseDto>> getMonkeys(
-            @PageableDefault(size = 20, sort = "id", direction = Sort.Direction.ASC) Pageable pageable) {
+            @ParameterObject @PageableDefault(size = 20, sort = "id", direction = Sort.Direction.ASC)
+                    Pageable pageable) {
         return Result.success(monkeyService.findMonkeys(toProductPageQuery(pageable)));
     }
 

@@ -55,20 +55,7 @@ class OrderControllerTest {
     }
 
     @Test
-    void myOrdersDelegatesCurrentUserScope() {
-        SessionUser currentUser = user(7L);
-        OrderResponseDto order = response();
-        when(orderApplicationService.findOrders(currentUser)).thenReturn(List.of(order));
-
-        Result<List<OrderResponseDto>> result = controller.myOrders(currentUser);
-
-        assertThat(result.code()).isEqualTo("OK");
-        assertThat(result.data()).containsExactly(order);
-        verify(orderApplicationService).findOrders(currentUser);
-    }
-
-    @Test
-    void myOrdersPageDelegatesCurrentUserScopeAndPageQuery() {
+    void myOrdersDelegatesCurrentUserScopeWithDefaultPage() {
         SessionUser currentUser = user(7L);
         OrderResponseDto order = response();
         PageRequest pageable = PageRequest.of(0, 20, Sort.by(Sort.Order.desc("createTime")));
@@ -83,32 +70,52 @@ class OrderControllerTest {
         OrderPageQuery pageRequest = captureUserPageRequest(currentUser);
         assertThat(pageRequest.page()).isZero();
         assertThat(pageRequest.size()).isEqualTo(20);
-        assertThat(pageRequest.sortOrders()).containsExactly(new SortOrder("createTime", Direction.DESC));
+    }
+
+    @Test
+    void myOrdersPageDelegatesCurrentUserScopeAndPageQuery() {
+        SessionUser currentUser = user(7L);
+        OrderResponseDto order = response();
+        PageRequest pageable = PageRequest.of(2, 25, Sort.by(Sort.Order.asc("id")));
+        PageResponseDto<OrderResponseDto> page = new PageResponseDto<>(List.of(order), 2, 25, 1, 3, false, true);
+        when(orderApplicationService.findOrders(eq(currentUser), any(OrderPageQuery.class)))
+                .thenReturn(page);
+
+        Result<PageResponseDto<OrderResponseDto>> result = controller.myOrders(pageable, currentUser);
+
+        assertThat(result.code()).isEqualTo("OK");
+        assertThat(result.data()).isSameAs(page);
+        OrderPageQuery pageRequest = captureUserPageRequest(currentUser);
+        assertThat(pageRequest.page()).isEqualTo(2);
+        assertThat(pageRequest.size()).isEqualTo(25);
+        assertThat(pageRequest.sortOrders()).containsExactly(new SortOrder("id", Direction.ASC));
     }
 
     @Test
     void myOrdersPropagatesMissingAuthenticatedUserFromApplicationService() {
         doThrow(new BusinessException(ErrorCode.UNAUTHORIZED, "login required"))
                 .when(orderApplicationService)
-                .findOrders((SessionUser) null);
+                .findOrders(eq(null), any(OrderPageQuery.class));
 
         assertThatExceptionOfType(BusinessException.class)
-                .isThrownBy(() -> controller.myOrders(null))
+                .isThrownBy(() -> controller.myOrders(PageRequest.of(0, 20), null))
                 .satisfies(exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.UNAUTHORIZED));
 
-        verify(orderApplicationService).findOrders((SessionUser) null);
+        verify(orderApplicationService).findOrders(eq(null), any(OrderPageQuery.class));
     }
 
     @Test
-    void allOrdersDelegatesToService() {
+    void allOrdersDelegatesToServiceWithDefaultPage() {
         OrderResponseDto order = response();
-        when(orderService.findAllOrders()).thenReturn(List.of(order));
+        PageRequest pageable = PageRequest.of(0, 20, Sort.by(Sort.Order.desc("createTime")));
+        PageResponseDto<OrderResponseDto> page = new PageResponseDto<>(List.of(order), 0, 20, 1, 1, true, true);
+        when(orderService.findAllOrders(any(OrderPageQuery.class))).thenReturn(page);
 
-        Result<List<OrderResponseDto>> result = controller.getAllOrders();
+        Result<PageResponseDto<OrderResponseDto>> result = controller.getAllOrders(pageable);
 
         assertThat(result.code()).isEqualTo("OK");
-        assertThat(result.data()).containsExactly(order);
-        verify(orderService).findAllOrders();
+        assertThat(result.data()).isSameAs(page);
+        assertThat(captureAllPageRequest().size()).isEqualTo(20);
     }
 
     @Test

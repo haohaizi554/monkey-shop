@@ -9,6 +9,7 @@ import com.example.monkey.shared.interfaces.dto.Result;
 import com.example.monkey.shared.interfaces.web.ClientIps;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -42,7 +43,7 @@ public class PaymentAdminController {
     @PostMapping("/refund")
     @PreAuthorize("hasAuthority('ORDER_MANAGE')")
     public Result<PaymentRefundResponseDto> refund(
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "Idempotency-Key") @NotBlank String idempotencyKey,
             @Valid @RequestBody PaymentRefundRequestDto request,
             @AuthenticationPrincipal SessionUser currentUser,
             HttpServletRequest httpRequest) {

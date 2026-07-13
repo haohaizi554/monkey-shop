@@ -1,4 +1,5 @@
 import { request } from './http'
+import { requestAllPageContent } from './page'
 import type {
   CatalogPriceQuote,
   CatalogSpu,
@@ -9,7 +10,7 @@ import type {
 } from '@/types'
 
 export function listMonkeys(): Promise<Monkey[]> {
-  return request<Monkey[]>({ url: '/monkeys' })
+  return requestAllPageContent<Monkey>({ url: '/monkeys' })
 }
 
 export function addMonkey(payload: MonkeyRequest): Promise<Monkey> {

@@ -11,6 +11,7 @@ import com.example.monkey.user.application.dto.AddressRequestDto;
 import com.example.monkey.user.application.dto.AddressResponseDto;
 import jakarta.validation.Valid;
 import java.util.List;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
@@ -36,14 +37,8 @@ public class AddressController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('ADDRESS_MANAGE')")
-    public Result<List<AddressResponseDto>> myAddresses(@AuthenticationPrincipal SessionUser currentUser) {
-        return Result.success(addressApplicationService.findAddresses(currentUser));
-    }
-
-    @GetMapping(params = {"page", "size"})
-    @PreAuthorize("hasAuthority('ADDRESS_MANAGE')")
     public Result<PageResponseDto<AddressResponseDto>> myAddresses(
-            @PageableDefault(size = 20, sort = "id", direction = Sort.Direction.ASC) Pageable pageable,
+            @ParameterObject @PageableDefault(size = 20, sort = "id", direction = Sort.Direction.ASC) Pageable pageable,
             @AuthenticationPrincipal SessionUser currentUser) {
         return Result.success(addressApplicationService.findAddresses(currentUser, toAddressPageQuery(pageable)));
     }
