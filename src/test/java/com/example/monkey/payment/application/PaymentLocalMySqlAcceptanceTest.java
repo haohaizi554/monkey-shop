@@ -8,9 +8,7 @@ import static org.mockito.Mockito.when;
 
 import com.example.monkey.order.domain.OrderStore;
 import com.example.monkey.order.domain.OrderStore.OrderRecord;
-import com.example.monkey.payment.application.dto.PaymentCreateRequestDto;
 import com.example.monkey.payment.application.dto.PaymentRefundRequestDto;
-import com.example.monkey.payment.application.dto.PaymentResponseDto;
 import com.example.monkey.payment.domain.PaymentCallbackReplayGuard;
 import com.example.monkey.payment.domain.PaymentFailureClassification;
 import com.example.monkey.payment.domain.PaymentGateway;
@@ -50,12 +48,9 @@ import java.sql.DriverManager;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorCompletionService;
@@ -71,10 +66,12 @@ import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
@@ -84,13 +81,8 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MySQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 @DataJpaTest(showSql = false)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -99,21 +91,14 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         properties = {
             "spring.flyway.enabled=true",
             "spring.jpa.hibernate.ddl-auto=validate",
-            "app.payment.callback-secret=testcontainers-secret"
+            "app.payment.callback-secret=local-mysql-acceptance-secret"
         })
 @MockitoBean(types = PiiCryptoService.class)
-@Testcontainers(disabledWithoutDocker = true)
+@EnabledIfSystemProperty(named = "task4.local-mysql", matches = "true")
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-class PaymentMySqlContainerIntegrationTest {
+class PaymentLocalMySqlAcceptanceTest {
 
-    private static final String MYSQL_IMAGE = "mysql:8.0.41";
     private static final SessionUser USER = new SessionUser(42L, "USER");
-
-    @Container
-    static final MySQLContainer<?> MYSQL = new MySQLContainer<>(MYSQL_IMAGE)
-            .withDatabaseName("monkeyshop_task4")
-            .withUsername("monkey")
-            .withPassword("monkey");
 
     private final PaymentOrderRepository paymentOrderRepository;
     private final PaymentLedgerRepository paymentLedgerRepository;
@@ -122,20 +107,21 @@ class PaymentMySqlContainerIntegrationTest {
     private final AuditLogRepository auditLogRepository;
     private final PlatformTransactionManager transactionManager;
     private final JdbcTemplate jdbcTemplate;
-    private final Map<Long, OrderRecord> visibleOrders = new ConcurrentHashMap<>();
-    private final AtomicLong ids = new AtomicLong(960_100L);
+    private final Map<Long, OrderRecord> visibleOrders = new java.util.concurrent.ConcurrentHashMap<>();
+    private final AtomicLong ids = new AtomicLong(970_100L);
     private RecordingGateway gateway;
     private PaymentApplicationService service;
 
     @DynamicPropertySource
     static void mysqlProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MYSQL::getJdbcUrl);
-        registry.add("spring.datasource.username", MYSQL::getUsername);
-        registry.add("spring.datasource.password", MYSQL::getPassword);
+        registry.add("spring.datasource.url", () -> requiredProperty("task4.mysql.url"));
+        registry.add("spring.datasource.username", () -> System.getProperty("task4.mysql.username", "root"));
+        registry.add("spring.datasource.password", () -> System.getProperty("task4.mysql.password", ""));
+        registry.add("spring.datasource.driver-class-name", () -> "com.mysql.cj.jdbc.Driver");
     }
 
     @Autowired
-    PaymentMySqlContainerIntegrationTest(
+    PaymentLocalMySqlAcceptanceTest(
             PaymentOrderRepository paymentOrderRepository,
             PaymentLedgerRepository paymentLedgerRepository,
             PaymentReconciliationReportRepository reconciliationReportRepository,
@@ -158,16 +144,17 @@ class PaymentMySqlContainerIntegrationTest {
         jdbcTemplate.update("DELETE FROM audit_log");
         jdbcTemplate.update("DELETE FROM payment_ledger");
         jdbcTemplate.update("DELETE FROM payment_order");
-        jdbcTemplate.update("DELETE FROM orders WHERE id >= 960000");
+        jdbcTemplate.update("DELETE FROM orders WHERE id >= 970000");
         jdbcTemplate.update("""
                 INSERT INTO tenant (id, code, name, status, plan, expires_at)
-                VALUES (2, 'task4-second', 'Task 4 Second Tenant', 'ACTIVE', 'STANDARD', '2099-12-31 23:59:59')
+                VALUES (2, 'task4-local-second', 'Task 4 Local Second Tenant', 'ACTIVE', 'STANDARD',
+                        '2099-12-31 23:59:59')
                 ON DUPLICATE KEY UPDATE name = VALUES(name)
                 """);
         visibleOrders.clear();
-        ids.set(960_100L);
+        ids.set(970_100L);
         gateway = new RecordingGateway();
-        service = applicationService(gateway);
+        service = applicationService(gateway, mock(AuditService.class));
     }
 
     @AfterEach
@@ -176,123 +163,199 @@ class PaymentMySqlContainerIntegrationTest {
     }
 
     @Test
-    void sameKeySameFingerprintConvergesOnOneRowAndStableGatewayToken() throws Exception {
-        allowOrder(960_001L, 1L);
-
-        List<Object> outcomes =
-                invokeConcurrently(List.of(() -> create(960_001L, "same-key"), () -> create(960_001L, "same-key")));
-
-        assertThat(outcomes).allMatch(PaymentResponseDto.class::isInstance);
-        assertThat(outcomes.get(1)).isEqualTo(outcomes.get(0));
+    void emptySchemaMigratesThroughV51AndHibernateValidates() {
+        assertThat(jdbcTemplate.queryForObject("""
+                        SELECT version
+                        FROM flyway_schema_history
+                        WHERE success = 1
+                        ORDER BY installed_rank DESC
+                        LIMIT 1
+                        """, String.class)).isEqualTo("51");
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM payment_order", Long.class))
-                .isEqualTo(1L);
-        assertThat(gateway.createTokens).isNotEmpty().allMatch("PAY960100"::equals);
-        assertThat(gateway.createTokens).hasSizeBetween(1, 2);
+                .isZero();
     }
 
     @Test
-    void concurrentFingerprintAndActiveOrderCollisionsReturnConflict() throws Exception {
-        allowOrder(960_002L, 1L);
-        allowOrder(960_003L, 1L);
+    void v50LegacyDuplicateBlocksThenRepairMigratesThroughV51() throws Exception {
+        String url = requiredProperty("task4.mysql.legacy-url");
+        String username = System.getProperty("task4.mysql.username", "root");
+        String password = System.getProperty("task4.mysql.password", "");
+        Flyway flyway = Flyway.configure()
+                .dataSource(url, username, password)
+                .target(MigrationVersion.fromVersion("50"))
+                .load();
+        flyway.migrate();
+        try (Connection connection = DriverManager.getConnection(url, username, password)) {
+            ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/fixtures/payment_v50_task4_review.sql"));
+        }
 
-        List<Object> keyCollision =
-                invokeConcurrently(List.of(() -> create(960_002L, "shared-key"), () -> create(960_003L, "shared-key")));
-        assertOneSuccessAndOneConflict(keyCollision);
+        Flyway latest = Flyway.configure().dataSource(url, username, password).load();
+        Throwable blocked = catchThrowable(latest::migrate);
 
-        resetPayments();
-        gateway.createTokens.clear();
-        ids.set(960_200L);
-        List<Object> activeCollision = invokeConcurrently(
-                List.of(() -> create(960_002L, "active-key-one"), () -> create(960_002L, "active-key-two")));
-        assertOneSuccessAndOneConflict(activeCollision);
-        assertThat(gateway.createTokens).hasSize(1);
+        assertThat(blocked).isNotNull();
+        assertThat(causeMessages(blocked)).contains("ck_v51_resolve_duplicate_active_payment_intents");
+
+        JdbcTemplate fixtureJdbc = new JdbcTemplate(new DriverManagerDataSource(url, username, password));
+        assertThat(fixtureJdbc.update("DELETE FROM payment_order WHERE id = 905102"))
+                .isEqualTo(1);
+        latest.repair();
+        latest.migrate();
+
+        assertThat(fixtureJdbc.queryForObject("""
+                        SELECT version
+                        FROM flyway_schema_history
+                        WHERE success = 1
+                        ORDER BY installed_rank DESC
+                        LIMIT 1
+                        """, String.class)).isEqualTo("51");
+        assertThat(fixtureJdbc.queryForMap("""
+                        SELECT operation_state, attempt_count, lease_expires_at,
+                               last_failure_classification, terminal_failure_code
+                        FROM payment_order WHERE id = 905103
+                        """))
+                .containsEntry("operation_state", "LEGACY_UNREPLAYABLE")
+                .containsEntry("attempt_count", 0)
+                .containsEntry("lease_expires_at", null)
+                .containsEntry("last_failure_classification", "LEGACY_UNKNOWN")
+                .containsEntry("terminal_failure_code", null);
+        assertThat(fixtureJdbc.queryForMap("""
+                        SELECT operation_state, attempt_count, lease_expires_at,
+                               last_failure_classification, terminal_failure_code, audit_state
+                        FROM payment_ledger WHERE id = 905104
+                        """))
+                .containsEntry("operation_state", "LEGACY_UNREPLAYABLE")
+                .containsEntry("attempt_count", 0)
+                .containsEntry("lease_expires_at", null)
+                .containsEntry("last_failure_classification", "LEGACY_UNKNOWN")
+                .containsEntry("terminal_failure_code", null)
+                .containsEntry("audit_state", "NONE");
     }
 
     @Test
-    void sameOwnerKeyIsIndependentAcrossTenants() {
-        allowOrder(960_004L, 1L);
-        allowOrder(960_005L, 2L);
+    void constraintsRejectSameTenantDuplicatesAndAllowCrossTenantRows() {
+        allowOrder(970_001L, 1L);
+        allowOrder(970_002L, 1L);
+        paymentOrderRepository.saveAndFlush(reservedPayment(
+                970_200L,
+                970_001L,
+                "PAY970200",
+                "same-key",
+                1L,
+                LocalDateTime.now().plusMinutes(5)));
 
-        TenantContext.setTenantId(1L);
-        PaymentResponseDto first = create(960_004L, "cross-tenant-key");
-        TenantContext.setTenantId(2L);
-        PaymentResponseDto second = create(960_005L, "cross-tenant-key");
+        Throwable activeOrderConflict = catchThrowable(() -> paymentOrderRepository.saveAndFlush(reservedPayment(
+                970_201L,
+                970_001L,
+                "PAY970201",
+                "different-key",
+                1L,
+                LocalDateTime.now().plusMinutes(5))));
+        Throwable userKeyConflict = catchThrowable(() -> paymentOrderRepository.saveAndFlush(reservedPayment(
+                970_202L,
+                970_002L,
+                "PAY970202",
+                "same-key",
+                1L,
+                LocalDateTime.now().plusMinutes(5))));
+        paymentOrderRepository.saveAndFlush(reservedPayment(
+                970_203L,
+                970_001L,
+                "PAY970203",
+                "same-key",
+                2L,
+                LocalDateTime.now().plusMinutes(5)));
 
-        assertThat(second.paymentNo()).isNotEqualTo(first.paymentNo());
-        assertThat(jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM payment_order WHERE idempotency_key = 'cross-tenant-key'", Long.class))
-                .isEqualTo(2L);
+        assertThat(activeOrderConflict).isInstanceOf(DataIntegrityViolationException.class);
+        assertThat(causeMessages(activeOrderConflict)).contains("uk_payment_order_active_order");
+        assertThat(userKeyConflict).isInstanceOf(DataIntegrityViolationException.class);
+        assertThat(causeMessages(userKeyConflict)).contains("uk_payment_order_user_key");
+        assertThat(jdbcTemplate.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM payment_order
+                        WHERE order_id = 970001 AND idempotency_key = 'same-key'
+                        """, Long.class)).isEqualTo(2L);
+        assertThat(jdbcTemplate.queryForObject("""
+                        SELECT COUNT(DISTINCT tenant_id)
+                        FROM payment_order
+                        WHERE order_id = 970001 AND idempotency_key = 'same-key'
+                        """, Long.class)).isEqualTo(2L);
     }
 
     @Test
-    void requiresNewReservationIsVisibleAtGatewayAndSurvivesOuterRollback() {
-        allowOrder(960_006L, 1L);
-        gateway.createObserver = () -> assertThat(jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM payment_order WHERE idempotency_key = 'outer-key'", Long.class))
-                .isEqualTo(1L);
-        TransactionTemplate outer = new TransactionTemplate(transactionManager);
-        outer.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRED);
-
-        Throwable failure = catchThrowable(() -> outer.executeWithoutResult(status -> {
-            create(960_006L, "outer-key");
-            throw new IllegalStateException("rollback caller");
-        }));
-
-        assertThat(failure).isInstanceOf(IllegalStateException.class);
-        assertThat(jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM payment_order WHERE idempotency_key = 'outer-key'", Long.class))
-                .isEqualTo(1L);
-    }
-
-    @Test
-    void concurrentRecoveryClaimsExpiredPaymentOnceWhileLeaseIsValid() throws Exception {
-        allowOrder(960_007L, 1L);
-        paymentOrderRepository.saveAndFlush(expiredPayment(960_300L, 960_007L, "PAY960300", "recover-once", 1L));
-        gateway.blockFirstCreate();
+    void concurrentWorkersClaimExpiredPaymentOnceWhileLeaseIsValid() throws Exception {
+        allowOrder(970_010L, 1L);
+        paymentOrderRepository.saveAndFlush(reservedPayment(
+                970_300L,
+                970_010L,
+                "PAY970300",
+                "claim-once",
+                1L,
+                LocalDateTime.now().minusMinutes(1)));
+        BlockingGateway blockingGateway = new BlockingGateway();
+        PaymentApplicationService recoveryService = applicationService(blockingGateway, mock(AuditService.class));
         ExecutorService executor = Executors.newFixedThreadPool(2);
         ExecutorCompletionService<Integer> recoveries = new ExecutorCompletionService<>(executor);
         CountDownLatch start = new CountDownLatch(1);
 
         try {
-            recoveries.submit(() -> recoverAfter(start));
-            recoveries.submit(() -> recoverAfter(start));
+            recoveries.submit(() -> recoverAfter(start, recoveryService));
+            recoveries.submit(() -> recoverAfter(start, recoveryService));
             start.countDown();
-            gateway.awaitFirstCreate();
+            blockingGateway.awaitCreate();
 
             Future<Integer> nonWinner = recoveries.poll(10, TimeUnit.SECONDS);
             assertThat(nonWinner).isNotNull();
             assertThat(nonWinner.get(10, TimeUnit.SECONDS)).isZero();
 
-            gateway.releaseFirstCreate();
+            blockingGateway.releaseCreate();
             assertThat(recoveries.poll(10, TimeUnit.SECONDS).get(10, TimeUnit.SECONDS))
                     .isEqualTo(1);
         } finally {
-            gateway.releaseFirstCreate();
+            blockingGateway.releaseCreate();
             executor.shutdownNow();
         }
 
-        Map<String, Object> operation =
-                jdbcTemplate.queryForMap("SELECT operation_state, attempt_count FROM payment_order WHERE id = 960300");
-        assertThat(operation.get("operation_state")).isEqualTo("COMPLETED");
-        assertThat(((Number) operation.get("attempt_count")).intValue()).isEqualTo(2);
-        assertThat(gateway.createTokens).containsExactly("PAY960300");
+        assertThat(jdbcTemplate.queryForMap(
+                        "SELECT operation_state, attempt_count FROM payment_order WHERE id = 970300"))
+                .containsEntry("operation_state", "COMPLETED")
+                .containsEntry("attempt_count", 2);
+        assertThat(blockingGateway.createCalls()).isEqualTo(1);
+    }
+
+    @Test
+    void staleCompletionAndTerminalFailureCannotOverwriteNewerAttempt() throws Exception {
+        assertStalePaymentWorkerCannotOverwriteNewerAttempt(null, 970_310L, 970_011L, "PAY970310");
+        assertStalePaymentWorkerCannotOverwriteNewerAttempt(
+                PaymentGatewayException.rejected("CARD_DECLINED", "raw decline"), 970_311L, 970_012L, "PAY970311");
     }
 
     @Test
     void scheduledRecoveryContinuesToTenantTwoAndHandlesPaymentRefundAndPendingAudit() {
-        allowOrder(960_010L, 1L);
-        allowOrder(960_011L, 2L);
-        allowOrder(960_012L, 2L);
-        allowOrder(960_013L, 2L);
-        paymentOrderRepository.saveAndFlush(expiredPayment(960_400L, 960_010L, "PAY960400", "tenant-one-failure", 1L));
-        paymentOrderRepository.saveAndFlush(expiredPayment(960_401L, 960_011L, "PAY960401", "tenant-two-payment", 2L));
-        paymentOrderRepository.saveAndFlush(paidPayment(960_402L, 960_012L, "PAY960402", 2L, BigDecimal.ZERO));
-        paymentOrderRepository.saveAndFlush(paidPayment(960_403L, 960_013L, "PAY960403", 2L, new BigDecimal("5.00")));
+        allowOrder(970_020L, 1L);
+        allowOrder(970_021L, 2L);
+        allowOrder(970_022L, 2L);
+        allowOrder(970_023L, 2L);
+        paymentOrderRepository.saveAndFlush(reservedPayment(
+                970_400L,
+                970_020L,
+                "PAY970400",
+                "tenant-one-failure",
+                1L,
+                LocalDateTime.now().minusMinutes(1)));
+        paymentOrderRepository.saveAndFlush(reservedPayment(
+                970_401L,
+                970_021L,
+                "PAY970401",
+                "tenant-two-payment",
+                2L,
+                LocalDateTime.now().minusMinutes(1)));
+        paymentOrderRepository.saveAndFlush(paidPayment(970_402L, 970_022L, "PAY970402", 2L, BigDecimal.ZERO));
+        paymentOrderRepository.saveAndFlush(paidPayment(970_403L, 970_023L, "PAY970403", 2L, new BigDecimal("5.00")));
         paymentLedgerRepository.saveAndFlush(
-                expiredRefund(960_500L, 960_402L, 960_012L, "tenant-two-refund", new BigDecimal("10.00"), 2L));
+                expiredRefund(970_500L, 970_402L, 970_022L, "tenant-two-refund", new BigDecimal("10.00"), 2L));
         paymentLedgerRepository.saveAndFlush(
-                pendingRefundAudit(960_501L, 960_403L, 960_013L, "tenant-two-audit", new BigDecimal("5.00"), 2L));
-        gateway.failedCreatePaymentNo = "PAY960400";
+                pendingRefundAudit(970_501L, 970_403L, 970_023L, "tenant-two-audit", new BigDecimal("5.00"), 2L));
+        gateway.failedCreatePaymentNo = "PAY970400";
         service = applicationService(gateway, new AuditService(new JpaAuditLogStore(auditLogRepository), 180));
         TenantContext.setTenantId(77L);
 
@@ -300,30 +363,31 @@ class PaymentMySqlContainerIntegrationTest {
 
         assertThat(TenantContext.currentTenantId()).contains(77L);
         assertThat(jdbcTemplate.queryForMap(
-                        "SELECT operation_state, attempt_count FROM payment_order WHERE id = 960400"))
+                        "SELECT operation_state, attempt_count FROM payment_order WHERE id = 970400"))
                 .containsEntry("operation_state", "RETRYABLE")
                 .containsEntry("attempt_count", 2);
         assertThat(jdbcTemplate.queryForMap(
-                        "SELECT operation_state, attempt_count FROM payment_order WHERE id = 960401"))
+                        "SELECT operation_state, attempt_count FROM payment_order WHERE id = 970401"))
                 .containsEntry("operation_state", "COMPLETED")
                 .containsEntry("attempt_count", 2);
-        assertThat(
-                        jdbcTemplate.queryForMap(
-                                "SELECT operation_state, attempt_count, status, audit_state FROM payment_ledger WHERE id = 960500"))
+        assertThat(jdbcTemplate.queryForMap("""
+                        SELECT operation_state, attempt_count, status, audit_state
+                        FROM payment_ledger WHERE id = 970500
+                        """))
                 .containsEntry("operation_state", "COMPLETED")
                 .containsEntry("attempt_count", 2)
                 .containsEntry("status", "SUCCESS")
                 .containsEntry("audit_state", "DELIVERED");
         assertThat(jdbcTemplate.queryForObject(
-                        "SELECT refunded_amount FROM payment_order WHERE id = 960402", BigDecimal.class))
+                        "SELECT refunded_amount FROM payment_order WHERE id = 970402", BigDecimal.class))
                 .isEqualByComparingTo("10.00");
         assertThat(jdbcTemplate.queryForObject(
-                        "SELECT audit_state FROM payment_ledger WHERE id = 960501", String.class))
+                        "SELECT audit_state FROM payment_ledger WHERE id = 970501", String.class))
                 .isEqualTo("DELIVERED");
         assertThat(jdbcTemplate.queryForObject(
-                        "SELECT refunded_amount FROM payment_order WHERE id = 960403", BigDecimal.class))
+                        "SELECT refunded_amount FROM payment_order WHERE id = 970403", BigDecimal.class))
                 .isEqualByComparingTo("5.00");
-        assertThat(gateway.createTokens).contains("PAY960400", "PAY960401");
+        assertThat(gateway.createTokens).contains("PAY970400", "PAY970401");
         assertThat(gateway.refundTokens).containsExactly("tenant-two-refund");
         assertThat(jdbcTemplate.queryForObject(
                         "SELECT COUNT(*) FROM audit_log WHERE event_type = 'PAYMENT_REFUNDED'", Long.class))
@@ -331,21 +395,21 @@ class PaymentMySqlContainerIntegrationTest {
     }
 
     @Test
-    void terminalRefundFailureReleasesReservedAmount() {
-        allowOrder(960_020L, 1L);
-        paymentOrderRepository.saveAndFlush(paidPayment(960_410L, 960_020L, "PAY960410", 1L, BigDecimal.ZERO));
+    void terminalRefundReleasesReservedAmount() {
+        allowOrder(970_030L, 1L);
+        paymentOrderRepository.saveAndFlush(paidPayment(970_410L, 970_030L, "PAY970410", 1L, BigDecimal.ZERO));
         gateway.refundFailure = PaymentGatewayException.rejected("REFUND_DECLINED", "raw decline");
 
         Throwable failure = catchThrowable(() -> service.refund(
                 USER,
-                new PaymentRefundRequestDto("PAY960410", new BigDecimal("30.00"), "declined"),
+                new PaymentRefundRequestDto("PAY970410", new BigDecimal("30.00"), "declined"),
                 "terminal-refund"));
 
         assertThat(failure).isInstanceOf(PaymentGatewayException.class);
         assertThat(jdbcTemplate.queryForMap("""
                         SELECT status, operation_state, terminal_failure_code, lease_expires_at
                         FROM payment_ledger
-                        WHERE payment_id = 960410 AND request_key = 'terminal-refund'
+                        WHERE payment_id = 970410 AND request_key = 'terminal-refund'
                         """))
                 .containsEntry("status", "FAILED")
                 .containsEntry("operation_state", "TERMINAL_FAILED")
@@ -354,32 +418,32 @@ class PaymentMySqlContainerIntegrationTest {
         assertThat(jdbcTemplate.queryForObject("""
                         SELECT COALESCE(SUM(amount), 0)
                         FROM payment_ledger
-                        WHERE payment_id = 960410 AND ledger_type = 'REFUND' AND status = 'ACCEPTED'
+                        WHERE payment_id = 970410 AND ledger_type = 'REFUND' AND status = 'ACCEPTED'
                         """, BigDecimal.class)).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(jdbcTemplate.queryForObject(
-                        "SELECT refunded_amount FROM payment_order WHERE id = 960410", BigDecimal.class))
+                        "SELECT refunded_amount FROM payment_order WHERE id = 970410", BigDecimal.class))
                 .isEqualByComparingTo(BigDecimal.ZERO);
-        assertThat(gateway.refundTokens).containsExactly("PAY960410:refund:960100");
+        assertThat(gateway.refundTokens).containsExactly("PAY970410:refund:970100");
     }
 
     @Test
-    void auditInsertRollbackReplaysOnceWithoutDuplicatingRefundSideEffects() {
-        allowOrder(960_021L, 1L);
-        paymentOrderRepository.saveAndFlush(paidPayment(960_420L, 960_021L, "PAY960420", 1L, BigDecimal.ZERO));
+    void auditInsertRollbackReplaysExactlyOnceWithoutDuplicateRefund() {
+        allowOrder(970_031L, 1L);
+        paymentOrderRepository.saveAndFlush(paidPayment(970_420L, 970_031L, "PAY970420", 1L, BigDecimal.ZERO));
         FailAfterInsertAuditService auditService = new FailAfterInsertAuditService(auditLogRepository);
         service = applicationService(gateway, auditService);
-        PaymentRefundRequestDto request = new PaymentRefundRequestDto("PAY960420", new BigDecimal("30.00"), "accepted");
+        PaymentRefundRequestDto request = new PaymentRefundRequestDto("PAY970420", new BigDecimal("30.00"), "accepted");
 
         service.refund(USER, request, "audit-replay");
 
         assertThat(jdbcTemplate.queryForObject(
-                        "SELECT refunded_amount FROM payment_order WHERE id = 960420", BigDecimal.class))
+                        "SELECT refunded_amount FROM payment_order WHERE id = 970420", BigDecimal.class))
                 .isEqualByComparingTo("30.00");
         assertThat(jdbcTemplate.queryForMap("""
                         SELECT status, operation_state, attempt_count, audit_state,
                                response_refunded_amount, response_payment_status, response_ledger_status
                         FROM payment_ledger
-                        WHERE payment_id = 960420 AND request_key = 'audit-replay'
+                        WHERE payment_id = 970420 AND request_key = 'audit-replay'
                         """))
                 .containsEntry("status", "SUCCESS")
                 .containsEntry("operation_state", "COMPLETED")
@@ -394,102 +458,78 @@ class PaymentMySqlContainerIntegrationTest {
         service.recoverExpiredOperations();
 
         assertThat(jdbcTemplate.queryForObject(
-                        "SELECT audit_state FROM payment_ledger WHERE payment_id = 960420 AND request_key = 'audit-replay'",
+                        "SELECT audit_state FROM payment_ledger WHERE payment_id = 970420 AND request_key = 'audit-replay'",
                         String.class))
                 .isEqualTo("DELIVERED");
         assertThat(jdbcTemplate.queryForObject(
-                        "SELECT refunded_amount FROM payment_order WHERE id = 960420", BigDecimal.class))
+                        "SELECT refunded_amount FROM payment_order WHERE id = 970420", BigDecimal.class))
                 .isEqualByComparingTo("30.00");
         assertThat(jdbcTemplate.queryForObject("""
                         SELECT COUNT(*)
                         FROM payment_ledger
-                        WHERE payment_id = 960420 AND request_key = 'audit-replay'
+                        WHERE payment_id = 970420 AND request_key = 'audit-replay'
                           AND status = 'SUCCESS' AND amount = 30.00
                         """, Long.class)).isEqualTo(1L);
         assertThat(jdbcTemplate.queryForObject(
                         "SELECT COUNT(*) FROM audit_log WHERE event_type = 'PAYMENT_REFUNDED'", Long.class))
                 .isEqualTo(1L);
-        assertThat(gateway.refundTokens).containsExactly("PAY960420:refund:960100");
+        assertThat(gateway.refundTokens).containsExactly("PAY970420:refund:970100");
         assertThat(auditService.deliveryAttempts()).isEqualTo(2);
     }
 
-    @Test
-    void v50FixtureBlocksDuplicatesThenBackfillsLegacyRowsThroughV51() throws Exception {
-        String schema = "task4_v50_fixture";
-        String fixtureUser = "root";
-        String fixturePassword = MYSQL.getPassword();
-        JdbcTemplate rootJdbc =
-                new JdbcTemplate(new DriverManagerDataSource(MYSQL.getJdbcUrl(), fixtureUser, fixturePassword));
-        rootJdbc.execute("DROP DATABASE IF EXISTS " + schema);
-        rootJdbc.execute("CREATE DATABASE " + schema);
-        String fixtureUrl = MYSQL.getJdbcUrl().replace(MYSQL.getDatabaseName(), schema);
-        Flyway flyway = Flyway.configure()
-                .dataSource(fixtureUrl, fixtureUser, fixturePassword)
-                .target(MigrationVersion.fromVersion("50"))
-                .load();
-        flyway.migrate();
-        try (Connection connection = DriverManager.getConnection(fixtureUrl, fixtureUser, fixturePassword)) {
-            ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/fixtures/payment_v50_task4_review.sql"));
+    private void assertStalePaymentWorkerCannotOverwriteNewerAttempt(
+            RuntimeException staleFailure, long paymentId, long orderId, String paymentNo) throws Exception {
+        allowOrder(orderId, 1L);
+        paymentOrderRepository.saveAndFlush(reservedPayment(
+                paymentId,
+                orderId,
+                paymentNo,
+                "stale-" + paymentId,
+                1L,
+                LocalDateTime.now().minusMinutes(1)));
+        TwoWorkerGateway twoWorkerGateway = new TwoWorkerGateway(staleFailure);
+        PaymentApplicationService recoveryService = applicationService(twoWorkerGateway, mock(AuditService.class));
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<Integer> staleWorker = executor.submit(recoveryService::recoverExpiredOperations);
+            twoWorkerGateway.awaitFirstCreate();
+            jdbcTemplate.update(
+                    "UPDATE payment_order SET lease_expires_at = ? WHERE id = ?",
+                    LocalDateTime.now().minusMinutes(1),
+                    paymentId);
+            Future<Integer> newWorker = executor.submit(recoveryService::recoverExpiredOperations);
+            twoWorkerGateway.awaitSecondCreate();
+
+            twoWorkerGateway.releaseFirstCreate();
+            assertThat(staleWorker.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+            assertThat(jdbcTemplate.queryForMap("""
+                            SELECT status, operation_state, attempt_count,
+                                   last_failure_classification, terminal_failure_code
+                            FROM payment_order WHERE id = ?
+                            """, paymentId))
+                    .containsEntry("status", "PENDING")
+                    .containsEntry("operation_state", "RESERVED")
+                    .containsEntry("attempt_count", 3)
+                    .containsEntry("last_failure_classification", "NONE")
+                    .containsEntry("terminal_failure_code", null);
+
+            twoWorkerGateway.releaseSecondCreate();
+            assertThat(newWorker.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+        } finally {
+            twoWorkerGateway.releaseFirstCreate();
+            twoWorkerGateway.releaseSecondCreate();
+            executor.shutdownNow();
         }
 
-        Flyway latest = Flyway.configure()
-                .dataSource(fixtureUrl, fixtureUser, fixturePassword)
-                .load();
-        Throwable blocked = catchThrowable(latest::migrate);
-        assertThat(causeMessages(blocked)).contains("ck_v51_resolve_duplicate_active_payment_intents");
-
-        JdbcTemplate fixtureJdbc =
-                new JdbcTemplate(new DriverManagerDataSource(fixtureUrl, fixtureUser, fixturePassword));
-        fixtureJdbc.update("DELETE FROM payment_order WHERE id = 905102");
-        latest.repair();
-        latest.migrate();
-
-        Map<String, Object> payment = fixtureJdbc.queryForMap("""
-                SELECT operation_state, attempt_count, lease_expires_at, last_failure_classification,
-                       request_fingerprint, response_paid_amount, response_refunded_amount,
-                       response_status, response_provider_trade_no, response_paid_at
-                FROM payment_order WHERE id = 905103
-                """);
-        assertThat(payment.get("operation_state")).isEqualTo("LEGACY_UNREPLAYABLE");
-        assertThat(((Number) payment.get("attempt_count")).intValue()).isZero();
-        assertThat(payment.get("lease_expires_at")).isNull();
-        assertThat(payment.get("last_failure_classification")).isEqualTo("LEGACY_UNKNOWN");
-        assertThat(payment.get("request_fingerprint").toString()).hasSize(64);
-        assertThat(payment.get("response_paid_amount")).isNull();
-        assertThat(payment.get("response_refunded_amount")).isNull();
-        assertThat(payment.get("response_status")).isNull();
-        assertThat(payment.get("response_provider_trade_no")).isNull();
-        assertThat(payment.get("response_paid_at")).isNull();
-
-        Map<String, Object> refund = fixtureJdbc.queryForMap("""
-                SELECT operation_state, attempt_count, lease_expires_at, last_failure_classification,
-                       request_fingerprint, response_refunded_amount, response_payment_status,
-                       response_ledger_status, audit_state, audit_event_type, audit_actor_user_id,
-                       audit_actor_role, audit_source_ip, audit_include_owner, audit_detail
-                FROM payment_ledger WHERE id = 905104
-                """);
-        assertThat(refund.get("operation_state")).isEqualTo("LEGACY_UNREPLAYABLE");
-        assertThat(((Number) refund.get("attempt_count")).intValue()).isZero();
-        assertThat(refund.get("lease_expires_at")).isNull();
-        assertThat(refund.get("last_failure_classification")).isEqualTo("LEGACY_UNKNOWN");
-        assertThat(refund.get("request_fingerprint")).isNull();
-        assertThat(refund.get("response_refunded_amount")).isNull();
-        assertThat(refund.get("response_payment_status")).isNull();
-        assertThat(refund.get("response_ledger_status")).isNull();
-        assertThat(refund.get("audit_state")).isEqualTo("NONE");
-        assertThat(refund.get("audit_event_type")).isNull();
-        assertThat(refund.get("audit_actor_user_id")).isNull();
-        assertThat(refund.get("audit_actor_role")).isNull();
-        assertThat(refund.get("audit_source_ip")).isNull();
-        assertThat(((Number) refund.get("audit_include_owner")).intValue()).isZero();
-        assertThat(refund.get("audit_detail")).isNull();
+        assertThat(jdbcTemplate.queryForMap(
+                        "SELECT operation_state, attempt_count FROM payment_order WHERE id = ?", paymentId))
+                .containsEntry("operation_state", "COMPLETED")
+                .containsEntry("attempt_count", 3);
+        assertThat(twoWorkerGateway.createCalls()).isEqualTo(2);
     }
 
-    private PaymentApplicationService applicationService(RecordingGateway paymentGateway) {
-        return applicationService(paymentGateway, mock(AuditService.class));
-    }
-
-    private PaymentApplicationService applicationService(RecordingGateway paymentGateway, AuditService auditService) {
+    private PaymentApplicationService applicationService(PaymentGateway paymentGateway, AuditService auditService) {
         OrderStore orderStore = mock(OrderStore.class);
         when(orderStore.findVisibleByIdAndUserId(anyLong(), anyLong())).thenAnswer(invocation -> {
             OrderRecord order = visibleOrders.get(invocation.getArgument(0, Long.class));
@@ -517,8 +557,10 @@ class PaymentMySqlContainerIntegrationTest {
                 Clock.systemDefaultZone(),
                 Duration.ofHours(24),
                 Duration.ofMinutes(5),
+                Duration.ofMinutes(2),
+                Duration.ofSeconds(30),
                 new BigDecimal("5000.00"),
-                "testcontainers-secret");
+                "local-mysql-acceptance-secret");
     }
 
     private void allowOrder(Long orderId, Long tenantId) {
@@ -533,53 +575,9 @@ class PaymentMySqlContainerIntegrationTest {
         visibleOrders.put(orderId, order(orderId));
     }
 
-    private PaymentResponseDto create(Long orderId, String key) {
-        return service.createPayment(USER, new PaymentCreateRequestDto(orderId, PaymentMethod.WECHAT, null, null), key);
-    }
-
-    private int recoverAfter(CountDownLatch start) throws Exception {
+    private static int recoverAfter(CountDownLatch start, PaymentApplicationService service) throws Exception {
         start.await(10, TimeUnit.SECONDS);
         return service.recoverExpiredOperations();
-    }
-
-    private void resetPayments() {
-        jdbcTemplate.update("DELETE FROM payment_ledger");
-        jdbcTemplate.update("DELETE FROM payment_order");
-    }
-
-    private static List<Object> invokeConcurrently(List<Callable<PaymentResponseDto>> calls) throws Exception {
-        CountDownLatch start = new CountDownLatch(1);
-        ExecutorService executor = Executors.newFixedThreadPool(calls.size());
-        try {
-            List<Future<Object>> futures = new ArrayList<>();
-            for (Callable<PaymentResponseDto> call : calls) {
-                futures.add(executor.submit(() -> {
-                    start.await(5, TimeUnit.SECONDS);
-                    try {
-                        return call.call();
-                    } catch (RuntimeException exception) {
-                        return exception;
-                    }
-                }));
-            }
-            start.countDown();
-            List<Object> outcomes = new ArrayList<>();
-            for (Future<Object> future : futures) {
-                outcomes.add(future.get(15, TimeUnit.SECONDS));
-            }
-            return outcomes;
-        } finally {
-            executor.shutdownNow();
-        }
-    }
-
-    private static void assertOneSuccessAndOneConflict(List<Object> outcomes) {
-        assertThat(outcomes.stream().filter(PaymentResponseDto.class::isInstance))
-                .hasSize(1);
-        assertThat(outcomes.stream().filter(BusinessException.class::isInstance).map(BusinessException.class::cast))
-                .singleElement()
-                .extracting(BusinessException::errorCode)
-                .isEqualTo(ErrorCode.CONFLICT);
     }
 
     private static OrderRecord order(Long orderId) {
@@ -603,8 +601,13 @@ class PaymentMySqlContainerIntegrationTest {
                 false);
     }
 
-    private static PaymentOrderEntity expiredPayment(
-            Long id, Long orderId, String paymentNo, String idempotencyKey, Long tenantId) {
+    private static PaymentOrderEntity reservedPayment(
+            Long id,
+            Long orderId,
+            String paymentNo,
+            String idempotencyKey,
+            Long tenantId,
+            LocalDateTime leaseExpiresAt) {
         LocalDateTime now = LocalDateTime.now();
         PaymentOrderEntity entity = new PaymentOrderEntity();
         entity.setId(id);
@@ -621,7 +624,7 @@ class PaymentMySqlContainerIntegrationTest {
         entity.setRequestFingerprint("a".repeat(64));
         entity.setOperationState(PaymentOperationState.RESERVED);
         entity.setAttemptCount(1);
-        entity.setLeaseExpiresAt(now.minusMinutes(1));
+        entity.setLeaseExpiresAt(leaseExpiresAt);
         entity.setLastFailureClassification(PaymentFailureClassification.NONE);
         entity.setMerchantToken(paymentNo);
         entity.setCreateTime(now.minusMinutes(5));
@@ -631,7 +634,13 @@ class PaymentMySqlContainerIntegrationTest {
 
     private static PaymentOrderEntity paidPayment(
             Long id, Long orderId, String paymentNo, Long tenantId, BigDecimal refundedAmount) {
-        PaymentOrderEntity entity = expiredPayment(id, orderId, paymentNo, "paid-" + id, tenantId);
+        PaymentOrderEntity entity = reservedPayment(
+                id,
+                orderId,
+                paymentNo,
+                "paid-" + id,
+                tenantId,
+                LocalDateTime.now().minusMinutes(1));
         LocalDateTime paidAt = LocalDateTime.now().minusMinutes(10);
         entity.setPaidAmount(new BigDecimal("100.00"));
         entity.setRefundedAmount(refundedAmount);
@@ -698,6 +707,14 @@ class PaymentMySqlContainerIntegrationTest {
         return entity;
     }
 
+    private static String requiredProperty(String name) {
+        String value = System.getProperty(name);
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException("Missing required system property " + name);
+        }
+        return value;
+    }
+
     private static String causeMessages(Throwable failure) {
         StringBuilder messages = new StringBuilder();
         for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
@@ -707,25 +724,17 @@ class PaymentMySqlContainerIntegrationTest {
     }
 
     private static final class RecordingGateway implements PaymentGateway {
+
         private final List<String> createTokens = new CopyOnWriteArrayList<>();
         private final List<String> refundTokens = new CopyOnWriteArrayList<>();
-        private Runnable createObserver = () -> {};
         private String failedCreatePaymentNo;
         private RuntimeException refundFailure;
-        private final AtomicInteger coordinatedCreates = new AtomicInteger();
-        private CountDownLatch firstCreateEntered;
-        private CountDownLatch releaseFirstCreate;
 
         @Override
         public PaymentGatewayResult create(PaymentOrder payment, String merchantToken) {
             createTokens.add(merchantToken);
-            createObserver.run();
             if (payment.paymentNo().equals(failedCreatePaymentNo)) {
                 throw new IllegalStateException("tenant one gateway failed");
-            }
-            if (firstCreateEntered != null && coordinatedCreates.incrementAndGet() == 1) {
-                firstCreateEntered.countDown();
-                await(releaseFirstCreate, "release first MySQL create");
             }
             return new PaymentGatewayResult(
                     PaymentStatus.PENDING,
@@ -748,31 +757,112 @@ class PaymentMySqlContainerIntegrationTest {
             return new PaymentGatewayResult(
                     PaymentStatus.PARTIALLY_REFUNDED, "MYSQL-RF-" + merchantToken, null, amount);
         }
+    }
 
-        private void blockFirstCreate() {
-            firstCreateEntered = new CountDownLatch(1);
-            releaseFirstCreate = new CountDownLatch(1);
+    private static final class BlockingGateway implements PaymentGateway {
+
+        private final AtomicInteger createCalls = new AtomicInteger();
+        private final CountDownLatch createEntered = new CountDownLatch(1);
+        private final CountDownLatch releaseCreate = new CountDownLatch(1);
+
+        @Override
+        public PaymentGatewayResult create(PaymentOrder payment, String merchantToken) {
+            createCalls.incrementAndGet();
+            createEntered.countDown();
+            await(releaseCreate, "release local MySQL create");
+            return new PaymentGatewayResult(
+                    PaymentStatus.PENDING,
+                    "MYSQL-" + merchantToken,
+                    "/mysql/payments/" + payment.paymentNo(),
+                    payment.amount());
+        }
+
+        @Override
+        public PaymentGatewayResult query(PaymentOrder payment) {
+            return new PaymentGatewayResult(PaymentStatus.PENDING, null, null, payment.amount());
+        }
+
+        @Override
+        public PaymentGatewayResult refund(PaymentOrder payment, BigDecimal amount, String merchantToken) {
+            return new PaymentGatewayResult(
+                    PaymentStatus.PARTIALLY_REFUNDED, "MYSQL-RF-" + merchantToken, null, amount);
+        }
+
+        private void awaitCreate() {
+            await(createEntered, "local MySQL create");
+        }
+
+        private void releaseCreate() {
+            releaseCreate.countDown();
+        }
+
+        private int createCalls() {
+            return createCalls.get();
+        }
+    }
+
+    private static final class TwoWorkerGateway implements PaymentGateway {
+
+        private final RuntimeException firstFailure;
+        private final AtomicInteger createCalls = new AtomicInteger();
+        private final CountDownLatch firstCreateEntered = new CountDownLatch(1);
+        private final CountDownLatch releaseFirstCreate = new CountDownLatch(1);
+        private final CountDownLatch secondCreateEntered = new CountDownLatch(1);
+        private final CountDownLatch releaseSecondCreate = new CountDownLatch(1);
+
+        private TwoWorkerGateway(RuntimeException firstFailure) {
+            this.firstFailure = firstFailure;
+        }
+
+        @Override
+        public PaymentGatewayResult create(PaymentOrder payment, String merchantToken) {
+            int call = createCalls.incrementAndGet();
+            if (call == 1) {
+                firstCreateEntered.countDown();
+                await(releaseFirstCreate, "release stale local MySQL create");
+                if (firstFailure != null) {
+                    throw firstFailure;
+                }
+            } else if (call == 2) {
+                secondCreateEntered.countDown();
+                await(releaseSecondCreate, "release new local MySQL create");
+            }
+            return new PaymentGatewayResult(
+                    PaymentStatus.PENDING,
+                    "MYSQL-" + merchantToken,
+                    "/mysql/payments/" + payment.paymentNo(),
+                    payment.amount());
+        }
+
+        @Override
+        public PaymentGatewayResult query(PaymentOrder payment) {
+            return new PaymentGatewayResult(PaymentStatus.PENDING, null, null, payment.amount());
+        }
+
+        @Override
+        public PaymentGatewayResult refund(PaymentOrder payment, BigDecimal amount, String merchantToken) {
+            return new PaymentGatewayResult(
+                    PaymentStatus.PARTIALLY_REFUNDED, "MYSQL-RF-" + merchantToken, null, amount);
         }
 
         private void awaitFirstCreate() {
-            await(firstCreateEntered, "first MySQL create");
+            await(firstCreateEntered, "stale local MySQL create");
+        }
+
+        private void awaitSecondCreate() {
+            await(secondCreateEntered, "new local MySQL create");
         }
 
         private void releaseFirstCreate() {
-            if (releaseFirstCreate != null) {
-                releaseFirstCreate.countDown();
-            }
+            releaseFirstCreate.countDown();
         }
 
-        private static void await(CountDownLatch latch, String description) {
-            try {
-                if (latch == null || !latch.await(10, TimeUnit.SECONDS)) {
-                    throw new AssertionError("Timed out waiting for " + description);
-                }
-            } catch (InterruptedException exception) {
-                Thread.currentThread().interrupt();
-                throw new AssertionError("Interrupted waiting for " + description, exception);
-            }
+        private void releaseSecondCreate() {
+            releaseSecondCreate.countDown();
+        }
+
+        private int createCalls() {
+            return createCalls.get();
         }
     }
 
@@ -804,6 +894,17 @@ class PaymentMySqlContainerIntegrationTest {
 
         private int deliveryAttempts() {
             return deliveryAttempts.get();
+        }
+    }
+
+    private static void await(CountDownLatch latch, String description) {
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) {
+                throw new AssertionError("Timed out waiting for " + description);
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("Interrupted waiting for " + description, exception);
         }
     }
 }

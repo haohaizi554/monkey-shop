@@ -8,7 +8,23 @@ public record PaymentOperationAttempt(
         PaymentOperationState state,
         int attemptCount,
         LocalDateTime leaseExpiresAt,
-        PaymentFailureClassification lastFailure) {
+        PaymentFailureClassification lastFailure,
+        String terminalFailureCode) {
+
+    public PaymentOperationAttempt(
+            PaymentOperationState state,
+            int attemptCount,
+            LocalDateTime leaseExpiresAt,
+            PaymentFailureClassification lastFailure) {
+        this(
+                state,
+                attemptCount,
+                leaseExpiresAt,
+                lastFailure,
+                PaymentOperationState.TERMINAL_FAILED.equals(state)
+                        ? PaymentTerminalFailureCodes.GENERIC_PROVIDER_REJECTION
+                        : null);
+    }
 
     public PaymentOperationAttempt {
         Objects.requireNonNull(state, "state");
@@ -21,6 +37,11 @@ public record PaymentOperationAttempt(
         }
         if (!isRecoverable(state) && leaseExpiresAt != null) {
             throw new IllegalArgumentException("terminal payment operations must not retain a lease");
+        }
+        if (PaymentOperationState.TERMINAL_FAILED.equals(state)) {
+            terminalFailureCode = PaymentTerminalFailureCodes.requireWhitelisted(terminalFailureCode);
+        } else if (terminalFailureCode != null) {
+            throw new IllegalArgumentException("non-terminal payment operations must not retain a failure code");
         }
     }
 
@@ -49,6 +70,9 @@ public record PaymentOperationAttempt(
         if (!isRecoverable()) {
             throw new IllegalStateException("only recoverable payment operations can be claimed");
         }
+        if (!isClaimableAt(now)) {
+            throw new IllegalStateException("payment operation lease has not expired");
+        }
         return new PaymentOperationAttempt(
                 PaymentOperationState.RESERVED,
                 attemptCount + 1,
@@ -61,8 +85,17 @@ public record PaymentOperationAttempt(
     }
 
     public PaymentOperationAttempt terminal(PaymentFailureClassification failure) {
+        PaymentFailureClassification requiredFailure = Objects.requireNonNull(failure, "failure");
+        return terminal(requiredFailure, PaymentTerminalFailureCodes.GENERIC_PROVIDER_REJECTION);
+    }
+
+    public PaymentOperationAttempt terminal(PaymentFailureClassification failure, String failureCode) {
         return new PaymentOperationAttempt(
-                PaymentOperationState.TERMINAL_FAILED, attemptCount, null, Objects.requireNonNull(failure, "failure"));
+                PaymentOperationState.TERMINAL_FAILED,
+                attemptCount,
+                null,
+                Objects.requireNonNull(failure, "failure"),
+                Objects.requireNonNull(failureCode, "failureCode"));
     }
 
     public boolean isRecoverable() {
@@ -71,6 +104,10 @@ public record PaymentOperationAttempt(
 
     public boolean isExpired(LocalDateTime now) {
         return isRecoverable() && !leaseExpiresAt.isAfter(requireNow(now));
+    }
+
+    public boolean isClaimableAt(LocalDateTime now) {
+        return isExpired(now);
     }
 
     private static boolean isRecoverable(PaymentOperationState state) {

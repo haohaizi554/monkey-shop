@@ -1,6 +1,7 @@
 package com.example.monkey.payment.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -34,11 +35,23 @@ class PaymentOperationAttemptTest {
             assertThat(completed.leaseExpiresAt()).isNull();
             assertThat(completed.lastFailure()).isEqualTo(PaymentFailureClassification.TIMEOUT_UNKNOWN);
         });
-        assertThat(claimed.terminal(PaymentFailureClassification.PROVIDER_REJECTED))
+        assertThat(claimed.terminal(PaymentFailureClassification.PROVIDER_REJECTED, "CARD_DECLINED"))
                 .satisfies(terminal -> {
                     assertThat(terminal.state()).isEqualTo(PaymentOperationState.TERMINAL_FAILED);
                     assertThat(terminal.leaseExpiresAt()).isNull();
                     assertThat(terminal.lastFailure()).isEqualTo(PaymentFailureClassification.PROVIDER_REJECTED);
+                    assertThat(terminal.terminalFailureCode()).isEqualTo("CARD_DECLINED");
                 });
+    }
+
+    @Test
+    void unexpiredAttemptCannotBeClaimedAgain() {
+        PaymentOperationAttempt initial = PaymentOperationAttempt.initial(NOW, LEASE);
+
+        assertThat(initial.isClaimableAt(NOW.plusSeconds(30))).isFalse();
+        assertThatThrownBy(() -> initial.claim(NOW.plusSeconds(30), LEASE))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("lease");
+        assertThat(initial.isClaimableAt(NOW.plus(LEASE))).isTrue();
     }
 }

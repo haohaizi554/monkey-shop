@@ -23,6 +23,7 @@ import com.example.monkey.payment.domain.RefundResponseSnapshot;
 import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
 import jakarta.persistence.LockModeType;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -93,6 +94,27 @@ class JpaPaymentStoreTest {
     }
 
     @Test
+    void savePaymentRoundTripsTerminalFailureCode() {
+        when(paymentOrderRepository.saveAndFlush(any(PaymentOrderEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        PaymentRequestFingerprint fingerprint =
+                PaymentRequestFingerprint.of(10L, PaymentMethod.BANK_CARD, new BigDecimal("100.00"), "CNY");
+        PaymentOperationAttempt terminal = PaymentOperationAttempt.initial(
+                        LocalDateTime.parse("2026-07-04T08:00:00"), Duration.ofMinutes(2))
+                .terminal(PaymentFailureClassification.PROVIDER_REJECTED, "CARD_DECLINED");
+
+        var saved = store.savePayment(
+                bankCardPayment().fail(LocalDateTime.parse("2026-07-04T08:01:00")),
+                fingerprint.value(),
+                terminal,
+                "PAY100",
+                null);
+
+        assertThat(captureFlushedPayment().getTerminalFailureCode()).isEqualTo("CARD_DECLINED");
+        assertThat(saved.operation().terminalFailureCode()).isEqualTo("CARD_DECLINED");
+    }
+
+    @Test
     void saveLedgerMapsRefundLedgerWithoutCrossingDomainBoundary() {
         when(paymentLedgerRepository.save(any(PaymentLedgerEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -143,6 +165,39 @@ class JpaPaymentStoreTest {
                         .pending("amount=30.00,status=PARTIALLY_REFUNDED"));
 
         assertThat(captureLedger().getRequestFingerprint()).isEqualTo(fingerprint.value());
+    }
+
+    @Test
+    void saveRefundRoundTripsTerminalFailureCode() {
+        when(paymentLedgerRepository.save(any(PaymentLedgerEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        PaymentRequestFingerprint fingerprint =
+                PaymentRequestFingerprint.ofRefund(100L, new BigDecimal("30.00"), "damaged item");
+        PaymentOperationAttempt terminal = PaymentOperationAttempt.initial(
+                        LocalDateTime.parse("2026-07-04T09:00:00"), Duration.ofMinutes(2))
+                .terminal(PaymentFailureClassification.PROVIDER_REJECTED, "REFUND_DECLINED");
+        PaymentLedgerEntry ledger = new PaymentLedgerEntry(
+                200L,
+                100L,
+                10L,
+                42L,
+                PaymentLedgerType.REFUND,
+                new BigDecimal("30.00"),
+                PaymentLedgerStatus.FAILED,
+                "refund-key",
+                null,
+                LocalDateTime.parse("2026-07-04T09:00:00"));
+
+        var saved = store.saveLedger(
+                ledger,
+                fingerprint.value(),
+                terminal,
+                "PAY100:refund:200",
+                null,
+                RefundAuditIntent.waiting("PAYMENT_REFUNDED", 42L, "CUSTOMER", null, false));
+
+        assertThat(captureLedger().getTerminalFailureCode()).isEqualTo("REFUND_DECLINED");
+        assertThat(saved.operation().terminalFailureCode()).isEqualTo("REFUND_DECLINED");
     }
 
     @Test

@@ -26,6 +26,7 @@ import com.example.monkey.payment.domain.PaymentOperationAttempt;
 import com.example.monkey.payment.domain.PaymentOperationState;
 import com.example.monkey.payment.domain.PaymentOrder;
 import com.example.monkey.payment.domain.PaymentReconciliationReport;
+import com.example.monkey.payment.domain.PaymentRecoveryTenantSource;
 import com.example.monkey.payment.domain.PaymentRequestFingerprint;
 import com.example.monkey.payment.domain.PaymentResponseSnapshot;
 import com.example.monkey.payment.domain.PaymentStatus;
@@ -38,6 +39,7 @@ import com.example.monkey.payment.domain.RefundAuditState;
 import com.example.monkey.payment.domain.RefundResponseSnapshot;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
@@ -66,6 +68,8 @@ import java.util.Set;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -77,9 +81,15 @@ import org.springframework.util.StringUtils;
 @Service
 public class PaymentApplicationService {
 
+    private static final Logger log = LoggerFactory.getLogger(PaymentApplicationService.class);
     private static final int QUERY_BATCH_SIZE = 100;
     private static final int MAX_IDEMPOTENCY_KEY_LENGTH = 128;
     private static final Pattern IDEMPOTENCY_KEY_PATTERN = Pattern.compile("[A-Za-z0-9._:-]+");
+    private static final List<Pattern> CONSTRAINT_TOKEN_PATTERNS = List.of(
+            Pattern.compile("(?i)\\bfor\\s+key\\s+'([^']+)'"),
+            Pattern.compile("(?i)\\bfor\\s+key\\s+`([^`]+)`"),
+            Pattern.compile("(?i)\\bfor\\s+key\\s+\"([^\"]+)\""),
+            Pattern.compile("(?i)\\bconstraint\\s*\\[\\s*([^\\]]+?)\\s*]"));
     private static final String CUSTOMER_ROLE = "CUSTOMER";
     private static final String SYSTEM_ROLE = "SYSTEM";
     private static final BigDecimal DEFAULT_HIGH_VALUE_THRESHOLD = BigDecimal.valueOf(5000);
@@ -97,6 +107,7 @@ public class PaymentApplicationService {
     private final IdGenerator idGenerator;
     private final AuditService auditService;
     private final PaymentTransactions paymentTransactions;
+    private final PaymentRecoveryTenantSource recoveryTenantSource;
     private final Clock clock;
     private final Duration callbackTtl;
     private final Duration queryAfter;
@@ -117,6 +128,7 @@ public class PaymentApplicationService {
             IdGenerator idGenerator,
             AuditService auditService,
             PaymentTransactions paymentTransactions,
+            PaymentRecoveryTenantSource recoveryTenantSource,
             @Value("${app.payment.callback-ttl:PT24H}") Duration callbackTtl,
             @Value("${app.payment.query-after:PT5M}") Duration queryAfter,
             @Value("${app.payment.operation-lease:PT2M}") Duration operationLease,
@@ -134,6 +146,7 @@ public class PaymentApplicationService {
                 idGenerator,
                 auditService,
                 paymentTransactions,
+                recoveryTenantSource,
                 Clock.systemDefaultZone(),
                 callbackTtl,
                 queryAfter,
@@ -170,6 +183,45 @@ public class PaymentApplicationService {
                 idGenerator,
                 auditService,
                 paymentTransactions,
+                PaymentRecoveryTenantSource.none(),
+                clock,
+                callbackTtl,
+                queryAfter,
+                Duration.ofMinutes(2),
+                Duration.ofSeconds(30),
+                highValueThreshold,
+                callbackSecret);
+    }
+
+    PaymentApplicationService(
+            PaymentStore paymentStore,
+            PaymentGateway paymentGateway,
+            PaymentCallbackReplayGuard callbackReplayGuard,
+            PaymentTransitionResolver transitionResolver,
+            OrderStore orderStore,
+            UserAccountStore userAccountStore,
+            UserMfaVerifier userMfaVerifier,
+            IdGenerator idGenerator,
+            AuditService auditService,
+            PaymentTransactions paymentTransactions,
+            PaymentRecoveryTenantSource recoveryTenantSource,
+            Clock clock,
+            Duration callbackTtl,
+            Duration queryAfter,
+            BigDecimal highValueThreshold,
+            String callbackSecret) {
+        this(
+                paymentStore,
+                paymentGateway,
+                callbackReplayGuard,
+                transitionResolver,
+                orderStore,
+                userAccountStore,
+                userMfaVerifier,
+                idGenerator,
+                auditService,
+                paymentTransactions,
+                recoveryTenantSource,
                 clock,
                 callbackTtl,
                 queryAfter,
@@ -197,6 +249,46 @@ public class PaymentApplicationService {
             Duration retryAfter,
             BigDecimal highValueThreshold,
             String callbackSecret) {
+        this(
+                paymentStore,
+                paymentGateway,
+                callbackReplayGuard,
+                transitionResolver,
+                orderStore,
+                userAccountStore,
+                userMfaVerifier,
+                idGenerator,
+                auditService,
+                paymentTransactions,
+                PaymentRecoveryTenantSource.none(),
+                clock,
+                callbackTtl,
+                queryAfter,
+                operationLease,
+                retryAfter,
+                highValueThreshold,
+                callbackSecret);
+    }
+
+    PaymentApplicationService(
+            PaymentStore paymentStore,
+            PaymentGateway paymentGateway,
+            PaymentCallbackReplayGuard callbackReplayGuard,
+            PaymentTransitionResolver transitionResolver,
+            OrderStore orderStore,
+            UserAccountStore userAccountStore,
+            UserMfaVerifier userMfaVerifier,
+            IdGenerator idGenerator,
+            AuditService auditService,
+            PaymentTransactions paymentTransactions,
+            PaymentRecoveryTenantSource recoveryTenantSource,
+            Clock clock,
+            Duration callbackTtl,
+            Duration queryAfter,
+            Duration operationLease,
+            Duration retryAfter,
+            BigDecimal highValueThreshold,
+            String callbackSecret) {
         this.paymentStore = paymentStore;
         this.paymentGateway = paymentGateway;
         this.callbackReplayGuard = callbackReplayGuard;
@@ -207,6 +299,7 @@ public class PaymentApplicationService {
         this.idGenerator = idGenerator;
         this.auditService = auditService;
         this.paymentTransactions = paymentTransactions;
+        this.recoveryTenantSource = recoveryTenantSource;
         this.clock = clock;
         this.callbackTtl = callbackTtl == null ? Duration.ofHours(24) : callbackTtl;
         this.queryAfter = queryAfter == null ? Duration.ofMinutes(5) : queryAfter;
@@ -229,18 +322,25 @@ public class PaymentApplicationService {
                 PaymentRequestFingerprint.of(order.id(), request.method(), amount, "CNY");
         PaymentStore.PaymentIntent existing = paymentTransactions.execute(
                 () -> paymentStore.findByUserIdAndIdempotencyKey(userId, key).orElse(null));
-        PaymentStore.PaymentIntent reservation;
+        PaymentReservation reservation;
         if (existing == null) {
             requireMfaForHighValue(userId, amount, request.totpCode());
             String cardNo = normalizedCardNo(request.method(), request.bankCardNo());
             reservation = reservePayment(userId, request, key, order, amount, cardNo, fingerprint);
         } else {
-            reservation = classifyPaymentIntent(existing, fingerprint);
+            reservation = PaymentReservation.requiresClaim(existing);
         }
-        if (PaymentOperationState.COMPLETED.equals(reservation.operationState())) {
-            return PaymentDtoAssembler.toResponse(reservation.payment(), reservation.responseSnapshot());
+        PaymentStore.PaymentIntent executionIntent = reservation.ownedByCaller()
+                ? reservation.intent()
+                : claimPaymentForExecution(reservation.intent(), fingerprint);
+        if (PaymentOperationState.COMPLETED.equals(executionIntent.operationState())) {
+            return PaymentDtoAssembler.toResponse(executionIntent.payment(), executionIntent.responseSnapshot());
         }
-        PaymentCompletion completion = executePaymentGateway(reservation, userId, key, fingerprint);
+        if (PaymentOperationState.TERMINAL_FAILED.equals(executionIntent.operationState())) {
+            throw PaymentGatewayException.terminalReplay(
+                    executionIntent.operation().terminalFailureCode());
+        }
+        PaymentCompletion completion = executePaymentGateway(executionIntent, userId, key, fingerprint);
         if (completion.completedNow()) {
             audit(
                     AuditService.PAYMENT_CREATED,
@@ -352,12 +452,33 @@ public class PaymentApplicationService {
             name = "payment-recover-expired-operations",
             lockAtMostFor = "${app.payment.recovery-lock-at-most-for:PT5M}")
     public void recoverExpiredOperationsScheduled() {
-        recoverExpiredOperations();
+        LocalDateTime recoveryTime = now();
+        for (Long tenantId : recoveryTenantSource.findTenantIdsReadyForRecovery(recoveryTime, QUERY_BATCH_SIZE)) {
+            if (tenantId == null || tenantId <= 0) {
+                continue;
+            }
+            Long previousTenantId = TenantContext.currentTenantId().orElse(null);
+            try {
+                TenantContext.setTenantId(tenantId);
+                recoverExpiredOperations(recoveryTime);
+            } catch (RuntimeException exception) {
+                log.error("Payment recovery failed for tenant {}", tenantId, exception);
+            } finally {
+                if (previousTenantId == null) {
+                    TenantContext.clear();
+                } else {
+                    TenantContext.setTenantId(previousTenantId);
+                }
+            }
+        }
     }
 
     public int recoverExpiredOperations() {
+        return recoverExpiredOperations(now());
+    }
+
+    private int recoverExpiredOperations(LocalDateTime recoveryTime) {
         int handled = 0;
-        LocalDateTime recoveryTime = now();
         for (PaymentStore.PaymentIntent candidate :
                 paymentStore.findExpiredPaymentOperations(recoveryTime, QUERY_BATCH_SIZE)) {
             PaymentStore.PaymentIntent claimed = claimExpiredPayment(candidate, recoveryTime);
@@ -476,7 +597,7 @@ public class PaymentApplicationService {
                 reconcileInternal(PaymentMethod.WECHAT, LocalDate.now(clock).minusDays(1), List.of()));
     }
 
-    private PaymentStore.PaymentIntent reservePayment(
+    private PaymentReservation reservePayment(
             Long userId,
             PaymentCreateRequestDto request,
             String key,
@@ -489,7 +610,7 @@ public class PaymentApplicationService {
                 PaymentStore.PaymentIntent existing =
                         paymentStore.findByUserIdAndIdempotencyKey(userId, key).orElse(null);
                 if (existing != null) {
-                    return classifyPaymentIntent(existing, fingerprint);
+                    return PaymentReservation.requiresClaim(existing);
                 }
                 if (paymentStore.findActiveByOrderId(order.id()).isPresent()) {
                     throw paymentConflict("Order already has an active payment intent");
@@ -514,28 +635,26 @@ public class PaymentApplicationService {
                         null,
                         createdAt,
                         createdAt);
-                return paymentStore.savePayment(
+                return PaymentReservation.owned(paymentStore.savePayment(
                         payment,
                         fingerprint.value(),
                         PaymentOperationAttempt.initial(createdAt, operationLease),
                         payment.paymentNo(),
-                        null);
+                        null));
             });
         } catch (DataIntegrityViolationException exception) {
             if (!causedByConstraint(exception, PAYMENT_RESERVATION_CONSTRAINTS)) {
                 throw exception;
             }
-            return paymentTransactions.execute(
-                    () -> classifyPaymentReservationWinner(userId, key, order.id(), fingerprint));
+            return paymentTransactions.execute(() -> findPaymentReservationWinner(userId, key, order.id()));
         }
     }
 
-    private PaymentStore.PaymentIntent classifyPaymentReservationWinner(
-            Long userId, String key, Long orderId, PaymentRequestFingerprint fingerprint) {
+    private PaymentReservation findPaymentReservationWinner(Long userId, String key, Long orderId) {
         PaymentStore.PaymentIntent winner =
                 paymentStore.findByUserIdAndIdempotencyKey(userId, key).orElse(null);
         if (winner != null) {
-            return classifyPaymentIntent(winner, fingerprint);
+            return PaymentReservation.requiresClaim(winner);
         }
         if (paymentStore.findActiveByOrderId(orderId).isPresent()) {
             throw paymentConflict("Order already has an active payment intent");
@@ -557,10 +676,47 @@ public class PaymentApplicationService {
         }
         if (!PaymentOperationState.RESERVED.equals(intent.operationState())
                 && !PaymentOperationState.RETRYABLE.equals(intent.operationState())
-                && !PaymentOperationState.COMPLETED.equals(intent.operationState())) {
+                && !PaymentOperationState.COMPLETED.equals(intent.operationState())
+                && !PaymentOperationState.TERMINAL_FAILED.equals(intent.operationState())) {
             throw paymentConflict("Payment intent has an invalid idempotency state");
         }
         return intent;
+    }
+
+    private PaymentStore.PaymentIntent claimPaymentForExecution(
+            PaymentStore.PaymentIntent existing, PaymentRequestFingerprint fingerprint) {
+        PaymentStore.PaymentIntent classified = classifyPaymentIntent(existing, fingerprint);
+        if (PaymentOperationState.COMPLETED.equals(classified.operationState())
+                || PaymentOperationState.TERMINAL_FAILED.equals(classified.operationState())) {
+            return classified;
+        }
+        LocalDateTime claimTime = now();
+        return paymentTransactions.execute(() -> paymentStore
+                .withLockedPayment(existing.payment().paymentNo(), ignored -> {
+                    PaymentStore.PaymentIntent latest = paymentStore
+                            .findByUserIdAndIdempotencyKey(
+                                    existing.payment().userId(),
+                                    existing.payment().idempotencyKey())
+                            .map(intent -> classifyPaymentIntent(intent, fingerprint))
+                            .filter(intent -> intent.payment()
+                                    .paymentNo()
+                                    .equals(existing.payment().paymentNo()))
+                            .orElseThrow(() -> paymentConflict("Payment intent reservation is missing"));
+                    if (PaymentOperationState.COMPLETED.equals(latest.operationState())
+                            || PaymentOperationState.TERMINAL_FAILED.equals(latest.operationState())) {
+                        return latest;
+                    }
+                    if (!latest.operation().isClaimableAt(claimTime)) {
+                        throw paymentConflict("Payment operation is already in progress");
+                    }
+                    return paymentStore.savePayment(
+                            latest.payment(),
+                            latest.requestFingerprint(),
+                            latest.operation().claim(claimTime, operationLease),
+                            latest.merchantToken(),
+                            latest.responseSnapshot());
+                })
+                .orElseThrow(() -> paymentConflict("Payment intent reservation is missing")));
     }
 
     private PaymentCompletion completePayment(
@@ -568,6 +724,7 @@ public class PaymentApplicationService {
             Long userId,
             String key,
             PaymentRequestFingerprint fingerprint,
+            int expectedAttempt,
             PaymentGatewayResult gatewayResult) {
         return paymentTransactions.execute(() -> paymentStore
                 .withLockedPayment(paymentNo, ignored -> {
@@ -578,6 +735,13 @@ public class PaymentApplicationService {
                             .orElseThrow(() -> paymentConflict("Payment intent reservation is missing"));
                     if (PaymentOperationState.COMPLETED.equals(latest.operationState())) {
                         return new PaymentCompletion(latest, false);
+                    }
+                    if (PaymentOperationState.TERMINAL_FAILED.equals(latest.operationState())) {
+                        throw PaymentGatewayException.terminalReplay(
+                                latest.operation().terminalFailureCode());
+                    }
+                    if (latest.operation().attemptCount() != expectedAttempt) {
+                        throw paymentConflict("Payment operation attempt is stale");
                     }
                     PaymentOrder completed =
                             latest.payment().withProviderTradeNo(gatewayResult.providerTradeNo(), now());
@@ -600,28 +764,37 @@ public class PaymentApplicationService {
         try {
             gatewayResult = paymentGateway.create(reservation.payment(), reservation.merchantToken());
         } catch (PaymentGatewayException exception) {
-            recordPaymentGatewayFailure(reservation, exception.classification(), exception.isTerminal());
-            throw exception;
+            String terminalFailureCode = exception.isTerminal() ? exception.providerCode() : null;
+            recordPaymentGatewayFailure(reservation, exception.classification(), terminalFailureCode);
+            throw exception.isTerminal() ? PaymentGatewayException.terminalReplay(terminalFailureCode) : exception;
         } catch (RuntimeException exception) {
-            recordPaymentGatewayFailure(reservation, PaymentFailureClassification.UNKNOWN, false);
+            recordPaymentGatewayFailure(reservation, PaymentFailureClassification.UNKNOWN, null);
             throw exception;
         }
         if (PaymentStatus.FAILED.equals(gatewayResult.status())) {
             PaymentGatewayException rejected =
                     PaymentGatewayException.rejected("Payment provider rejected the request");
-            recordPaymentGatewayFailure(reservation, rejected.classification(), true);
+            recordPaymentGatewayFailure(reservation, rejected.classification(), rejected.providerCode());
             throw rejected;
         }
         try {
-            return completePayment(reservation.payment().paymentNo(), userId, key, fingerprint, gatewayResult);
+            return completePayment(
+                    reservation.payment().paymentNo(),
+                    userId,
+                    key,
+                    fingerprint,
+                    reservation.operation().attemptCount(),
+                    gatewayResult);
         } catch (RuntimeException exception) {
-            recordPaymentGatewayFailure(reservation, PaymentFailureClassification.LOCAL_COMPLETION, false);
+            recordPaymentGatewayFailure(reservation, PaymentFailureClassification.LOCAL_COMPLETION, null);
             throw exception;
         }
     }
 
     private void recordPaymentGatewayFailure(
-            PaymentStore.PaymentIntent reservation, PaymentFailureClassification classification, boolean terminal) {
+            PaymentStore.PaymentIntent reservation,
+            PaymentFailureClassification classification,
+            String terminalFailureCode) {
         paymentTransactions.execute(() -> paymentStore
                 .withLockedPayment(reservation.payment().paymentNo(), ignored -> {
                     PaymentStore.PaymentIntent latest = paymentStore
@@ -632,14 +805,17 @@ public class PaymentApplicationService {
                     if (latest == null
                             || !latest.payment()
                                     .paymentNo()
-                                    .equals(reservation.payment().paymentNo())) {
+                                    .equals(reservation.payment().paymentNo())
+                            || latest.operation().attemptCount()
+                                    != reservation.operation().attemptCount()) {
                         return null;
                     }
                     if (!latest.operation().isRecoverable()) {
                         return latest;
                     }
+                    boolean terminal = terminalFailureCode != null;
                     PaymentOperationAttempt operation = terminal
-                            ? latest.operation().terminal(classification)
+                            ? latest.operation().terminal(classification, terminalFailureCode)
                             : latest.operation().retryable(classification, now().plus(retryAfter));
                     PaymentOrder payment = terminal
                                     && PaymentStatus.PENDING.equals(
@@ -668,6 +844,10 @@ public class PaymentApplicationService {
                     reservation.payment(),
                     reservation.refund().ledger(),
                     reservation.refund().responseSnapshot());
+        }
+        if (PaymentOperationState.TERMINAL_FAILED.equals(reservation.refund().operationState())) {
+            throw PaymentGatewayException.terminalReplay(
+                    reservation.refund().operation().terminalFailureCode());
         }
         RefundCompletion completion = executeRefundGateway(reservation, key, accessCheck);
         dispatchRefundAudit(completion.payment().paymentNo(), key);
@@ -712,7 +892,7 @@ public class PaymentApplicationService {
         PaymentStore.RefundRequest existing =
                 paymentStore.findRefundRequest(payment.id(), key).orElse(null);
         if (existing != null) {
-            return new RefundReservation(payment, classifyRefundRequest(existing, fingerprint), fingerprint);
+            return new RefundReservation(payment, claimRefundForExecution(existing, fingerprint), fingerprint);
         }
         BigDecimal amount = money(request.amount());
         BigDecimal reservedAmount = money(paymentStore.sumAcceptedRefundAmount(payment.id()));
@@ -756,7 +936,7 @@ public class PaymentApplicationService {
         PaymentStore.RefundRequest winner = paymentStore
                 .findRefundRequest(payment.id(), key)
                 .orElseThrow(() -> paymentConflict("Refund reservation conflicts with an existing request"));
-        return new RefundReservation(payment, classifyRefundRequest(winner, fingerprint), fingerprint);
+        return new RefundReservation(payment, claimRefundForExecution(winner, fingerprint), fingerprint);
     }
 
     private PaymentStore.RefundRequest classifyRefundRequest(
@@ -773,16 +953,38 @@ public class PaymentApplicationService {
         }
         if (!PaymentOperationState.RESERVED.equals(refund.operationState())
                 && !PaymentOperationState.RETRYABLE.equals(refund.operationState())
-                && !PaymentOperationState.COMPLETED.equals(refund.operationState())) {
+                && !PaymentOperationState.COMPLETED.equals(refund.operationState())
+                && !PaymentOperationState.TERMINAL_FAILED.equals(refund.operationState())) {
             throw paymentConflict("Refund reservation has an invalid idempotency state");
         }
         return refund;
+    }
+
+    private PaymentStore.RefundRequest claimRefundForExecution(
+            PaymentStore.RefundRequest refund, PaymentRequestFingerprint fingerprint) {
+        PaymentStore.RefundRequest classified = classifyRefundRequest(refund, fingerprint);
+        if (PaymentOperationState.COMPLETED.equals(classified.operationState())
+                || PaymentOperationState.TERMINAL_FAILED.equals(classified.operationState())) {
+            return classified;
+        }
+        LocalDateTime claimTime = now();
+        if (!classified.operation().isClaimableAt(claimTime)) {
+            throw paymentConflict("Refund operation is already in progress");
+        }
+        return paymentStore.saveLedger(
+                classified.ledger(),
+                classified.requestFingerprint(),
+                classified.operation().claim(claimTime, operationLease),
+                classified.merchantToken(),
+                classified.responseSnapshot(),
+                classified.auditIntent());
     }
 
     private RefundCompletion completeRefund(
             String paymentNo,
             String key,
             PaymentRequestFingerprint fingerprint,
+            int expectedAttempt,
             PaymentGatewayResult gatewayResult,
             Consumer<PaymentOrder> accessCheck) {
         return paymentTransactions.execute(() -> paymentStore
@@ -794,6 +996,13 @@ public class PaymentApplicationService {
                             .orElseThrow(() -> paymentConflict("Refund reservation is missing"));
                     if (PaymentOperationState.COMPLETED.equals(reserved.operationState())) {
                         return new RefundCompletion(payment, reserved, false);
+                    }
+                    if (PaymentOperationState.TERMINAL_FAILED.equals(reserved.operationState())) {
+                        throw PaymentGatewayException.terminalReplay(
+                                reserved.operation().terminalFailureCode());
+                    }
+                    if (reserved.operation().attemptCount() != expectedAttempt) {
+                        throw paymentConflict("Refund operation attempt is stale");
                     }
                     BigDecimal amount = reserved.ledger().amount();
                     if (amount.compareTo(payment.refundableAmount()) > 0) {
@@ -842,45 +1051,55 @@ public class PaymentApplicationService {
                     reservation.refund().ledger().amount(),
                     reservation.refund().merchantToken());
         } catch (PaymentGatewayException exception) {
-            recordRefundGatewayFailure(reservation, exception.classification(), exception.isTerminal());
-            throw exception;
+            String terminalFailureCode = exception.isTerminal() ? exception.providerCode() : null;
+            recordRefundGatewayFailure(reservation, exception.classification(), terminalFailureCode);
+            throw exception.isTerminal() ? PaymentGatewayException.terminalReplay(terminalFailureCode) : exception;
         } catch (RuntimeException exception) {
-            recordRefundGatewayFailure(reservation, PaymentFailureClassification.UNKNOWN, false);
+            recordRefundGatewayFailure(reservation, PaymentFailureClassification.UNKNOWN, null);
             throw exception;
         }
         if (PaymentStatus.FAILED.equals(gatewayResult.status())) {
             PaymentGatewayException rejected = PaymentGatewayException.rejected("Payment provider rejected the refund");
-            recordRefundGatewayFailure(reservation, rejected.classification(), true);
+            recordRefundGatewayFailure(reservation, rejected.classification(), rejected.providerCode());
             throw rejected;
         }
         if (PaymentStatus.PENDING.equals(gatewayResult.status())) {
             PaymentGatewayException unknown = new PaymentGatewayException(
                     PaymentFailureClassification.TIMEOUT_UNKNOWN, "Refund result is not yet known");
-            recordRefundGatewayFailure(reservation, unknown.classification(), false);
+            recordRefundGatewayFailure(reservation, unknown.classification(), null);
             throw unknown;
         }
         try {
             return completeRefund(
-                    reservation.payment().paymentNo(), key, reservation.fingerprint(), gatewayResult, accessCheck);
+                    reservation.payment().paymentNo(),
+                    key,
+                    reservation.fingerprint(),
+                    reservation.refund().operation().attemptCount(),
+                    gatewayResult,
+                    accessCheck);
         } catch (RuntimeException exception) {
-            recordRefundGatewayFailure(reservation, PaymentFailureClassification.LOCAL_COMPLETION, false);
+            recordRefundGatewayFailure(reservation, PaymentFailureClassification.LOCAL_COMPLETION, null);
             throw exception;
         }
     }
 
     private void recordRefundGatewayFailure(
-            RefundReservation reservation, PaymentFailureClassification classification, boolean terminal) {
+            RefundReservation reservation, PaymentFailureClassification classification, String terminalFailureCode) {
         paymentTransactions.execute(() -> paymentStore
                 .withLockedPayment(reservation.payment().paymentNo(), payment -> {
                     PaymentStore.RefundRequest latest = paymentStore
                             .findRefundRequest(
                                     payment.id(), reservation.refund().ledger().requestKey())
                             .orElse(null);
-                    if (latest == null || !latest.operation().isRecoverable()) {
+                    if (latest == null
+                            || latest.operation().attemptCount()
+                                    != reservation.refund().operation().attemptCount()
+                            || !latest.operation().isRecoverable()) {
                         return latest;
                     }
+                    boolean terminal = terminalFailureCode != null;
                     PaymentOperationAttempt operation = terminal
-                            ? latest.operation().terminal(classification)
+                            ? latest.operation().terminal(classification, terminalFailureCode)
                             : latest.operation().retryable(classification, now().plus(retryAfter));
                     PaymentLedgerEntry ledger =
                             terminal ? withLedgerStatus(latest.ledger(), PaymentLedgerStatus.FAILED) : latest.ledger();
@@ -965,10 +1184,7 @@ public class PaymentApplicationService {
                 return true;
             }
             String message = cause.getMessage();
-            if (message != null
-                    && expectedConstraints.stream()
-                            .anyMatch(constraint ->
-                                    message.toLowerCase(Locale.ROOT).contains(constraint))) {
+            if (message != null && containsExpectedConstraintToken(message, expectedConstraints)) {
                 return true;
             }
         }
@@ -979,11 +1195,26 @@ public class PaymentApplicationService {
         if (actual == null) {
             return false;
         }
-        String normalized = actual.toLowerCase(Locale.ROOT);
-        return expectedConstraints.stream()
-                .anyMatch(expected -> normalized.equals(expected)
-                        || normalized.endsWith("." + expected)
-                        || normalized.endsWith("`" + expected + "`"));
+        String normalized = actual.strip()
+                .replace("`", "")
+                .replace("\"", "")
+                .replace("'", "")
+                .toLowerCase(Locale.ROOT);
+        int qualifier = normalized.lastIndexOf('.');
+        String unqualified = qualifier < 0 ? normalized : normalized.substring(qualifier + 1);
+        return expectedConstraints.contains(unqualified);
+    }
+
+    private static boolean containsExpectedConstraintToken(String message, Set<String> expectedConstraints) {
+        for (Pattern pattern : CONSTRAINT_TOKEN_PATTERNS) {
+            var matcher = pattern.matcher(message);
+            while (matcher.find()) {
+                if (matchesConstraint(matcher.group(1), expectedConstraints)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private PaymentOrder confirmPayment(PaymentOrder payment, String providerTradeNo, String requestKey) {
@@ -1289,6 +1520,21 @@ public class PaymentApplicationService {
             String eventType, Long actorUserId, String actorRole, String sourceIp, boolean includeOwner) {}
 
     private record PaymentCompletion(PaymentStore.PaymentIntent intent, boolean completedNow) {}
+
+    private record PaymentReservation(PaymentStore.PaymentIntent intent, boolean ownedByCaller) {
+
+        private PaymentReservation {
+            Objects.requireNonNull(intent, "intent");
+        }
+
+        private static PaymentReservation owned(PaymentStore.PaymentIntent intent) {
+            return new PaymentReservation(intent, true);
+        }
+
+        private static PaymentReservation requiresClaim(PaymentStore.PaymentIntent intent) {
+            return new PaymentReservation(intent, false);
+        }
+    }
 
     private record RefundReservation(
             PaymentOrder payment, PaymentStore.RefundRequest refund, PaymentRequestFingerprint fingerprint) {}

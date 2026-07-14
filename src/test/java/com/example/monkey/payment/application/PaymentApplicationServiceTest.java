@@ -2,6 +2,7 @@ package com.example.monkey.payment.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
@@ -32,6 +33,7 @@ import com.example.monkey.payment.domain.PaymentOperationAttempt;
 import com.example.monkey.payment.domain.PaymentOperationState;
 import com.example.monkey.payment.domain.PaymentOrder;
 import com.example.monkey.payment.domain.PaymentReconciliationReport;
+import com.example.monkey.payment.domain.PaymentRecoveryTenantSource;
 import com.example.monkey.payment.domain.PaymentRequestFingerprint;
 import com.example.monkey.payment.domain.PaymentResponseSnapshot;
 import com.example.monkey.payment.domain.PaymentStatus;
@@ -44,6 +46,7 @@ import com.example.monkey.payment.domain.RefundAuditState;
 import com.example.monkey.payment.domain.RefundResponseSnapshot;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
@@ -56,21 +59,26 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -105,6 +113,8 @@ class PaymentApplicationServiceTest {
     private InMemoryPaymentStore paymentStore;
     private RecordingPaymentGateway paymentGateway;
     private RecordingTransactions transactions;
+    private List<Long> recoveryTenantIds;
+    private PaymentRecoveryTenantSource recoveryTenantSource;
     private PaymentApplicationService service;
 
     @BeforeEach
@@ -112,7 +122,13 @@ class PaymentApplicationServiceTest {
         paymentStore = new InMemoryPaymentStore();
         paymentGateway = new RecordingPaymentGateway();
         transactions = new RecordingTransactions();
-        service = new PaymentApplicationService(
+        recoveryTenantIds = List.of();
+        recoveryTenantSource = (cutoff, limit) -> recoveryTenantIds;
+        service = newService(FIXED_CLOCK);
+    }
+
+    private PaymentApplicationService newService(Clock clock) {
+        return new PaymentApplicationService(
                 paymentStore,
                 paymentGateway,
                 new InMemoryCallbackReplayGuard(),
@@ -123,11 +139,272 @@ class PaymentApplicationServiceTest {
                 idGenerator,
                 auditService,
                 transactions,
-                FIXED_CLOCK,
+                recoveryTenantSource,
+                clock,
                 Duration.ofHours(24),
                 Duration.ofMinutes(5),
                 new BigDecimal("5000.00"),
                 CALLBACK_SECRET);
+    }
+
+    @Test
+    void scheduledRecoveryDiscoversTenantsIsolatesFailuresAndRestoresContext() {
+        recoveryTenantIds = List.of(1L, 2L);
+        paymentStore.failingRecoveryTenantIds.add(1L);
+        TenantContext.setTenantId(77L);
+
+        try {
+            service.recoverExpiredOperationsScheduled();
+
+            assertThat(paymentStore.recoveryTenantQueries).containsExactly(1L, 2L);
+            assertThat(TenantContext.currentTenantId()).contains(77L);
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void unexpiredPaymentClaimDoesNotTriggerAnotherProviderCall() {
+        when(orderStore.findVisibleByIdAndUserId(10L, 42L))
+                .thenReturn(Optional.of(orderForId(10L, new BigDecimal("100.00"))));
+        PaymentOrder payment = pendingPayment();
+        PaymentRequestFingerprint fingerprint =
+                PaymentRequestFingerprint.of(10L, PaymentMethod.WECHAT, new BigDecimal("100.00"), "CNY");
+        paymentStore.savePayment(
+                payment,
+                fingerprint.value(),
+                PaymentOperationAttempt.initial(LocalDateTime.parse("2026-07-04T08:30:00"), Duration.ofMinutes(2)),
+                payment.paymentNo(),
+                null);
+
+        assertThatThrownBy(() -> service.createPayment(
+                        user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "pay-key"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+
+        assertThat(paymentGateway.createRequests).isEmpty();
+        assertThat(paymentStore
+                        .findByUserIdAndIdempotencyKey(42L, "pay-key")
+                        .orElseThrow()
+                        .operation()
+                        .attemptCount())
+                .isEqualTo(1);
+    }
+
+    @Test
+    void racedActivePaymentWinnerMustBeClaimedBeforeAnotherProviderCall() {
+        when(orderStore.findVisibleByIdAndUserId(10L, 42L))
+                .thenReturn(Optional.of(orderForId(10L, new BigDecimal("100.00"))));
+        PaymentOrder winner = pendingPayment();
+        PaymentRequestFingerprint fingerprint =
+                PaymentRequestFingerprint.of(10L, PaymentMethod.WECHAT, new BigDecimal("100.00"), "CNY");
+        PaymentOperationAttempt winnerAttempt =
+                PaymentOperationAttempt.initial(LocalDateTime.parse("2026-07-04T08:30:00"), Duration.ofMinutes(2));
+        paymentGateway.createRequests.add(winner.paymentNo());
+        paymentStore.afterNextIntentRead(
+                () -> paymentStore.savePayment(winner, fingerprint.value(), winnerAttempt, winner.paymentNo(), null));
+
+        BusinessException conflict = catchThrowableOfType(
+                () -> service.createPayment(
+                        user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "pay-key"),
+                BusinessException.class);
+
+        assertThat(paymentGateway.createRequests).containsExactly("PAY100");
+        assertThat(conflict).isNotNull();
+        assertThat(conflict.errorCode()).isEqualTo(ErrorCode.CONFLICT);
+        PaymentStore.PaymentIntent persistedWinner =
+                paymentStore.findByUserIdAndIdempotencyKey(42L, "pay-key").orElseThrow();
+        assertThat(persistedWinner.operation()).isEqualTo(winnerAttempt);
+        assertThat(persistedWinner.responseSnapshot()).isNull();
+    }
+
+    @Test
+    void racedCompletedPaymentWinnerReplaysWithoutAnotherProviderCall() {
+        when(orderStore.findVisibleByIdAndUserId(10L, 42L))
+                .thenReturn(Optional.of(orderForId(10L, new BigDecimal("100.00"))));
+        PaymentOrder winner =
+                pendingPayment().withProviderTradeNo("winner-trade", LocalDateTime.parse("2026-07-04T08:30:01"));
+        PaymentRequestFingerprint fingerprint =
+                PaymentRequestFingerprint.of(10L, PaymentMethod.WECHAT, new BigDecimal("100.00"), "CNY");
+        PaymentOperationAttempt winnerAttempt = PaymentOperationAttempt.initial(
+                        LocalDateTime.parse("2026-07-04T08:29:00"), Duration.ofSeconds(30))
+                .completed();
+        PaymentResponseSnapshot winnerSnapshot = PaymentResponseSnapshot.capture(winner, "/winner/payment-url");
+        paymentGateway.createRequests.add(winner.paymentNo());
+        paymentStore.afterNextIntentRead(() -> paymentStore.savePayment(
+                winner, fingerprint.value(), winnerAttempt, winner.paymentNo(), winnerSnapshot));
+
+        PaymentResponseDto replay = service.createPayment(
+                user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "pay-key");
+
+        assertThat(replay.paymentNo()).isEqualTo("PAY100");
+        assertThat(replay.paymentUrl()).isEqualTo("/winner/payment-url");
+        assertThat(paymentGateway.createRequests).containsExactly("PAY100");
+        assertThat(paymentStore
+                        .findByUserIdAndIdempotencyKey(42L, "pay-key")
+                        .orElseThrow()
+                        .operation())
+                .isEqualTo(winnerAttempt);
+    }
+
+    @Test
+    void racedTerminalPaymentWinnerReplaysWithoutAnotherProviderCall() {
+        when(orderStore.findVisibleByIdAndUserId(10L, 42L))
+                .thenReturn(Optional.of(orderForId(10L, new BigDecimal("100.00"))));
+        PaymentOrder winner = pendingPayment().fail(LocalDateTime.parse("2026-07-04T08:30:01"));
+        PaymentRequestFingerprint fingerprint =
+                PaymentRequestFingerprint.of(10L, PaymentMethod.WECHAT, new BigDecimal("100.00"), "CNY");
+        PaymentOperationAttempt winnerAttempt = PaymentOperationAttempt.initial(
+                        LocalDateTime.parse("2026-07-04T08:29:00"), Duration.ofSeconds(30))
+                .terminal(PaymentFailureClassification.PROVIDER_REJECTED, "CARD_DECLINED");
+        paymentGateway.createRequests.add(winner.paymentNo());
+        paymentStore.afterNextIntentRead(
+                () -> paymentStore.savePayment(winner, fingerprint.value(), winnerAttempt, winner.paymentNo(), null));
+
+        PaymentGatewayException replay = catchThrowableOfType(
+                () -> service.createPayment(
+                        user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "pay-key"),
+                PaymentGatewayException.class);
+
+        assertThat(replay.providerCode()).isEqualTo("CARD_DECLINED");
+        assertThat(paymentGateway.createRequests).containsExactly("PAY100");
+        assertThat(paymentStore
+                        .findByUserIdAndIdempotencyKey(42L, "pay-key")
+                        .orElseThrow()
+                        .operation())
+                .isEqualTo(winnerAttempt);
+    }
+
+    @Test
+    void expiredPaymentClaimIsTakenOverBeforeForegroundProviderCall() {
+        when(orderStore.findVisibleByIdAndUserId(10L, 42L))
+                .thenReturn(Optional.of(orderForId(10L, new BigDecimal("100.00"))));
+        PaymentOrder payment = pendingPayment();
+        PaymentRequestFingerprint fingerprint =
+                PaymentRequestFingerprint.of(10L, PaymentMethod.WECHAT, new BigDecimal("100.00"), "CNY");
+        paymentStore.savePayment(
+                payment,
+                fingerprint.value(),
+                new PaymentOperationAttempt(
+                        PaymentOperationState.RESERVED,
+                        1,
+                        LocalDateTime.parse("2026-07-04T08:29:00"),
+                        PaymentFailureClassification.NONE),
+                payment.paymentNo(),
+                null);
+
+        service.createPayment(user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "pay-key");
+
+        PaymentStore.PaymentIntent completed =
+                paymentStore.findByUserIdAndIdempotencyKey(42L, "pay-key").orElseThrow();
+        assertThat(completed.operation().state()).isEqualTo(PaymentOperationState.COMPLETED);
+        assertThat(completed.operation().attemptCount()).isEqualTo(2);
+        assertThat(paymentGateway.createRequests).containsExactly("PAY100");
+    }
+
+    @Test
+    void unexpiredRefundClaimDoesNotTriggerAnotherProviderCall() {
+        PaymentOrder payment = paymentStore.savePayment(paidPayment());
+        PaymentLedgerEntry ledger = refundLedger(3000L, PaymentLedgerStatus.ACCEPTED, "refund-key");
+        PaymentRequestFingerprint fingerprint =
+                PaymentRequestFingerprint.ofRefund(payment.id(), ledger.amount(), "return");
+        paymentStore.saveLedger(
+                ledger,
+                fingerprint.value(),
+                PaymentOperationAttempt.initial(LocalDateTime.parse("2026-07-04T08:30:00"), Duration.ofMinutes(2)),
+                "PAY100:refund:3000",
+                null,
+                RefundAuditIntent.waiting(AuditService.PAYMENT_REFUNDED, 42L, CUSTOMER_ROLE, null, false));
+
+        assertThatThrownBy(() -> service.refund(
+                        user(), new PaymentRefundRequestDto("PAY100", new BigDecimal("30.00"), "return"), "refund-key"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+
+        assertThat(paymentGateway.refundRequests).isEmpty();
+        assertThat(paymentStore
+                        .findRefundRequest(payment.id(), "refund-key")
+                        .orElseThrow()
+                        .operation()
+                        .attemptCount())
+                .isEqualTo(1);
+    }
+
+    @Test
+    void expiredRefundClaimIsTakenOverBeforeForegroundProviderCall() {
+        PaymentOrder payment = paymentStore.savePayment(paidPayment());
+        PaymentLedgerEntry ledger = refundLedger(3000L, PaymentLedgerStatus.ACCEPTED, "refund-key");
+        PaymentRequestFingerprint fingerprint =
+                PaymentRequestFingerprint.ofRefund(payment.id(), ledger.amount(), "return");
+        paymentStore.saveLedger(
+                ledger,
+                fingerprint.value(),
+                new PaymentOperationAttempt(
+                        PaymentOperationState.RETRYABLE,
+                        1,
+                        LocalDateTime.parse("2026-07-04T08:29:00"),
+                        PaymentFailureClassification.TIMEOUT_UNKNOWN),
+                "PAY100:refund:3000",
+                null,
+                RefundAuditIntent.waiting(AuditService.PAYMENT_REFUNDED, 42L, CUSTOMER_ROLE, null, false));
+
+        service.refund(user(), new PaymentRefundRequestDto("PAY100", new BigDecimal("30.00"), "return"), "refund-key");
+
+        PaymentStore.RefundRequest completed =
+                paymentStore.findRefundRequest(payment.id(), "refund-key").orElseThrow();
+        assertThat(completed.operation().state()).isEqualTo(PaymentOperationState.COMPLETED);
+        assertThat(completed.operation().attemptCount()).isEqualTo(2);
+        assertThat(paymentGateway.refundRequests).containsExactly("PAY100:refund:3000");
+    }
+
+    @Test
+    void lateOlderFailureCannotMutateANewerPaymentClaim() throws Exception {
+        MutableClock clock = new MutableClock(FIXED_CLOCK.instant());
+        PaymentApplicationService fencedService = newService(clock);
+        PaymentOrder payment = pendingPayment();
+        PaymentRequestFingerprint fingerprint =
+                PaymentRequestFingerprint.of(10L, PaymentMethod.WECHAT, new BigDecimal("100.00"), "CNY");
+        paymentStore.savePayment(
+                payment,
+                fingerprint.value(),
+                new PaymentOperationAttempt(
+                        PaymentOperationState.RESERVED,
+                        1,
+                        LocalDateTime.parse("2026-07-04T08:29:00"),
+                        PaymentFailureClassification.NONE),
+                payment.paymentNo(),
+                null);
+        paymentGateway.coordinateTwoCreateWorkers(PaymentGatewayException.rejected("old-worker-declined"));
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<Integer> older = executor.submit(fencedService::recoverExpiredOperations);
+            paymentGateway.awaitFirstCreate();
+            clock.advance(Duration.ofMinutes(3));
+            Future<Integer> newer = executor.submit(fencedService::recoverExpiredOperations);
+            paymentGateway.awaitSecondCreate();
+
+            paymentGateway.releaseFirstCreate();
+            assertThat(older.get(5, TimeUnit.SECONDS)).isEqualTo(1);
+            PaymentStore.PaymentIntent afterLateFailure =
+                    paymentStore.findByUserIdAndIdempotencyKey(42L, "pay-key").orElseThrow();
+            assertThat(afterLateFailure.payment().status()).isEqualTo(PaymentStatus.PENDING);
+            assertThat(afterLateFailure.operation().state()).isEqualTo(PaymentOperationState.RESERVED);
+            assertThat(afterLateFailure.operation().attemptCount()).isEqualTo(3);
+
+            paymentGateway.releaseSecondCreate();
+            assertThat(newer.get(5, TimeUnit.SECONDS)).isEqualTo(1);
+            assertThat(paymentStore
+                            .findByUserIdAndIdempotencyKey(42L, "pay-key")
+                            .orElseThrow()
+                            .operation()
+                            .state())
+                    .isEqualTo(PaymentOperationState.COMPLETED);
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test
@@ -328,28 +605,47 @@ class PaymentApplicationServiceTest {
     }
 
     @Test
-    void concurrentCreateWithSameKeyAndFingerprintReplaysDatabaseWinner() throws Exception {
+    void concurrentCreateWithSameKeyAndFingerprintDoesNotExecuteDatabaseWinnerTwice() throws Exception {
         when(orderStore.findVisibleByIdAndUserId(10L, 42L))
                 .thenReturn(Optional.of(orderForId(10L, new BigDecimal("100.00"))));
         AtomicLong ids = new AtomicLong(1000L);
         when(idGenerator.nextId()).thenAnswer(ignored -> ids.getAndIncrement());
         paymentStore.synchronizeNextIntentReads(2);
+        paymentGateway.blockFirstCreate();
         ExecutorService executor = Executors.newFixedThreadPool(2);
+        ExecutorCompletionService<PaymentResponseDto> attempts = new ExecutorCompletionService<>(executor);
 
         try {
-            List<Future<PaymentResponseDto>> attempts = List.of(
-                    executor.submit(() -> service.createPayment(
-                            user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "same-key")),
-                    executor.submit(() -> service.createPayment(
-                            user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "same-key")));
+            attempts.submit(() -> service.createPayment(
+                    user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "same-key"));
+            attempts.submit(() -> service.createPayment(
+                    user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "same-key"));
 
-            PaymentResponseDto first = attempts.get(0).get(5, TimeUnit.SECONDS);
-            PaymentResponseDto second = attempts.get(1).get(5, TimeUnit.SECONDS);
+            paymentGateway.awaitFirstCreate();
+            Future<PaymentResponseDto> loser = attempts.poll(5, TimeUnit.SECONDS);
+            assertThat(loser).isNotNull();
+            assertThatThrownBy(() -> loser.get(5, TimeUnit.SECONDS))
+                    .isInstanceOfSatisfying(
+                            ExecutionException.class,
+                            exception -> assertThat(exception.getCause())
+                                    .isInstanceOfSatisfying(
+                                            BusinessException.class,
+                                            businessException -> assertThat(businessException.errorCode())
+                                                    .isEqualTo(ErrorCode.CONFLICT)));
 
-            assertThat(second).isEqualTo(first);
-            assertThat(paymentStore.payments).hasSize(1);
-            assertThat(paymentGateway.createRequests).hasSizeGreaterThanOrEqualTo(1);
-            assertThat(paymentGateway.createRequests.stream().distinct()).hasSize(1);
+            paymentGateway.releaseFirstCreate();
+            PaymentResponseDto winner = attempts.poll(5, TimeUnit.SECONDS).get(5, TimeUnit.SECONDS);
+            assertThat(winner.paymentNo()).isIn("PAY1000", "PAY1001");
+            assertThat(paymentStore.payments.values())
+                    .singleElement()
+                    .extracting(PaymentOrder::paymentNo)
+                    .isEqualTo(winner.paymentNo());
+            assertThat(paymentGateway.createRequests).containsExactly(winner.paymentNo());
+
+            PaymentResponseDto replay = service.createPayment(
+                    user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "same-key");
+            assertThat(replay.paymentNo()).isEqualTo(winner.paymentNo());
+            assertThat(paymentGateway.createRequests).containsExactly(winner.paymentNo());
         } finally {
             executor.shutdownNow();
         }
@@ -416,17 +712,65 @@ class PaymentApplicationServiceTest {
     }
 
     @Test
+    void constraintNameMentionOutsideTheActualMysqlKeyTokenIsNotMisclassified() {
+        when(orderStore.findVisibleByIdAndUserId(10L, 42L))
+                .thenReturn(Optional.of(orderForId(10L, new BigDecimal("100.00"))));
+        when(idGenerator.nextId()).thenReturn(1000L);
+        DataIntegrityViolationException primaryKeyFailure = new DataIntegrityViolationException(
+                "Duplicate entry '1000' for key 'payment_order.PRIMARY'; diagnostic:"
+                        + " uk_payment_order_user_key was not the violated key");
+        paymentStore.nextPaymentReservationFailure = primaryKeyFailure;
+
+        assertThatThrownBy(() -> service.createPayment(
+                        user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "payment-key"))
+                .isSameAs(primaryKeyFailure);
+    }
+
+    @Test
+    void exactQualifiedMysqlConstraintTokenIsClassified() {
+        when(orderStore.findVisibleByIdAndUserId(10L, 42L))
+                .thenReturn(Optional.of(orderForId(10L, new BigDecimal("100.00"))));
+        when(idGenerator.nextId()).thenReturn(1000L);
+        paymentStore.nextPaymentReservationFailure = new DataIntegrityViolationException(
+                "Duplicate entry '42-payment-key' for key 'payment_order.uk_payment_order_user_key'");
+
+        assertThatThrownBy(() -> service.createPayment(
+                        user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "payment-key"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+    }
+
+    @Test
+    void exactHibernateConstraintTokenIsClassified() {
+        when(orderStore.findVisibleByIdAndUserId(10L, 42L))
+                .thenReturn(Optional.of(orderForId(10L, new BigDecimal("100.00"))));
+        when(idGenerator.nextId()).thenReturn(1000L);
+        paymentStore.nextPaymentReservationFailure = new DataIntegrityViolationException(
+                "could not execute statement [duplicate payment]" + " [constraint [uk_payment_order_active_order]]");
+
+        assertThatThrownBy(() -> service.createPayment(
+                        user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "payment-key"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+    }
+
+    @Test
     void createRecoversAfterGatewaySuccessAndLocalCompletionFailureWithStableToken() {
+        MutableClock clock = new MutableClock(FIXED_CLOCK.instant());
+        PaymentApplicationService fencedService = newService(clock);
         when(orderStore.findVisibleByIdAndUserId(10L, 42L))
                 .thenReturn(Optional.of(orderForId(10L, new BigDecimal("100.00"))));
         when(idGenerator.nextId()).thenReturn(1000L);
         paymentStore.failNextPaymentCompletion = true;
 
-        assertThatThrownBy(() -> service.createPayment(
+        assertThatThrownBy(() -> fencedService.createPayment(
                         user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "payment-key"))
                 .isInstanceOf(LocalCompletionFailure.class);
 
-        PaymentResponseDto recovered = service.createPayment(
+        clock.advance(Duration.ofSeconds(31));
+        PaymentResponseDto recovered = fencedService.createPayment(
                 user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "payment-key");
 
         assertThat(recovered.paymentNo()).isEqualTo("PAY1000");
@@ -436,13 +780,15 @@ class PaymentApplicationServiceTest {
 
     @Test
     void timeoutMarksPaymentRetryableAndRetryUsesTheSameMerchantToken() {
+        MutableClock clock = new MutableClock(FIXED_CLOCK.instant());
+        PaymentApplicationService fencedService = newService(clock);
         when(orderStore.findVisibleByIdAndUserId(10L, 42L))
                 .thenReturn(Optional.of(orderForId(10L, new BigDecimal("100.00"))));
         when(idGenerator.nextId()).thenReturn(1000L);
         PaymentGatewayException timeout = PaymentGatewayException.timeout("provider timed out");
         paymentGateway.createFailure = timeout;
 
-        assertThatThrownBy(() -> service.createPayment(
+        assertThatThrownBy(() -> fencedService.createPayment(
                         user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "payment-key"))
                 .isSameAs(timeout);
 
@@ -452,7 +798,8 @@ class PaymentApplicationServiceTest {
         assertThat(retryable.operation().lastFailure()).isEqualTo(PaymentFailureClassification.TIMEOUT_UNKNOWN);
 
         paymentGateway.createFailure = null;
-        service.createPayment(
+        clock.advance(Duration.ofSeconds(31));
+        fencedService.createPayment(
                 user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "payment-key");
 
         assertThat(paymentGateway.createRequests).containsExactly("PAY1000", "PAY1000");
@@ -460,22 +807,44 @@ class PaymentApplicationServiceTest {
 
     @Test
     void deterministicPaymentRejectionTerminatesReservationAndReleasesActiveOrder() {
+        PaymentGatewayException unknown =
+                PaymentGatewayException.rejected("UNRECOGNIZED_GATEWAY_DETAIL", "raw internal provider detail");
+        assertThat(unknown.providerCode()).isEqualTo("PROVIDER_REJECTED");
+        assertThat(unknown.getMessage()).doesNotContain("raw internal provider detail");
         when(orderStore.findVisibleByIdAndUserId(10L, 42L))
                 .thenReturn(Optional.of(orderForId(10L, new BigDecimal("100.00"))));
         when(idGenerator.nextId()).thenReturn(1000L, 1001L);
-        PaymentGatewayException rejected = PaymentGatewayException.rejected("declined");
+        PaymentGatewayException rejected =
+                PaymentGatewayException.rejected("CARD_DECLINED", "raw processor decline detail");
         paymentGateway.createFailure = rejected;
 
-        assertThatThrownBy(() -> service.createPayment(
-                        user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "declined-key"))
-                .isSameAs(rejected);
+        PaymentGatewayException first = catchThrowableOfType(
+                () -> service.createPayment(
+                        user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "declined-key"),
+                PaymentGatewayException.class);
+        assertThat(first.providerCode()).isEqualTo("CARD_DECLINED");
+        assertThat(first.getMessage()).doesNotContain("raw processor decline detail");
 
         PaymentStore.PaymentIntent failed =
                 paymentStore.findByUserIdAndIdempotencyKey(42L, "declined-key").orElseThrow();
         assertThat(failed.payment().status()).isEqualTo(PaymentStatus.FAILED);
         assertThat(failed.operation().state()).isEqualTo(PaymentOperationState.TERMINAL_FAILED);
+        assertThat(failed.operation().terminalFailureCode()).isEqualTo("CARD_DECLINED");
 
         paymentGateway.createFailure = null;
+        PaymentGatewayException replay = catchThrowableOfType(
+                () -> service.createPayment(
+                        user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "declined-key"),
+                PaymentGatewayException.class);
+        assertThat(replay.providerCode()).isEqualTo(first.providerCode());
+        assertThat(replay.getMessage()).isEqualTo(first.getMessage());
+        assertThat(paymentGateway.createRequests).containsExactly("PAY1000");
+        assertThatThrownBy(() -> service.createPayment(
+                        user(), new PaymentCreateRequestDto(10L, PaymentMethod.ALIPAY, null, null), "declined-key"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+
         PaymentResponseDto replacement = service.createPayment(
                 user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "replacement-key");
         assertThat(replacement.paymentNo()).isEqualTo("PAY1001");
@@ -690,12 +1059,14 @@ class PaymentApplicationServiceTest {
 
     @Test
     void gatewayFailureLeavesRefundStateUnchangedAndSameIdempotencyKeyCanRetry() {
+        MutableClock clock = new MutableClock(FIXED_CLOCK.instant());
+        PaymentApplicationService fencedService = newService(clock);
         paymentStore.savePayment(paidPayment());
         when(idGenerator.nextId()).thenReturn(3000L);
         RuntimeException gatewayFailure = new IllegalStateException("refund gateway unavailable");
         paymentGateway.refundFailure = gatewayFailure;
 
-        assertThatThrownBy(() -> service.refund(
+        assertThatThrownBy(() -> fencedService.refund(
                         user(),
                         new PaymentRefundRequestDto("PAY100", new BigDecimal("30.00"), "retryable"),
                         "retry-key"))
@@ -711,7 +1082,8 @@ class PaymentApplicationServiceTest {
         });
 
         paymentGateway.refundFailure = null;
-        PaymentRefundResponseDto retry = service.refund(
+        clock.advance(Duration.ofSeconds(31));
+        PaymentRefundResponseDto retry = fencedService.refund(
                 user(), new PaymentRefundRequestDto("PAY100", new BigDecimal("30.00"), "retryable"), "retry-key");
 
         assertThat(retry.refundedAmount()).isEqualByComparingTo(new BigDecimal("30.00"));
@@ -733,17 +1105,20 @@ class PaymentApplicationServiceTest {
 
     @Test
     void refundRecoversAfterGatewaySuccessAndLocalCompletionFailureWithStableMerchantToken() {
+        MutableClock clock = new MutableClock(FIXED_CLOCK.instant());
+        PaymentApplicationService fencedService = newService(clock);
         paymentStore.savePayment(paidPayment());
         when(idGenerator.nextId()).thenReturn(3000L);
         paymentGateway.afterNextRefund = () -> paymentStore.failNextPaymentUpdate = true;
 
-        assertThatThrownBy(() -> service.refund(
+        assertThatThrownBy(() -> fencedService.refund(
                         user(),
                         new PaymentRefundRequestDto("PAY100", new BigDecimal("30.00"), "retryable"),
                         "refund-key"))
                 .isInstanceOf(LocalCompletionFailure.class);
 
-        PaymentRefundResponseDto recovered = service.refund(
+        clock.advance(Duration.ofSeconds(31));
+        PaymentRefundResponseDto recovered = fencedService.refund(
                 user(), new PaymentRefundRequestDto("PAY100", new BigDecimal("30.00"), "retryable"), "refund-key");
 
         assertThat(recovered.refundedAmount()).isEqualByComparingTo(new BigDecimal("30.00"));
@@ -783,22 +1158,44 @@ class PaymentApplicationServiceTest {
     void deterministicRefundRejectionReleasesReservedRefundAmount() {
         paymentStore.savePayment(paidPayment());
         when(idGenerator.nextId()).thenReturn(3000L, 3001L);
-        PaymentGatewayException rejected = PaymentGatewayException.rejected("refund declined");
+        PaymentGatewayException rejected =
+                PaymentGatewayException.rejected("REFUND_DECLINED", "raw refund processor detail");
         paymentGateway.refundFailure = rejected;
 
-        assertThatThrownBy(() -> service.refund(
+        PaymentGatewayException first = catchThrowableOfType(
+                () -> service.refund(
                         user(),
                         new PaymentRefundRequestDto("PAY100", new BigDecimal("80.00"), "declined"),
-                        "declined-key"))
-                .isSameAs(rejected);
+                        "declined-key"),
+                PaymentGatewayException.class);
+        assertThat(first.providerCode()).isEqualTo("REFUND_DECLINED");
+        assertThat(first.getMessage()).doesNotContain("raw refund processor detail");
 
         PaymentStore.RefundRequest failed =
                 paymentStore.findRefundRequest(100L, "declined-key").orElseThrow();
         assertThat(failed.ledger().status()).isEqualTo(PaymentLedgerStatus.FAILED);
         assertThat(failed.operation().state()).isEqualTo(PaymentOperationState.TERMINAL_FAILED);
+        assertThat(failed.operation().terminalFailureCode()).isEqualTo("REFUND_DECLINED");
         assertThat(paymentStore.sumAcceptedRefundAmount(100L)).isEqualByComparingTo(BigDecimal.ZERO);
 
         paymentGateway.refundFailure = null;
+        PaymentGatewayException replay = catchThrowableOfType(
+                () -> service.refund(
+                        user(),
+                        new PaymentRefundRequestDto("PAY100", new BigDecimal("80.00"), "declined"),
+                        "declined-key"),
+                PaymentGatewayException.class);
+        assertThat(replay.providerCode()).isEqualTo(first.providerCode());
+        assertThat(replay.getMessage()).isEqualTo(first.getMessage());
+        assertThat(paymentGateway.refundRequests).containsExactly("PAY100:refund:3000");
+        assertThatThrownBy(() -> service.refund(
+                        user(),
+                        new PaymentRefundRequestDto("PAY100", new BigDecimal("79.00"), "declined"),
+                        "declined-key"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+
         PaymentRefundResponseDto replacement = service.refund(
                 user(), new PaymentRefundRequestDto("PAY100", new BigDecimal("80.00"), "retry"), "replacement-key");
         assertThat(replacement.refundedAmount()).isEqualByComparingTo(new BigDecimal("80.00"));
@@ -1191,11 +1588,18 @@ class PaymentApplicationServiceTest {
         private RuntimeException refundFailure;
         private Runnable afterNextRefund;
         private List<String> boundaryEvents;
+        private final AtomicInteger coordinatedCreateCalls = new AtomicInteger();
+        private CountDownLatch firstCreateEntered;
+        private CountDownLatch releaseFirstCreate;
+        private CountDownLatch secondCreateEntered;
+        private CountDownLatch releaseSecondCreate;
+        private RuntimeException firstCoordinatedCreateFailure;
 
         @Override
         public PaymentGatewayResult create(PaymentOrder payment, String merchantToken) {
             recordBoundary("gateway-create");
             createRequests.add(merchantToken);
+            coordinateCreateWorker();
             if (createFailure != null) {
                 throw createFailure;
             }
@@ -1204,6 +1608,57 @@ class PaymentApplicationServiceTest {
                     "SANDBOX-" + payment.paymentNo(),
                     "/sandbox/payments/" + payment.paymentNo(),
                     payment.amount());
+        }
+
+        private void coordinateTwoCreateWorkers(RuntimeException firstFailure) {
+            firstCreateEntered = new CountDownLatch(1);
+            releaseFirstCreate = new CountDownLatch(1);
+            secondCreateEntered = new CountDownLatch(1);
+            releaseSecondCreate = new CountDownLatch(1);
+            firstCoordinatedCreateFailure = firstFailure;
+        }
+
+        private void blockFirstCreate() {
+            firstCreateEntered = new CountDownLatch(1);
+            releaseFirstCreate = new CountDownLatch(1);
+            secondCreateEntered = null;
+            releaseSecondCreate = null;
+            firstCoordinatedCreateFailure = null;
+        }
+
+        private void awaitFirstCreate() {
+            awaitLatch(firstCreateEntered, "first provider create");
+        }
+
+        private void awaitSecondCreate() {
+            awaitLatch(secondCreateEntered, "second provider create");
+        }
+
+        private void releaseFirstCreate() {
+            releaseFirstCreate.countDown();
+        }
+
+        private void releaseSecondCreate() {
+            releaseSecondCreate.countDown();
+        }
+
+        private void coordinateCreateWorker() {
+            if (firstCreateEntered == null) {
+                return;
+            }
+            int call = coordinatedCreateCalls.incrementAndGet();
+            if (call == 1) {
+                firstCreateEntered.countDown();
+                awaitLatch(releaseFirstCreate, "release first provider create");
+                if (firstCoordinatedCreateFailure != null) {
+                    throw firstCoordinatedCreateFailure;
+                }
+                return;
+            }
+            if (call == 2 && secondCreateEntered != null) {
+                secondCreateEntered.countDown();
+                awaitLatch(releaseSecondCreate, "release second provider create");
+            }
         }
 
         @Override
@@ -1235,6 +1690,44 @@ class PaymentApplicationServiceTest {
         }
     }
 
+    private static final class MutableClock extends Clock {
+        private volatile Instant current;
+
+        private MutableClock(Instant current) {
+            this.current = current;
+        }
+
+        private void advance(Duration duration) {
+            current = current.plus(duration);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return zone.equals(getZone()) ? this : Clock.fixed(current, zone);
+        }
+
+        @Override
+        public Instant instant() {
+            return current;
+        }
+    }
+
+    private static void awaitLatch(CountDownLatch latch, String description) {
+        try {
+            if (latch == null || !latch.await(5, TimeUnit.SECONDS)) {
+                throw new AssertionError("Timed out waiting for " + description);
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("Interrupted while waiting for " + description, exception);
+        }
+    }
+
     private static final class InMemoryPaymentStore implements PaymentStore {
         private final Map<Long, PaymentOrder> payments = new ConcurrentHashMap<>();
         private final Map<Long, String> paymentFingerprints = new ConcurrentHashMap<>();
@@ -1248,6 +1741,7 @@ class PaymentApplicationServiceTest {
         private final Map<Long, String> refundMerchantTokens = new ConcurrentHashMap<>();
         private final Map<Long, RefundAuditIntent> refundAuditIntents = new ConcurrentHashMap<>();
         private final List<PaymentReconciliationReport> reports = new ArrayList<>();
+        private final AtomicReference<Runnable> afterIntentRead = new AtomicReference<>();
         private volatile CountDownLatch paymentReads;
         private volatile CountDownLatch intentReads;
         private List<String> boundaryEvents;
@@ -1256,6 +1750,8 @@ class PaymentApplicationServiceTest {
         private volatile DataIntegrityViolationException nextPaymentReservationFailure;
         private volatile DataIntegrityViolationException nextRefundReservationFailure;
         private volatile boolean requirePaymentLockForCompletion;
+        private final Set<Long> failingRecoveryTenantIds = ConcurrentHashMap.newKeySet();
+        private final List<Long> recoveryTenantQueries = new CopyOnWriteArrayList<>();
         private final ThreadLocal<Boolean> paymentLockHeld = ThreadLocal.withInitial(() -> false);
 
         private void synchronizeNextPaymentReads(int parties) {
@@ -1264,6 +1760,10 @@ class PaymentApplicationServiceTest {
 
         private void synchronizeNextIntentReads(int parties) {
             intentReads = new CountDownLatch(parties);
+        }
+
+        private void afterNextIntentRead(Runnable action) {
+            afterIntentRead.set(action);
         }
 
         private void saveLegacyPaymentIntent(PaymentOrder payment, String requestFingerprint) {
@@ -1324,6 +1824,10 @@ class PaymentApplicationServiceTest {
                             paymentOperations.get(payment.id()),
                             paymentMerchantTokens.get(payment.id()),
                             paymentSnapshots.get(payment.id())));
+            Runnable action = afterIntentRead.getAndSet(null);
+            if (action != null) {
+                action.run();
+            }
             awaitConcurrentReads(intentReads, "payment intent");
             intentReads = null;
             return result;
@@ -1502,6 +2006,11 @@ class PaymentApplicationServiceTest {
 
         @Override
         public List<PaymentIntent> findExpiredPaymentOperations(LocalDateTime cutoff, int limit) {
+            long tenantId = TenantContext.currentTenantIdOrDefault();
+            recoveryTenantQueries.add(tenantId);
+            if (failingRecoveryTenantIds.contains(tenantId)) {
+                throw new IllegalStateException("tenant recovery failed");
+            }
             return payments.values().stream()
                     .map(payment -> findByUserIdAndIdempotencyKey(payment.userId(), payment.idempotencyKey()))
                     .flatMap(Optional::stream)

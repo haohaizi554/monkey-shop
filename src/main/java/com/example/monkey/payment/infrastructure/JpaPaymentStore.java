@@ -370,6 +370,7 @@ public class JpaPaymentStore implements PaymentStore {
         entity.setAttemptCount(operation.attemptCount());
         entity.setLeaseExpiresAt(operation.leaseExpiresAt());
         entity.setLastFailureClassification(operation.lastFailure());
+        entity.setTerminalFailureCode(operation.terminalFailureCode());
     }
 
     private static void applyOperation(PaymentLedgerEntity entity, PaymentOperationAttempt operation) {
@@ -377,6 +378,7 @@ public class JpaPaymentStore implements PaymentStore {
         entity.setAttemptCount(operation.attemptCount());
         entity.setLeaseExpiresAt(operation.leaseExpiresAt());
         entity.setLastFailureClassification(operation.lastFailure());
+        entity.setTerminalFailureCode(operation.terminalFailureCode());
     }
 
     private static PaymentOperationAttempt toOperation(PaymentOrderEntity entity) {
@@ -384,7 +386,8 @@ public class JpaPaymentStore implements PaymentStore {
                 entity.getOperationState(),
                 entity.getAttemptCount(),
                 entity.getLeaseExpiresAt(),
-                entity.getLastFailureClassification());
+                entity.getLastFailureClassification(),
+                entity.getTerminalFailureCode());
     }
 
     private static PaymentOperationAttempt toOperation(PaymentLedgerEntity entity) {
@@ -395,7 +398,8 @@ public class JpaPaymentStore implements PaymentStore {
                 entity.getOperationState(),
                 entity.getAttemptCount(),
                 entity.getLeaseExpiresAt(),
-                entity.getLastFailureClassification());
+                entity.getLastFailureClassification(),
+                entity.getTerminalFailureCode());
     }
 
     private static void applyAuditIntent(PaymentLedgerEntity entity, RefundAuditIntent auditIntent) {

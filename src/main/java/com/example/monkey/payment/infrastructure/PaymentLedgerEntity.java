@@ -62,6 +62,9 @@ public class PaymentLedgerEntity extends TenantScopedJpaEntity {
     @Column(nullable = false, length = 32)
     private PaymentFailureClassification lastFailureClassification;
 
+    @Column(length = 64)
+    private String terminalFailureCode;
+
     @Column(length = 128)
     private String merchantToken;
 
@@ -205,6 +208,14 @@ public class PaymentLedgerEntity extends TenantScopedJpaEntity {
 
     public void setLastFailureClassification(PaymentFailureClassification lastFailureClassification) {
         this.lastFailureClassification = lastFailureClassification;
+    }
+
+    public String getTerminalFailureCode() {
+        return terminalFailureCode;
+    }
+
+    public void setTerminalFailureCode(String terminalFailureCode) {
+        this.terminalFailureCode = terminalFailureCode;
     }
 
     public String getMerchantToken() {
