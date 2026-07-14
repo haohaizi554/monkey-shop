@@ -16,8 +16,10 @@ public record CartCheckoutResponseDto(
         CartCheckoutStatus status,
         String province,
         LocalDateTime createdAt,
-        List<CartSubOrderResponseDto> subOrders) {
+        List<CartSubOrderResponseDto> subOrders,
+        List<Long> orderIds) {
     public CartCheckoutResponseDto {
         subOrders = subOrders == null ? List.of() : List.copyOf(subOrders);
+        orderIds = orderIds == null ? List.of() : List.copyOf(orderIds);
     }
 }

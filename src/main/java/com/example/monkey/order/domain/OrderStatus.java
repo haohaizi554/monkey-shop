@@ -3,6 +3,7 @@ package com.example.monkey.order.domain;
 import java.util.Arrays;
 
 public enum OrderStatus {
+    PENDING_PAYMENT("\u5f85\u652f\u4ed8"),
     PAID("\u5df2\u652f\u4ed8"),
     PARTIALLY_SHIPPED("\u90e8\u5206\u53d1\u8d27"),
     SHIPPED("\u5df2\u53d1\u8d27"),

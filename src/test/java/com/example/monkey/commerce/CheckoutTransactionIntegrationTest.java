@@ -26,8 +26,16 @@ import com.example.monkey.inventory.domain.InventoryReservationStatus;
 import com.example.monkey.marketing.application.MarketingApplicationService;
 import com.example.monkey.marketing.application.dto.MarketingPriceQuoteDto;
 import com.example.monkey.marketing.application.dto.MarketingPriceRequestDto;
+import com.example.monkey.order.application.CheckoutOrderApplicationService;
+import com.example.monkey.order.domain.OrderCustomerPort;
 import com.example.monkey.order.domain.OrderNumberGenerator;
+import com.example.monkey.order.domain.OrderStore.AddressRecord;
+import com.example.monkey.order.domain.OrderStore.BuyerRecord;
+import com.example.monkey.order.infrastructure.JpaOrderStore;
+import com.example.monkey.order.infrastructure.OrderFormalOrderCreator;
+import com.example.monkey.order.infrastructure.OrderLineRepository;
 import com.example.monkey.order.infrastructure.OrderRepository;
+import com.example.monkey.order.infrastructure.StockLogRepository;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.domain.id.IdGenerator;
@@ -60,6 +68,8 @@ class CheckoutTransactionIntegrationTest {
     private final CartSubOrderRepository subOrderRepository;
     private final CartCheckoutLineRepository lineRepository;
     private final OrderRepository orderRepository;
+    private final OrderLineRepository orderLineRepository;
+    private final StockLogRepository stockLogRepository;
 
     @Autowired
     CheckoutTransactionIntegrationTest(
@@ -67,17 +77,24 @@ class CheckoutTransactionIntegrationTest {
             CartCheckoutRepository checkoutRepository,
             CartSubOrderRepository subOrderRepository,
             CartCheckoutLineRepository lineRepository,
-            OrderRepository orderRepository) {
+            OrderRepository orderRepository,
+            OrderLineRepository orderLineRepository,
+            StockLogRepository stockLogRepository) {
         this.entityManager = entityManager;
         this.checkoutRepository = checkoutRepository;
         this.subOrderRepository = subOrderRepository;
         this.lineRepository = lineRepository;
         this.orderRepository = orderRepository;
+        this.orderLineRepository = orderLineRepository;
+        this.stockLogRepository = stockLogRepository;
     }
 
     @Test
     void checkoutPersistsPendingOrdersBeforeClearingSelectedCartLines() {
-        Fixture fixture = new Fixture(new JpaCartCheckoutStore(checkoutRepository, subOrderRepository, lineRepository));
+        Fixture fixture = new Fixture(
+                new JpaCartCheckoutStore(checkoutRepository, subOrderRepository, lineRepository),
+                new OrderFormalOrderCreator(new CheckoutOrderApplicationService(
+                        new JpaOrderStore(orderRepository, stockLogRepository, orderLineRepository), customerPort())));
         fixture.seedSelectedCart();
 
         var checkout =
@@ -96,6 +113,7 @@ class CheckoutTransactionIntegrationTest {
         assertThat(orderRepository.findAll())
                 .hasSize(2)
                 .allSatisfy(order -> assertThat(order.getStatus()).isIn("PENDING_PAYMENT", "\u5f85\u652f\u4ed8"));
+        assertThat(orderLineRepository.findAll()).hasSize(2);
     }
 
     private static final class Fixture {
@@ -105,7 +123,7 @@ class CheckoutTransactionIntegrationTest {
         private final MarketingApplicationService marketingApplicationService = mock(MarketingApplicationService.class);
         private final CartApplicationService service;
 
-        private Fixture(JpaCartCheckoutStore checkoutStore) {
+        private Fixture(JpaCartCheckoutStore checkoutStore, OrderFormalOrderCreator formalOrderCreator) {
             catalog.put(
                     1001L,
                     new CartSkuSnapshot(1001L, 501L, 11L, "SKU-1001", "Phone", "/phone.png", new BigDecimal("100.00")));
@@ -126,6 +144,7 @@ class CheckoutTransactionIntegrationTest {
                     new DirectCartLockManager(),
                     inventoryApplicationService,
                     marketingApplicationService,
+                    formalOrderCreator,
                     new AtomicOrderNumberGenerator(),
                     new AtomicIdGenerator(),
                     mock(AuditService.class),
@@ -160,6 +179,15 @@ class CheckoutTransactionIntegrationTest {
         private static MarketingPriceQuoteDto noDiscount(MarketingPriceRequestDto request) {
             return new MarketingPriceQuoteDto(request.orderAmount(), BigDecimal.ZERO, request.orderAmount(), List.of());
         }
+    }
+
+    private static OrderCustomerPort customerPort() {
+        OrderCustomerPort customerPort = mock(OrderCustomerPort.class);
+        when(customerPort.findBuyerById(USER.id()))
+                .thenReturn(Optional.of(new BuyerRecord(USER.id(), "momo", "/avatar.png")));
+        when(customerPort.findAddressById(9L))
+                .thenReturn(Optional.of(new AddressRecord(9L, USER.id(), "Momo", "13800000000", "Beijing")));
+        return customerPort;
     }
 
     private static final class InMemoryCartStore implements CartStore {

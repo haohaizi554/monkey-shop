@@ -153,6 +153,8 @@ class CartInfrastructureTest {
         entity.setOrderNo("ORD2");
         entity.setShopId(1L);
         entity.setOriginalAmount(new BigDecimal("100.00"));
+        entity.setStoreDiscountAmount(new BigDecimal("10.00"));
+        entity.setPlatformDiscountAmount(BigDecimal.ZERO);
         entity.setDiscountAmount(new BigDecimal("10.00"));
         entity.setPayableAmount(new BigDecimal("90.00"));
         entity.setStatus(CartCheckoutStatus.CHECKED_OUT);

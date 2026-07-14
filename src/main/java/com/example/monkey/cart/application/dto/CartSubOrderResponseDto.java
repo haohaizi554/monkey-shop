@@ -9,8 +9,11 @@ public record CartSubOrderResponseDto(
         Long shopId,
         String orderNo,
         BigDecimal originalAmount,
+        BigDecimal storeDiscountAmount,
+        BigDecimal platformDiscountAmount,
         BigDecimal discountAmount,
         BigDecimal payableAmount,
+        Long formalOrderId,
         CartCheckoutStatus status,
         List<CartCheckoutLineResponseDto> lines) {
     public CartSubOrderResponseDto {

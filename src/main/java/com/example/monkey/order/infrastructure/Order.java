@@ -41,6 +41,22 @@ public class Order extends TenantScopedJpaEntity implements PhoneBlindIndexTarge
 
     private Long userId;
 
+    private Long checkoutId;
+
+    @Column(name = "checkout_sub_order_id")
+    private Long checkoutSubOrderId;
+
+    private Long shopId;
+
+    @Column(precision = 12, scale = 2)
+    private BigDecimal originalAmount;
+
+    @Column(precision = 12, scale = 2)
+    private BigDecimal discountAmount;
+
+    @Column(length = 128)
+    private String checkoutIdempotencyKey;
+
     // 婵犵數濮烽弫鍛婃叏閻戣棄鏋侀柟闂寸绾惧鏌ｉ幇顒佹儓闁搞劌鍊块幃瑙勬姜閹峰矈鍔呭┑鐐插悑閻楃娀寮婚敐澶嬪亜闁绘挸绨奸崰濠囨⒑缂佹ɑ鐓ユ俊顐ｇ懇楠炲牓濡搁妷顔藉瘜闁荤姴娲╁鎾寸珶閺囩喍绻嗛柣鎰典簻閳ь剚鍨垮畷鐟懊洪鍛画闂侀潧顦弲鈺呭极閸パ€鏀介柛灞剧矤閻掗箖姊洪崡鐐村枠闁哄本娲濈粻娑氣偓锝庝簽娴犳儳鈹戦悩顔肩仾闁搞劏鍩栫粚杈ㄧ節閸ャ劌鈧攱銇勮箛鎾愁仱闁稿鎹囧浠嬵敇閻愭妲烽梻浣侯攰閹活亞绮婚幋鐘差棜鐟滅増甯楅悡娑㈡煕閵夈垺娅呴柛鎾讳憾閺?(闂傚倸鍊搁崐鎼佸磹閹间礁纾瑰瀣捣閻棗銆掑锝呬壕濡ょ姷鍋為悧鐘汇€侀弴銏℃櫇闁逞屽墰婢规洝銇愰幒鎾跺幗闂佺粯姊婚崢褎绂嶆导瀛樼厽闁哄倹瀵чˉ鐐烘煙娓氬灝濡兼い顏勫暟閹风娀鐓鐑嗘闂?
     @Convert(converter = EncryptedStringAttributeConverter.class)
     @Column(length = 1024)
@@ -108,7 +124,7 @@ public class Order extends TenantScopedJpaEntity implements PhoneBlindIndexTarge
         order.setReceiverName(address.receiverName());
         order.setReceiverPhone(address.phone());
         order.setAddressSnapshot(address.detailAddress());
-        order.markPaid();
+        order.markPendingPayment();
         return order;
     }
 
@@ -134,6 +150,54 @@ public class Order extends TenantScopedJpaEntity implements PhoneBlindIndexTarge
 
     public void setUserId(Long userId) {
         this.userId = userId;
+    }
+
+    public Long getCheckoutId() {
+        return checkoutId;
+    }
+
+    public void setCheckoutId(Long checkoutId) {
+        this.checkoutId = checkoutId;
+    }
+
+    public Long getCheckoutSubOrderId() {
+        return checkoutSubOrderId;
+    }
+
+    public void setCheckoutSubOrderId(Long checkoutSubOrderId) {
+        this.checkoutSubOrderId = checkoutSubOrderId;
+    }
+
+    public Long getShopId() {
+        return shopId;
+    }
+
+    public void setShopId(Long shopId) {
+        this.shopId = shopId;
+    }
+
+    public BigDecimal getOriginalAmount() {
+        return originalAmount;
+    }
+
+    public void setOriginalAmount(BigDecimal originalAmount) {
+        this.originalAmount = originalAmount;
+    }
+
+    public BigDecimal getDiscountAmount() {
+        return discountAmount;
+    }
+
+    public void setDiscountAmount(BigDecimal discountAmount) {
+        this.discountAmount = discountAmount;
+    }
+
+    public String getCheckoutIdempotencyKey() {
+        return checkoutIdempotencyKey;
+    }
+
+    public void setCheckoutIdempotencyKey(String checkoutIdempotencyKey) {
+        this.checkoutIdempotencyKey = checkoutIdempotencyKey;
     }
 
     public String getBuyerName() {
@@ -252,6 +316,10 @@ public class Order extends TenantScopedJpaEntity implements PhoneBlindIndexTarge
 
     public void markPaid() {
         markStatus(OrderStatus.PAID);
+    }
+
+    public void markPendingPayment() {
+        markStatus(OrderStatus.PENDING_PAYMENT);
     }
 
     public void ship(LocalDateTime shippingTime) {

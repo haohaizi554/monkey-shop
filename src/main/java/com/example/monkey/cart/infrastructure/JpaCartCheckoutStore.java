@@ -39,7 +39,8 @@ public class JpaCartCheckoutStore implements CartCheckoutStore {
 
     @Override
     public CheckoutOrder save(CheckoutOrder checkout) {
-        CartCheckoutEntity savedCheckout = checkoutRepository.save(toEntity(checkout));
+        CartCheckoutEntity entity = checkoutRepository.findById(checkout.id()).orElseGet(CartCheckoutEntity::new);
+        CartCheckoutEntity savedCheckout = checkoutRepository.save(updateEntity(entity, checkout));
         for (CheckoutSubOrder subOrder : checkout.subOrders()) {
             subOrderRepository.save(toEntity(savedCheckout.getId(), checkout.createdAt(), subOrder));
             for (CheckoutLine line : subOrder.lines()) {
@@ -85,14 +86,16 @@ public class JpaCartCheckoutStore implements CartCheckoutStore {
                 subOrder.getShopId(),
                 subOrder.getOrderNo(),
                 subOrder.getOriginalAmount(),
+                subOrder.getStoreDiscountAmount(),
+                subOrder.getPlatformDiscountAmount(),
                 subOrder.getDiscountAmount(),
                 subOrder.getPayableAmount(),
+                subOrder.getFormalOrderId(),
                 subOrder.getStatus(),
                 lines);
     }
 
-    private static CartCheckoutEntity toEntity(CheckoutOrder checkout) {
-        CartCheckoutEntity entity = new CartCheckoutEntity();
+    private static CartCheckoutEntity updateEntity(CartCheckoutEntity entity, CheckoutOrder checkout) {
         entity.setId(checkout.id());
         entity.setCheckoutNo(checkout.checkoutNo());
         entity.setUserId(checkout.userId());
@@ -115,8 +118,11 @@ public class JpaCartCheckoutStore implements CartCheckoutStore {
         entity.setOrderNo(subOrder.orderNo());
         entity.setShopId(subOrder.shopId());
         entity.setOriginalAmount(subOrder.originalAmount());
+        entity.setStoreDiscountAmount(subOrder.storeDiscountAmount());
+        entity.setPlatformDiscountAmount(subOrder.platformDiscountAmount());
         entity.setDiscountAmount(subOrder.discountAmount());
         entity.setPayableAmount(subOrder.payableAmount());
+        entity.setFormalOrderId(subOrder.formalOrderId());
         entity.setStatus(subOrder.status());
         entity.setCreateTime(createdAt);
         return entity;

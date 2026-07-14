@@ -1,16 +1,19 @@
 package com.example.monkey.order.infrastructure;
 
 import com.example.monkey.order.domain.OrderStore;
+import com.example.monkey.order.domain.OrderStore.CheckoutOrderRecord;
 import com.example.monkey.order.domain.OrderStore.OrderPage;
 import com.example.monkey.order.domain.OrderStore.OrderPageRequest;
 import com.example.monkey.order.domain.OrderStore.OrderRecord;
 import com.example.monkey.order.domain.OrderStore.SortOrder.Direction;
 import com.example.monkey.shared.infrastructure.persistence.JpaPageRequests;
 import com.example.monkey.shared.infrastructure.persistence.JpaSorts;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -24,10 +27,20 @@ public class JpaOrderStore implements OrderStore {
 
     private final OrderRepository orderRepository;
     private final StockLogRepository stockLogRepository;
+    private final OrderLineRepository orderLineRepository;
 
-    public JpaOrderStore(OrderRepository orderRepository, StockLogRepository stockLogRepository) {
+    @Autowired
+    public JpaOrderStore(
+            OrderRepository orderRepository,
+            StockLogRepository stockLogRepository,
+            OrderLineRepository orderLineRepository) {
         this.orderRepository = orderRepository;
         this.stockLogRepository = stockLogRepository;
+        this.orderLineRepository = orderLineRepository;
+    }
+
+    public JpaOrderStore(OrderRepository orderRepository, StockLogRepository stockLogRepository) {
+        this(orderRepository, stockLogRepository, null);
     }
 
     @Override
@@ -58,6 +71,29 @@ public class JpaOrderStore implements OrderStore {
         Order entity = toEntity(order);
         Order saved = orderRepository.save(entity);
         return toRecord(saved);
+    }
+
+    @Override
+    public List<OrderRecord> findByCheckoutId(Long checkoutId) {
+        return orderRepository.findByCheckoutIdOrderByCheckoutSubOrderIdAsc(checkoutId).stream()
+                .map(JpaOrderStore::toRecord)
+                .toList();
+    }
+
+    @Override
+    public List<OrderRecord> saveCheckoutOrders(List<CheckoutOrderRecord> orders) {
+        if (orderLineRepository == null) {
+            throw new IllegalStateException("Order line repository is required for checkout persistence");
+        }
+        return orders.stream()
+                .map(snapshot -> {
+                    Order saved = orderRepository.save(toEntity(snapshot.order()));
+                    orderLineRepository.saveAll(snapshot.lines().stream()
+                            .map(line -> OrderLineEntity.from(saved.getId(), line))
+                            .toList());
+                    return toRecord(saved);
+                })
+                .toList();
     }
 
     @Override
@@ -124,7 +160,13 @@ public class JpaOrderStore implements OrderStore {
                 order.getShippingTime(),
                 order.getStatus(),
                 order.getCreateTime(),
-                order.isUserHidden());
+                order.isUserHidden(),
+                order.getCheckoutId(),
+                order.getCheckoutSubOrderId(),
+                order.getShopId(),
+                order.getOriginalAmount() == null ? order.getPrice() : order.getOriginalAmount(),
+                order.getDiscountAmount() == null ? BigDecimal.ZERO : order.getDiscountAmount(),
+                order.getCheckoutIdempotencyKey());
     }
 
     private static Order toEntity(OrderRecord record) {
@@ -132,6 +174,12 @@ public class JpaOrderStore implements OrderStore {
         order.setId(record.id());
         order.setOrderNo(record.orderNo());
         order.setUserId(record.userId());
+        order.setCheckoutId(record.checkoutId());
+        order.setCheckoutSubOrderId(record.checkoutSubOrderId());
+        order.setShopId(record.shopId());
+        order.setOriginalAmount(record.originalAmount());
+        order.setDiscountAmount(record.discountAmount());
+        order.setCheckoutIdempotencyKey(record.checkoutIdempotencyKey());
         order.setBuyerName(record.buyerName());
         order.setBuyerAvatar(record.buyerAvatar());
         order.setProductId(record.productId());

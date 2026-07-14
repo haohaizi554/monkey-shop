@@ -46,7 +46,8 @@ final class CartDtoAssembler {
                 checkout.createdAt(),
                 checkout.subOrders().stream()
                         .map(CartDtoAssembler::toSubOrderResponse)
-                        .toList());
+                        .toList(),
+                checkout.orderIds());
     }
 
     private static CartSubOrderResponseDto toSubOrderResponse(CheckoutSubOrder subOrder) {
@@ -55,8 +56,11 @@ final class CartDtoAssembler {
                 subOrder.shopId(),
                 subOrder.orderNo(),
                 subOrder.originalAmount(),
+                subOrder.storeDiscountAmount(),
+                subOrder.platformDiscountAmount(),
                 subOrder.discountAmount(),
                 subOrder.payableAmount(),
+                subOrder.formalOrderId(),
                 subOrder.status(),
                 subOrder.lines().stream().map(CartDtoAssembler::toLineResponse).toList());
     }

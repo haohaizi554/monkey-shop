@@ -204,7 +204,7 @@ class OrderServiceTest {
 
         OrderResponseDto result = orderService.createOrder(42L, 7L, 3L, "order-key-1");
 
-        assertThat(result.status()).isEqualTo(OrderStatus.PAID.label());
+        assertThat(result.status()).isEqualTo(OrderStatus.PENDING_PAYMENT.label());
         OrderRecord saved = capturePlacedOrder();
         assertThat(saved.productId()).isEqualTo(7L);
         assertThat(saved.price()).isEqualByComparingTo("199.99");
@@ -222,7 +222,7 @@ class OrderServiceTest {
                         eq("USER"),
                         eq("ORD329861640192000000"),
                         isNull(),
-                        eq("orderId=11 status=PAID"));
+                        eq("orderId=11 status=PENDING_PAYMENT"));
     }
 
     @Test

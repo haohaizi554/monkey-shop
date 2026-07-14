@@ -63,6 +63,7 @@ class SchemaMigrationTest {
         String v45 = read("src/main/resources/db/migration/V45__tenant_management.sql");
         String v46 = read("src/main/resources/db/migration/V46__tenant_billing.sql");
         String v47 = read("src/main/resources/db/migration/V47__encrypt_order_review_content.sql");
+        String v49 = read("src/main/resources/db/migration/V49__link_checkout_to_orders.sql");
 
         assertThat(v1).contains("CREATE TABLE IF NOT EXISTS `orders`");
         assertThat(v1).contains("`price` DOUBLE");
@@ -195,6 +196,11 @@ class SchemaMigrationTest {
         assertThat(v46).contains("tenant_billing_reconciliation");
         assertThat(v47).contains("ALTER TABLE order_review");
         assertThat(v47).contains("MODIFY content VARCHAR(2048)");
+        assertThat(v49).contains("ADD COLUMN checkout_id BIGINT");
+        assertThat(v49).contains("ADD COLUMN formal_order_id BIGINT");
+        assertThat(v49).contains("CREATE TABLE order_line");
+        assertThat(v49).contains("uk_orders_checkout_sub_order");
+        assertThat(v49).contains("uk_order_line_checkout_line");
     }
 
     private static String read(String path) throws IOException {

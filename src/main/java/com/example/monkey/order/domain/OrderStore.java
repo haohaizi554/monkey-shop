@@ -20,6 +20,14 @@ public interface OrderStore {
 
     OrderRecord savePlacedOrder(OrderRecord order);
 
+    default List<OrderRecord> findByCheckoutId(Long checkoutId) {
+        return List.of();
+    }
+
+    default List<OrderRecord> saveCheckoutOrders(List<CheckoutOrderRecord> orders) {
+        throw new UnsupportedOperationException("Checkout order persistence is not configured");
+    }
+
     void hideFromUser(Long orderId);
 
     boolean recordStockRestore(Long orderId, Long productId);
@@ -43,7 +51,57 @@ public interface OrderStore {
             LocalDateTime shippingTime,
             String status,
             LocalDateTime createTime,
-            boolean userHidden) {
+            boolean userHidden,
+            Long checkoutId,
+            Long checkoutSubOrderId,
+            Long shopId,
+            BigDecimal originalAmount,
+            BigDecimal discountAmount,
+            String checkoutIdempotencyKey) {
+
+        public OrderRecord(
+                Long id,
+                String orderNo,
+                Long userId,
+                String buyerName,
+                String buyerAvatar,
+                Long productId,
+                String productName,
+                String productImage,
+                BigDecimal price,
+                String description,
+                String receiverName,
+                String receiverPhone,
+                String addressSnapshot,
+                LocalDateTime shippingTime,
+                String status,
+                LocalDateTime createTime,
+                boolean userHidden) {
+            this(
+                    id,
+                    orderNo,
+                    userId,
+                    buyerName,
+                    buyerAvatar,
+                    productId,
+                    productName,
+                    productImage,
+                    price,
+                    description,
+                    receiverName,
+                    receiverPhone,
+                    addressSnapshot,
+                    shippingTime,
+                    status,
+                    createTime,
+                    userHidden,
+                    null,
+                    null,
+                    null,
+                    price,
+                    BigDecimal.ZERO,
+                    null);
+        }
 
         public static OrderRecord place(
                 String orderNo, Long currentUserId, BuyerRecord buyer, ProductRecord product, AddressRecord address) {
@@ -63,7 +121,7 @@ public interface OrderStore {
                     address.phone(),
                     address.detailAddress(),
                     null,
-                    OrderStatus.PAID.label(),
+                    OrderStatus.PENDING_PAYMENT.label(),
                     null,
                     false);
         }
@@ -99,9 +157,64 @@ public interface OrderStore {
                     nextShippingTime == null ? shippingTime : nextShippingTime,
                     nextStatus.label(),
                     createTime,
-                    userHidden);
+                    userHidden,
+                    checkoutId,
+                    checkoutSubOrderId,
+                    shopId,
+                    originalAmount,
+                    discountAmount,
+                    checkoutIdempotencyKey);
+        }
+
+        public OrderRecord withId(Long assignedId) {
+            return new OrderRecord(
+                    assignedId,
+                    orderNo,
+                    userId,
+                    buyerName,
+                    buyerAvatar,
+                    productId,
+                    productName,
+                    productImage,
+                    price,
+                    description,
+                    receiverName,
+                    receiverPhone,
+                    addressSnapshot,
+                    shippingTime,
+                    status,
+                    createTime,
+                    userHidden,
+                    checkoutId,
+                    checkoutSubOrderId,
+                    shopId,
+                    originalAmount,
+                    discountAmount,
+                    checkoutIdempotencyKey);
         }
     }
+
+    record CheckoutOrderRecord(OrderRecord order, List<CheckoutOrderLineRecord> lines) {
+        public CheckoutOrderRecord {
+            lines = lines == null ? List.of() : List.copyOf(lines);
+        }
+    }
+
+    record CheckoutOrderLineRecord(
+            Long checkoutLineId,
+            Long skuId,
+            Long shopId,
+            Long categoryId,
+            String productName,
+            String productImage,
+            int quantity,
+            BigDecimal unitPrice,
+            BigDecimal originalAmount,
+            BigDecimal discountAmount,
+            BigDecimal payableAmount,
+            String couponCodes,
+            String reservationKey,
+            Long warehouseId) {}
 
     record ProductRecord(Long id, String name, String imageUrl, BigDecimal price, String description, Integer stock) {
         public boolean hasStock() {

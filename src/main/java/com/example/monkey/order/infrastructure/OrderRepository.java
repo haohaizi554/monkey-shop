@@ -17,6 +17,8 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     boolean existsByIdAndUserIdAndUserHiddenFalse(Long id, Long userId);
 
+    List<Order> findByCheckoutIdOrderByCheckoutSubOrderIdAsc(Long checkoutId);
+
     Page<Order> findByUserIdAndPiiAnonymizedFalse(Long userId, Pageable pageable);
 
     Page<Order> findByUserIdAndUserHiddenFalse(Long userId, Pageable pageable);

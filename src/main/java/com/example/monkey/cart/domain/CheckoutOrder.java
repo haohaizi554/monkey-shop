@@ -20,4 +20,33 @@ public record CheckoutOrder(
     public CheckoutOrder {
         subOrders = subOrders == null ? List.of() : List.copyOf(subOrders);
     }
+
+    public List<Long> orderIds() {
+        return subOrders.stream()
+                .map(CheckoutSubOrder::formalOrderId)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+    }
+
+    public CheckoutOrder confirmed(List<Long> orderIds) {
+        if (orderIds == null || orderIds.size() != subOrders.size()) {
+            throw new IllegalArgumentException("Each checkout suborder must reference one formal order");
+        }
+        List<CheckoutSubOrder> confirmedSubOrders = java.util.stream.IntStream.range(0, subOrders.size())
+                .mapToObj(index -> subOrders.get(index).withFormalOrderId(orderIds.get(index)))
+                .toList();
+        return new CheckoutOrder(
+                id,
+                checkoutNo,
+                userId,
+                addressId,
+                idempotencyKey,
+                originalAmount,
+                discountAmount,
+                payableAmount,
+                status,
+                province,
+                createdAt,
+                confirmedSubOrders);
+    }
 }

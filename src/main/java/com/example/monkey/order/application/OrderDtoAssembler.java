@@ -29,7 +29,13 @@ public final class OrderDtoAssembler {
                 order.addressSnapshot(),
                 order.shippingTime(),
                 order.status(),
-                order.createTime());
+                order.createTime(),
+                order.checkoutId(),
+                order.checkoutSubOrderId(),
+                order.shopId(),
+                order.originalAmount(),
+                order.discountAmount(),
+                order.checkoutIdempotencyKey());
     }
 
     public static OrderShipmentResponseDto toResponse(OrderShipmentBatch shipment) {

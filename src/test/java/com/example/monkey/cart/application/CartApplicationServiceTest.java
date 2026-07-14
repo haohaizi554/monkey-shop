@@ -17,6 +17,7 @@ import com.example.monkey.cart.domain.CartSkuSnapshot;
 import com.example.monkey.cart.domain.CartSnapshot;
 import com.example.monkey.cart.domain.CartStore;
 import com.example.monkey.cart.domain.CheckoutOrder;
+import com.example.monkey.cart.domain.FormalOrderCreator;
 import com.example.monkey.inventory.application.InventoryApplicationService;
 import com.example.monkey.inventory.application.dto.InventoryReservationResponseDto;
 import com.example.monkey.inventory.application.dto.InventoryReserveRequestDto;
@@ -25,6 +26,7 @@ import com.example.monkey.inventory.domain.InventoryReservationStatus;
 import com.example.monkey.marketing.application.MarketingApplicationService;
 import com.example.monkey.marketing.application.dto.MarketingPriceQuoteDto;
 import com.example.monkey.marketing.application.dto.MarketingPriceRequestDto;
+import com.example.monkey.order.domain.CheckoutOrderCommand;
 import com.example.monkey.order.domain.OrderNumberGenerator;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionUser;
@@ -125,6 +127,7 @@ class CartApplicationServiceTest {
         private final Map<Long, CartSkuSnapshot> catalog = new ConcurrentHashMap<>();
         private final InventoryApplicationService inventoryApplicationService = mock(InventoryApplicationService.class);
         private final MarketingApplicationService marketingApplicationService = mock(MarketingApplicationService.class);
+        private final FormalOrderCreator formalOrderCreator = mock(FormalOrderCreator.class);
         private final CartApplicationService service;
 
         private Fixture() {
@@ -141,6 +144,12 @@ class CartApplicationServiceTest {
                     .thenAnswer(invocation -> platformQuote(invocation.getArgument(0)));
             when(marketingApplicationService.quoteStorePrice(any()))
                     .thenAnswer(invocation -> storeQuote(invocation.getArgument(0)));
+            when(formalOrderCreator.create(any())).thenAnswer(invocation -> {
+                CheckoutOrderCommand command = invocation.getArgument(0);
+                return command.subOrders().stream()
+                        .map(CheckoutOrderCommand.SubOrder::checkoutSubOrderId)
+                        .toList();
+            });
             service = new CartApplicationService(
                     cartStore,
                     skuId -> Optional.ofNullable(catalog.get(skuId)),
@@ -148,6 +157,7 @@ class CartApplicationServiceTest {
                     new DirectCartLockManager(),
                     inventoryApplicationService,
                     marketingApplicationService,
+                    formalOrderCreator,
                     new AtomicOrderNumberGenerator(),
                     new AtomicIdGenerator(),
                     mock(AuditService.class),

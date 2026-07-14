@@ -19,12 +19,14 @@ import com.example.monkey.cart.domain.CartStore;
 import com.example.monkey.cart.domain.CheckoutLine;
 import com.example.monkey.cart.domain.CheckoutOrder;
 import com.example.monkey.cart.domain.CheckoutSubOrder;
+import com.example.monkey.cart.domain.FormalOrderCreator;
 import com.example.monkey.inventory.application.InventoryApplicationService;
 import com.example.monkey.inventory.application.dto.InventoryReservationResponseDto;
 import com.example.monkey.inventory.application.dto.InventoryReserveRequestDto;
 import com.example.monkey.marketing.application.MarketingApplicationService;
 import com.example.monkey.marketing.application.dto.MarketingPriceQuoteDto;
 import com.example.monkey.marketing.application.dto.MarketingPriceRequestDto;
+import com.example.monkey.order.domain.CheckoutOrderCommand;
 import com.example.monkey.order.domain.OrderNumberGenerator;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionUser;
@@ -67,6 +69,7 @@ public class CartApplicationService {
     private final CartLockManager lockManager;
     private final InventoryApplicationService inventoryApplicationService;
     private final MarketingApplicationService marketingApplicationService;
+    private final FormalOrderCreator formalOrderCreator;
     private final OrderNumberGenerator orderNumberGenerator;
     private final IdGenerator idGenerator;
     private final AuditService auditService;
@@ -81,6 +84,7 @@ public class CartApplicationService {
             CartLockManager lockManager,
             InventoryApplicationService inventoryApplicationService,
             MarketingApplicationService marketingApplicationService,
+            FormalOrderCreator formalOrderCreator,
             OrderNumberGenerator orderNumberGenerator,
             IdGenerator idGenerator,
             AuditService auditService,
@@ -92,6 +96,7 @@ public class CartApplicationService {
                 lockManager,
                 inventoryApplicationService,
                 marketingApplicationService,
+                formalOrderCreator,
                 orderNumberGenerator,
                 idGenerator,
                 auditService,
@@ -106,6 +111,7 @@ public class CartApplicationService {
             CartLockManager lockManager,
             InventoryApplicationService inventoryApplicationService,
             MarketingApplicationService marketingApplicationService,
+            FormalOrderCreator formalOrderCreator,
             OrderNumberGenerator orderNumberGenerator,
             IdGenerator idGenerator,
             AuditService auditService,
@@ -117,6 +123,7 @@ public class CartApplicationService {
         this.lockManager = lockManager;
         this.inventoryApplicationService = inventoryApplicationService;
         this.marketingApplicationService = marketingApplicationService;
+        this.formalOrderCreator = formalOrderCreator;
         this.orderNumberGenerator = orderNumberGenerator;
         this.idGenerator = idGenerator;
         this.auditService = auditService;
@@ -200,7 +207,9 @@ public class CartApplicationService {
             return existing.get();
         }
         CheckoutOrder checkout = buildCheckout(userId, request, idempotencyKey, true);
-        CheckoutOrder saved = checkoutStore.save(checkout);
+        CheckoutOrder persisted = checkoutStore.save(checkout);
+        List<Long> orderIds = formalOrderCreator.create(toOrderCommand(persisted));
+        CheckoutOrder saved = checkoutStore.save(persisted.confirmed(orderIds));
         cartStore.removeItems(
                 userId,
                 checkout.subOrders().stream()
@@ -213,6 +222,45 @@ public class CartApplicationService {
                 userId,
                 "checkoutId=" + saved.id() + ",subOrders=" + saved.subOrders().size());
         return saved;
+    }
+
+    private static CheckoutOrderCommand toOrderCommand(CheckoutOrder checkout) {
+        return new CheckoutOrderCommand(
+                checkout.id(),
+                checkout.userId(),
+                checkout.addressId(),
+                checkout.idempotencyKey(),
+                checkout.subOrders().stream()
+                        .map(subOrder -> new CheckoutOrderCommand.SubOrder(
+                                subOrder.id(),
+                                subOrder.shopId(),
+                                subOrder.orderNo(),
+                                subOrder.originalAmount(),
+                                subOrder.storeDiscountAmount(),
+                                subOrder.platformDiscountAmount(),
+                                subOrder.payableAmount(),
+                                subOrder.lines().stream()
+                                        .map(CartApplicationService::toOrderLine)
+                                        .toList()))
+                        .toList());
+    }
+
+    private static CheckoutOrderCommand.Line toOrderLine(CheckoutLine line) {
+        return new CheckoutOrderCommand.Line(
+                line.id(),
+                line.skuId(),
+                line.shopId(),
+                line.categoryId(),
+                line.productName(),
+                line.productImage(),
+                line.quantity(),
+                line.unitPrice(),
+                line.originalAmount(),
+                line.discountAmount(),
+                line.payableAmount(),
+                line.couponCodes(),
+                line.reservationKey(),
+                line.warehouseId());
     }
 
     private CheckoutOrder buildCheckout(
@@ -348,6 +396,10 @@ public class CartApplicationService {
         }
         BigDecimal discountAmount =
                 checkoutLines.stream().map(CheckoutLine::discountAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal storeDiscountAmount = lines.stream()
+                .map(line -> line.storeDiscount().min(line.line().originalAmount()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal platformDiscountAmount = discountAmount.subtract(storeDiscountAmount);
         BigDecimal payableAmount =
                 checkoutLines.stream().map(CheckoutLine::payableAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         return new CheckoutSubOrder(
@@ -355,8 +407,11 @@ public class CartApplicationService {
                 shopId,
                 orderNumberGenerator.nextOrderNo(),
                 money(originalAmount),
+                money(storeDiscountAmount),
+                money(platformDiscountAmount),
                 money(discountAmount),
                 money(payableAmount),
+                null,
                 status,
                 checkoutLines);
     }

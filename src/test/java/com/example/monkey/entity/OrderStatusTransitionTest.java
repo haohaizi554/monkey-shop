@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
 class OrderStatusTransitionTest {
 
     @Test
-    void placeSnapshotsBuyerProductAddressAndMarksPaid() {
+    void placeSnapshotsBuyerProductAddressAndWaitsForPayment() {
         BuyerRecord buyer = new BuyerRecord(42L, "buyer", "/images/avatar/buyer.png");
         ProductRecord product =
                 new ProductRecord(7L, "Momo", "/images/product/momo.png", new BigDecimal("199.99"), "calm", 5);
@@ -35,7 +35,7 @@ class OrderStatusTransitionTest {
         assertThat(order.getReceiverName()).isEqualTo("Ada");
         assertThat(order.getReceiverPhone()).isEqualTo("13800000000");
         assertThat(order.getAddressSnapshot()).isEqualTo("Hangzhou");
-        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAID.label());
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT.label());
     }
 
     @Test

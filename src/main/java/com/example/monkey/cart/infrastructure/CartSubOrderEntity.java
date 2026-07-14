@@ -31,6 +31,12 @@ public class CartSubOrderEntity extends TenantScopedJpaEntity {
     private BigDecimal originalAmount;
 
     @Column(nullable = false, precision = 12, scale = 2)
+    private BigDecimal storeDiscountAmount;
+
+    @Column(nullable = false, precision = 12, scale = 2)
+    private BigDecimal platformDiscountAmount;
+
+    @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal discountAmount;
 
     @Column(nullable = false, precision = 12, scale = 2)
@@ -39,6 +45,8 @@ public class CartSubOrderEntity extends TenantScopedJpaEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 32)
     private CartCheckoutStatus status;
+
+    private Long formalOrderId;
 
     @Column(nullable = false)
     private LocalDateTime createTime;
@@ -83,6 +91,22 @@ public class CartSubOrderEntity extends TenantScopedJpaEntity {
         this.originalAmount = originalAmount;
     }
 
+    public BigDecimal getStoreDiscountAmount() {
+        return storeDiscountAmount;
+    }
+
+    public void setStoreDiscountAmount(BigDecimal storeDiscountAmount) {
+        this.storeDiscountAmount = storeDiscountAmount;
+    }
+
+    public BigDecimal getPlatformDiscountAmount() {
+        return platformDiscountAmount;
+    }
+
+    public void setPlatformDiscountAmount(BigDecimal platformDiscountAmount) {
+        this.platformDiscountAmount = platformDiscountAmount;
+    }
+
     public BigDecimal getDiscountAmount() {
         return discountAmount;
     }
@@ -105,6 +129,14 @@ public class CartSubOrderEntity extends TenantScopedJpaEntity {
 
     public void setStatus(CartCheckoutStatus status) {
         this.status = status;
+    }
+
+    public Long getFormalOrderId() {
+        return formalOrderId;
+    }
+
+    public void setFormalOrderId(Long formalOrderId) {
+        this.formalOrderId = formalOrderId;
     }
 
     public LocalDateTime getCreateTime() {

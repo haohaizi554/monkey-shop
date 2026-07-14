@@ -56,7 +56,10 @@ public class SpringStateMachineOrderTransitionResolver implements OrderTransitio
     private static StateMachineFactory<OrderStatus, OrderEvent> buildFactory() {
         try {
             StateMachineBuilder.Builder<OrderStatus, OrderEvent> builder = StateMachineBuilder.builder();
-            builder.configureStates().withStates().initial(OrderStatus.PAID).states(EnumSet.allOf(OrderStatus.class));
+            builder.configureStates()
+                    .withStates()
+                    .initial(OrderStatus.PENDING_PAYMENT)
+                    .states(EnumSet.allOf(OrderStatus.class));
             var transitions = builder.configureTransitions();
             for (var transition : OrderTransitionPolicy.transitions()) {
                 transitions = transitions
