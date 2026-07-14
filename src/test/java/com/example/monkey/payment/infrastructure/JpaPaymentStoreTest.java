@@ -2,6 +2,7 @@ package com.example.monkey.payment.infrastructure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -26,6 +27,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -215,6 +217,31 @@ class JpaPaymentStoreTest {
         assertThat(lock.value()).isEqualTo(LockModeType.PESSIMISTIC_WRITE);
     }
 
+    @Test
+    void queryReadyReaderIncludesCompletedAndLegacyPendingPayments() {
+        LocalDateTime readyAt = LocalDateTime.parse("2026-07-14T08:00:00");
+        PaymentOrderEntity completed = queryReadyPaymentEntity(100L, "PAY100", PaymentOperationState.COMPLETED);
+        completed.setQueryAttemptCount(1);
+        PaymentOrderEntity legacy = queryReadyPaymentEntity(101L, "PAY101", PaymentOperationState.LEGACY_UNREPLAYABLE);
+        when(paymentOrderRepository.findReadyForQuery(
+                        eq(List.of(PaymentOperationState.COMPLETED, PaymentOperationState.LEGACY_UNREPLAYABLE)),
+                        eq(readyAt),
+                        any()))
+                .thenReturn(List.of(completed, legacy));
+
+        var ready = store.findPaymentsReadyForQuery(readyAt, 10);
+
+        assertThat(ready).extracting(intent -> intent.payment().paymentNo()).containsExactly("PAY100", "PAY101");
+        assertThat(ready)
+                .extracting(intent -> intent.queryAttempt().attemptToken())
+                .containsExactly(1, 0);
+        verify(paymentOrderRepository)
+                .findReadyForQuery(
+                        List.of(PaymentOperationState.COMPLETED, PaymentOperationState.LEGACY_UNREPLAYABLE),
+                        readyAt,
+                        org.springframework.data.domain.PageRequest.of(0, 10));
+    }
+
     private static PaymentOperationAttempt completedOperation() {
         return new PaymentOperationAttempt(PaymentOperationState.COMPLETED, 1, null, PaymentFailureClassification.NONE);
     }
@@ -314,6 +341,31 @@ class JpaPaymentStoreTest {
         entity.setCreateTime(LocalDateTime.parse("2026-07-04T08:00:00"));
         entity.setUpdateTime(LocalDateTime.parse("2026-07-04T08:10:00"));
         entity.setVersion(0L);
+        return entity;
+    }
+
+    private static PaymentOrderEntity queryReadyPaymentEntity(
+            Long id, String paymentNo, PaymentOperationState operationState) {
+        PaymentOrderEntity entity = paidPaymentEntity();
+        entity.setId(id);
+        entity.setPaymentNo(paymentNo);
+        entity.setOrderId(id);
+        entity.setStatus(PaymentStatus.PENDING);
+        entity.setPaidAmount(BigDecimal.ZERO.setScale(2));
+        entity.setProviderTradeNo("PREPAY-" + paymentNo);
+        entity.setPaidAt(null);
+        entity.setRequestFingerprint("a".repeat(64));
+        entity.setOperationState(operationState);
+        entity.setAttemptCount(PaymentOperationState.COMPLETED.equals(operationState) ? 1 : 0);
+        entity.setLeaseExpiresAt(null);
+        entity.setLastFailureClassification(
+                PaymentOperationState.COMPLETED.equals(operationState)
+                        ? PaymentFailureClassification.NONE
+                        : PaymentFailureClassification.LEGACY_UNKNOWN);
+        entity.setMerchantToken(PaymentOperationState.COMPLETED.equals(operationState) ? paymentNo : null);
+        entity.setQueryAttemptCount(0);
+        entity.setQueryLeaseExpiresAt(null);
+        entity.setNextQueryAt(LocalDateTime.parse("2026-07-14T07:59:00"));
         return entity;
     }
 }

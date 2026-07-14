@@ -32,6 +32,20 @@ public interface PaymentOrderRepository extends JpaRepository<PaymentOrderEntity
     List<PaymentOrderEntity> findByStatusAndOperationStateAndCreateTimeBeforeOrderByCreateTimeAsc(
             PaymentStatus status, PaymentOperationState operationState, LocalDateTime cutoff, Pageable pageable);
 
+    @Query("""
+            select payment
+            from PaymentOrderEntity payment
+            where payment.status = com.example.monkey.payment.domain.PaymentStatus.PENDING
+              and payment.operationState in :operationStates
+              and payment.nextQueryAt <= :readyAt
+              and (payment.queryLeaseExpiresAt is null or payment.queryLeaseExpiresAt <= :readyAt)
+            order by payment.nextQueryAt asc, payment.id asc
+            """)
+    List<PaymentOrderEntity> findReadyForQuery(
+            @Param("operationStates") Collection<PaymentOperationState> operationStates,
+            @Param("readyAt") LocalDateTime readyAt,
+            Pageable pageable);
+
     List<PaymentOrderEntity> findByOperationStateInAndLeaseExpiresAtLessThanEqualOrderByLeaseExpiresAtAsc(
             Collection<PaymentOperationState> states, LocalDateTime cutoff, Pageable pageable);
 

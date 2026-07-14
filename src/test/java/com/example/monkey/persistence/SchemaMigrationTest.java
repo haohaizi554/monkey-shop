@@ -46,6 +46,21 @@ class SchemaMigrationTest {
     }
 
     @Test
+    void v51BackfillsDedicatedQueryFencingOnlyForLegacyPendingPayments() throws IOException {
+        String v51 = read("src/main/resources/db/migration/V51__payment_request_fingerprints.sql");
+
+        assertThat(v51)
+                .contains("query_attempt_count INT NOT NULL DEFAULT 0")
+                .contains("query_lease_expires_at DATETIME(6)")
+                .contains("next_query_at DATETIME(6)")
+                .contains("next_query_at = CASE")
+                .contains("WHEN status = 'PENDING' THEN create_time")
+                .contains("ELSE NULL")
+                .contains("idx_payment_order_query_ready")
+                .contains("operation_state IN ('COMPLETED', 'LEGACY_UNREPLAYABLE')");
+    }
+
+    @Test
     void v50PaymentFixtureContainsDuplicateActiveIntentsAndUnverifiableLegacyRefund() throws IOException {
         String fixture = read("src/test/resources/db/fixtures/payment_v50_task4_review.sql");
 

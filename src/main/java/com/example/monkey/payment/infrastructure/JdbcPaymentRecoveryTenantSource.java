@@ -16,7 +16,7 @@ public class JdbcPaymentRecoveryTenantSource implements PaymentRecoveryTenantSou
     }
 
     @Override
-    public List<Long> findTenantIdsReadyForRecovery(LocalDateTime cutoff, int limit) {
+    public List<Long> findTenantIdsReadyForRecovery(LocalDateTime cutoff, long afterTenantId, int limit) {
         return jdbcTemplate.queryForList("""
                 SELECT tenant_id
                 FROM (
@@ -26,6 +26,13 @@ public class JdbcPaymentRecoveryTenantSource implements PaymentRecoveryTenantSou
                       AND lease_expires_at <= ?
                     UNION
                     SELECT tenant_id
+                    FROM payment_order
+                    WHERE status = 'PENDING'
+                      AND operation_state IN ('COMPLETED', 'LEGACY_UNREPLAYABLE')
+                      AND next_query_at <= ?
+                      AND (query_lease_expires_at IS NULL OR query_lease_expires_at <= ?)
+                    UNION
+                    SELECT tenant_id
                     FROM payment_ledger
                     WHERE ledger_type = 'REFUND'
                       AND (
@@ -33,8 +40,9 @@ public class JdbcPaymentRecoveryTenantSource implements PaymentRecoveryTenantSou
                           OR audit_state = 'PENDING'
                       )
                 ) recovery_tenants
+                WHERE tenant_id > ?
                 ORDER BY tenant_id
                 LIMIT ?
-                """, Long.class, cutoff, cutoff, limit);
+                """, Long.class, cutoff, cutoff, cutoff, cutoff, afterTenantId, limit);
     }
 }

@@ -25,6 +25,7 @@ import com.example.monkey.payment.domain.PaymentMethod;
 import com.example.monkey.payment.domain.PaymentOperationAttempt;
 import com.example.monkey.payment.domain.PaymentOperationState;
 import com.example.monkey.payment.domain.PaymentOrder;
+import com.example.monkey.payment.domain.PaymentQueryAttempt;
 import com.example.monkey.payment.domain.PaymentReconciliationReport;
 import com.example.monkey.payment.domain.PaymentRecoveryTenantSource;
 import com.example.monkey.payment.domain.PaymentRequestFingerprint;
@@ -442,9 +443,9 @@ public class PaymentApplicationService {
 
     @Scheduled(fixedDelayString = "${app.payment.query-delay:PT1M}")
     @SchedulerLock(name = "payment-query-timeout-orders", lockAtMostFor = "${app.payment.query-lock-at-most-for:PT10M}")
-    @Transactional
     public void queryTimedOutPaymentsScheduled() {
-        queryTimedOutPayments();
+        LocalDateTime queryTime = now();
+        forEachRecoveryTenant(queryTime, "query recovery", ignored -> queryTimedOutPayments(queryTime));
     }
 
     @Scheduled(fixedDelayString = "${app.payment.recovery-delay:PT30S}")
@@ -453,23 +454,51 @@ public class PaymentApplicationService {
             lockAtMostFor = "${app.payment.recovery-lock-at-most-for:PT5M}")
     public void recoverExpiredOperationsScheduled() {
         LocalDateTime recoveryTime = now();
-        for (Long tenantId : recoveryTenantSource.findTenantIdsReadyForRecovery(recoveryTime, QUERY_BATCH_SIZE)) {
-            if (tenantId == null || tenantId <= 0) {
-                continue;
-            }
-            Long previousTenantId = TenantContext.currentTenantId().orElse(null);
-            try {
-                TenantContext.setTenantId(tenantId);
-                recoverExpiredOperations(recoveryTime);
-            } catch (RuntimeException exception) {
-                log.error("Payment recovery failed for tenant {}", tenantId, exception);
-            } finally {
-                if (previousTenantId == null) {
-                    TenantContext.clear();
-                } else {
-                    TenantContext.setTenantId(previousTenantId);
+        forEachRecoveryTenant(recoveryTime, "recovery", ignored -> recoverExpiredOperations(recoveryTime));
+    }
+
+    private void forEachRecoveryTenant(LocalDateTime cutoff, String taskName, Consumer<Long> recoveryTask) {
+        long afterTenantId = 0L;
+        Long previousTenantId = TenantContext.currentTenantId().orElse(null);
+        try {
+            while (true) {
+                List<Long> tenantIds =
+                        recoveryTenantSource.findTenantIdsReadyForRecovery(cutoff, afterTenantId, QUERY_BATCH_SIZE);
+                if (tenantIds.isEmpty()) {
+                    return;
                 }
+
+                long nextAfterTenantId = afterTenantId;
+                for (Long tenantId : tenantIds) {
+                    if (tenantId == null || tenantId <= nextAfterTenantId) {
+                        continue;
+                    }
+                    try {
+                        TenantContext.setTenantId(tenantId);
+                        recoveryTask.accept(tenantId);
+                    } catch (RuntimeException exception) {
+                        log.error("Payment {} failed for tenant {}", taskName, tenantId, exception);
+                    } finally {
+                        restoreTenantContext(previousTenantId);
+                    }
+                    nextAfterTenantId = tenantId;
+                }
+
+                if (tenantIds.size() < QUERY_BATCH_SIZE || nextAfterTenantId <= afterTenantId) {
+                    return;
+                }
+                afterTenantId = nextAfterTenantId;
             }
+        } finally {
+            restoreTenantContext(previousTenantId);
+        }
+    }
+
+    private static void restoreTenantContext(Long tenantId) {
+        if (tenantId == null) {
+            TenantContext.clear();
+        } else {
+            TenantContext.setTenantId(tenantId);
         }
     }
 
@@ -481,7 +510,7 @@ public class PaymentApplicationService {
         int handled = 0;
         for (PaymentStore.PaymentIntent candidate :
                 paymentStore.findExpiredPaymentOperations(recoveryTime, QUERY_BATCH_SIZE)) {
-            PaymentStore.PaymentIntent claimed = claimExpiredPayment(candidate, recoveryTime);
+            PaymentStore.PaymentIntent claimed = claimExpiredPayment(candidate);
             if (claimed == null) {
                 continue;
             }
@@ -501,7 +530,7 @@ public class PaymentApplicationService {
             if (payment == null) {
                 continue;
             }
-            RefundReservation claimed = claimExpiredRefund(payment, candidate, recoveryTime);
+            RefundReservation claimed = claimExpiredRefund(payment, candidate);
             if (claimed == null) {
                 continue;
             }
@@ -525,8 +554,7 @@ public class PaymentApplicationService {
         return handled;
     }
 
-    private PaymentStore.PaymentIntent claimExpiredPayment(
-            PaymentStore.PaymentIntent candidate, LocalDateTime recoveryTime) {
+    private PaymentStore.PaymentIntent claimExpiredPayment(PaymentStore.PaymentIntent candidate) {
         return paymentTransactions.execute(() -> paymentStore
                 .withLockedPayment(candidate.payment().paymentNo(), ignored -> {
                     PaymentStore.PaymentIntent latest = paymentStore
@@ -534,33 +562,34 @@ public class PaymentApplicationService {
                                     candidate.payment().userId(),
                                     candidate.payment().idempotencyKey())
                             .orElse(null);
-                    if (latest == null || !latest.operation().isExpired(recoveryTime)) {
+                    LocalDateTime claimTime = now();
+                    if (latest == null || !latest.operation().isExpired(claimTime)) {
                         return null;
                     }
                     return paymentStore.savePayment(
                             latest.payment(),
                             latest.requestFingerprint(),
-                            latest.operation().claim(recoveryTime, operationLease),
+                            latest.operation().claim(claimTime, operationLease),
                             latest.merchantToken(),
                             latest.responseSnapshot());
                 })
                 .orElse(null));
     }
 
-    private RefundReservation claimExpiredRefund(
-            PaymentOrder candidatePayment, PaymentStore.RefundRequest candidate, LocalDateTime recoveryTime) {
+    private RefundReservation claimExpiredRefund(PaymentOrder candidatePayment, PaymentStore.RefundRequest candidate) {
         return paymentTransactions.execute(() -> paymentStore
                 .withLockedPayment(candidatePayment.paymentNo(), payment -> {
                     PaymentStore.RefundRequest latest = paymentStore
                             .findRefundRequest(payment.id(), candidate.ledger().requestKey())
                             .orElse(null);
-                    if (latest == null || !latest.operation().isExpired(recoveryTime)) {
+                    LocalDateTime claimTime = now();
+                    if (latest == null || !latest.operation().isExpired(claimTime)) {
                         return null;
                     }
                     PaymentStore.RefundRequest claimed = paymentStore.saveLedger(
                             latest.ledger(),
                             latest.requestFingerprint(),
-                            latest.operation().claim(recoveryTime, operationLease),
+                            latest.operation().claim(claimTime, operationLease),
                             latest.merchantToken(),
                             latest.responseSnapshot(),
                             latest.auditIntent());
@@ -571,20 +600,128 @@ public class PaymentApplicationService {
     }
 
     public int queryTimedOutPayments() {
+        return queryTimedOutPayments(now());
+    }
+
+    private int queryTimedOutPayments(LocalDateTime readyAt) {
         int handled = 0;
-        LocalDateTime cutoff = now().minus(queryAfter);
-        for (PaymentOrder payment : paymentStore.findPendingCreatedBefore(cutoff, QUERY_BATCH_SIZE)) {
-            PaymentGatewayResult result = paymentGateway.query(payment);
-            if (PaymentStatus.PAID.equals(result.status())) {
-                paymentTransactions.execute(
-                        () -> confirmPayment(payment, result.providerTradeNo(), "query:" + payment.paymentNo()));
-                handled++;
-            } else if (PaymentStatus.FAILED.equals(result.status())) {
-                paymentTransactions.execute(() -> failPayment(payment, "query:" + payment.paymentNo()));
+        for (PaymentStore.PaymentIntent candidate : paymentStore.findPaymentsReadyForQuery(readyAt, QUERY_BATCH_SIZE)) {
+            PaymentStore.PaymentIntent claimed = claimPaymentQuery(candidate);
+            if (claimed == null) {
+                continue;
+            }
+            PaymentStore.PaymentIntent execution = validatePaymentQueryOwnership(claimed);
+            if (execution == null) {
+                continue;
+            }
+            PaymentGatewayResult result;
+            try {
+                result = paymentGateway.query(execution.payment());
+            } catch (RuntimeException exception) {
+                retryPaymentQuery(execution);
+                continue;
+            }
+            if (applyPaymentQueryResult(execution, result)) {
                 handled++;
             }
         }
         return handled;
+    }
+
+    private PaymentStore.PaymentIntent claimPaymentQuery(PaymentStore.PaymentIntent candidate) {
+        return paymentTransactions.execute(() -> paymentStore
+                .withLockedPayment(candidate.payment().paymentNo(), ignored -> {
+                    PaymentStore.PaymentIntent latest = paymentStore
+                            .findPaymentIntentByPaymentNo(candidate.payment().paymentNo())
+                            .orElse(null);
+                    LocalDateTime claimTime = now();
+                    if (!isQueryEligible(latest) || !latest.queryAttempt().isClaimableAt(claimTime)) {
+                        return null;
+                    }
+                    return paymentStore.savePaymentQueryAttempt(
+                            latest.payment(), latest.queryAttempt().claim(claimTime, operationLease));
+                })
+                .orElse(null));
+    }
+
+    private PaymentStore.PaymentIntent validatePaymentQueryOwnership(PaymentStore.PaymentIntent expected) {
+        return paymentTransactions.execute(() -> paymentStore
+                .withLockedPayment(expected.payment().paymentNo(), ignored -> {
+                    PaymentStore.PaymentIntent latest = paymentStore
+                            .findPaymentIntentByPaymentNo(expected.payment().paymentNo())
+                            .orElse(null);
+                    LocalDateTime validationTime = now();
+                    if (!isQueryEligible(latest)
+                            || !latest.payment().id().equals(expected.payment().id())
+                            || latest.queryAttempt().attemptToken()
+                                    != expected.queryAttempt().attemptToken()
+                            || latest.queryAttempt().leaseExpiresAt() == null
+                            || !latest.queryAttempt().leaseExpiresAt().isAfter(validationTime)) {
+                        return null;
+                    }
+                    return latest;
+                })
+                .orElse(null));
+    }
+
+    private boolean applyPaymentQueryResult(PaymentStore.PaymentIntent claimed, PaymentGatewayResult result) {
+        int expectedAttempt = claimed.queryAttempt().attemptToken();
+        return paymentTransactions.execute(() -> paymentStore
+                .withLockedPayment(claimed.payment().paymentNo(), ignored -> {
+                    PaymentStore.PaymentIntent latest = paymentStore
+                            .findPaymentIntentByPaymentNo(claimed.payment().paymentNo())
+                            .orElse(null);
+                    if (!ownsQueryAttempt(latest, expectedAttempt)) {
+                        return false;
+                    }
+                    if (PaymentStatus.PAID.equals(result.status())) {
+                        PaymentOrder paid = confirmPayment(
+                                latest.payment(),
+                                result.providerTradeNo(),
+                                "query:" + latest.payment().paymentNo());
+                        paymentStore.savePaymentQueryAttempt(
+                                paid, latest.queryAttempt().stop());
+                        return true;
+                    }
+                    if (PaymentStatus.FAILED.equals(result.status())) {
+                        PaymentOrder failed = failPayment(
+                                latest.payment(), "query:" + latest.payment().paymentNo());
+                        paymentStore.savePaymentQueryAttempt(
+                                failed, latest.queryAttempt().stop());
+                        return true;
+                    }
+                    paymentStore.savePaymentQueryAttempt(
+                            latest.payment(), latest.queryAttempt().retryAt(now().plus(retryAfter)));
+                    return false;
+                })
+                .orElse(false));
+    }
+
+    private void retryPaymentQuery(PaymentStore.PaymentIntent claimed) {
+        int expectedAttempt = claimed.queryAttempt().attemptToken();
+        paymentTransactions.execute(() -> paymentStore
+                .withLockedPayment(claimed.payment().paymentNo(), ignored -> {
+                    PaymentStore.PaymentIntent latest = paymentStore
+                            .findPaymentIntentByPaymentNo(claimed.payment().paymentNo())
+                            .orElse(null);
+                    if (!ownsQueryAttempt(latest, expectedAttempt)) {
+                        return null;
+                    }
+                    return paymentStore.savePaymentQueryAttempt(
+                            latest.payment(), latest.queryAttempt().retryAt(now().plus(retryAfter)));
+                })
+                .orElse(null));
+    }
+
+    private static boolean ownsQueryAttempt(PaymentStore.PaymentIntent payment, int expectedAttempt) {
+        return isQueryEligible(payment) && payment.queryAttempt().attemptToken() == expectedAttempt;
+    }
+
+    private static boolean isQueryEligible(PaymentStore.PaymentIntent payment) {
+        return payment != null
+                && PaymentStatus.PENDING.equals(payment.payment().status())
+                && (PaymentOperationState.COMPLETED.equals(payment.operationState())
+                        || PaymentOperationState.LEGACY_UNREPLAYABLE.equals(payment.operationState()));
     }
 
     @Scheduled(cron = "${app.payment.reconciliation-cron:0 35 3 * * *}")
@@ -690,7 +827,6 @@ public class PaymentApplicationService {
                 || PaymentOperationState.TERMINAL_FAILED.equals(classified.operationState())) {
             return classified;
         }
-        LocalDateTime claimTime = now();
         return paymentTransactions.execute(() -> paymentStore
                 .withLockedPayment(existing.payment().paymentNo(), ignored -> {
                     PaymentStore.PaymentIntent latest = paymentStore
@@ -706,6 +842,7 @@ public class PaymentApplicationService {
                             || PaymentOperationState.TERMINAL_FAILED.equals(latest.operationState())) {
                         return latest;
                     }
+                    LocalDateTime claimTime = now();
                     if (!latest.operation().isClaimableAt(claimTime)) {
                         throw paymentConflict("Payment operation is already in progress");
                     }
@@ -753,6 +890,10 @@ public class PaymentApplicationService {
                             latest.operation().completed(),
                             latest.merchantToken(),
                             responseSnapshot);
+                    if (PaymentStatus.PENDING.equals(saved.payment().status())) {
+                        saved = paymentStore.savePaymentQueryAttempt(
+                                saved.payment(), PaymentQueryAttempt.readyAt(now().plus(queryAfter)));
+                    }
                     return new PaymentCompletion(saved, true);
                 })
                 .orElseThrow(() -> paymentConflict("Payment intent reservation is missing")));
@@ -760,35 +901,72 @@ public class PaymentApplicationService {
 
     private PaymentCompletion executePaymentGateway(
             PaymentStore.PaymentIntent reservation, Long userId, String key, PaymentRequestFingerprint fingerprint) {
+        PaymentStore.PaymentIntent execution = validatePaymentExecutionOwnership(reservation, userId, key, fingerprint);
+        if (PaymentOperationState.COMPLETED.equals(execution.operationState())) {
+            return new PaymentCompletion(execution, false);
+        }
         PaymentGatewayResult gatewayResult;
         try {
-            gatewayResult = paymentGateway.create(reservation.payment(), reservation.merchantToken());
+            gatewayResult = paymentGateway.create(execution.payment(), execution.merchantToken());
         } catch (PaymentGatewayException exception) {
             String terminalFailureCode = exception.isTerminal() ? exception.providerCode() : null;
-            recordPaymentGatewayFailure(reservation, exception.classification(), terminalFailureCode);
+            recordPaymentGatewayFailure(execution, exception.classification(), terminalFailureCode);
             throw exception.isTerminal() ? PaymentGatewayException.terminalReplay(terminalFailureCode) : exception;
         } catch (RuntimeException exception) {
-            recordPaymentGatewayFailure(reservation, PaymentFailureClassification.UNKNOWN, null);
+            recordPaymentGatewayFailure(execution, PaymentFailureClassification.UNKNOWN, null);
             throw exception;
         }
         if (PaymentStatus.FAILED.equals(gatewayResult.status())) {
             PaymentGatewayException rejected =
                     PaymentGatewayException.rejected("Payment provider rejected the request");
-            recordPaymentGatewayFailure(reservation, rejected.classification(), rejected.providerCode());
+            recordPaymentGatewayFailure(execution, rejected.classification(), rejected.providerCode());
             throw rejected;
         }
         try {
             return completePayment(
-                    reservation.payment().paymentNo(),
+                    execution.payment().paymentNo(),
                     userId,
                     key,
                     fingerprint,
-                    reservation.operation().attemptCount(),
+                    execution.operation().attemptCount(),
                     gatewayResult);
         } catch (RuntimeException exception) {
-            recordPaymentGatewayFailure(reservation, PaymentFailureClassification.LOCAL_COMPLETION, null);
+            recordPaymentGatewayFailure(execution, PaymentFailureClassification.LOCAL_COMPLETION, null);
             throw exception;
         }
+    }
+
+    private PaymentStore.PaymentIntent validatePaymentExecutionOwnership(
+            PaymentStore.PaymentIntent expected, Long userId, String key, PaymentRequestFingerprint fingerprint) {
+        return paymentTransactions.execute(() -> paymentStore
+                .withLockedPayment(expected.payment().paymentNo(), ignored -> {
+                    PaymentStore.PaymentIntent latest = paymentStore
+                            .findByUserIdAndIdempotencyKey(userId, key)
+                            .map(intent -> classifyPaymentIntent(intent, fingerprint))
+                            .filter(intent -> intent.payment()
+                                    .paymentNo()
+                                    .equals(expected.payment().paymentNo()))
+                            .orElseThrow(() -> paymentConflict("Payment intent reservation is missing"));
+                    if (PaymentOperationState.COMPLETED.equals(latest.operationState())) {
+                        return latest;
+                    }
+                    if (PaymentOperationState.TERMINAL_FAILED.equals(latest.operationState())) {
+                        throw PaymentGatewayException.terminalReplay(
+                                latest.operation().terminalFailureCode());
+                    }
+                    LocalDateTime validationTime = now();
+                    if (!latest.payment().id().equals(expected.payment().id())
+                            || latest.operation().attemptCount()
+                                    != expected.operation().attemptCount()
+                            || !PaymentOperationState.RESERVED.equals(latest.operationState())
+                            || latest.operation().leaseExpiresAt() == null
+                            || !latest.operation().leaseExpiresAt().isAfter(validationTime)
+                            || !Objects.equals(latest.merchantToken(), expected.merchantToken())) {
+                        throw paymentConflict("Payment operation ownership is stale");
+                    }
+                    return latest;
+                })
+                .orElseThrow(() -> paymentConflict("Payment intent reservation is missing")));
     }
 
     private void recordPaymentGatewayFailure(
@@ -1044,43 +1222,82 @@ public class PaymentApplicationService {
 
     private RefundCompletion executeRefundGateway(
             RefundReservation reservation, String key, Consumer<PaymentOrder> accessCheck) {
+        RefundReservation execution = validateRefundExecutionOwnership(reservation, key, accessCheck);
+        if (PaymentOperationState.COMPLETED.equals(execution.refund().operationState())) {
+            return new RefundCompletion(execution.payment(), execution.refund(), false);
+        }
         PaymentGatewayResult gatewayResult;
         try {
             gatewayResult = paymentGateway.refund(
-                    reservation.payment(),
-                    reservation.refund().ledger().amount(),
-                    reservation.refund().merchantToken());
+                    execution.payment(),
+                    execution.refund().ledger().amount(),
+                    execution.refund().merchantToken());
         } catch (PaymentGatewayException exception) {
             String terminalFailureCode = exception.isTerminal() ? exception.providerCode() : null;
-            recordRefundGatewayFailure(reservation, exception.classification(), terminalFailureCode);
+            recordRefundGatewayFailure(execution, exception.classification(), terminalFailureCode);
             throw exception.isTerminal() ? PaymentGatewayException.terminalReplay(terminalFailureCode) : exception;
         } catch (RuntimeException exception) {
-            recordRefundGatewayFailure(reservation, PaymentFailureClassification.UNKNOWN, null);
+            recordRefundGatewayFailure(execution, PaymentFailureClassification.UNKNOWN, null);
             throw exception;
         }
         if (PaymentStatus.FAILED.equals(gatewayResult.status())) {
             PaymentGatewayException rejected = PaymentGatewayException.rejected("Payment provider rejected the refund");
-            recordRefundGatewayFailure(reservation, rejected.classification(), rejected.providerCode());
+            recordRefundGatewayFailure(execution, rejected.classification(), rejected.providerCode());
             throw rejected;
         }
         if (PaymentStatus.PENDING.equals(gatewayResult.status())) {
             PaymentGatewayException unknown = new PaymentGatewayException(
                     PaymentFailureClassification.TIMEOUT_UNKNOWN, "Refund result is not yet known");
-            recordRefundGatewayFailure(reservation, unknown.classification(), null);
+            recordRefundGatewayFailure(execution, unknown.classification(), null);
             throw unknown;
         }
         try {
             return completeRefund(
-                    reservation.payment().paymentNo(),
+                    execution.payment().paymentNo(),
                     key,
-                    reservation.fingerprint(),
-                    reservation.refund().operation().attemptCount(),
+                    execution.fingerprint(),
+                    execution.refund().operation().attemptCount(),
                     gatewayResult,
                     accessCheck);
         } catch (RuntimeException exception) {
-            recordRefundGatewayFailure(reservation, PaymentFailureClassification.LOCAL_COMPLETION, null);
+            recordRefundGatewayFailure(execution, PaymentFailureClassification.LOCAL_COMPLETION, null);
             throw exception;
         }
+    }
+
+    private RefundReservation validateRefundExecutionOwnership(
+            RefundReservation expected, String key, Consumer<PaymentOrder> accessCheck) {
+        return paymentTransactions.execute(() -> paymentStore
+                .withLockedPayment(expected.payment().paymentNo(), payment -> {
+                    accessCheck.accept(payment);
+                    PaymentStore.RefundRequest latest = paymentStore
+                            .findRefundRequest(payment.id(), key)
+                            .map(refund -> classifyRefundRequest(refund, expected.fingerprint()))
+                            .orElseThrow(() -> paymentConflict("Refund reservation is missing"));
+                    if (PaymentOperationState.COMPLETED.equals(latest.operationState())) {
+                        return new RefundReservation(payment, latest, expected.fingerprint());
+                    }
+                    if (PaymentOperationState.TERMINAL_FAILED.equals(latest.operationState())) {
+                        throw PaymentGatewayException.terminalReplay(
+                                latest.operation().terminalFailureCode());
+                    }
+                    LocalDateTime validationTime = now();
+                    if (!payment.id().equals(expected.payment().id())
+                            || !latest.ledger()
+                                    .id()
+                                    .equals(expected.refund().ledger().id())
+                            || latest.operation().attemptCount()
+                                    != expected.refund().operation().attemptCount()
+                            || !PaymentOperationState.RESERVED.equals(latest.operationState())
+                            || latest.operation().leaseExpiresAt() == null
+                            || !latest.operation().leaseExpiresAt().isAfter(validationTime)
+                            || !Objects.equals(
+                                    latest.merchantToken(), expected.refund().merchantToken())) {
+                        throw paymentConflict("Refund operation ownership is stale");
+                    }
+                    return new RefundReservation(payment, latest, expected.fingerprint());
+                })
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Payment order does not exist")));
     }
 
     private void recordRefundGatewayFailure(

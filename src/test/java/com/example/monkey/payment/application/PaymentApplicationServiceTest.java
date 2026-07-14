@@ -2,6 +2,7 @@ package com.example.monkey.payment.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doThrow;
@@ -32,6 +33,7 @@ import com.example.monkey.payment.domain.PaymentMethod;
 import com.example.monkey.payment.domain.PaymentOperationAttempt;
 import com.example.monkey.payment.domain.PaymentOperationState;
 import com.example.monkey.payment.domain.PaymentOrder;
+import com.example.monkey.payment.domain.PaymentQueryAttempt;
 import com.example.monkey.payment.domain.PaymentReconciliationReport;
 import com.example.monkey.payment.domain.PaymentRecoveryTenantSource;
 import com.example.monkey.payment.domain.PaymentRequestFingerprint;
@@ -79,14 +81,23 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.stream.LongStream;
+import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionInterceptor;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @ExtendWith(MockitoExtension.class)
 class PaymentApplicationServiceTest {
@@ -123,7 +134,10 @@ class PaymentApplicationServiceTest {
         paymentGateway = new RecordingPaymentGateway();
         transactions = new RecordingTransactions();
         recoveryTenantIds = List.of();
-        recoveryTenantSource = (cutoff, limit) -> recoveryTenantIds;
+        recoveryTenantSource = (cutoff, afterTenantId, limit) -> recoveryTenantIds.stream()
+                .filter(tenantId -> tenantId > afterTenantId)
+                .limit(limit)
+                .toList();
         service = newService(FIXED_CLOCK);
     }
 
@@ -157,6 +171,69 @@ class PaymentApplicationServiceTest {
             service.recoverExpiredOperationsScheduled();
 
             assertThat(paymentStore.recoveryTenantQueries).containsExactly(1L, 2L);
+            assertThat(TenantContext.currentTenantId()).contains(77L);
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void scheduledRecoveryProcessesTenantAfterAFullFailingFirstPage() {
+        SequencedRecoveryTenantSource tenantSource =
+                new SequencedRecoveryTenantSource(List.of(tenantIds(1L, 100L), List.of(101L)));
+        recoveryTenantSource = tenantSource;
+        service = newService(FIXED_CLOCK);
+        paymentStore.failingRecoveryTenantIds.add(1L);
+        TenantContext.setTenantId(77L);
+
+        try {
+            service.recoverExpiredOperationsScheduled();
+
+            assertThat(paymentStore.recoveryTenantQueries).contains(101L);
+            assertThat(TenantContext.currentTenantId()).contains(77L);
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void nonAdvancingRecoveryTenantPageStopsWithoutRepeatingTenantsAndRestoresContext() {
+        SequencedRecoveryTenantSource tenantSource =
+                new SequencedRecoveryTenantSource(List.of(tenantIds(1L, 100L), List.of(100L)));
+        recoveryTenantSource = tenantSource;
+        service = newService(FIXED_CLOCK);
+        TenantContext.setTenantId(77L);
+
+        try {
+            service.recoverExpiredOperationsScheduled();
+
+            assertThat(tenantSource.calls()).isEqualTo(2);
+            assertThat(paymentStore.recoveryTenantQueries).containsExactlyElementsOf(tenantIds(1L, 100L));
+            assertThat(paymentStore.recoveryTenantQueries).doesNotHaveDuplicates();
+            assertThat(TenantContext.currentTenantId()).contains(77L);
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void malformedRecoveryTenantPageDoesNotStarveLaterTenants() {
+        List<Long> malformedFirstPage = new ArrayList<>(tenantIds(2L, 98L));
+        malformedFirstPage.add(0, 0L);
+        malformedFirstPage.add(0, 1L);
+        malformedFirstPage.add(0, 1L);
+        SequencedRecoveryTenantSource tenantSource =
+                new SequencedRecoveryTenantSource(List.of(malformedFirstPage, List.of(99L)));
+        recoveryTenantSource = tenantSource;
+        service = newService(FIXED_CLOCK);
+        TenantContext.setTenantId(77L);
+
+        try {
+            service.recoverExpiredOperationsScheduled();
+
+            assertThat(tenantSource.cursors()).containsExactly(0L, 98L);
+            assertThat(paymentStore.recoveryTenantQueries).containsExactlyElementsOf(tenantIds(1L, 99L));
+            assertThat(paymentStore.recoveryTenantQueries).doesNotHaveDuplicates();
             assertThat(TenantContext.currentTenantId()).contains(77L);
         } finally {
             TenantContext.clear();
@@ -425,6 +502,8 @@ class PaymentApplicationServiceTest {
                         "transaction-begin",
                         "payment-reservation",
                         "transaction-commit",
+                        "transaction-begin",
+                        "transaction-commit",
                         "gateway-create",
                         "transaction-begin",
                         "payment-completion",
@@ -444,6 +523,8 @@ class PaymentApplicationServiceTest {
                 .containsExactly(
                         "transaction-begin",
                         "refund-reservation",
+                        "transaction-commit",
+                        "transaction-begin",
                         "transaction-commit",
                         "gateway-refund",
                         "transaction-begin",
@@ -474,6 +555,38 @@ class PaymentApplicationServiceTest {
                                 String.class)
                         .getAnnotation(Transactional.class))
                 .isNull();
+    }
+
+    @Test
+    void timedOutQueryGatewayOrchestrationDoesNotOwnAWholeTransaction() throws NoSuchMethodException {
+        saveQueryReadyPayment(
+                pendingPayment().withProviderTradeNo("wx-prepay-1", LocalDateTime.parse("2026-07-04T08:00:00")));
+        recoveryTenantIds = List.of(1L);
+        DriverManagerDataSource dataSource = new DriverManagerDataSource();
+        dataSource.setUrl("jdbc:h2:mem:payment-query-transaction-boundary");
+        dataSource.setUsername("sa");
+        dataSource.setPassword("");
+        DataSourceTransactionManager transactionManager = new DataSourceTransactionManager(dataSource);
+        TransactionInterceptor transactionInterceptor =
+                new TransactionInterceptor(transactionManager, new AnnotationTransactionAttributeSource());
+        ProxyFactory proxyFactory = new ProxyFactory(service);
+        proxyFactory.setProxyTargetClass(true);
+        proxyFactory.addAdvice(transactionInterceptor);
+        PaymentApplicationService proxiedService = (PaymentApplicationService) proxyFactory.getProxy();
+        Transactional queryTransaction = PaymentApplicationService.class
+                .getMethod("queryTimedOutPaymentsScheduled")
+                .getAnnotation(Transactional.class);
+
+        proxiedService.queryTimedOutPaymentsScheduled();
+
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(queryTransaction)
+                    .as("query scheduler orchestration transaction annotation")
+                    .isNull();
+            softly.assertThat(paymentGateway.queryTransactionStates)
+                    .as("active transaction state at paymentGateway.query")
+                    .containsExactly(false);
+        });
     }
 
     @Test
@@ -602,6 +715,56 @@ class PaymentApplicationServiceTest {
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+    }
+
+    @Test
+    void staleNewPaymentReservationDoesNotCallProviderAfterTakeover() throws Exception {
+        MutableClock clock = new MutableClock(FIXED_CLOCK.instant());
+        PaymentApplicationService fencedService = newService(clock);
+        when(orderStore.findVisibleByIdAndUserId(10L, 42L))
+                .thenReturn(Optional.of(orderForId(10L, new BigDecimal("100.00"))));
+        when(idGenerator.nextId()).thenReturn(1000L);
+        transactions.pauseAfterCommit(2);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+
+        try {
+            Future<PaymentResponseDto> staleWorker = executor.submit(() -> fencedService.createPayment(
+                    user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "payment-key"));
+            transactions.awaitPausedCommit();
+            PaymentOperationAttempt initialAttempt = paymentStore.paymentOperation("PAY1000");
+            clock.advance(Duration.ofMinutes(3));
+            PaymentOperationAttempt newerAttempt = paymentStore
+                    .withLockedPayment("PAY1000", ignored -> {
+                        PaymentStore.PaymentIntent latest = paymentStore
+                                .findByUserIdAndIdempotencyKey(42L, "payment-key")
+                                .orElseThrow();
+                        return paymentStore
+                                .savePayment(
+                                        latest.payment(),
+                                        latest.requestFingerprint(),
+                                        latest.operation()
+                                                .claim(
+                                                        LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC),
+                                                        Duration.ofMinutes(2)),
+                                        latest.merchantToken(),
+                                        latest.responseSnapshot())
+                                .operation();
+                    })
+                    .orElseThrow();
+            transactions.releasePausedCommit();
+            Throwable staleWorkerFailure = awaitWorkerFailure(staleWorker);
+
+            SoftAssertions.assertSoftly(softly -> {
+                softly.assertThat(initialAttempt.attemptCount()).isEqualTo(1);
+                softly.assertThat(newerAttempt.attemptCount()).isEqualTo(2);
+                softly.assertThat(paymentGateway.createRequests).isEmpty();
+                softly.assertThat(paymentStore.paymentOperation("PAY1000")).isEqualTo(newerAttempt);
+                softly.assertThat(staleWorkerFailure).matches(PaymentApplicationServiceTest::isSuccessfulOrConflict);
+            });
+        } finally {
+            transactions.releasePausedCommit();
+            executor.shutdownNow();
+        }
     }
 
     @Test
@@ -803,6 +966,49 @@ class PaymentApplicationServiceTest {
                 user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "payment-key");
 
         assertThat(paymentGateway.createRequests).containsExactly("PAY1000", "PAY1000");
+    }
+
+    @Test
+    void recoveryClaimsEachPaymentUsingItsOwnCurrentTime() {
+        MutableClock clock = new MutableClock(FIXED_CLOCK.instant());
+        PaymentApplicationService fencedService = newService(clock);
+        PaymentOperationAttempt expiredAttempt = new PaymentOperationAttempt(
+                PaymentOperationState.RETRYABLE,
+                1,
+                LocalDateTime.parse("2026-07-04T08:29:00"),
+                PaymentFailureClassification.TIMEOUT_UNKNOWN);
+        PaymentOrder first = pendingPayment();
+        PaymentOrder second = pendingPayment(101L, 11L, "second-pay-key");
+        paymentStore.savePayment(
+                first,
+                PaymentRequestFingerprint.of(first.orderId(), first.method(), first.amount(), "CNY")
+                        .value(),
+                expiredAttempt,
+                first.paymentNo(),
+                null);
+        paymentStore.savePayment(
+                second,
+                PaymentRequestFingerprint.of(second.orderId(), second.method(), second.amount(), "CNY")
+                        .value(),
+                expiredAttempt,
+                second.paymentNo(),
+                null);
+        AtomicReference<LocalDateTime> secondLeaseAtProvider = new AtomicReference<>();
+        AtomicReference<LocalDateTime> secondProviderTime = new AtomicReference<>();
+        paymentGateway.beforeCreate = payment -> {
+            if (second.paymentNo().equals(payment.paymentNo())) {
+                secondLeaseAtProvider.set(
+                        paymentStore.paymentOperation(payment.paymentNo()).leaseExpiresAt());
+                secondProviderTime.set(LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC));
+            }
+        };
+        paymentGateway.afterNextCreate = () -> clock.advance(Duration.ofMinutes(3));
+
+        int recovered = fencedService.recoverExpiredOperations();
+
+        assertThat(recovered).isEqualTo(2);
+        assertThat(paymentGateway.createRequests).containsExactly("PAY100", "PAY101");
+        assertThat(secondLeaseAtProvider.get()).isAfter(secondProviderTime.get());
     }
 
     @Test
@@ -1053,6 +1259,68 @@ class PaymentApplicationServiceTest {
             assertThat(paymentGateway.refundAmounts).containsExactly(new BigDecimal("80.00"));
             assertThat(paymentGateway.refundRequests).hasSize(1);
         } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void staleNewRefundReservationDoesNotCallProviderAfterTakeover() throws Exception {
+        MutableClock clock = new MutableClock(FIXED_CLOCK.instant());
+        PaymentApplicationService fencedService = newService(clock);
+        paymentStore.savePayment(paidPayment());
+        when(idGenerator.nextId()).thenReturn(3000L);
+        transactions.pauseAfterCommit(1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+
+        try {
+            Future<PaymentRefundResponseDto> staleWorker = executor.submit(() -> fencedService.refund(
+                    user(), new PaymentRefundRequestDto("PAY100", new BigDecimal("30.00"), "return"), "refund-key"));
+            transactions.awaitPausedCommit();
+            PaymentOperationAttempt initialAttempt = paymentStore
+                    .findRefundRequest(100L, "refund-key")
+                    .orElseThrow()
+                    .operation();
+            clock.advance(Duration.ofMinutes(3));
+            PaymentOperationAttempt newerAttempt = paymentStore
+                    .withLockedPayment("PAY100", payment -> {
+                        PaymentStore.RefundRequest latest = paymentStore
+                                .findRefundRequest(payment.id(), "refund-key")
+                                .orElseThrow();
+                        return paymentStore
+                                .saveLedger(
+                                        latest.ledger(),
+                                        latest.requestFingerprint(),
+                                        latest.operation()
+                                                .claim(
+                                                        LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC),
+                                                        Duration.ofMinutes(2)),
+                                        latest.merchantToken(),
+                                        latest.responseSnapshot(),
+                                        latest.auditIntent())
+                                .operation();
+                    })
+                    .orElseThrow();
+            transactions.releasePausedCommit();
+            Throwable staleWorkerFailure = awaitWorkerFailure(staleWorker);
+
+            SoftAssertions.assertSoftly(softly -> {
+                softly.assertThat(initialAttempt.attemptCount()).isEqualTo(1);
+                softly.assertThat(newerAttempt.attemptCount()).isEqualTo(2);
+                softly.assertThat(paymentGateway.refundRequests).isEmpty();
+                softly.assertThat(paymentStore
+                                .findRefundRequest(100L, "refund-key")
+                                .orElseThrow()
+                                .operation())
+                        .isEqualTo(newerAttempt);
+                softly.assertThat(paymentStore
+                                .findByPaymentNo("PAY100")
+                                .orElseThrow()
+                                .refundedAmount())
+                        .isEqualByComparingTo(BigDecimal.ZERO);
+                softly.assertThat(staleWorkerFailure).matches(PaymentApplicationServiceTest::isSuccessfulOrConflict);
+            });
+        } finally {
+            transactions.releasePausedCommit();
             executor.shutdownNow();
         }
     }
@@ -1391,7 +1659,7 @@ class PaymentApplicationServiceTest {
 
     @Test
     void timedOutQueryConfirmsPendingPayment() {
-        paymentStore.savePayment(
+        saveQueryReadyPayment(
                 pendingPayment().withProviderTradeNo("wx-prepay-1", LocalDateTime.parse("2026-07-04T08:00:00")));
         paymentGateway.queryResult =
                 new PaymentGatewayResult(PaymentStatus.PAID, "wx-trade-1", null, new BigDecimal("100.00"));
@@ -1408,10 +1676,250 @@ class PaymentApplicationServiceTest {
                 .singleElement()
                 .extracting(PaymentLedgerEntry::requestKey)
                 .isEqualTo("query:PAY100");
+        assertThat(paymentStore.queryAttempt("PAY100").nextReadyAt()).isNull();
+    }
+
+    @Test
+    void scheduledTimedOutQueryDiscoversTenantTwoAndRestoresContext() {
+        recoveryTenantIds = List.of(2L);
+        PaymentOrder tenantTwoPayment =
+                pendingPayment().withProviderTradeNo("wx-prepay-1", LocalDateTime.parse("2026-07-04T08:00:00"));
+        saveQueryReadyPayment(tenantTwoPayment);
+        paymentStore.queryPaymentsByTenant.put(2L, List.of(tenantTwoPayment));
+        TenantContext.setTenantId(77L);
+
+        try {
+            service.queryTimedOutPaymentsScheduled();
+
+            assertThat(paymentGateway.queryRequests).containsExactly("PAY100");
+            assertThat(TenantContext.currentTenantId()).contains(77L);
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void scheduledTimedOutQueryProcessesTenantAfterAFullFirstPage() {
+        SequencedRecoveryTenantSource tenantSource =
+                new SequencedRecoveryTenantSource(List.of(tenantIds(1L, 100L), List.of(101L)));
+        recoveryTenantSource = tenantSource;
+        service = newService(FIXED_CLOCK);
+        PaymentOrder tenantOneHundredOnePayment =
+                pendingPayment().withProviderTradeNo("wx-prepay-1", LocalDateTime.parse("2026-07-04T08:00:00"));
+        saveQueryReadyPayment(tenantOneHundredOnePayment);
+        paymentStore.queryPaymentsByTenant.put(101L, List.of(tenantOneHundredOnePayment));
+        TenantContext.setTenantId(77L);
+
+        try {
+            service.queryTimedOutPaymentsScheduled();
+
+            assertThat(paymentGateway.queryRequests).containsExactly("PAY100");
+            assertThat(TenantContext.currentTenantId()).contains(77L);
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void concurrentTimedOutQueriesUseOneProviderQueryWhileTheFirstLeaseIsActive() throws Exception {
+        saveQueryReadyPayment(
+                pendingPayment().withProviderTradeNo("wx-prepay-1", LocalDateTime.parse("2026-07-04T08:00:00")));
+        paymentGateway.blockFirstQuery();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<Integer> firstWorker = executor.submit(service::queryTimedOutPayments);
+            paymentGateway.awaitFirstQuery();
+            Future<Integer> secondWorker = executor.submit(service::queryTimedOutPayments);
+
+            assertThat(secondWorker.get(5, TimeUnit.SECONDS)).isZero();
+            assertThat(paymentGateway.queryRequests).containsExactly("PAY100");
+            paymentGateway.releaseFirstQuery();
+            assertThat(firstWorker.get(5, TimeUnit.SECONDS)).isZero();
+        } finally {
+            paymentGateway.releaseFirstQuery();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void staleQueryClaimDoesNotCallProviderAfterTakeover() throws Exception {
+        MutableClock clock = new MutableClock(FIXED_CLOCK.instant());
+        PaymentApplicationService fencedService = newService(clock);
+        saveQueryReadyPayment(
+                pendingPayment().withProviderTradeNo("wx-prepay-1", LocalDateTime.parse("2026-07-04T08:00:00")));
+        paymentGateway.queryResult =
+                new PaymentGatewayResult(PaymentStatus.PAID, "stale-query", null, new BigDecimal("100.00"));
+        transactions.pauseAfterCommit(1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+
+        try {
+            Future<Integer> staleWorker = executor.submit(fencedService::queryTimedOutPayments);
+            transactions.awaitPausedCommit();
+            PaymentQueryAttempt initialAttempt = paymentStore.queryAttempt("PAY100");
+            clock.advance(Duration.ofMinutes(3));
+            PaymentQueryAttempt newerAttempt = paymentStore
+                    .withLockedPayment("PAY100", payment -> {
+                        PaymentStore.PaymentIntent latest = paymentStore
+                                .findPaymentIntentByPaymentNo(payment.paymentNo())
+                                .orElseThrow();
+                        return paymentStore
+                                .savePaymentQueryAttempt(
+                                        payment,
+                                        latest.queryAttempt()
+                                                .claim(
+                                                        LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC),
+                                                        Duration.ofMinutes(2)))
+                                .queryAttempt();
+                    })
+                    .orElseThrow();
+            transactions.releasePausedCommit();
+            int handled = staleWorker.get(5, TimeUnit.SECONDS);
+
+            SoftAssertions.assertSoftly(softly -> {
+                softly.assertThat(initialAttempt.attemptToken()).isEqualTo(1);
+                softly.assertThat(newerAttempt.attemptToken()).isEqualTo(2);
+                softly.assertThat(paymentGateway.queryRequests).isEmpty();
+                softly.assertThat(paymentStore.queryAttempt("PAY100")).isEqualTo(newerAttempt);
+                softly.assertThat(paymentStore
+                                .findByPaymentNo("PAY100")
+                                .orElseThrow()
+                                .status())
+                        .isEqualTo(PaymentStatus.PENDING);
+                softly.assertThat(handled).isZero();
+            });
+        } finally {
+            transactions.releasePausedCommit();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void pendingQuerySchedulesLaterWithoutReopeningCreateOperation() {
+        saveQueryReadyPayment(
+                pendingPayment().withProviderTradeNo("wx-prepay-1", LocalDateTime.parse("2026-07-04T08:00:00")));
+
+        int handled = service.queryTimedOutPayments();
+
+        assertThat(handled).isZero();
+        assertThat(paymentGateway.queryRequests).containsExactly("PAY100");
+        assertThat(paymentStore.queryAttempt("PAY100"))
+                .isEqualTo(new PaymentQueryAttempt(1, null, LocalDateTime.parse("2026-07-04T08:30:30")));
+        assertThat(paymentStore.paymentOperation("PAY100").state()).isEqualTo(PaymentOperationState.COMPLETED);
+        assertThat(paymentGateway.createRequests).isEmpty();
+    }
+
+    @Test
+    void queryExceptionSchedulesLaterWithoutReopeningCreateOperation() {
+        saveQueryReadyPayment(
+                pendingPayment().withProviderTradeNo("wx-prepay-1", LocalDateTime.parse("2026-07-04T08:00:00")));
+        paymentGateway.queryFailure = new IllegalStateException("provider query unavailable");
+
+        Throwable thrown = catchThrowable(() -> service.queryTimedOutPayments());
+
+        SoftAssertions.assertSoftly(softly -> {
+            softly.assertThat(thrown).isNull();
+            softly.assertThat(paymentGateway.queryRequests).containsExactly("PAY100");
+            softly.assertThat(paymentStore.queryAttempt("PAY100"))
+                    .isEqualTo(new PaymentQueryAttempt(1, null, LocalDateTime.parse("2026-07-04T08:30:30")));
+            softly.assertThat(paymentStore.paymentOperation("PAY100").state())
+                    .isEqualTo(PaymentOperationState.COMPLETED);
+            softly.assertThat(paymentGateway.createRequests).isEmpty();
+        });
+    }
+
+    @Test
+    void stalePaidQueryResultCannotOverwriteANewerAttempt() throws Exception {
+        assertStaleQueryResultCannotOverwriteANewerAttempt(
+                new PaymentGatewayResult(PaymentStatus.PAID, "stale-paid", null, new BigDecimal("100.00")), null);
+    }
+
+    @Test
+    void staleFailedQueryResultCannotOverwriteANewerAttempt() throws Exception {
+        assertStaleQueryResultCannotOverwriteANewerAttempt(
+                new PaymentGatewayResult(PaymentStatus.FAILED, null, null, BigDecimal.ZERO), null);
+    }
+
+    @Test
+    void stalePendingQueryResultCannotOverwriteANewerAttempt() throws Exception {
+        assertStaleQueryResultCannotOverwriteANewerAttempt(
+                new PaymentGatewayResult(PaymentStatus.PENDING, null, null, BigDecimal.ZERO), null);
+    }
+
+    @Test
+    void staleQueryExceptionCannotOverwriteANewerAttempt() throws Exception {
+        assertStaleQueryResultCannotOverwriteANewerAttempt(null, new IllegalStateException("stale query failure"));
+    }
+
+    private void assertStaleQueryResultCannotOverwriteANewerAttempt(
+            PaymentGatewayResult result, RuntimeException queryFailure) throws Exception {
+        PaymentOrder payment =
+                pendingPayment().withProviderTradeNo("wx-prepay-1", LocalDateTime.parse("2026-07-04T08:00:00"));
+        saveQueryReadyPayment(payment);
+        paymentGateway.queryResult = result;
+        paymentGateway.queryFailure = queryFailure;
+        paymentGateway.blockFirstQuery();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        PaymentQueryAttempt newerAttempt = new PaymentQueryAttempt(
+                2, LocalDateTime.parse("2026-07-04T08:35:00"), LocalDateTime.parse("2026-07-04T08:00:00"));
+
+        try {
+            Future<Integer> staleWorker = executor.submit(service::queryTimedOutPayments);
+            paymentGateway.awaitFirstQuery();
+            PaymentQueryAttempt observedClaim = paymentStore.queryAttempt("PAY100");
+            paymentStore.forceQueryAttempt("PAY100", newerAttempt);
+            paymentGateway.releaseFirstQuery();
+            Throwable workerFailure = null;
+            try {
+                staleWorker.get(5, TimeUnit.SECONDS);
+            } catch (ExecutionException exception) {
+                workerFailure = exception.getCause();
+            }
+
+            Throwable finalWorkerFailure = workerFailure;
+            SoftAssertions.assertSoftly(softly -> {
+                softly.assertThat(observedClaim.attemptToken())
+                        .as("claimed query token")
+                        .isEqualTo(1);
+                softly.assertThat(finalWorkerFailure).as("stale worker failure").isNull();
+                softly.assertThat(paymentStore
+                                .findByPaymentNo("PAY100")
+                                .orElseThrow()
+                                .status())
+                        .isEqualTo(PaymentStatus.PENDING);
+                softly.assertThat(paymentStore.queryAttempt("PAY100")).isEqualTo(newerAttempt);
+                softly.assertThat(paymentStore.paymentOperation("PAY100").state())
+                        .isEqualTo(PaymentOperationState.COMPLETED);
+                softly.assertThat(paymentStore.ledgers).isEmpty();
+                softly.assertThat(paymentGateway.queryRequests).containsExactly("PAY100");
+            });
+        } finally {
+            paymentGateway.releaseFirstQuery();
+            executor.shutdownNow();
+        }
+    }
+
+    private void saveQueryReadyPayment(PaymentOrder payment) {
+        PaymentOperationAttempt completed = new PaymentOperationAttempt(
+                PaymentOperationState.COMPLETED, 1, null, PaymentFailureClassification.NONE);
+        PaymentRequestFingerprint fingerprint =
+                PaymentRequestFingerprint.of(payment.orderId(), payment.method(), payment.amount(), "CNY");
+        paymentStore.savePayment(
+                payment,
+                fingerprint.value(),
+                completed,
+                payment.paymentNo(),
+                PaymentResponseSnapshot.capture(payment, "/payments/" + payment.paymentNo()));
+        paymentStore.savePaymentQueryAttempt(
+                payment, PaymentQueryAttempt.readyAt(LocalDateTime.parse("2026-07-04T08:00:00")));
     }
 
     private static SessionUser user() {
         return new SessionUser(42L, "USER");
+    }
+
+    private static List<Long> tenantIds(long first, long last) {
+        return LongStream.rangeClosed(first, last).boxed().toList();
     }
 
     private static SessionUser admin() {
@@ -1469,17 +1977,21 @@ class PaymentApplicationServiceTest {
     }
 
     private static PaymentOrder pendingPayment() {
+        return pendingPayment(100L, 10L, "pay-key");
+    }
+
+    private static PaymentOrder pendingPayment(Long id, Long orderId, String idempotencyKey) {
         return new PaymentOrder(
-                100L,
-                "PAY100",
-                10L,
+                id,
+                "PAY" + id,
+                orderId,
                 42L,
                 PaymentMethod.WECHAT,
                 new BigDecimal("100.00"),
                 BigDecimal.ZERO,
                 BigDecimal.ZERO,
                 PaymentStatus.PENDING,
-                "pay-key",
+                idempotencyKey,
                 null,
                 null,
                 null,
@@ -1578,14 +2090,45 @@ class PaymentApplicationServiceTest {
         }
     }
 
+    private static final class SequencedRecoveryTenantSource implements PaymentRecoveryTenantSource {
+        private final List<List<Long>> pages;
+        private final AtomicInteger calls = new AtomicInteger();
+        private final List<Long> cursors = new ArrayList<>();
+
+        private SequencedRecoveryTenantSource(List<List<Long>> pages) {
+            this.pages = pages;
+        }
+
+        @Override
+        public List<Long> findTenantIdsReadyForRecovery(LocalDateTime cutoff, long afterTenantId, int limit) {
+            cursors.add(afterTenantId);
+            int page = calls.getAndIncrement();
+            return page < pages.size() ? pages.get(page) : List.of();
+        }
+
+        private int calls() {
+            return calls.get();
+        }
+
+        private List<Long> cursors() {
+            return List.copyOf(cursors);
+        }
+    }
+
     private static final class RecordingPaymentGateway implements PaymentGateway {
         private PaymentGatewayResult queryResult =
                 new PaymentGatewayResult(PaymentStatus.PENDING, null, null, BigDecimal.ZERO);
         private final List<String> refundRequests = new CopyOnWriteArrayList<>();
         private final List<String> createRequests = new CopyOnWriteArrayList<>();
         private final List<BigDecimal> refundAmounts = new CopyOnWriteArrayList<>();
+        private final List<String> queryRequests = new CopyOnWriteArrayList<>();
+        private final List<Boolean> queryTransactionStates = new CopyOnWriteArrayList<>();
+        private final AtomicInteger queryCalls = new AtomicInteger();
         private RuntimeException createFailure;
         private RuntimeException refundFailure;
+        private RuntimeException queryFailure;
+        private Consumer<PaymentOrder> beforeCreate;
+        private Runnable afterNextCreate;
         private Runnable afterNextRefund;
         private List<String> boundaryEvents;
         private final AtomicInteger coordinatedCreateCalls = new AtomicInteger();
@@ -1593,15 +2136,25 @@ class PaymentApplicationServiceTest {
         private CountDownLatch releaseFirstCreate;
         private CountDownLatch secondCreateEntered;
         private CountDownLatch releaseSecondCreate;
+        private CountDownLatch firstQueryEntered;
+        private CountDownLatch releaseFirstQuery;
         private RuntimeException firstCoordinatedCreateFailure;
 
         @Override
         public PaymentGatewayResult create(PaymentOrder payment, String merchantToken) {
             recordBoundary("gateway-create");
             createRequests.add(merchantToken);
+            if (beforeCreate != null) {
+                beforeCreate.accept(payment);
+            }
             coordinateCreateWorker();
             if (createFailure != null) {
                 throw createFailure;
+            }
+            Runnable afterCreate = afterNextCreate;
+            afterNextCreate = null;
+            if (afterCreate != null) {
+                afterCreate.run();
             }
             return new PaymentGatewayResult(
                     PaymentStatus.PENDING,
@@ -1663,7 +2216,32 @@ class PaymentApplicationServiceTest {
 
         @Override
         public PaymentGatewayResult query(PaymentOrder payment) {
+            int queryCall = queryCalls.incrementAndGet();
+            queryRequests.add(payment.paymentNo());
+            queryTransactionStates.add(TransactionSynchronizationManager.isActualTransactionActive());
+            if (firstQueryEntered != null && queryCall == 1) {
+                firstQueryEntered.countDown();
+                awaitLatch(releaseFirstQuery, "release first provider query");
+            }
+            if (queryFailure != null) {
+                throw queryFailure;
+            }
             return queryResult;
+        }
+
+        private void blockFirstQuery() {
+            firstQueryEntered = new CountDownLatch(1);
+            releaseFirstQuery = new CountDownLatch(1);
+        }
+
+        private void awaitFirstQuery() {
+            awaitLatch(firstQueryEntered, "first provider query");
+        }
+
+        private void releaseFirstQuery() {
+            if (releaseFirstQuery != null) {
+                releaseFirstQuery.countDown();
+            }
         }
 
         @Override
@@ -1728,12 +2306,28 @@ class PaymentApplicationServiceTest {
         }
     }
 
+    private static Throwable awaitWorkerFailure(Future<?> worker) throws Exception {
+        try {
+            worker.get(5, TimeUnit.SECONDS);
+            return null;
+        } catch (ExecutionException exception) {
+            return exception.getCause();
+        }
+    }
+
+    private static boolean isSuccessfulOrConflict(Throwable failure) {
+        return failure == null
+                || (failure instanceof BusinessException businessException
+                        && ErrorCode.CONFLICT.equals(businessException.errorCode()));
+    }
+
     private static final class InMemoryPaymentStore implements PaymentStore {
         private final Map<Long, PaymentOrder> payments = new ConcurrentHashMap<>();
         private final Map<Long, String> paymentFingerprints = new ConcurrentHashMap<>();
         private final Map<Long, PaymentResponseSnapshot> paymentSnapshots = new ConcurrentHashMap<>();
         private final Map<Long, PaymentOperationAttempt> paymentOperations = new ConcurrentHashMap<>();
         private final Map<Long, String> paymentMerchantTokens = new ConcurrentHashMap<>();
+        private final Map<Long, PaymentQueryAttempt> paymentQueryAttempts = new ConcurrentHashMap<>();
         private final List<PaymentLedgerEntry> ledgers = new CopyOnWriteArrayList<>();
         private final Map<Long, String> ledgerFingerprints = new ConcurrentHashMap<>();
         private final Map<Long, RefundResponseSnapshot> refundSnapshots = new ConcurrentHashMap<>();
@@ -1752,6 +2346,7 @@ class PaymentApplicationServiceTest {
         private volatile boolean requirePaymentLockForCompletion;
         private final Set<Long> failingRecoveryTenantIds = ConcurrentHashMap.newKeySet();
         private final List<Long> recoveryTenantQueries = new CopyOnWriteArrayList<>();
+        private final Map<Long, List<PaymentOrder>> queryPaymentsByTenant = new ConcurrentHashMap<>();
         private final ThreadLocal<Boolean> paymentLockHeld = ThreadLocal.withInitial(() -> false);
 
         private void synchronizeNextPaymentReads(int parties) {
@@ -1770,12 +2365,28 @@ class PaymentApplicationServiceTest {
             payments.put(payment.id(), payment);
             paymentFingerprints.put(payment.id(), requestFingerprint);
             paymentOperations.put(payment.id(), PaymentOperationAttempt.legacy());
+            paymentQueryAttempts.put(payment.id(), PaymentQueryAttempt.notScheduled());
         }
 
         private void saveLegacyRefund(PaymentLedgerEntry ledger) {
             ledgers.add(ledger);
             refundOperations.put(ledger.id(), PaymentOperationAttempt.legacy());
             refundAuditIntents.put(ledger.id(), RefundAuditIntent.legacy());
+        }
+
+        private PaymentQueryAttempt queryAttempt(String paymentNo) {
+            PaymentOrder payment = findByPaymentNo(paymentNo).orElseThrow();
+            return paymentQueryAttempts.getOrDefault(payment.id(), PaymentQueryAttempt.notScheduled());
+        }
+
+        private PaymentOperationAttempt paymentOperation(String paymentNo) {
+            PaymentOrder payment = findByPaymentNo(paymentNo).orElseThrow();
+            return paymentOperations.get(payment.id());
+        }
+
+        private void forceQueryAttempt(String paymentNo, PaymentQueryAttempt queryAttempt) {
+            PaymentOrder payment = findByPaymentNo(paymentNo).orElseThrow();
+            paymentQueryAttempts.put(payment.id(), queryAttempt);
         }
 
         @Override
@@ -1823,7 +2434,8 @@ class PaymentApplicationServiceTest {
                             paymentFingerprints.get(payment.id()),
                             paymentOperations.get(payment.id()),
                             paymentMerchantTokens.get(payment.id()),
-                            paymentSnapshots.get(payment.id())));
+                            paymentSnapshots.get(payment.id()),
+                            paymentQueryAttempts.getOrDefault(payment.id(), PaymentQueryAttempt.notScheduled())));
             Runnable action = afterIntentRead.getAndSet(null);
             if (action != null) {
                 action.run();
@@ -1831,6 +2443,14 @@ class PaymentApplicationServiceTest {
             awaitConcurrentReads(intentReads, "payment intent");
             intentReads = null;
             return result;
+        }
+
+        @Override
+        public Optional<PaymentIntent> findPaymentIntentByPaymentNo(String paymentNo) {
+            return payments.values().stream()
+                    .filter(payment -> payment.paymentNo().equals(paymentNo))
+                    .findFirst()
+                    .flatMap(payment -> findByUserIdAndIdempotencyKey(payment.userId(), payment.idempotencyKey()));
         }
 
         @Override
@@ -1849,7 +2469,8 @@ class PaymentApplicationServiceTest {
                             paymentFingerprints.get(payment.id()),
                             paymentOperations.get(payment.id()),
                             paymentMerchantTokens.get(payment.id()),
-                            paymentSnapshots.get(payment.id())));
+                            paymentSnapshots.get(payment.id()),
+                            paymentQueryAttempts.getOrDefault(payment.id(), PaymentQueryAttempt.notScheduled())));
         }
 
         @Override
@@ -1904,6 +2525,9 @@ class PaymentApplicationServiceTest {
                 throw new LocalCompletionFailure();
             }
             payments.put(payment.id(), payment);
+            if (!PaymentStatus.PENDING.equals(payment.status())) {
+                paymentQueryAttempts.computeIfPresent(payment.id(), (ignored, attempt) -> attempt.stop());
+            }
             return payment;
         }
 
@@ -1946,11 +2570,24 @@ class PaymentApplicationServiceTest {
             paymentFingerprints.put(payment.id(), requestFingerprint);
             paymentOperations.put(payment.id(), operation);
             paymentMerchantTokens.put(payment.id(), merchantToken);
+            paymentQueryAttempts.putIfAbsent(payment.id(), PaymentQueryAttempt.notScheduled());
             if (responseSnapshot != null) {
                 paymentSnapshots.put(payment.id(), responseSnapshot);
             }
             return new PaymentIntent(
-                    payment, requestFingerprint, operation, merchantToken, paymentSnapshots.get(payment.id()));
+                    payment,
+                    requestFingerprint,
+                    operation,
+                    merchantToken,
+                    paymentSnapshots.get(payment.id()),
+                    paymentQueryAttempts.get(payment.id()));
+        }
+
+        @Override
+        public synchronized PaymentIntent savePaymentQueryAttempt(
+                PaymentOrder payment, PaymentQueryAttempt queryAttempt) {
+            paymentQueryAttempts.put(payment.id(), queryAttempt);
+            return findPaymentIntentByPaymentNo(payment.paymentNo()).orElseThrow();
         }
 
         @Override
@@ -2016,6 +2653,7 @@ class PaymentApplicationServiceTest {
                     .flatMap(Optional::stream)
                     .filter(intent -> intent.operation() != null)
                     .filter(intent -> intent.operation().isExpired(cutoff))
+                    .sorted(Comparator.comparing(intent -> intent.payment().id()))
                     .limit(limit)
                     .toList();
         }
@@ -2067,10 +2705,31 @@ class PaymentApplicationServiceTest {
 
         @Override
         public List<PaymentOrder> findPendingCreatedBefore(LocalDateTime cutoff, int limit) {
-            return payments.values().stream()
+            var candidates = queryPaymentsByTenant.isEmpty()
+                    ? payments.values().stream()
+                    : queryPaymentsByTenant.getOrDefault(TenantContext.currentTenantIdOrDefault(), List.of()).stream();
+            return candidates
                     .filter(payment -> payment.status().equals(PaymentStatus.PENDING))
                     .filter(payment -> payment.createTime().isBefore(cutoff))
                     .sorted(Comparator.comparing(PaymentOrder::createTime))
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
+        public List<PaymentIntent> findPaymentsReadyForQuery(LocalDateTime readyAt, int limit) {
+            var candidates = queryPaymentsByTenant.isEmpty()
+                    ? payments.values().stream()
+                    : queryPaymentsByTenant.getOrDefault(TenantContext.currentTenantIdOrDefault(), List.of()).stream();
+            return candidates
+                    .map(payment -> findPaymentIntentByPaymentNo(payment.paymentNo()))
+                    .flatMap(Optional::stream)
+                    .filter(intent ->
+                            PaymentStatus.PENDING.equals(intent.payment().status()))
+                    .filter(intent -> List.of(
+                                    PaymentOperationState.COMPLETED, PaymentOperationState.LEGACY_UNREPLAYABLE)
+                            .contains(intent.operationState()))
+                    .filter(intent -> intent.queryAttempt().isClaimableAt(readyAt))
                     .limit(limit)
                     .toList();
         }
@@ -2099,6 +2758,27 @@ class PaymentApplicationServiceTest {
 
     private static final class RecordingTransactions implements PaymentTransactions {
         private final List<String> events = new CopyOnWriteArrayList<>();
+        private final AtomicInteger committedTransactions = new AtomicInteger();
+        private volatile int pauseAfterCommit = -1;
+        private volatile CountDownLatch pausedCommit;
+        private volatile CountDownLatch releaseCommit;
+
+        private void pauseAfterCommit(int commitNumber) {
+            pauseAfterCommit = commitNumber;
+            pausedCommit = new CountDownLatch(1);
+            releaseCommit = new CountDownLatch(1);
+        }
+
+        private void awaitPausedCommit() {
+            awaitLatch(pausedCommit, "committed payment transaction pause");
+        }
+
+        private void releasePausedCommit() {
+            CountDownLatch release = releaseCommit;
+            if (release != null) {
+                release.countDown();
+            }
+        }
 
         @Override
         public <T> T execute(java.util.function.Supplier<T> action) {
@@ -2106,6 +2786,11 @@ class PaymentApplicationServiceTest {
             try {
                 T result = action.get();
                 events.add("transaction-commit");
+                int committed = committedTransactions.incrementAndGet();
+                if (committed == pauseAfterCommit) {
+                    pausedCommit.countDown();
+                    awaitLatch(releaseCommit, "release committed payment transaction");
+                }
                 return result;
             } catch (RuntimeException exception) {
                 events.add("transaction-rollback");

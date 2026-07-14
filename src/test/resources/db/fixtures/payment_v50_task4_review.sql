@@ -16,6 +16,11 @@ INSERT INTO payment_order (
         905103, 'TASK4-LEGACY-PAYMENT', 905103, 905103, 'WECHAT', 100.00, 100.00, 30.00,
         'PARTIALLY_REFUNDED', 'task4-legacy-payment-key', 'TASK4-LEGACY-TRADE',
         CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6), 0, 1
+    ),
+    (
+        905105, 'TASK4-LEGACY-PENDING', 905105, 905105, 'WECHAT', 100.00, 0.00, 0.00,
+        'PENDING', 'task4-legacy-pending-key', 'TASK4-LEGACY-PREPAY',
+        CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6), 0, 1
     );
 
 INSERT INTO payment_ledger (

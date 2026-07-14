@@ -7,6 +7,7 @@ import com.example.monkey.payment.domain.PaymentMethod;
 import com.example.monkey.payment.domain.PaymentOperationAttempt;
 import com.example.monkey.payment.domain.PaymentOperationState;
 import com.example.monkey.payment.domain.PaymentOrder;
+import com.example.monkey.payment.domain.PaymentQueryAttempt;
 import com.example.monkey.payment.domain.PaymentReconciliationReport;
 import com.example.monkey.payment.domain.PaymentResponseSnapshot;
 import com.example.monkey.payment.domain.PaymentStatus;
@@ -70,6 +71,11 @@ public class JpaPaymentStore implements PaymentStore {
         return paymentOrderRepository
                 .findByUserIdAndIdempotencyKey(userId, idempotencyKey)
                 .map(this::toPaymentIntent);
+    }
+
+    @Override
+    public Optional<PaymentIntent> findPaymentIntentByPaymentNo(String paymentNo) {
+        return paymentOrderRepository.findByPaymentNo(paymentNo).map(this::toPaymentIntent);
     }
 
     @Override
@@ -142,6 +148,15 @@ public class JpaPaymentStore implements PaymentStore {
         PaymentOrderEntity saved =
                 existing == null ? paymentOrderRepository.saveAndFlush(entity) : paymentOrderRepository.save(entity);
         return toPaymentIntent(saved);
+    }
+
+    @Override
+    public PaymentIntent savePaymentQueryAttempt(PaymentOrder payment, PaymentQueryAttempt queryAttempt) {
+        PaymentOrderEntity entity = paymentOrderRepository
+                .findById(payment.id())
+                .orElseThrow(() -> new IllegalStateException("Payment query target does not exist"));
+        applyQueryAttempt(entity, queryAttempt);
+        return toPaymentIntent(paymentOrderRepository.save(entity));
     }
 
     @Override
@@ -221,6 +236,18 @@ public class JpaPaymentStore implements PaymentStore {
     }
 
     @Override
+    public List<PaymentIntent> findPaymentsReadyForQuery(LocalDateTime readyAt, int limit) {
+        return paymentOrderRepository
+                .findReadyForQuery(
+                        List.of(PaymentOperationState.COMPLETED, PaymentOperationState.LEGACY_UNREPLAYABLE),
+                        readyAt,
+                        PageRequest.of(0, Math.max(1, limit)))
+                .stream()
+                .map(this::toPaymentIntent)
+                .toList();
+    }
+
+    @Override
     public List<PaymentOrder> findPaidByProviderAndDate(PaymentMethod provider, LocalDate reportDate) {
         LocalDateTime start = reportDate.atStartOfDay();
         LocalDateTime end = reportDate.plusDays(1).atStartOfDay();
@@ -267,6 +294,9 @@ public class JpaPaymentStore implements PaymentStore {
         entity.setUpdateTime(payment.updateTime());
         if (existing == null) {
             applyOperation(entity, PaymentOperationAttempt.legacy());
+            applyQueryAttempt(entity, PaymentQueryAttempt.notScheduled());
+        } else if (!PaymentStatus.PENDING.equals(payment.status())) {
+            applyQueryAttempt(entity, toQueryAttempt(entity).stop());
         }
         return entity;
     }
@@ -307,7 +337,8 @@ public class JpaPaymentStore implements PaymentStore {
                 entity.getRequestFingerprint(),
                 toOperation(entity),
                 entity.getMerchantToken(),
-                snapshot);
+                snapshot,
+                toQueryAttempt(entity));
     }
 
     private static PaymentLedgerEntity toEntity(PaymentLedgerEntry ledger) {
@@ -388,6 +419,17 @@ public class JpaPaymentStore implements PaymentStore {
                 entity.getLeaseExpiresAt(),
                 entity.getLastFailureClassification(),
                 entity.getTerminalFailureCode());
+    }
+
+    private static void applyQueryAttempt(PaymentOrderEntity entity, PaymentQueryAttempt queryAttempt) {
+        entity.setQueryAttemptCount(queryAttempt.attemptToken());
+        entity.setQueryLeaseExpiresAt(queryAttempt.leaseExpiresAt());
+        entity.setNextQueryAt(queryAttempt.nextReadyAt());
+    }
+
+    private static PaymentQueryAttempt toQueryAttempt(PaymentOrderEntity entity) {
+        return new PaymentQueryAttempt(
+                entity.getQueryAttemptCount(), entity.getQueryLeaseExpiresAt(), entity.getNextQueryAt());
     }
 
     private static PaymentOperationAttempt toOperation(PaymentLedgerEntity entity) {
