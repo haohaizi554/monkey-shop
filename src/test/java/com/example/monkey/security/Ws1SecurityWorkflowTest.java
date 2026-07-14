@@ -230,6 +230,7 @@ class Ws1SecurityWorkflowTest {
                 || normalized.startsWith("frontend/playwright-report/")
                 || normalized.startsWith("frontend/coverage/")
                 || normalized.equals("frontend/lighthouse-report.json")
+                || normalized.startsWith("logs/")
                 || normalized.startsWith("uploads/")
                 || normalized.startsWith(".trae/")) {
             return false;
