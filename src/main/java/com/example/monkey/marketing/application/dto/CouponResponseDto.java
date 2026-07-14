@@ -9,5 +9,6 @@ public record CouponResponseDto(
         Long userId,
         String status,
         Long orderId,
+        Long checkoutId,
         LocalDateTime claimedAt,
         LocalDateTime usedAt) {}

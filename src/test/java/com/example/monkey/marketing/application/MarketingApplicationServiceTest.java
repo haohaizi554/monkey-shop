@@ -11,6 +11,7 @@ import com.example.monkey.marketing.application.dto.CouponClaimRequestDto;
 import com.example.monkey.marketing.application.dto.CouponRedeemRequestDto;
 import com.example.monkey.marketing.application.dto.CouponReturnRequestDto;
 import com.example.monkey.marketing.application.dto.GroupBuyJoinRequestDto;
+import com.example.monkey.marketing.application.dto.MarketingPriceLineDto;
 import com.example.monkey.marketing.application.dto.MarketingPriceRequestDto;
 import com.example.monkey.marketing.application.dto.SeckillRequestDto;
 import com.example.monkey.marketing.domain.CouponDefinition;
@@ -41,6 +42,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
@@ -123,9 +125,94 @@ class MarketingApplicationServiceTest {
     }
 
     @Test
+    void priceQuoteRejectsCouponNotClaimedByCurrentUser() {
+        InMemoryMarketingStore store = seededStore();
+        MarketingApplicationService service = service(store, null);
+        service.claimCoupon(new CouponClaimRequestDto(1L, "claim-owner-quote"), 7L);
+
+        assertThatThrownBy(() -> service.quotePrice(
+                        new MarketingPriceRequestDto(new BigDecimal("128.00"), 8L, null, 1L, List.of("PLATFORM-20")),
+                        8L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("current user");
+    }
+
+    @Test
+    void concurrentCouponRedemptionCanBindOnlyOneOrder() throws Exception {
+        InMemoryMarketingStore store = seededStore();
+        MarketingApplicationService service = service(store, null);
+        var coupon = service.claimCoupon(new CouponClaimRequestDto(1L, "claim-concurrent"), 7L);
+        int attempts = 16;
+        store.synchronizeNextCouponReads(attempts);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicLong successes = new AtomicLong();
+        AtomicReference<Throwable> unexpected = new AtomicReference<>();
+
+        try (var executor = Executors.newFixedThreadPool(attempts)) {
+            for (int index = 0; index < attempts; index++) {
+                long orderId = 10_000L + index;
+                executor.submit(() -> {
+                    try {
+                        start.await(5, TimeUnit.SECONDS);
+                        service.redeemCoupon(new CouponRedeemRequestDto(coupon.couponCode(), orderId), 7L);
+                        successes.incrementAndGet();
+                    } catch (BusinessException expectedConflict) {
+                        // Only the compare-and-set winner may bind the coupon.
+                    } catch (Throwable throwable) {
+                        unexpected.compareAndSet(null, throwable);
+                    }
+                });
+            }
+            start.countDown();
+            executor.shutdown();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+
+        assertThat(unexpected.get()).isNull();
+        assertThat(successes.get()).isEqualTo(1L);
+    }
+
+    @Test
+    void checkoutRedemptionIsIdempotentAndRejectsAnotherCheckout() {
+        InMemoryMarketingStore store = seededStore();
+        MarketingApplicationService service = service(store, null);
+        var coupon = service.claimCoupon(new CouponClaimRequestDto(1L, "claim-checkout"), 7L);
+
+        service.redeemForCheckout(7L, 101L, List.of(coupon.couponCode()));
+        service.redeemForCheckout(7L, 101L, List.of(coupon.couponCode()));
+
+        UserCoupon redeemed = store.findUserCoupon(7L, 1L).orElseThrow();
+        assertThat(redeemed.status()).isEqualTo(com.example.monkey.marketing.domain.CouponStatus.REDEEMED);
+        assertThat(redeemed.checkoutId()).isEqualTo(101L);
+        assertThatThrownBy(() -> service.redeemForCheckout(7L, 102L, List.of(coupon.couponCode())))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("another transaction");
+    }
+
+    @Test
+    void lateCheckoutReturnCannotReleaseCouponReusedByAnotherCheckout() {
+        InMemoryMarketingStore store = seededStore();
+        MarketingApplicationService service = service(store, null);
+        var coupon = service.claimCoupon(new CouponClaimRequestDto(1L, "claim-return-checkout"), 7L);
+
+        service.redeemForCheckout(7L, 101L, List.of(coupon.couponCode()));
+        service.returnForCheckout(7L, 101L, "ORDER_CANCELLED");
+        service.returnForCheckout(7L, 101L, "ORDER_CANCELLED");
+        service.redeemForCheckout(7L, 102L, List.of(coupon.couponCode()));
+        service.returnForCheckout(7L, 101L, "LATE_RETRY");
+
+        UserCoupon rebound = store.findUserCoupon(7L, 1L).orElseThrow();
+        assertThat(rebound.status()).isEqualTo(com.example.monkey.marketing.domain.CouponStatus.REDEEMED);
+        assertThat(rebound.checkoutId()).isEqualTo(102L);
+    }
+
+    @Test
     void quoteStacksBestCouponPerStackGroup() {
         InMemoryMarketingStore store = seededStore();
         MarketingApplicationService service = service(store, null);
+        service.claimCoupon(new CouponClaimRequestDto(1L, "quote-platform"), 7L);
+        service.claimCoupon(new CouponClaimRequestDto(2L, "quote-shop-10"), 7L);
+        service.claimCoupon(new CouponClaimRequestDto(3L, "quote-shop-5"), 7L);
 
         var quote = service.quotePrice(new MarketingPriceRequestDto(
                 new BigDecimal("128.00"), 7L, null, 1L, List.of("PLATFORM-20", "SHOP-10", "SHOP-5")));
@@ -133,6 +220,29 @@ class MarketingApplicationServiceTest {
         assertThat(quote.discountAmount()).isEqualByComparingTo("30.00");
         assertThat(quote.payableAmount()).isEqualByComparingTo("98.00");
         assertThat(quote.appliedCoupons()).containsExactly("PLATFORM-20", "SHOP-10");
+    }
+
+    @Test
+    void categoryCouponAllocatesOnlyToEligiblePriceLines() {
+        InMemoryMarketingStore store = seededStore();
+        MarketingApplicationService service = service(store, null);
+        service.claimCoupon(new CouponClaimRequestDto(4L, "quote-category"), 7L);
+
+        var quote = service.quoteStorePrice(new MarketingPriceRequestDto(
+                new BigDecimal("150.00"),
+                7L,
+                null,
+                1L,
+                List.of("CATEGORY-20"),
+                List.of(
+                        new MarketingPriceLineDto(1001L, new BigDecimal("100.00"), 11L, 1L),
+                        new MarketingPriceLineDto(1002L, new BigDecimal("50.00"), 12L, 1L))));
+
+        assertThat(quote.discountAmount()).isEqualByComparingTo("20.00");
+        assertThat(quote.appliedCoupons()).containsExactly("CATEGORY-20");
+        assertThat(quote.allocations())
+                .extracting(allocation -> allocation.lineId() + ":" + allocation.discountAmount())
+                .containsExactly("1001:20.00", "1002:0.00");
     }
 
     @Test
@@ -283,6 +393,23 @@ class MarketingApplicationServiceTest {
                         0,
                         now.minusDays(1),
                         now.plusDays(1)));
+        store.coupons.put(
+                4L,
+                new CouponDefinition(
+                        4L,
+                        "CATEGORY-20",
+                        "Category coupon",
+                        CouponType.CATEGORY,
+                        new BigDecimal("50.00"),
+                        new BigDecimal("20.00"),
+                        BigDecimal.ZERO,
+                        11L,
+                        null,
+                        "CATEGORY",
+                        100,
+                        0,
+                        now.minusDays(1),
+                        now.plusDays(1)));
         store.activities.put(
                 10L, new SeckillActivity(10L, 1001L, "Flash sale", 10, 0, 1, now.minusMinutes(1), now.plusDays(1)));
         store.groupActivities.put(20L, new GroupBuyActivity(20L, 1001L, "Two-person group", 2, 24, true));
@@ -326,6 +453,11 @@ class MarketingApplicationServiceTest {
         private final Map<Long, GroupBuyActivity> groupActivities = new ConcurrentHashMap<>();
         private final Map<Long, GroupBuyTeam> teams = new ConcurrentHashMap<>();
         private final Map<String, Long> members = new ConcurrentHashMap<>();
+        private volatile CountDownLatch synchronizedCouponReads;
+
+        private void synchronizeNextCouponReads(int readers) {
+            synchronizedCouponReads = new CountDownLatch(readers);
+        }
 
         @Override
         public Optional<CouponDefinition> findCoupon(Long couponId) {
@@ -351,16 +483,110 @@ class MarketingApplicationServiceTest {
         }
 
         @Override
-        public Optional<UserCoupon> findUserCouponByCode(String couponCode) {
-            return userCoupons.values().stream()
-                    .filter(coupon -> coupon.couponCode().equals(couponCode))
+        public Optional<UserCoupon> findUserCouponByCode(Long userId, String couponCode) {
+            Optional<UserCoupon> result = userCoupons.values().stream()
+                    .filter(userCoupon -> userCoupon.userId().equals(userId)
+                            && userCoupon.couponCode().equals(couponCode))
                     .findFirst();
+            CountDownLatch reads = synchronizedCouponReads;
+            if (reads != null) {
+                reads.countDown();
+                try {
+                    if (!reads.await(5, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("Timed out synchronizing coupon reads");
+                    }
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Interrupted synchronizing coupon reads", exception);
+                }
+            }
+            return result;
         }
 
         @Override
         public UserCoupon saveUserCoupon(UserCoupon coupon) {
             userCoupons.put(coupon.userId() + ":" + coupon.couponId(), coupon);
             return coupon;
+        }
+
+        @Override
+        public synchronized boolean redeemUserCouponForOrder(
+                Long userId, String couponCode, Long orderId, LocalDateTime usedAt) {
+            Optional<UserCoupon> existing = userCouponByCode(userId, couponCode);
+            if (existing.isEmpty()
+                    || !com.example.monkey.marketing.domain.CouponStatus.CLAIMED.equals(
+                            existing.orElseThrow().status())) {
+                return false;
+            }
+            UserCoupon redeemed = existing.orElseThrow().redeem(orderId, usedAt);
+            userCoupons.put(redeemed.userId() + ":" + redeemed.couponId(), redeemed);
+            return true;
+        }
+
+        @Override
+        public synchronized boolean returnUserCouponForOrder(Long userId, String couponCode, Long orderId) {
+            Optional<UserCoupon> existing = userCouponByCode(userId, couponCode);
+            if (existing.isEmpty() || !existing.orElseThrow().isRedeemed()) {
+                return false;
+            }
+            UserCoupon returned = existing.orElseThrow().returnToWallet(orderId);
+            userCoupons.put(returned.userId() + ":" + returned.couponId(), returned);
+            return true;
+        }
+
+        @Override
+        public synchronized boolean redeemUserCouponForCheckout(
+                Long userId, String couponCode, Long checkoutId, LocalDateTime usedAt) {
+            Optional<UserCoupon> existing = userCouponByCode(userId, couponCode);
+            if (existing.isEmpty()
+                    || !com.example.monkey.marketing.domain.CouponStatus.CLAIMED.equals(
+                            existing.orElseThrow().status())) {
+                return false;
+            }
+            UserCoupon coupon = existing.orElseThrow();
+            UserCoupon redeemed = new UserCoupon(
+                    coupon.id(),
+                    coupon.couponId(),
+                    coupon.couponCode(),
+                    coupon.userId(),
+                    com.example.monkey.marketing.domain.CouponStatus.REDEEMED,
+                    null,
+                    checkoutId,
+                    coupon.idempotencyKey(),
+                    coupon.claimedAt(),
+                    usedAt);
+            userCoupons.put(redeemed.userId() + ":" + redeemed.couponId(), redeemed);
+            return true;
+        }
+
+        @Override
+        public synchronized int returnUserCouponsForCheckout(Long userId, Long checkoutId) {
+            int returned = 0;
+            for (Map.Entry<String, UserCoupon> entry : userCoupons.entrySet()) {
+                UserCoupon coupon = entry.getValue();
+                if (coupon.userId().equals(userId) && coupon.isRedeemed() && checkoutId.equals(coupon.checkoutId())) {
+                    entry.setValue(new UserCoupon(
+                            coupon.id(),
+                            coupon.couponId(),
+                            coupon.couponCode(),
+                            coupon.userId(),
+                            com.example.monkey.marketing.domain.CouponStatus.CLAIMED,
+                            null,
+                            checkoutId,
+                            coupon.idempotencyKey(),
+                            coupon.claimedAt(),
+                            coupon.usedAt()));
+                    returned++;
+                }
+            }
+            return returned;
+        }
+
+        private Optional<UserCoupon> userCouponByCode(Long userId, String couponCode) {
+            return userCoupons.values().stream()
+                    .filter(userCoupon -> userCoupon.userId().equals(userId)
+                            && userCoupon.couponCode().equals(couponCode))
+                    .findFirst();
         }
 
         @Override

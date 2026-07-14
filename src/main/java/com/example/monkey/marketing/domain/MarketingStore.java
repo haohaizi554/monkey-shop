@@ -14,9 +14,17 @@ public interface MarketingStore {
 
     Optional<UserCoupon> findUserCoupon(Long userId, Long couponId);
 
-    Optional<UserCoupon> findUserCouponByCode(String couponCode);
+    Optional<UserCoupon> findUserCouponByCode(Long userId, String couponCode);
 
     UserCoupon saveUserCoupon(UserCoupon coupon);
+
+    boolean redeemUserCouponForOrder(Long userId, String couponCode, Long orderId, LocalDateTime usedAt);
+
+    boolean returnUserCouponForOrder(Long userId, String couponCode, Long orderId);
+
+    boolean redeemUserCouponForCheckout(Long userId, String couponCode, Long checkoutId, LocalDateTime usedAt);
+
+    int returnUserCouponsForCheckout(Long userId, Long checkoutId);
 
     Optional<SeckillActivity> findSeckillActivity(Long activityId);
 

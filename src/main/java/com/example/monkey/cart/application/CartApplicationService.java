@@ -24,6 +24,8 @@ import com.example.monkey.inventory.application.InventoryApplicationService;
 import com.example.monkey.inventory.application.dto.InventoryReservationResponseDto;
 import com.example.monkey.inventory.application.dto.InventoryReserveRequestDto;
 import com.example.monkey.marketing.application.MarketingApplicationService;
+import com.example.monkey.marketing.application.dto.MarketingPriceAllocationDto;
+import com.example.monkey.marketing.application.dto.MarketingPriceLineDto;
 import com.example.monkey.marketing.application.dto.MarketingPriceQuoteDto;
 import com.example.monkey.marketing.application.dto.MarketingPriceRequestDto;
 import com.example.monkey.order.domain.CheckoutOrderCommand;
@@ -209,6 +211,7 @@ public class CartApplicationService {
         CheckoutOrder checkout = buildCheckout(userId, request, idempotencyKey, true);
         CheckoutOrder persisted = checkoutStore.save(checkout);
         List<Long> orderIds = formalOrderCreator.create(toOrderCommand(persisted));
+        marketingApplicationService.redeemForCheckout(userId, persisted.id(), appliedCouponCodes(persisted));
         CheckoutOrder saved = checkoutStore.save(persisted.confirmed(orderIds));
         cartStore.removeItems(
                 userId,
@@ -222,6 +225,14 @@ public class CartApplicationService {
                 userId,
                 "checkoutId=" + saved.id() + ",subOrders=" + saved.subOrders().size());
         return saved;
+    }
+
+    private static List<String> appliedCouponCodes(CheckoutOrder checkout) {
+        return checkout.subOrders().stream()
+                .flatMap(subOrder -> subOrder.lines().stream())
+                .flatMap(line -> line.couponCodes().stream())
+                .distinct()
+                .toList();
     }
 
     private static CheckoutOrderCommand toOrderCommand(CheckoutOrder checkout) {
@@ -346,7 +357,38 @@ public class CartApplicationService {
         BigDecimal originalAmount =
                 lines.stream().map(ResolvedCartLine::originalAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         MarketingPriceQuoteDto quote = marketingApplicationService.quoteStorePrice(new MarketingPriceRequestDto(
-                originalAmount, userId, lines.get(0).sku().categoryId(), shopId, couponCodes(lines)));
+                originalAmount,
+                userId,
+                null,
+                shopId,
+                couponCodes(lines),
+                lines.stream()
+                        .map(line -> new MarketingPriceLineDto(
+                                line.id(), line.originalAmount(), line.sku().categoryId(), line.shopId()))
+                        .toList()));
+        if (quote.allocations().isEmpty()) {
+            return priceStoreDiscountsFromAggregateQuote(lines, quote);
+        }
+        Map<Long, MarketingPriceAllocationDto> allocationsByLine = new HashMap<>();
+        for (MarketingPriceAllocationDto allocation : quote.allocations()) {
+            allocationsByLine.put(allocation.lineId(), allocation);
+        }
+        List<PricedCartLine> priced = new ArrayList<>();
+        for (ResolvedCartLine line : lines) {
+            MarketingPriceAllocationDto allocation = allocationsByLine.get(line.id());
+            priced.add(
+                    allocation == null
+                            ? new PricedCartLine(line, BigDecimal.ZERO, List.of())
+                            : new PricedCartLine(
+                                    line,
+                                    allocation.discountAmount().min(line.originalAmount()),
+                                    allocation.appliedCoupons()));
+        }
+        return priced;
+    }
+
+    private static List<PricedCartLine> priceStoreDiscountsFromAggregateQuote(
+            List<ResolvedCartLine> lines, MarketingPriceQuoteDto quote) {
         List<BigDecimal> discounts = allocateDiscount(quote.discountAmount(), lines);
         List<PricedCartLine> priced = new ArrayList<>();
         for (int index = 0; index < lines.size(); index++) {

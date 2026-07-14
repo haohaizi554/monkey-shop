@@ -6,11 +6,14 @@ import com.example.monkey.marketing.application.dto.CouponResponseDto;
 import com.example.monkey.marketing.application.dto.CouponReturnRequestDto;
 import com.example.monkey.marketing.application.dto.GroupBuyJoinRequestDto;
 import com.example.monkey.marketing.application.dto.GroupBuyTeamResponseDto;
+import com.example.monkey.marketing.application.dto.MarketingPriceAllocationDto;
+import com.example.monkey.marketing.application.dto.MarketingPriceLineDto;
 import com.example.monkey.marketing.application.dto.MarketingPriceQuoteDto;
 import com.example.monkey.marketing.application.dto.MarketingPriceRequestDto;
 import com.example.monkey.marketing.application.dto.SeckillOrderResponseDto;
 import com.example.monkey.marketing.application.dto.SeckillRequestDto;
 import com.example.monkey.marketing.domain.CouponDefinition;
+import com.example.monkey.marketing.domain.CouponStatus;
 import com.example.monkey.marketing.domain.CouponType;
 import com.example.monkey.marketing.domain.GroupBuyActivity;
 import com.example.monkey.marketing.domain.GroupBuyStatus;
@@ -29,9 +32,11 @@ import com.example.monkey.shared.domain.id.IdGenerator;
 import com.example.monkey.user.application.CaptchaService;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -44,6 +49,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -112,37 +118,94 @@ public class MarketingApplicationService {
     @WithSpan("marketing.coupon.redeem")
     @Transactional
     public CouponResponseDto redeemCoupon(CouponRedeemRequestDto request, Long currentUserId) {
-        UserCoupon coupon = requireUserCoupon(request.couponCode());
-        requireCouponOwnership(coupon, currentUserId);
-        UserCoupon saved = marketingStore.saveUserCoupon(coupon.redeem(request.orderId(), now()));
-        audit(AuditService.MARKETING_COUPON_REDEEMED, saved.userId(), saved.couponCode(), "orderId=" + saved.orderId());
-        return MarketingDtoAssembler.toResponse(saved);
+        Long userId = requireCurrentUserId(currentUserId);
+        String couponCode = normalizeCouponCode(request.couponCode());
+        boolean changed = marketingStore.redeemUserCouponForOrder(userId, couponCode, request.orderId(), now());
+        UserCoupon coupon = requireUserCoupon(userId, couponCode);
+        if (!changed
+                && !(coupon.isRedeemed()
+                        && request.orderId().equals(coupon.orderId())
+                        && coupon.checkoutId() == null)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Coupon is already bound to another transaction");
+        }
+        if (changed) {
+            audit(
+                    AuditService.MARKETING_COUPON_REDEEMED,
+                    coupon.userId(),
+                    coupon.couponCode(),
+                    "orderId=" + coupon.orderId());
+        }
+        return MarketingDtoAssembler.toResponse(coupon);
     }
 
     @WithSpan("marketing.coupon.return")
     @Transactional
     public CouponResponseDto returnCoupon(CouponReturnRequestDto request, Long currentUserId) {
-        UserCoupon coupon = requireUserCoupon(request.couponCode());
-        requireCouponOwnership(coupon, currentUserId);
-        UserCoupon saved = marketingStore.saveUserCoupon(coupon.returnToWallet(request.orderId()));
-        audit(
-                AuditService.MARKETING_COUPON_RETURNED,
-                saved.userId(),
-                saved.couponCode(),
-                "orderId=" + request.orderId());
-        return MarketingDtoAssembler.toResponse(saved);
+        Long userId = requireCurrentUserId(currentUserId);
+        String couponCode = normalizeCouponCode(request.couponCode());
+        boolean changed = marketingStore.returnUserCouponForOrder(userId, couponCode, request.orderId());
+        UserCoupon coupon = requireUserCoupon(userId, couponCode);
+        if (!changed
+                && !(CouponStatus.CLAIMED.equals(coupon.status())
+                        && request.orderId().equals(coupon.orderId())
+                        && coupon.checkoutId() == null)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Coupon is not bound to this transaction");
+        }
+        if (changed) {
+            audit(
+                    AuditService.MARKETING_COUPON_RETURNED,
+                    coupon.userId(),
+                    coupon.couponCode(),
+                    "orderId=" + request.orderId());
+        }
+        return MarketingDtoAssembler.toResponse(coupon);
     }
 
-    private void requireCouponOwnership(UserCoupon coupon, Long currentUserId) {
-        if (currentUserId == null || !currentUserId.equals(coupon.userId())) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Coupon does not belong to the current user");
+    @WithSpan("marketing.coupon.checkout.redeem")
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void redeemForCheckout(Long userId, Long checkoutId, List<String> couponCodes) {
+        requireCheckoutIdentity(userId, checkoutId);
+        List<String> normalizedCodes = couponCodes == null
+                ? List.of()
+                : couponCodes.stream()
+                        .map(MarketingApplicationService::normalizeCouponCode)
+                        .distinct()
+                        .toList();
+        for (String couponCode : normalizedCodes) {
+            boolean changed = marketingStore.redeemUserCouponForCheckout(userId, couponCode, checkoutId, now());
+            UserCoupon coupon = requireUserCoupon(userId, couponCode);
+            if (!changed
+                    && !(coupon.isRedeemed() && checkoutId.equals(coupon.checkoutId()) && coupon.orderId() == null)) {
+                throw new BusinessException(ErrorCode.CONFLICT, "Coupon is already bound to another transaction");
+            }
+            if (changed) {
+                audit(
+                        AuditService.MARKETING_COUPON_REDEEMED,
+                        coupon.userId(),
+                        coupon.couponCode(),
+                        "checkoutId=" + checkoutId);
+            }
+        }
+    }
+
+    @WithSpan("marketing.coupon.checkout.return")
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void returnForCheckout(Long userId, Long checkoutId, String reason) {
+        requireCheckoutIdentity(userId, checkoutId);
+        int returned = marketingStore.returnUserCouponsForCheckout(userId, checkoutId);
+        if (returned > 0) {
+            audit(
+                    AuditService.MARKETING_COUPON_RETURNED,
+                    userId,
+                    "checkout:" + checkoutId,
+                    "count=" + returned + ",reason=" + normalizeReason(reason));
         }
     }
 
     @WithSpan("marketing.price.quote")
     @Transactional(readOnly = true)
     public MarketingPriceQuoteDto quotePrice(MarketingPriceRequestDto request) {
-        return quotePrice(request, coupon -> coupon.matches(request.categoryId(), request.shopId()));
+        return quotePrice(request, coupon -> matchesRequestScope(coupon, request));
     }
 
     @WithSpan("marketing.price.quote")
@@ -166,21 +229,29 @@ public class MarketingApplicationService {
     @WithSpan("marketing.price.quote.store")
     @Transactional(readOnly = true)
     public MarketingPriceQuoteDto quoteStorePrice(MarketingPriceRequestDto request) {
-        return quotePrice(
-                request, coupon -> !isPlatformCoupon(coupon) && coupon.matches(request.categoryId(), request.shopId()));
+        return quotePrice(request, coupon -> !isPlatformCoupon(coupon) && matchesRequestScope(coupon, request));
     }
 
     private MarketingPriceQuoteDto quotePrice(MarketingPriceRequestDto request, Predicate<CouponDefinition> eligible) {
+        if (!request.lines().isEmpty()) {
+            return quotePriceByLine(request, eligible);
+        }
+        return quoteAggregatePrice(request, eligible);
+    }
+
+    private MarketingPriceQuoteDto quoteAggregatePrice(
+            MarketingPriceRequestDto request, Predicate<CouponDefinition> eligible) {
         BigDecimal orderAmount = request.orderAmount();
         Map<String, CouponDefinition> selected = new LinkedHashMap<>();
-        for (String code : request.couponCodes() == null ? List.<String>of() : request.couponCodes()) {
+        for (String code : request.couponCodes()) {
             CouponDefinition coupon = marketingStore
                     .findCouponByCode(code)
                     .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Coupon does not exist"));
-            if (eligible.test(coupon)) {
+            requireCouponAvailableToUser(request.userId(), coupon);
+            BigDecimal couponDiscount = coupon.discountFor(orderAmount);
+            if (eligible.test(coupon) && couponDiscount.compareTo(BigDecimal.ZERO) > 0) {
                 CouponDefinition previous = selected.get(coupon.stackGroup());
-                if (previous == null
-                        || coupon.discountFor(orderAmount).compareTo(previous.discountFor(orderAmount)) > 0) {
+                if (previous == null || couponDiscount.compareTo(previous.discountFor(orderAmount)) > 0) {
                     selected.put(coupon.stackGroup(), coupon);
                 }
             }
@@ -196,6 +267,133 @@ public class MarketingApplicationService {
                 payable,
                 selected.values().stream().map(CouponDefinition::code).toList()));
     }
+
+    private MarketingPriceQuoteDto quotePriceByLine(
+            MarketingPriceRequestDto request, Predicate<CouponDefinition> eligible) {
+        validatePriceLines(request);
+        Map<String, CouponCandidate> selected = new LinkedHashMap<>();
+        for (String code : request.couponCodes()) {
+            CouponDefinition coupon = marketingStore
+                    .findCouponByCode(code)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Coupon does not exist"));
+            requireCouponAvailableToUser(request.userId(), coupon);
+            if (!eligible.test(coupon)) {
+                continue;
+            }
+            List<MarketingPriceLineDto> eligibleLines = request.lines().stream()
+                    .filter(line -> coupon.matches(line.categoryId(), line.shopId()))
+                    .toList();
+            BigDecimal eligibleAmount =
+                    eligibleLines.stream().map(MarketingPriceLineDto::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal couponDiscount = coupon.discountFor(eligibleAmount);
+            if (couponDiscount.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            CouponCandidate candidate = new CouponCandidate(coupon, eligibleLines, couponDiscount);
+            CouponCandidate previous = selected.get(coupon.stackGroup());
+            if (previous == null || couponDiscount.compareTo(previous.discount()) > 0) {
+                selected.put(coupon.stackGroup(), candidate);
+            }
+        }
+
+        Map<Long, BigDecimal> discountsByLine = new LinkedHashMap<>();
+        Map<Long, List<String>> couponsByLine = new LinkedHashMap<>();
+        for (MarketingPriceLineDto line : request.lines()) {
+            discountsByLine.put(line.lineId(), money(BigDecimal.ZERO));
+            couponsByLine.put(line.lineId(), new ArrayList<>());
+        }
+
+        List<String> appliedCoupons = new ArrayList<>();
+        List<CouponCandidate> candidates = selected.values().stream()
+                .sorted(Comparator.comparing(candidate -> candidate.coupon().stackGroup()))
+                .toList();
+        for (CouponCandidate candidate : candidates) {
+            List<BigDecimal> remainingAmounts = candidate.lines().stream()
+                    .map(line -> money(line.amount()
+                            .subtract(discountsByLine.get(line.lineId()))
+                            .max(BigDecimal.ZERO)))
+                    .toList();
+            List<BigDecimal> allocations = allocateDiscount(candidate.discount(), remainingAmounts);
+            BigDecimal allocatedTotal = allocations.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+            if (allocatedTotal.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            appliedCoupons.add(candidate.coupon().code());
+            for (int index = 0; index < candidate.lines().size(); index++) {
+                BigDecimal allocation = allocations.get(index);
+                if (allocation.compareTo(BigDecimal.ZERO) <= 0) {
+                    continue;
+                }
+                Long lineId = candidate.lines().get(index).lineId();
+                discountsByLine.compute(lineId, (ignored, current) -> money(current.add(allocation)));
+                couponsByLine.get(lineId).add(candidate.coupon().code());
+            }
+        }
+
+        List<MarketingPriceAllocationDto> lineAllocations = request.lines().stream()
+                .map(line -> new MarketingPriceAllocationDto(
+                        line.lineId(), discountsByLine.get(line.lineId()), couponsByLine.get(line.lineId())))
+                .toList();
+        BigDecimal discount = lineAllocations.stream()
+                .map(MarketingPriceAllocationDto::discountAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal payable = money(request.orderAmount().subtract(discount).max(BigDecimal.ZERO));
+        return new MarketingPriceQuoteDto(
+                money(request.orderAmount()), money(discount), payable, appliedCoupons, lineAllocations);
+    }
+
+    private static boolean matchesRequestScope(CouponDefinition coupon, MarketingPriceRequestDto request) {
+        if (request.lines().isEmpty()) {
+            return coupon.matches(request.categoryId(), request.shopId());
+        }
+        return request.lines().stream().anyMatch(line -> coupon.matches(line.categoryId(), line.shopId()));
+    }
+
+    private static void validatePriceLines(MarketingPriceRequestDto request) {
+        long distinctLineIds = request.lines().stream()
+                .map(MarketingPriceLineDto::lineId)
+                .distinct()
+                .count();
+        if (distinctLineIds != request.lines().size()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Price line identifiers must be unique");
+        }
+        BigDecimal lineTotal =
+                request.lines().stream().map(MarketingPriceLineDto::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (money(lineTotal).compareTo(money(request.orderAmount())) != 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Price line total must equal the order amount");
+        }
+    }
+
+    private static List<BigDecimal> allocateDiscount(BigDecimal discountAmount, List<BigDecimal> bases) {
+        BigDecimal total =
+                bases.stream().map(MarketingApplicationService::money).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal remainingDiscount = money(discountAmount).min(total);
+        BigDecimal remainingBase = total;
+        List<BigDecimal> allocations = new ArrayList<>();
+        for (int index = 0; index < bases.size(); index++) {
+            BigDecimal base = money(bases.get(index));
+            BigDecimal allocation;
+            if (remainingDiscount.compareTo(BigDecimal.ZERO) <= 0 || base.compareTo(BigDecimal.ZERO) <= 0) {
+                allocation = money(BigDecimal.ZERO);
+            } else if (index == bases.size() - 1 || remainingBase.compareTo(BigDecimal.ZERO) <= 0) {
+                allocation = remainingDiscount.min(base);
+            } else {
+                allocation = money(remainingDiscount.multiply(base).divide(remainingBase, 8, RoundingMode.HALF_UP))
+                        .min(base)
+                        .min(remainingDiscount);
+            }
+            allocations.add(money(allocation));
+            remainingDiscount = remainingDiscount.subtract(allocation);
+            remainingBase = remainingBase.subtract(base);
+        }
+        return allocations;
+    }
+
+    private static BigDecimal money(BigDecimal amount) {
+        return (amount == null ? BigDecimal.ZERO : amount).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private record CouponCandidate(CouponDefinition coupon, List<MarketingPriceLineDto> lines, BigDecimal discount) {}
 
     private static boolean isPlatformCoupon(CouponDefinition coupon) {
         return CouponType.THRESHOLD.equals(coupon.type()) || CouponType.PERCENT.equals(coupon.type());
@@ -297,6 +495,7 @@ public class MarketingApplicationService {
                 claimOwner,
                 com.example.monkey.marketing.domain.CouponStatus.CLAIMED,
                 null,
+                null,
                 "coupon:" + key,
                 now(),
                 null);
@@ -380,13 +579,51 @@ public class MarketingApplicationService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Group-buy team does not exist"));
     }
 
-    private UserCoupon requireUserCoupon(String code) {
+    private UserCoupon requireUserCoupon(Long userId, String code) {
+        return marketingStore
+                .findUserCouponByCode(userId, code)
+                .orElseThrow(
+                        () -> new BusinessException(ErrorCode.FORBIDDEN, "Coupon does not belong to the current user"));
+    }
+
+    private void requireCouponAvailableToUser(Long userId, CouponDefinition coupon) {
+        if (userId == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Coupon quote requires the current user");
+        }
+        UserCoupon userCoupon = marketingStore
+                .findUserCoupon(userId, coupon.id())
+                .orElseThrow(
+                        () -> new BusinessException(ErrorCode.FORBIDDEN, "Coupon does not belong to the current user"));
+        LocalDateTime currentTime = now();
+        if (!CouponStatus.CLAIMED.equals(userCoupon.status())
+                || currentTime.isBefore(coupon.startTime())
+                || !currentTime.isBefore(coupon.endTime())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Coupon is not available");
+        }
+    }
+
+    private static Long requireCurrentUserId(Long currentUserId) {
+        if (currentUserId == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Coupon mutation requires the current user");
+        }
+        return currentUserId;
+    }
+
+    private static void requireCheckoutIdentity(Long userId, Long checkoutId) {
+        if (userId == null || userId <= 0 || checkoutId == null || checkoutId <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Valid userId and checkoutId are required");
+        }
+    }
+
+    private static String normalizeReason(String reason) {
+        return StringUtils.hasText(reason) ? reason.trim() : "UNSPECIFIED";
+    }
+
+    private static String normalizeCouponCode(String code) {
         if (!StringUtils.hasText(code)) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "couponCode is required");
         }
-        return marketingStore
-                .findUserCouponByCode(code)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User coupon does not exist"));
+        return code.trim();
     }
 
     private void validateHuman(String token, String clientIp) {

@@ -64,6 +64,7 @@ class SchemaMigrationTest {
         String v46 = read("src/main/resources/db/migration/V46__tenant_billing.sql");
         String v47 = read("src/main/resources/db/migration/V47__encrypt_order_review_content.sql");
         String v49 = read("src/main/resources/db/migration/V49__link_checkout_to_orders.sql");
+        String v50 = read("src/main/resources/db/migration/V50__bind_coupon_redemption_to_checkout.sql");
 
         assertThat(v1).contains("CREATE TABLE IF NOT EXISTS `orders`");
         assertThat(v1).contains("`price` DOUBLE");
@@ -201,6 +202,11 @@ class SchemaMigrationTest {
         assertThat(v49).contains("CREATE TABLE order_line");
         assertThat(v49).contains("uk_orders_checkout_sub_order");
         assertThat(v49).contains("uk_order_line_checkout_line");
+        assertThat(v50).contains("ADD COLUMN checkout_id BIGINT");
+        assertThat(v50).contains("UNIQUE (tenant_id, user_id, coupon_id)");
+        assertThat(v50).contains("fk_marketing_user_coupon_checkout_tenant");
+        assertThat(v50).contains("UPDATE marketing_user_coupon");
+        assertThat(v50).contains("status = 'CLAIMED'");
     }
 
     private static String read(String path) throws IOException {

@@ -8,6 +8,7 @@ import com.example.monkey.marketing.domain.MarketingStore;
 import com.example.monkey.marketing.domain.SeckillActivity;
 import com.example.monkey.marketing.domain.SeckillOrder;
 import com.example.monkey.marketing.domain.UserCoupon;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -64,13 +65,42 @@ public class JpaMarketingStore implements MarketingStore {
     }
 
     @Override
-    public Optional<UserCoupon> findUserCouponByCode(String couponCode) {
-        return userCouponRepository.findByCouponCode(couponCode).map(JpaMarketingStore::toDomain);
+    public Optional<UserCoupon> findUserCouponByCode(Long userId, String couponCode) {
+        return userCouponRepository
+                .findByUserIdAndCouponCode(userId, couponCode)
+                .map(JpaMarketingStore::toDomain);
     }
 
     @Override
     public UserCoupon saveUserCoupon(UserCoupon coupon) {
         return toDomain(userCouponRepository.save(toEntity(coupon)));
+    }
+
+    @Override
+    public boolean redeemUserCouponForOrder(Long userId, String couponCode, Long orderId, LocalDateTime usedAt) {
+        return userCouponRepository.redeemClaimedForOrder(
+                        TenantContext.currentTenantIdOrDefault(), userId, couponCode, orderId, usedAt)
+                == 1;
+    }
+
+    @Override
+    public boolean returnUserCouponForOrder(Long userId, String couponCode, Long orderId) {
+        return userCouponRepository.returnRedeemedForOrder(
+                        TenantContext.currentTenantIdOrDefault(), userId, couponCode, orderId)
+                == 1;
+    }
+
+    @Override
+    public boolean redeemUserCouponForCheckout(Long userId, String couponCode, Long checkoutId, LocalDateTime usedAt) {
+        return userCouponRepository.redeemClaimedForCheckout(
+                        TenantContext.currentTenantIdOrDefault(), userId, couponCode, checkoutId, usedAt)
+                == 1;
+    }
+
+    @Override
+    public int returnUserCouponsForCheckout(Long userId, Long checkoutId) {
+        return userCouponRepository.returnRedeemedForCheckout(
+                TenantContext.currentTenantIdOrDefault(), userId, checkoutId);
     }
 
     @Override
@@ -186,6 +216,7 @@ public class JpaMarketingStore implements MarketingStore {
                 entity.getUserId(),
                 entity.getStatus(),
                 entity.getOrderId(),
+                entity.getCheckoutId(),
                 entity.getIdempotencyKey(),
                 entity.getClaimedAt(),
                 entity.getUsedAt());
@@ -199,6 +230,7 @@ public class JpaMarketingStore implements MarketingStore {
         entity.setUserId(coupon.userId());
         entity.setStatus(coupon.status());
         entity.setOrderId(coupon.orderId());
+        entity.setCheckoutId(coupon.checkoutId());
         entity.setIdempotencyKey(coupon.idempotencyKey());
         entity.setClaimedAt(coupon.claimedAt());
         entity.setUsedAt(coupon.usedAt());

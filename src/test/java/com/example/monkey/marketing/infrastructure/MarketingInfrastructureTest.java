@@ -45,7 +45,8 @@ class MarketingInfrastructureTest {
         when(couponRepository.findById(1L)).thenReturn(Optional.of(couponEntity()));
         when(couponRepository.findByCode("PLATFORM-20")).thenReturn(Optional.of(couponEntity()));
         when(userCouponRepository.findByUserIdAndCouponId(7L, 1L)).thenReturn(Optional.of(userCouponEntity()));
-        when(userCouponRepository.findByCouponCode("PLATFORM-20")).thenReturn(Optional.of(userCouponEntity()));
+        when(userCouponRepository.findByUserIdAndCouponCode(7L, "PLATFORM-20"))
+                .thenReturn(Optional.of(userCouponEntity()));
         when(seckillActivityRepository.findById(10L)).thenReturn(Optional.of(seckillActivityEntity()));
         when(seckillOrderRepository.findByActivityIdAndUserIdAndIdempotencyKey(10L, 7L, "seckill:key"))
                 .thenReturn(Optional.of(seckillOrderEntity()));
@@ -69,7 +70,7 @@ class MarketingInfrastructureTest {
                 .isEqualTo(1);
         assertThat(store.saveCoupon(coupon()).stackGroup()).isEqualTo("PLATFORM");
         assertThat(store.findUserCoupon(7L, 1L).orElseThrow().status()).isEqualTo(CouponStatus.CLAIMED);
-        assertThat(store.findUserCouponByCode("PLATFORM-20").orElseThrow().userId())
+        assertThat(store.findUserCouponByCode(7L, "PLATFORM-20").orElseThrow().userId())
                 .isEqualTo(7L);
         assertThat(store.saveUserCoupon(userCoupon()).couponCode()).isEqualTo("PLATFORM-20");
         assertThat(store.findSeckillActivity(10L).orElseThrow().soldQuantity()).isEqualTo(1);
@@ -128,7 +129,7 @@ class MarketingInfrastructureTest {
     }
 
     private static UserCoupon userCoupon() {
-        return new UserCoupon(2L, 1L, "PLATFORM-20", 7L, CouponStatus.CLAIMED, null, "coupon:key", NOW, null);
+        return new UserCoupon(2L, 1L, "PLATFORM-20", 7L, CouponStatus.CLAIMED, null, null, "coupon:key", NOW, null);
     }
 
     private static SeckillActivity seckillActivity() {
@@ -170,6 +171,7 @@ class MarketingInfrastructureTest {
         entity.setUserId(7L);
         entity.setStatus(CouponStatus.CLAIMED);
         entity.setOrderId(null);
+        entity.setCheckoutId(null);
         entity.setIdempotencyKey("coupon:key");
         entity.setClaimedAt(NOW);
         entity.setUsedAt(null);

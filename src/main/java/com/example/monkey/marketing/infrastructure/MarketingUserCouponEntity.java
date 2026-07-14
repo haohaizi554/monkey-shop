@@ -32,6 +32,8 @@ public class MarketingUserCouponEntity extends TenantScopedJpaEntity {
 
     private Long orderId;
 
+    private Long checkoutId;
+
     @Column(nullable = false, length = 160)
     private String idempotencyKey;
 
@@ -86,6 +88,14 @@ public class MarketingUserCouponEntity extends TenantScopedJpaEntity {
 
     public void setOrderId(Long orderId) {
         this.orderId = orderId;
+    }
+
+    public Long getCheckoutId() {
+        return checkoutId;
+    }
+
+    public void setCheckoutId(Long checkoutId) {
+        this.checkoutId = checkoutId;
     }
 
     public String getIdempotencyKey() {

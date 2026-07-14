@@ -2,6 +2,8 @@ package com.example.monkey.cart.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -24,6 +26,7 @@ import com.example.monkey.inventory.application.dto.InventoryReserveRequestDto;
 import com.example.monkey.inventory.application.dto.WarehouseStockResponseDto;
 import com.example.monkey.inventory.domain.InventoryReservationStatus;
 import com.example.monkey.marketing.application.MarketingApplicationService;
+import com.example.monkey.marketing.application.dto.MarketingPriceAllocationDto;
 import com.example.monkey.marketing.application.dto.MarketingPriceQuoteDto;
 import com.example.monkey.marketing.application.dto.MarketingPriceRequestDto;
 import com.example.monkey.order.domain.CheckoutOrderCommand;
@@ -44,6 +47,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 class CartApplicationServiceTest {
 
@@ -75,6 +79,11 @@ class CartApplicationServiceTest {
         assertThat(checkout.payableAmount()).isEqualByComparingTo("200.00");
         assertThat(fixture.cartStore.findCart(USER.id()).items()).isEmpty();
         verify(fixture.inventoryApplicationService, times(2)).reserve(any(InventoryReserveRequestDto.class));
+        InOrder transactionOrder = inOrder(fixture.formalOrderCreator, fixture.marketingApplicationService);
+        transactionOrder.verify(fixture.formalOrderCreator).create(any());
+        transactionOrder
+                .verify(fixture.marketingApplicationService)
+                .redeemForCheckout(eq(USER.id()), eq(checkout.id()), eq(List.of("SHOP-10", "PLATFORM-20")));
     }
 
     @Test
@@ -89,6 +98,32 @@ class CartApplicationServiceTest {
         assertThat(checkout.originalAmount()).isEqualByComparingTo("230.00");
         assertThat(checkout.discountAmount()).isEqualByComparingTo("20.00");
         assertThat(checkout.payableAmount()).isEqualByComparingTo("210.00");
+        assertThat(checkout.subOrders().stream()
+                        .map(subOrder -> subOrder.platformDiscountAmount())
+                        .reduce(BigDecimal.ZERO, BigDecimal::add))
+                .isEqualByComparingTo("20.00");
+    }
+
+    @Test
+    void categoryCouponOnlyDiscountsEligibleCartLine() {
+        Fixture fixture = new Fixture();
+        fixture.seedSameShopMixedCategories();
+
+        var checkout = fixture.service.checkout(
+                USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of("CATEGORY-20")), "cart-key-category");
+
+        assertThat(checkout.discountAmount()).isEqualByComparingTo("20.00");
+        assertThat(checkout.subOrders()).hasSize(1);
+        assertThat(checkout.subOrders().get(0).lines())
+                .anySatisfy(line -> {
+                    assertThat(line.skuId()).isEqualTo(1001L);
+                    assertThat(line.discountAmount()).isEqualByComparingTo("20.00");
+                })
+                .anySatisfy(line -> {
+                    assertThat(line.skuId()).isEqualTo(1002L);
+                    assertThat(line.discountAmount()).isEqualByComparingTo("0.00");
+                });
+        verify(fixture.marketingApplicationService).redeemForCheckout(USER.id(), checkout.id(), List.of("CATEGORY-20"));
     }
 
     @Test
@@ -176,6 +211,17 @@ class CartApplicationServiceTest {
                     Duration.ofDays(7));
         }
 
+        private void seedSameShopMixedCategories() {
+            LocalDateTime now = LocalDateTime.now(CLOCK);
+            cartStore.save(
+                    new CartSnapshot(
+                            USER.id(),
+                            List.of(
+                                    new CartItem(1001L, 1L, 1, true, now, now),
+                                    new CartItem(1002L, 1L, 1, true, now, now))),
+                    Duration.ofDays(7));
+        }
+
         private static InventoryReservationResponseDto reservation(InventoryReserveRequestDto request) {
             Long warehouseId = 9000L + request.skuId();
             return new InventoryReservationResponseDto(
@@ -207,6 +253,20 @@ class CartApplicationServiceTest {
         }
 
         private static MarketingPriceQuoteDto storeQuote(MarketingPriceRequestDto request) {
+            if (request.couponCodes().contains("CATEGORY-20")) {
+                List<MarketingPriceAllocationDto> allocations = request.lines().stream()
+                        .map(line -> new MarketingPriceAllocationDto(
+                                line.lineId(),
+                                Long.valueOf(11L).equals(line.categoryId()) ? new BigDecimal("20.00") : BigDecimal.ZERO,
+                                Long.valueOf(11L).equals(line.categoryId()) ? List.of("CATEGORY-20") : List.of()))
+                        .toList();
+                return new MarketingPriceQuoteDto(
+                        request.orderAmount(),
+                        new BigDecimal("20.00"),
+                        request.orderAmount().subtract(new BigDecimal("20.00")),
+                        List.of("CATEGORY-20"),
+                        allocations);
+            }
             BigDecimal discount = Long.valueOf(1L).equals(request.shopId())
                             && request.couponCodes().contains("SHOP-10")
                     ? new BigDecimal("10.00")

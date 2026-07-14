@@ -21,6 +21,7 @@ final class MarketingDtoAssembler {
                 coupon.userId(),
                 coupon.status().name(),
                 coupon.orderId(),
+                coupon.checkoutId(),
                 coupon.claimedAt(),
                 coupon.usedAt());
     }
