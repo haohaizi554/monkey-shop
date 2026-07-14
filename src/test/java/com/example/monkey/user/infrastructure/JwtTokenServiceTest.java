@@ -20,13 +20,21 @@ import com.example.monkey.user.domain.RefreshTokenReuseException;
 import com.example.monkey.user.domain.SessionTokenService;
 import com.example.monkey.user.domain.SessionTokenService.AuthenticatedAccessToken;
 import com.example.monkey.user.domain.SessionTokenService.AuthenticatedRefreshToken;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.crypto.MACSigner;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.SignedJWT;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.servlet.http.Cookie;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
@@ -136,16 +144,75 @@ class JwtTokenServiceTest {
 
     @Test
     @ExtendWith(OutputCaptureExtension.class)
-    void rejectedJwtTokensAreLoggedWithoutLeakingRawToken(CapturedOutput output) {
-        JwtTokenService tokenService = new JwtTokenService(TEST_SECRET, 30, 60, 30, 60, false, null);
+    void malformedJwtTokensAreCountedWithoutLeakingRawToken(CapturedOutput output) {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        JwtTokenService tokenService =
+                new JwtTokenService(TEST_SECRET, 30, 60, 30, 60, false, false, false, null, meterRegistry);
         String malformedToken = "not-a-jwt";
 
         assertThat(tokenService.parseAccessToken(malformedToken)).isEmpty();
 
+        assertThat(meterRegistry
+                        .get("auth.jwt.parse.failure")
+                        .tag("reason", "malformed")
+                        .counter()
+                        .count())
+                .isEqualTo(1.0d);
+        assertThat(output).doesNotContain(malformedToken);
+    }
+
+    @Test
+    void jwtParseFailuresUseBoundedSignatureExpiryAndRevocationReasons() {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-14T00:00:00Z"));
+        JwtTokenService tokenService = meteredTokenService(clock, meterRegistry);
+        JwtTokenService foreignIssuer =
+                new JwtTokenService("different-unit-test-secret-key-long-enough-for-hmac", 30, 60, 30, 60, false, null);
+
+        JwtTokenPair foreignPair = foreignIssuer.issueTokenPair(1L, "USER");
+        assertThat(tokenService.parseAccessToken(foreignPair.accessToken())).isEmpty();
+
+        JwtTokenPair expiringPair = tokenService.issueTokenPair(1L, "USER");
+        clock.advance(Duration.ofSeconds(61));
+        assertThat(tokenService.parseAccessToken(expiringPair.accessToken())).isEmpty();
+
+        JwtTokenPair revokedPair = tokenService.issueTokenPair(1L, "USER");
+        tokenService.revokeAccessToken(revokedPair.accessToken());
+        assertThat(tokenService.parseAccessToken(revokedPair.accessToken())).isEmpty();
+
+        assertThat(parseFailureCount(meterRegistry, "invalid-signature")).isEqualTo(1.0d);
+        assertThat(parseFailureCount(meterRegistry, "expired")).isEqualTo(1.0d);
+        assertThat(parseFailureCount(meterRegistry, "revoked")).isEqualTo(1.0d);
+    }
+
+    @Test
+    void signedJwtWithoutExpirationIsMalformedRatherThanExpired() throws Exception {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        Instant issuedAt = Instant.parse("2026-07-14T00:00:00Z");
+        JwtTokenService tokenService = meteredTokenService(Clock.fixed(issuedAt, ZoneOffset.UTC), meterRegistry);
+
+        assertThat(tokenService.parseAccessToken(signedTokenWithoutExpiration(issuedAt)))
+                .isEmpty();
+
+        assertThat(parseFailureCountOrZero(meterRegistry, "malformed")).isEqualTo(1.0d);
+        assertThat(parseFailureCountOrZero(meterRegistry, "expired")).isZero();
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void unexpectedJwtFailuresLogOnlyTheExceptionClass(CapturedOutput output) {
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        JwtTokenService issuer = new JwtTokenService(TEST_SECRET, 30, 60, 30, 60, false, null);
+        String rawToken = issuer.issueTokenPair(1L, "USER").accessToken();
+        JwtTokenService tokenService = meteredTokenService(new ThrowingClock(), meterRegistry);
+
+        assertThat(tokenService.parseAccessToken(rawToken)).isEmpty();
+
+        assertThat(parseFailureCount(meterRegistry, "unexpected")).isEqualTo(1.0d);
         assertThat(output)
-                .contains("JWT token rejected while parsing request token")
-                .contains("ParseException")
-                .doesNotContain(malformedToken);
+                .contains("IllegalStateException")
+                .doesNotContain(rawToken)
+                .doesNotContain("clock backend detail");
     }
 
     @Test
@@ -859,6 +926,42 @@ class JwtTokenServiceTest {
         return new JwtTokenService(TEST_SECRET, 30, 60, 30, 60, false, false, false, null, refreshRotationGrace, clock);
     }
 
+    private static JwtTokenService meteredTokenService(Clock clock, SimpleMeterRegistry meterRegistry) {
+        return new JwtTokenService(
+                TEST_SECRET, 30, 60, 30, 60, false, false, false, null, Duration.ofSeconds(5), clock, meterRegistry);
+    }
+
+    private static double parseFailureCount(SimpleMeterRegistry meterRegistry, String reason) {
+        return meterRegistry
+                .get("auth.jwt.parse.failure")
+                .tag("reason", reason)
+                .counter()
+                .count();
+    }
+
+    private static double parseFailureCountOrZero(SimpleMeterRegistry meterRegistry, String reason) {
+        var counter = meterRegistry
+                .find("auth.jwt.parse.failure")
+                .tag("reason", reason)
+                .counter();
+        return counter == null ? 0.0d : counter.count();
+    }
+
+    private static String signedTokenWithoutExpiration(Instant issuedAt) throws Exception {
+        SignedJWT token = new SignedJWT(
+                new JWSHeader(JWSAlgorithm.HS256),
+                new JWTClaimsSet.Builder()
+                        .jwtID("missing-exp")
+                        .subject("1")
+                        .claim("role", "USER")
+                        .claim("auth", List.of("USER"))
+                        .claim("typ", "access")
+                        .issueTime(Date.from(issuedAt))
+                        .build());
+        token.sign(new MACSigner(TEST_SECRET.getBytes(StandardCharsets.UTF_8)));
+        return token.serialize();
+    }
+
     @SuppressWarnings("unchecked")
     private static ValueOperations<String, String> mockRedisValues(StringRedisTemplate redisTemplate) {
         ValueOperations<String, String> redisValues = mock(ValueOperations.class);
@@ -896,6 +999,24 @@ class JwtTokenServiceTest {
         @Override
         public Instant instant() {
             return current;
+        }
+    }
+
+    private static final class ThrowingClock extends Clock {
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            throw new IllegalStateException("clock backend detail");
         }
     }
 }

@@ -2,10 +2,15 @@ package com.example.monkey.user.infrastructure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -13,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 @ExtendWith(MockitoExtension.class)
 class RedisCaptchaChallengeStoreTest {
@@ -44,26 +50,27 @@ class RedisCaptchaChallengeStoreTest {
     }
 
     @Test
-    void consumeReadsAndDeletesCaptchaCode() {
+    void consumeAtomicallyReadsAndDeletesCaptchaCode() {
         RedisCaptchaChallengeStore store = new RedisCaptchaChallengeStore(redisTemplate);
-        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.get("captcha:challenge-id")).thenReturn("ABCD");
+        when(redisTemplate.execute(any(DefaultRedisScript.class), eq(List.of("captcha:challenge-id"))))
+                .thenReturn("ABCD");
 
         Optional<String> code = store.consume("challenge-id");
 
         assertThat(code).contains("ABCD");
-        verify(redisTemplate).delete("captcha:challenge-id");
+        verify(redisTemplate, never()).delete(anyString());
+        verify(redisTemplate, never()).opsForValue();
     }
 
     @Test
-    void consumeDeletesMissingCaptchaKeyAndReturnsEmpty() {
+    void atomicConsumeReturnsEmptyWhenCaptchaKeyIsMissing() {
         RedisCaptchaChallengeStore store = new RedisCaptchaChallengeStore(redisTemplate);
-        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.get("captcha:challenge-id")).thenReturn(null);
+        when(redisTemplate.execute(any(DefaultRedisScript.class), eq(List.of("captcha:challenge-id"))))
+                .thenReturn(null);
 
         Optional<String> code = store.consume("challenge-id");
 
         assertThat(code).isEmpty();
-        verify(redisTemplate).delete("captcha:challenge-id");
+        verify(redisTemplate, never()).delete(anyString());
     }
 }

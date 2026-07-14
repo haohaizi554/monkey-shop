@@ -19,6 +19,7 @@ import com.example.monkey.user.domain.UserAccountStore.UserAccount;
 import com.example.monkey.user.infrastructure.JwtAuthenticationFilter;
 import com.example.monkey.user.infrastructure.JwtTokenService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -111,6 +112,7 @@ public class SecurityConfig {
             @Value("${app.jwt.cookie-secure:${SESSION_COOKIE_SECURE:true}}") boolean cookieSecure,
             @Value("${app.jwt.allow-generated-secret:false}") boolean allowGeneratedSecret,
             @Value("${app.jwt.require-redis-token-store:false}") boolean requireRedisTokenStore,
+            ObjectProvider<MeterRegistry> meterRegistryProvider,
             ObjectProvider<StringRedisTemplate> redisTemplateProvider) {
         return new JwtTokenService(
                 rawSecret,
@@ -121,7 +123,8 @@ public class SecurityConfig {
                 cookieSecure,
                 allowGeneratedSecret,
                 requireRedisTokenStore,
-                redisTemplateProvider.getIfAvailable());
+                redisTemplateProvider.getIfAvailable(),
+                meterRegistryProvider.getIfAvailable());
     }
 
     @Bean

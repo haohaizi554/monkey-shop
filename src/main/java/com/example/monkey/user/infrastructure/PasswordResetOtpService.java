@@ -119,9 +119,8 @@ public class PasswordResetOtpService implements PasswordResetChallengeService {
         }
 
         Instant now = clock.instant();
-        enforcePhoneLimit(normalizedPhone, now);
-
         if (targetMatches && StringUtils.hasText(username)) {
+            enforcePhoneLimit(normalizedPhone, now);
             String code = newCode();
             String normalizedEmail = normalize(email).toLowerCase();
             String emailToken = StringUtils.hasText(normalizedEmail) ? emailTokenGenerator.get() : null;

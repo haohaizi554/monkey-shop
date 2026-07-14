@@ -152,6 +152,10 @@ class SecurityConfigTest {
         @SuppressWarnings("unchecked")
         org.springframework.beans.factory.ObjectProvider<org.springframework.data.redis.core.StringRedisTemplate>
                 redisProvider = org.mockito.Mockito.mock(org.springframework.beans.factory.ObjectProvider.class);
+        @SuppressWarnings("unchecked")
+        org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry>
+                meterRegistryProvider =
+                        org.mockito.Mockito.mock(org.springframework.beans.factory.ObjectProvider.class);
 
         org.assertj.core.api.Assertions.assertThat(config.jwtTokenService(
                         "ConfigTestJwtSecretValueForHmac!!",
@@ -162,6 +166,7 @@ class SecurityConfigTest {
                         true,
                         false,
                         false,
+                        meterRegistryProvider,
                         redisProvider))
                 .isNotNull();
         org.assertj.core.api.Assertions.assertThat(config.jwtAuthenticationFilter(

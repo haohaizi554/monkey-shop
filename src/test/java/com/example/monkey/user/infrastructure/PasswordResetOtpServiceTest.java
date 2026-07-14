@@ -23,6 +23,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
@@ -151,6 +152,19 @@ class PasswordResetOtpServiceTest {
 
         assertThat(delivery.smsMessages).isEmpty();
         assertThat(delivery.emailMessages).isEmpty();
+    }
+
+    @Test
+    void nonMatchingTargetsDoNotExhaustTheMatchedPhoneQuota() {
+        MutableClock clock = new MutableClock();
+        RecordingDelivery delivery = new RecordingDelivery();
+        PasswordResetOtpService service =
+                new PasswordResetOtpService(clock, () -> 654321, () -> "email-token", delivery);
+
+        IntStream.range(0, 5).forEach(ignored -> service.issueResetChallenge("missing", "18888888888", null, false));
+        service.issueResetChallenge("alice", "18888888888", null, true);
+
+        assertThat(delivery.smsMessages).containsExactly("18888888888:654321");
     }
 
     @Test

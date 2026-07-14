@@ -16,6 +16,8 @@ import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jose.crypto.MACVerifier;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Metrics;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -76,6 +78,12 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
     private static final String ROTATION_STATUS_REUSED = "REUSED";
     private static final String ROTATION_STATUS_REVOKED = "REVOKED";
     private static final String ROTATION_CIPHERTEXT_VERSION = "v1";
+    private static final String JWT_PARSE_FAILURE_METRIC = "auth.jwt.parse.failure";
+    private static final String JWT_PARSE_REASON_MALFORMED = "malformed";
+    private static final String JWT_PARSE_REASON_INVALID_SIGNATURE = "invalid-signature";
+    private static final String JWT_PARSE_REASON_EXPIRED = "expired";
+    private static final String JWT_PARSE_REASON_REVOKED = "revoked";
+    private static final String JWT_PARSE_REASON_UNEXPECTED = "unexpected";
     private static final String ROTATION_KEY_DERIVATION_SALT = "MonkeyShop JWT rotation recovery HKDF salt v1";
     private static final String ROTATION_KEY_DERIVATION_INFO = "MonkeyShop JWT rotation recovery AES-256-GCM key v1";
     private static final int GCM_IV_BYTES = 12;
@@ -111,6 +119,7 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
     private final boolean requireRedisTokenStore;
     private final Duration refreshRotationGrace;
     private final Clock clock;
+    private final MeterRegistry meterRegistry;
     private final Map<String, Instant> refreshTokens = new ConcurrentHashMap<>();
     private final Map<String, RefreshTokenRotation> refreshTokenRotations = new ConcurrentHashMap<>();
     private final Map<String, Instant> revokedAccessTokens = new ConcurrentHashMap<>();
@@ -208,6 +217,32 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
                 Clock.systemUTC());
     }
 
+    public JwtTokenService(
+            String rawSecret,
+            long accessTokenTtlSeconds,
+            long refreshTokenTtlSeconds,
+            long accessCookieMaxAgeSeconds,
+            long refreshCookieMaxAgeSeconds,
+            boolean cookieSecure,
+            boolean allowGeneratedSecret,
+            boolean requireRedisTokenStore,
+            StringRedisTemplate redisTemplate,
+            MeterRegistry meterRegistry) {
+        this(
+                rawSecret,
+                accessTokenTtlSeconds,
+                refreshTokenTtlSeconds,
+                accessCookieMaxAgeSeconds,
+                refreshCookieMaxAgeSeconds,
+                cookieSecure,
+                allowGeneratedSecret,
+                requireRedisTokenStore,
+                redisTemplate,
+                DEFAULT_REFRESH_ROTATION_GRACE,
+                Clock.systemUTC(),
+                meterRegistry);
+    }
+
     JwtTokenService(
             String rawSecret,
             long accessTokenTtlSeconds,
@@ -220,6 +255,34 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
             StringRedisTemplate redisTemplate,
             Duration refreshRotationGrace,
             Clock clock) {
+        this(
+                rawSecret,
+                accessTokenTtlSeconds,
+                refreshTokenTtlSeconds,
+                accessCookieMaxAgeSeconds,
+                refreshCookieMaxAgeSeconds,
+                cookieSecure,
+                allowGeneratedSecret,
+                requireRedisTokenStore,
+                redisTemplate,
+                refreshRotationGrace,
+                clock,
+                Metrics.globalRegistry);
+    }
+
+    JwtTokenService(
+            String rawSecret,
+            long accessTokenTtlSeconds,
+            long refreshTokenTtlSeconds,
+            long accessCookieMaxAgeSeconds,
+            long refreshCookieMaxAgeSeconds,
+            boolean cookieSecure,
+            boolean allowGeneratedSecret,
+            boolean requireRedisTokenStore,
+            StringRedisTemplate redisTemplate,
+            Duration refreshRotationGrace,
+            Clock clock,
+            MeterRegistry meterRegistry) {
         this.signingSecret = resolveSigningSecret(rawSecret, allowGeneratedSecret);
         this.recoveryEncryptionKey = deriveRecoveryEncryptionKey(signingSecret);
         this.accessTokenTtlSeconds = Math.max(60L, accessTokenTtlSeconds);
@@ -231,6 +294,7 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
         this.requireRedisTokenStore = requireRedisTokenStore;
         this.refreshRotationGrace = normalizeRefreshRotationGrace(refreshRotationGrace);
         this.clock = clock == null ? Clock.systemUTC() : clock;
+        this.meterRegistry = meterRegistry == null ? Metrics.globalRegistry : meterRegistry;
         if (requireRedisTokenStore && redisTemplate == null) {
             throw tokenStoreUnavailable("revocation and refresh-token state");
         }
@@ -293,28 +357,38 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
     public Optional<AuthenticatedAccessToken> parseAccessToken(String rawToken) {
         return parseToken(rawToken)
                 .filter(token -> TOKEN_TYPE_ACCESS.equals(token.tokenType()))
-                .filter(token -> !isAccessTokenRevoked(token.tokenId()))
-                .map(token -> new AuthenticatedAccessToken(
-                        token.userId(),
-                        token.role(),
-                        token.authorities(),
-                        token.tokenId(),
-                        token.expiration(),
-                        token.tenantId()));
+                .flatMap(token -> {
+                    if (isAccessTokenRevoked(token.tokenId())) {
+                        recordJwtParseFailure(JWT_PARSE_REASON_REVOKED, true, null);
+                        return Optional.empty();
+                    }
+                    return Optional.of(new AuthenticatedAccessToken(
+                            token.userId(),
+                            token.role(),
+                            token.authorities(),
+                            token.tokenId(),
+                            token.expiration(),
+                            token.tenantId()));
+                });
     }
 
     public Optional<AuthenticatedRefreshToken> parseRefreshToken(String rawToken) {
         return parseToken(rawToken)
                 .filter(token -> TOKEN_TYPE_REFRESH.equals(token.tokenType()))
-                .filter(token -> isRefreshTokenValid(token.tokenId()))
-                .map(token -> new AuthenticatedRefreshToken(
-                        token.userId(),
-                        token.role(),
-                        token.authorities(),
-                        token.tokenId(),
-                        token.expiration(),
-                        token.tenantId(),
-                        token.issuedAt()));
+                .flatMap(token -> {
+                    if (!isRefreshTokenValid(token.tokenId())) {
+                        recordJwtParseFailure(JWT_PARSE_REASON_REVOKED, true, null);
+                        return Optional.empty();
+                    }
+                    return Optional.of(new AuthenticatedRefreshToken(
+                            token.userId(),
+                            token.role(),
+                            token.authorities(),
+                            token.tokenId(),
+                            token.expiration(),
+                            token.tenantId(),
+                            token.issuedAt()));
+                });
     }
 
     public Optional<JwtTokenPair> rotateRefreshToken(String refreshToken) {
@@ -434,6 +508,7 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
             SignedJWT signedJwt = SignedJWT.parse(rawToken);
             if (!JWSAlgorithm.HS256.equals(signedJwt.getHeader().getAlgorithm())
                     || !signedJwt.verify(new MACVerifier(signingSecret))) {
+                recordJwtParseFailure(JWT_PARSE_REASON_INVALID_SIGNATURE, enforceRevocationState, null);
                 return Optional.empty();
             }
             JWTClaimsSet claims = signedJwt.getJWTClaimsSet();
@@ -448,27 +523,60 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
             Instant expiresAt = expirationDate == null ? null : expirationDate.toInstant();
             Instant issuedAt = issuedAtDate == null ? null : issuedAtDate.toInstant();
 
-            if (expirationDate == null || !expirationDate.toInstant().isAfter(now())) {
-                return Optional.empty();
-            }
-            if (!StringUtils.hasText(tokenId)
+            if (expirationDate == null
+                    || !StringUtils.hasText(tokenId)
                     || userId <= 0
                     || !StringUtils.hasText(role)
                     || !StringUtils.hasText(tokenType)
-                    || issuedAt == null
-                    || (enforceRevocationState && isUserTokenRevoked(userId, issuedAt))) {
+                    || issuedAt == null) {
+                recordJwtParseFailure(JWT_PARSE_REASON_MALFORMED, enforceRevocationState, null);
+                return Optional.empty();
+            }
+            if (!expiresAt.isAfter(now())) {
+                recordJwtParseFailure(JWT_PARSE_REASON_EXPIRED, enforceRevocationState, null);
+                return Optional.empty();
+            }
+            if (enforceRevocationState && isUserTokenRevoked(userId, issuedAt)) {
+                recordJwtParseFailure(JWT_PARSE_REASON_REVOKED, true, null);
                 return Optional.empty();
             }
             return Optional.of(new AuthenticatedToken(
                     userId, role, authorities, tenantId, tokenType, tokenId, expiresAt, issuedAt));
-        } catch (ParseException | JOSEException | RuntimeException exception) {
-            log.warn(
-                    "JWT token rejected while parsing {} token; reason={}",
-                    enforceRevocationState ? "request" : "revocation",
-                    exception.getClass().getSimpleName());
-            log.debug("JWT token rejection details", exception);
+        } catch (ParseException | NumberFormatException exception) {
+            recordJwtParseFailure(JWT_PARSE_REASON_MALFORMED, enforceRevocationState, exception);
+            return Optional.empty();
+        } catch (JOSEException | RuntimeException exception) {
+            recordJwtParseFailure(JWT_PARSE_REASON_UNEXPECTED, enforceRevocationState, exception);
             return Optional.empty();
         }
+    }
+
+    private void recordJwtParseFailure(String reason, boolean requestToken, Throwable exception) {
+        try {
+            meterRegistry.counter(JWT_PARSE_FAILURE_METRIC, "reason", reason).increment();
+        } catch (RuntimeException metricFailure) {
+            log.debug(
+                    "JWT parse failure metric unavailable; exception={}",
+                    metricFailure.getClass().getSimpleName());
+        }
+
+        String tokenContext = requestToken ? "request" : "revocation";
+        if (JWT_PARSE_REASON_UNEXPECTED.equals(reason)) {
+            log.warn(
+                    "Unexpected JWT token parsing failure while parsing {} token; exception={}",
+                    tokenContext,
+                    exception == null ? "unknown" : exception.getClass().getSimpleName());
+            return;
+        }
+        if (exception == null) {
+            log.debug("JWT token rejected while parsing {} token; reason={}", tokenContext, reason);
+            return;
+        }
+        log.debug(
+                "JWT token rejected while parsing {} token; reason={}; exception={}",
+                tokenContext,
+                reason,
+                exception.getClass().getSimpleName());
     }
 
     private Optional<String> resolveCookie(HttpServletRequest request, String name) {
