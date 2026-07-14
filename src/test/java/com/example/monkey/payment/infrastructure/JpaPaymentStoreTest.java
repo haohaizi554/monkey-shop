@@ -11,6 +11,7 @@ import com.example.monkey.payment.domain.PaymentLedgerType;
 import com.example.monkey.payment.domain.PaymentMethod;
 import com.example.monkey.payment.domain.PaymentOrder;
 import com.example.monkey.payment.domain.PaymentReconciliationReport;
+import com.example.monkey.payment.domain.PaymentRequestFingerprint;
 import com.example.monkey.payment.domain.PaymentStatus;
 import com.example.monkey.payment.domain.ReconciliationStatus;
 import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
@@ -66,6 +67,20 @@ class JpaPaymentStoreTest {
     }
 
     @Test
+    void savePaymentStoresRequestFingerprintAndReplayUrl() {
+        when(paymentOrderRepository.saveAndFlush(any(PaymentOrderEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        PaymentRequestFingerprint fingerprint =
+                PaymentRequestFingerprint.of(10L, PaymentMethod.BANK_CARD, new BigDecimal("100.00"), "CNY");
+
+        store.savePayment(bankCardPayment(), fingerprint.value(), "/payments/PAY100");
+
+        PaymentOrderEntity entity = captureFlushedPayment();
+        assertThat(entity.getRequestFingerprint()).isEqualTo(fingerprint.value());
+        assertThat(entity.getPaymentUrl()).isEqualTo("/payments/PAY100");
+    }
+
+    @Test
     void saveLedgerMapsRefundLedgerWithoutCrossingDomainBoundary() {
         when(paymentLedgerRepository.save(any(PaymentLedgerEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -85,6 +100,30 @@ class JpaPaymentStoreTest {
         assertThat(saved.id()).isEqualTo(200L);
         assertThat(saved.type()).isEqualTo(PaymentLedgerType.REFUND);
         assertThat(captureLedger().getRequestKey()).isEqualTo("refund-key");
+    }
+
+    @Test
+    void saveRefundLedgerStoresRequestFingerprint() {
+        when(paymentLedgerRepository.save(any(PaymentLedgerEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        PaymentRequestFingerprint fingerprint =
+                PaymentRequestFingerprint.ofRefund(100L, new BigDecimal("30.00"), "damaged item");
+
+        store.saveLedger(
+                new PaymentLedgerEntry(
+                        200L,
+                        100L,
+                        10L,
+                        42L,
+                        PaymentLedgerType.REFUND,
+                        new BigDecimal("30.00"),
+                        PaymentLedgerStatus.SUCCESS,
+                        "refund-key",
+                        "refund-trade-1",
+                        LocalDateTime.parse("2026-07-04T09:00:00")),
+                fingerprint.value());
+
+        assertThat(captureLedger().getRequestFingerprint()).isEqualTo(fingerprint.value());
     }
 
     @Test
@@ -137,6 +176,12 @@ class JpaPaymentStoreTest {
     private PaymentOrderEntity capturePayment() {
         ArgumentCaptor<PaymentOrderEntity> captor = ArgumentCaptor.forClass(PaymentOrderEntity.class);
         verify(paymentOrderRepository).save(captor.capture());
+        return captor.getValue();
+    }
+
+    private PaymentOrderEntity captureFlushedPayment() {
+        ArgumentCaptor<PaymentOrderEntity> captor = ArgumentCaptor.forClass(PaymentOrderEntity.class);
+        verify(paymentOrderRepository).saveAndFlush(captor.capture());
         return captor.getValue();
     }
 

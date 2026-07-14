@@ -23,6 +23,7 @@ import com.example.monkey.payment.domain.PaymentLedgerType;
 import com.example.monkey.payment.domain.PaymentMethod;
 import com.example.monkey.payment.domain.PaymentOrder;
 import com.example.monkey.payment.domain.PaymentReconciliationReport;
+import com.example.monkey.payment.domain.PaymentRequestFingerprint;
 import com.example.monkey.payment.domain.PaymentStatus;
 import com.example.monkey.payment.domain.PaymentStore;
 import com.example.monkey.payment.domain.PaymentTransitionPolicy;
@@ -151,6 +152,49 @@ class PaymentApplicationServiceTest {
     }
 
     @Test
+    void createPaymentReusesMatchingFingerprintResponse() {
+        when(orderStore.findVisibleByIdAndUserId(10L, 42L))
+                .thenReturn(Optional.of(orderForId(10L, new BigDecimal("100.00"))));
+        when(idGenerator.nextId()).thenReturn(1000L);
+
+        PaymentResponseDto first = service.createPayment(
+                user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "same-key");
+
+        assertThat(service.createPayment(
+                        user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "same-key"))
+                .isEqualTo(first);
+    }
+
+    @Test
+    void createPaymentRejectsIdempotencyKeyReusedForAnotherOrder() {
+        when(orderStore.findVisibleByIdAndUserId(10L, 42L))
+                .thenReturn(Optional.of(orderForId(10L, new BigDecimal("100.00"))));
+        when(orderStore.findVisibleByIdAndUserId(11L, 42L))
+                .thenReturn(Optional.of(orderForId(11L, new BigDecimal("100.00"))));
+        when(idGenerator.nextId()).thenReturn(1000L);
+
+        service.createPayment(user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "same-key");
+
+        assertThatThrownBy(() -> service.createPayment(
+                        user(), new PaymentCreateRequestDto(11L, PaymentMethod.WECHAT, null, null), "same-key"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+    }
+
+    @Test
+    void requestFingerprintsCanonicalizeMoneyCurrencyEnumsAndRefundWhitespace() {
+        assertThat(PaymentRequestFingerprint.of(10L, PaymentMethod.WECHAT, new BigDecimal("100.0"), "cny"))
+                .isEqualTo(PaymentRequestFingerprint.of(10L, PaymentMethod.WECHAT, new BigDecimal("100.00"), "CNY"));
+        assertThat(PaymentRequestFingerprint.ofRefund(100L, new BigDecimal("30.0"), "\u3000damaged\t item\u3000"))
+                .isEqualTo(PaymentRequestFingerprint.ofRefund(100L, new BigDecimal("30.00"), "damaged item"));
+        assertThat(PaymentRequestFingerprint.ofRefund(100L, new BigDecimal("30.00"), "\u00a0damaged\u2003item\u00a0"))
+                .isEqualTo(PaymentRequestFingerprint.ofRefund(100L, new BigDecimal("30.00"), "damaged item"));
+        assertThat(PaymentRequestFingerprint.ofRefund(100L, new BigDecimal("30.00"), "damaged item"))
+                .isNotEqualTo(PaymentRequestFingerprint.ofRefund(100L, new BigDecimal("31.00"), "damaged item"));
+    }
+
+    @Test
     void callbackVerifiesSignatureAndIsIdempotent() {
         paymentStore.savePayment(pendingPayment());
         when(idGenerator.nextId()).thenReturn(2000L);
@@ -205,6 +249,30 @@ class PaymentApplicationServiceTest {
             assertThat(ledger.type()).isEqualTo(PaymentLedgerType.REFUND);
             assertThat(ledger.amount()).isEqualByComparingTo(new BigDecimal("30.00"));
         });
+    }
+
+    @Test
+    void refundReusesNormalizedFingerprintAndRejectsIdempotencyKeyCollision() {
+        paymentStore.savePayment(paidPayment());
+        when(idGenerator.nextId()).thenReturn(3000L);
+
+        PaymentRefundResponseDto first = service.refund(
+                user(),
+                new PaymentRefundRequestDto("PAY100", new BigDecimal("30.0"), "\u3000damaged\t item\u3000"),
+                "refund-key");
+
+        assertThat(service.refund(
+                        user(),
+                        new PaymentRefundRequestDto("PAY100", new BigDecimal("30.00"), "damaged item"),
+                        "refund-key"))
+                .isEqualTo(first);
+        assertThatThrownBy(() -> service.refund(
+                        user(),
+                        new PaymentRefundRequestDto("PAY100", new BigDecimal("31.00"), "damaged item"),
+                        "refund-key"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
     }
 
     @Test
@@ -421,9 +489,17 @@ class PaymentApplicationServiceTest {
     }
 
     private static OrderRecord orderForUser(Long userId, BigDecimal amount) {
+        return orderForIdAndUser(10L, userId, amount);
+    }
+
+    private static OrderRecord orderForId(Long orderId, BigDecimal amount) {
+        return orderForIdAndUser(orderId, 42L, amount);
+    }
+
+    private static OrderRecord orderForIdAndUser(Long orderId, Long userId, BigDecimal amount) {
         return new OrderRecord(
-                10L,
-                "ORD202607040001",
+                orderId,
+                "ORD" + orderId,
                 userId,
                 "buyer",
                 "/images/avatar/buyer.png",
@@ -569,7 +645,10 @@ class PaymentApplicationServiceTest {
 
     private static final class InMemoryPaymentStore implements PaymentStore {
         private final Map<Long, PaymentOrder> payments = new ConcurrentHashMap<>();
+        private final Map<Long, String> paymentFingerprints = new ConcurrentHashMap<>();
+        private final Map<Long, String> paymentUrls = new ConcurrentHashMap<>();
         private final List<PaymentLedgerEntry> ledgers = new CopyOnWriteArrayList<>();
+        private final Map<Long, String> ledgerFingerprints = new ConcurrentHashMap<>();
         private final List<PaymentReconciliationReport> reports = new ArrayList<>();
         private volatile CountDownLatch paymentReads;
 
@@ -607,11 +686,13 @@ class PaymentApplicationServiceTest {
         }
 
         @Override
-        public Optional<PaymentOrder> findByUserIdAndIdempotencyKey(Long userId, String idempotencyKey) {
+        public Optional<PaymentIntent> findByUserIdAndIdempotencyKey(Long userId, String idempotencyKey) {
             return payments.values().stream()
                     .filter(payment -> payment.userId().equals(userId)
                             && payment.idempotencyKey().equals(idempotencyKey))
-                    .findFirst();
+                    .findFirst()
+                    .map(payment -> new PaymentIntent(
+                            payment, paymentFingerprints.get(payment.id()), paymentUrls.get(payment.id())));
         }
 
         @Override
@@ -632,15 +713,38 @@ class PaymentApplicationServiceTest {
         }
 
         @Override
+        public Optional<RefundRequest> findRefundRequest(Long paymentId, String requestKey) {
+            return findLedger(paymentId, PaymentLedgerType.REFUND, requestKey)
+                    .map(ledger -> new RefundRequest(ledger, ledgerFingerprints.get(ledger.id())));
+        }
+
+        @Override
         public PaymentOrder savePayment(PaymentOrder payment) {
             payments.put(payment.id(), payment);
             return payment;
         }
 
         @Override
+        public PaymentIntent savePayment(PaymentOrder payment, String requestFingerprint, String paymentUrl) {
+            payments.put(payment.id(), payment);
+            paymentFingerprints.put(payment.id(), requestFingerprint);
+            if (paymentUrl != null) {
+                paymentUrls.put(payment.id(), paymentUrl);
+            }
+            return new PaymentIntent(payment, requestFingerprint, paymentUrls.get(payment.id()));
+        }
+
+        @Override
         public PaymentLedgerEntry saveLedger(PaymentLedgerEntry ledger) {
             ledgers.add(ledger);
             return ledger;
+        }
+
+        @Override
+        public RefundRequest saveLedger(PaymentLedgerEntry ledger, String requestFingerprint) {
+            ledgers.add(ledger);
+            ledgerFingerprints.put(ledger.id(), requestFingerprint);
+            return new RefundRequest(ledger, requestFingerprint);
         }
 
         @Override
