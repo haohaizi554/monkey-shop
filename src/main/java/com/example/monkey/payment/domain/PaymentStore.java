@@ -12,18 +12,31 @@ public interface PaymentStore {
     record PaymentIntent(
             PaymentOrder payment,
             String requestFingerprint,
-            PaymentOperationState operationState,
+            PaymentOperationAttempt operation,
             String merchantToken,
-            PaymentResponseSnapshot responseSnapshot) {}
+            PaymentResponseSnapshot responseSnapshot) {
+
+        public PaymentOperationState operationState() {
+            return operation.state();
+        }
+    }
 
     record RefundRequest(
             PaymentLedgerEntry ledger,
             String requestFingerprint,
-            PaymentOperationState operationState,
+            PaymentOperationAttempt operation,
             String merchantToken,
-            RefundResponseSnapshot responseSnapshot) {}
+            RefundResponseSnapshot responseSnapshot,
+            RefundAuditIntent auditIntent) {
+
+        public PaymentOperationState operationState() {
+            return operation.state();
+        }
+    }
 
     Optional<PaymentOrder> findByPaymentNo(String paymentNo);
+
+    Optional<PaymentOrder> findById(Long paymentId);
 
     Optional<PaymentOrder> findByOrderIdAndUserId(Long orderId, Long userId);
 
@@ -44,7 +57,7 @@ public interface PaymentStore {
     PaymentIntent savePayment(
             PaymentOrder payment,
             String requestFingerprint,
-            PaymentOperationState operationState,
+            PaymentOperationAttempt operation,
             String merchantToken,
             PaymentResponseSnapshot responseSnapshot);
 
@@ -53,9 +66,16 @@ public interface PaymentStore {
     RefundRequest saveLedger(
             PaymentLedgerEntry ledger,
             String requestFingerprint,
-            PaymentOperationState operationState,
+            PaymentOperationAttempt operation,
             String merchantToken,
-            RefundResponseSnapshot responseSnapshot);
+            RefundResponseSnapshot responseSnapshot,
+            RefundAuditIntent auditIntent);
+
+    List<PaymentIntent> findExpiredPaymentOperations(LocalDateTime cutoff, int limit);
+
+    List<RefundRequest> findExpiredRefundOperations(LocalDateTime cutoff, int limit);
+
+    List<RefundRequest> findPendingRefundAudits(int limit);
 
     List<PaymentOrder> findPendingCreatedBefore(LocalDateTime cutoff, int limit);
 

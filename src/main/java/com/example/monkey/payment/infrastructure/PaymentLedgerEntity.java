@@ -1,9 +1,11 @@
 package com.example.monkey.payment.infrastructure;
 
+import com.example.monkey.payment.domain.PaymentFailureClassification;
 import com.example.monkey.payment.domain.PaymentLedgerStatus;
 import com.example.monkey.payment.domain.PaymentLedgerType;
 import com.example.monkey.payment.domain.PaymentOperationState;
 import com.example.monkey.payment.domain.PaymentStatus;
+import com.example.monkey.payment.domain.RefundAuditState;
 import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -51,6 +53,15 @@ public class PaymentLedgerEntity extends TenantScopedJpaEntity {
     @Column(length = 32)
     private PaymentOperationState operationState;
 
+    @Column(nullable = false)
+    private int attemptCount;
+
+    private LocalDateTime leaseExpiresAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    private PaymentFailureClassification lastFailureClassification;
+
     @Column(length = 128)
     private String merchantToken;
 
@@ -67,6 +78,27 @@ public class PaymentLedgerEntity extends TenantScopedJpaEntity {
     @Enumerated(EnumType.STRING)
     @Column(length = 32)
     private PaymentLedgerStatus responseLedgerStatus;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    private RefundAuditState auditState;
+
+    @Column(length = 64)
+    private String auditEventType;
+
+    private Long auditActorUserId;
+
+    @Column(length = 32)
+    private String auditActorRole;
+
+    @Column(length = 64)
+    private String auditSourceIp;
+
+    @Column(nullable = false)
+    private boolean auditIncludeOwner;
+
+    @Column(length = 255)
+    private String auditDetail;
 
     @Column(nullable = false)
     private LocalDateTime createTime;
@@ -151,6 +183,30 @@ public class PaymentLedgerEntity extends TenantScopedJpaEntity {
         this.operationState = operationState;
     }
 
+    public int getAttemptCount() {
+        return attemptCount;
+    }
+
+    public void setAttemptCount(int attemptCount) {
+        this.attemptCount = attemptCount;
+    }
+
+    public LocalDateTime getLeaseExpiresAt() {
+        return leaseExpiresAt;
+    }
+
+    public void setLeaseExpiresAt(LocalDateTime leaseExpiresAt) {
+        this.leaseExpiresAt = leaseExpiresAt;
+    }
+
+    public PaymentFailureClassification getLastFailureClassification() {
+        return lastFailureClassification;
+    }
+
+    public void setLastFailureClassification(PaymentFailureClassification lastFailureClassification) {
+        this.lastFailureClassification = lastFailureClassification;
+    }
+
     public String getMerchantToken() {
         return merchantToken;
     }
@@ -189,6 +245,62 @@ public class PaymentLedgerEntity extends TenantScopedJpaEntity {
 
     public void setResponseLedgerStatus(PaymentLedgerStatus responseLedgerStatus) {
         this.responseLedgerStatus = responseLedgerStatus;
+    }
+
+    public RefundAuditState getAuditState() {
+        return auditState;
+    }
+
+    public void setAuditState(RefundAuditState auditState) {
+        this.auditState = auditState;
+    }
+
+    public String getAuditEventType() {
+        return auditEventType;
+    }
+
+    public void setAuditEventType(String auditEventType) {
+        this.auditEventType = auditEventType;
+    }
+
+    public Long getAuditActorUserId() {
+        return auditActorUserId;
+    }
+
+    public void setAuditActorUserId(Long auditActorUserId) {
+        this.auditActorUserId = auditActorUserId;
+    }
+
+    public String getAuditActorRole() {
+        return auditActorRole;
+    }
+
+    public void setAuditActorRole(String auditActorRole) {
+        this.auditActorRole = auditActorRole;
+    }
+
+    public String getAuditSourceIp() {
+        return auditSourceIp;
+    }
+
+    public void setAuditSourceIp(String auditSourceIp) {
+        this.auditSourceIp = auditSourceIp;
+    }
+
+    public boolean isAuditIncludeOwner() {
+        return auditIncludeOwner;
+    }
+
+    public void setAuditIncludeOwner(boolean auditIncludeOwner) {
+        this.auditIncludeOwner = auditIncludeOwner;
+    }
+
+    public String getAuditDetail() {
+        return auditDetail;
+    }
+
+    public void setAuditDetail(String auditDetail) {
+        this.auditDetail = auditDetail;
     }
 
     public LocalDateTime getCreateTime() {

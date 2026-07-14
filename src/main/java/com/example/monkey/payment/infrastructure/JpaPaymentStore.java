@@ -1,14 +1,18 @@
 package com.example.monkey.payment.infrastructure;
 
+import com.example.monkey.payment.domain.PaymentFailureClassification;
 import com.example.monkey.payment.domain.PaymentLedgerEntry;
 import com.example.monkey.payment.domain.PaymentLedgerType;
 import com.example.monkey.payment.domain.PaymentMethod;
+import com.example.monkey.payment.domain.PaymentOperationAttempt;
 import com.example.monkey.payment.domain.PaymentOperationState;
 import com.example.monkey.payment.domain.PaymentOrder;
 import com.example.monkey.payment.domain.PaymentReconciliationReport;
 import com.example.monkey.payment.domain.PaymentResponseSnapshot;
 import com.example.monkey.payment.domain.PaymentStatus;
 import com.example.monkey.payment.domain.PaymentStore;
+import com.example.monkey.payment.domain.RefundAuditIntent;
+import com.example.monkey.payment.domain.RefundAuditState;
 import com.example.monkey.payment.domain.RefundResponseSnapshot;
 import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
 import java.math.BigDecimal;
@@ -47,6 +51,11 @@ public class JpaPaymentStore implements PaymentStore {
     @Override
     public Optional<PaymentOrder> findByPaymentNo(String paymentNo) {
         return paymentOrderRepository.findByPaymentNo(paymentNo).map(this::toDomain);
+    }
+
+    @Override
+    public Optional<PaymentOrder> findById(Long paymentId) {
+        return paymentOrderRepository.findById(paymentId).map(this::toDomain);
     }
 
     @Override
@@ -119,7 +128,7 @@ public class JpaPaymentStore implements PaymentStore {
     public PaymentIntent savePayment(
             PaymentOrder payment,
             String requestFingerprint,
-            PaymentOperationState operationState,
+            PaymentOperationAttempt operation,
             String merchantToken,
             PaymentResponseSnapshot responseSnapshot) {
         PaymentOrderEntity existing = payment.id() == null
@@ -127,7 +136,7 @@ public class JpaPaymentStore implements PaymentStore {
                 : paymentOrderRepository.findById(payment.id()).orElse(null);
         PaymentOrderEntity entity = toEntity(payment, existing);
         entity.setRequestFingerprint(requestFingerprint);
-        entity.setOperationState(operationState);
+        applyOperation(entity, operation);
         entity.setMerchantToken(merchantToken);
         applyResponseSnapshot(entity, responseSnapshot);
         PaymentOrderEntity saved =
@@ -144,28 +153,68 @@ public class JpaPaymentStore implements PaymentStore {
     public RefundRequest saveLedger(
             PaymentLedgerEntry ledger,
             String requestFingerprint,
-            PaymentOperationState operationState,
+            PaymentOperationAttempt operation,
             String merchantToken,
-            RefundResponseSnapshot responseSnapshot) {
+            RefundResponseSnapshot responseSnapshot,
+            RefundAuditIntent auditIntent) {
         PaymentLedgerEntity entity = paymentLedgerRepository
                 .findById(ledger.id())
                 .map(existing -> toEntity(ledger, existing))
                 .orElseGet(() -> toEntity(ledger));
         entity.setRequestFingerprint(requestFingerprint);
-        entity.setOperationState(operationState);
+        applyOperation(entity, operation);
         entity.setMerchantToken(merchantToken);
         applyResponseSnapshot(entity, responseSnapshot);
-        PaymentLedgerEntity saved = PaymentOperationState.RESERVED.equals(operationState)
+        applyAuditIntent(entity, auditIntent);
+        PaymentLedgerEntity saved = PaymentOperationState.RESERVED.equals(operation.state())
                 ? paymentLedgerRepository.saveAndFlush(entity)
                 : paymentLedgerRepository.save(entity);
         return toRefundRequest(saved);
     }
 
     @Override
+    public List<PaymentIntent> findExpiredPaymentOperations(LocalDateTime cutoff, int limit) {
+        return paymentOrderRepository
+                .findByOperationStateInAndLeaseExpiresAtLessThanEqualOrderByLeaseExpiresAtAsc(
+                        List.of(PaymentOperationState.RESERVED, PaymentOperationState.RETRYABLE),
+                        cutoff,
+                        PageRequest.of(0, Math.max(1, limit)))
+                .stream()
+                .map(this::toPaymentIntent)
+                .toList();
+    }
+
+    @Override
+    public List<RefundRequest> findExpiredRefundOperations(LocalDateTime cutoff, int limit) {
+        return paymentLedgerRepository
+                .findByLedgerTypeAndOperationStateInAndLeaseExpiresAtLessThanEqualOrderByLeaseExpiresAtAsc(
+                        PaymentLedgerType.REFUND,
+                        List.of(PaymentOperationState.RESERVED, PaymentOperationState.RETRYABLE),
+                        cutoff,
+                        PageRequest.of(0, Math.max(1, limit)))
+                .stream()
+                .map(JpaPaymentStore::toRefundRequest)
+                .toList();
+    }
+
+    @Override
+    public List<RefundRequest> findPendingRefundAudits(int limit) {
+        return paymentLedgerRepository
+                .findByLedgerTypeAndAuditStateOrderByCreateTimeAsc(
+                        PaymentLedgerType.REFUND, RefundAuditState.PENDING, PageRequest.of(0, Math.max(1, limit)))
+                .stream()
+                .map(JpaPaymentStore::toRefundRequest)
+                .toList();
+    }
+
+    @Override
     public List<PaymentOrder> findPendingCreatedBefore(LocalDateTime cutoff, int limit) {
         return paymentOrderRepository
-                .findByStatusAndCreateTimeBeforeOrderByCreateTimeAsc(
-                        PaymentStatus.PENDING, cutoff, PageRequest.of(0, Math.max(1, limit)))
+                .findByStatusAndOperationStateAndCreateTimeBeforeOrderByCreateTimeAsc(
+                        PaymentStatus.PENDING,
+                        PaymentOperationState.COMPLETED,
+                        cutoff,
+                        PageRequest.of(0, Math.max(1, limit)))
                 .stream()
                 .map(this::toDomain)
                 .toList();
@@ -216,6 +265,9 @@ public class JpaPaymentStore implements PaymentStore {
         entity.setPaidAt(payment.paidAt());
         entity.setCreateTime(payment.createTime());
         entity.setUpdateTime(payment.updateTime());
+        if (existing == null) {
+            applyOperation(entity, PaymentOperationAttempt.legacy());
+        }
         return entity;
     }
 
@@ -253,7 +305,7 @@ public class JpaPaymentStore implements PaymentStore {
         return new PaymentIntent(
                 toDomain(entity),
                 entity.getRequestFingerprint(),
-                entity.getOperationState(),
+                toOperation(entity),
                 entity.getMerchantToken(),
                 snapshot);
     }
@@ -273,6 +325,13 @@ public class JpaPaymentStore implements PaymentStore {
         entity.setRequestKey(ledger.requestKey());
         entity.setProviderTradeNo(ledger.providerTradeNo());
         entity.setCreateTime(ledger.createTime());
+        if (entity.getLastFailureClassification() == null) {
+            entity.setAttemptCount(0);
+            entity.setLeaseExpiresAt(null);
+            entity.setLastFailureClassification(PaymentFailureClassification.NONE);
+            entity.setAuditState(RefundAuditState.NONE);
+            entity.setAuditIncludeOwner(false);
+        }
         return entity;
     }
 
@@ -300,9 +359,67 @@ public class JpaPaymentStore implements PaymentStore {
         return new RefundRequest(
                 toDomain(entity),
                 entity.getRequestFingerprint(),
-                entity.getOperationState(),
+                toOperation(entity),
                 entity.getMerchantToken(),
-                snapshot);
+                snapshot,
+                toAuditIntent(entity));
+    }
+
+    private static void applyOperation(PaymentOrderEntity entity, PaymentOperationAttempt operation) {
+        entity.setOperationState(operation.state());
+        entity.setAttemptCount(operation.attemptCount());
+        entity.setLeaseExpiresAt(operation.leaseExpiresAt());
+        entity.setLastFailureClassification(operation.lastFailure());
+    }
+
+    private static void applyOperation(PaymentLedgerEntity entity, PaymentOperationAttempt operation) {
+        entity.setOperationState(operation.state());
+        entity.setAttemptCount(operation.attemptCount());
+        entity.setLeaseExpiresAt(operation.leaseExpiresAt());
+        entity.setLastFailureClassification(operation.lastFailure());
+    }
+
+    private static PaymentOperationAttempt toOperation(PaymentOrderEntity entity) {
+        return new PaymentOperationAttempt(
+                entity.getOperationState(),
+                entity.getAttemptCount(),
+                entity.getLeaseExpiresAt(),
+                entity.getLastFailureClassification());
+    }
+
+    private static PaymentOperationAttempt toOperation(PaymentLedgerEntity entity) {
+        if (entity.getOperationState() == null) {
+            return PaymentOperationAttempt.legacy();
+        }
+        return new PaymentOperationAttempt(
+                entity.getOperationState(),
+                entity.getAttemptCount(),
+                entity.getLeaseExpiresAt(),
+                entity.getLastFailureClassification());
+    }
+
+    private static void applyAuditIntent(PaymentLedgerEntity entity, RefundAuditIntent auditIntent) {
+        entity.setAuditState(auditIntent.state());
+        entity.setAuditEventType(auditIntent.eventType());
+        entity.setAuditActorUserId(auditIntent.actorUserId());
+        entity.setAuditActorRole(auditIntent.actorRole());
+        entity.setAuditSourceIp(auditIntent.sourceIp());
+        entity.setAuditIncludeOwner(auditIntent.includeOwner());
+        entity.setAuditDetail(auditIntent.detail());
+    }
+
+    private static RefundAuditIntent toAuditIntent(PaymentLedgerEntity entity) {
+        if (entity.getAuditState() == null || RefundAuditState.NONE.equals(entity.getAuditState())) {
+            return RefundAuditIntent.legacy();
+        }
+        return new RefundAuditIntent(
+                entity.getAuditState(),
+                entity.getAuditEventType(),
+                entity.getAuditActorUserId(),
+                entity.getAuditActorRole(),
+                entity.getAuditSourceIp(),
+                entity.isAuditIncludeOwner(),
+                entity.getAuditDetail());
     }
 
     private static void applyResponseSnapshot(PaymentOrderEntity entity, PaymentResponseSnapshot responseSnapshot) {
