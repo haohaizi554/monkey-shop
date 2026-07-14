@@ -8,7 +8,10 @@ import static org.mockito.Mockito.when;
 
 import com.example.monkey.order.domain.OrderStore;
 import com.example.monkey.order.domain.OrderStore.OrderRecord;
+import com.example.monkey.payment.application.dto.PaymentCreateRequestDto;
 import com.example.monkey.payment.application.dto.PaymentRefundRequestDto;
+import com.example.monkey.payment.application.dto.PaymentRefundResponseDto;
+import com.example.monkey.payment.application.dto.PaymentResponseDto;
 import com.example.monkey.payment.domain.PaymentCallbackReplayGuard;
 import com.example.monkey.payment.domain.PaymentFailureClassification;
 import com.example.monkey.payment.domain.PaymentGateway;
@@ -17,9 +20,12 @@ import com.example.monkey.payment.domain.PaymentGatewayResult;
 import com.example.monkey.payment.domain.PaymentLedgerStatus;
 import com.example.monkey.payment.domain.PaymentLedgerType;
 import com.example.monkey.payment.domain.PaymentMethod;
+import com.example.monkey.payment.domain.PaymentOperationAttempt;
 import com.example.monkey.payment.domain.PaymentOperationState;
 import com.example.monkey.payment.domain.PaymentOrder;
+import com.example.monkey.payment.domain.PaymentQueryAttempt;
 import com.example.monkey.payment.domain.PaymentStatus;
+import com.example.monkey.payment.domain.PaymentStore;
 import com.example.monkey.payment.domain.PaymentTransitionPolicy;
 import com.example.monkey.payment.domain.PaymentTransitionResolver;
 import com.example.monkey.payment.domain.RefundAuditState;
@@ -45,14 +51,18 @@ import com.example.monkey.user.domain.UserMfaVerifier;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -83,6 +93,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @DataJpaTest(showSql = false)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -229,6 +240,51 @@ class PaymentLocalMySqlAcceptanceTest {
                 .containsEntry("last_failure_classification", "LEGACY_UNKNOWN")
                 .containsEntry("terminal_failure_code", null)
                 .containsEntry("audit_state", "NONE");
+
+        Map<String, Object> legacyPending = fixtureJdbc.queryForMap("""
+                SELECT operation_state, attempt_count, lease_expires_at,
+                       last_failure_classification, query_attempt_count,
+                       query_lease_expires_at, next_query_at, request_fingerprint
+                FROM payment_order WHERE id = 905105
+                """);
+        assertThat(legacyPending)
+                .containsEntry("operation_state", "LEGACY_UNREPLAYABLE")
+                .containsEntry("attempt_count", 0)
+                .containsEntry("lease_expires_at", null)
+                .containsEntry("last_failure_classification", "LEGACY_UNKNOWN")
+                .containsEntry("query_attempt_count", 0)
+                .containsEntry("query_lease_expires_at", null);
+        assertThat(legacyPending.get("next_query_at")).isNotNull();
+
+        allowOrder(970_019L, 1L);
+        paymentOrderRepository.saveAndFlush(legacyQueryReadyPayment(
+                970_460L,
+                970_019L,
+                "PAY970460",
+                "local-legacy-pending",
+                legacyPending.get("request_fingerprint").toString(),
+                toLocalDateTime(legacyPending.get("next_query_at"))));
+        gateway.queryResult =
+                new PaymentGatewayResult(PaymentStatus.PAID, "LOCAL-LEGACY-QUERY", null, new BigDecimal("100.00"));
+
+        assertThat(service.queryTimedOutPayments()).isEqualTo(1);
+        Throwable replay = catchThrowable(() -> service.createPayment(
+                USER, new PaymentCreateRequestDto(970_019L, PaymentMethod.WECHAT, null, null), "local-legacy-pending"));
+
+        assertThat(gateway.queryPaymentNos).containsExactly("PAY970460");
+        assertThat(gateway.createTokens).isEmpty();
+        assertThat(replay)
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        failure -> assertThat(failure.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+        assertThat(jdbcTemplate.queryForMap("""
+                        SELECT status, operation_state, query_attempt_count, next_query_at
+                        FROM payment_order WHERE id = 970460
+                        """))
+                .containsEntry("status", "PAID")
+                .containsEntry("operation_state", "LEGACY_UNREPLAYABLE")
+                .containsEntry("query_attempt_count", 1)
+                .containsEntry("next_query_at", null);
     }
 
     @Test
@@ -327,6 +383,190 @@ class PaymentLocalMySqlAcceptanceTest {
         assertStalePaymentWorkerCannotOverwriteNewerAttempt(null, 970_310L, 970_011L, "PAY970310");
         assertStalePaymentWorkerCannotOverwriteNewerAttempt(
                 PaymentGatewayException.rejected("CARD_DECLINED", "raw decline"), 970_311L, 970_012L, "PAY970311");
+    }
+
+    @Test
+    void createReservationTakeoverPreventsStaleWorkerProviderCall() throws Exception {
+        allowOrder(970_013L, 1L);
+        MutableClock clock = new MutableClock(Instant.now(), ZoneId.systemDefault());
+        PausingPaymentTransactions transactions = pausingTransactions(2);
+        RecordingGateway staleGateway = new RecordingGateway();
+        PaymentApplicationService staleService =
+                applicationService(staleGateway, mock(AuditService.class), transactions, clock);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+
+        try {
+            Future<PaymentResponseDto> staleWorker = executor.submit(() -> staleService.createPayment(
+                    USER,
+                    new PaymentCreateRequestDto(970_013L, PaymentMethod.WECHAT, null, null),
+                    "local-create-takeover"));
+            transactions.awaitPausedCommit();
+            String paymentNo = jdbcTemplate.queryForObject(
+                    "SELECT payment_no FROM payment_order WHERE idempotency_key = 'local-create-takeover'",
+                    String.class);
+
+            clock.advance(Duration.ofMinutes(3));
+            PaymentOperationAttempt newerAttempt = claimPaymentTakeover(paymentNo, clock);
+            transactions.releasePausedCommit();
+            Throwable staleFailure = awaitWorkerFailure(staleWorker);
+
+            assertThat(staleFailure)
+                    .isInstanceOfSatisfying(
+                            BusinessException.class,
+                            failure -> assertThat(failure.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+            assertThat(newerAttempt.attemptCount()).isEqualTo(2);
+            assertThat(staleGateway.createTokens).isEmpty();
+            assertThat(jdbcTemplate.queryForMap("""
+                            SELECT operation_state, attempt_count, merchant_token
+                            FROM payment_order WHERE idempotency_key = 'local-create-takeover'
+                            """))
+                    .containsEntry("operation_state", "RESERVED")
+                    .containsEntry("attempt_count", 2)
+                    .containsEntry("merchant_token", paymentNo);
+        } finally {
+            transactions.releasePausedCommit();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void refundReservationTakeoverPreventsStaleWorkerProviderCall() throws Exception {
+        allowOrder(970_014L, 1L);
+        paymentOrderRepository.saveAndFlush(paidPayment(970_430L, 970_014L, "PAY970430", 1L, BigDecimal.ZERO));
+        MutableClock clock = new MutableClock(Instant.now(), ZoneId.systemDefault());
+        PausingPaymentTransactions transactions = pausingTransactions(1);
+        RecordingGateway staleGateway = new RecordingGateway();
+        PaymentApplicationService staleService =
+                applicationService(staleGateway, mock(AuditService.class), transactions, clock);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+
+        try {
+            Future<PaymentRefundResponseDto> staleWorker = executor.submit(() -> staleService.refund(
+                    USER,
+                    new PaymentRefundRequestDto("PAY970430", new BigDecimal("30.00"), "takeover"),
+                    "local-refund-takeover"));
+            transactions.awaitPausedCommit();
+
+            clock.advance(Duration.ofMinutes(3));
+            PaymentOperationAttempt newerAttempt = claimRefundTakeover("PAY970430", "local-refund-takeover", clock);
+            transactions.releasePausedCommit();
+            Throwable staleFailure = awaitWorkerFailure(staleWorker);
+
+            assertThat(staleFailure)
+                    .isInstanceOfSatisfying(
+                            BusinessException.class,
+                            failure -> assertThat(failure.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+            assertThat(newerAttempt.attemptCount()).isEqualTo(2);
+            assertThat(staleGateway.refundTokens).isEmpty();
+            assertThat(jdbcTemplate.queryForMap("""
+                            SELECT operation_state, attempt_count
+                            FROM payment_ledger
+                            WHERE payment_id = 970430 AND request_key = 'local-refund-takeover'
+                            """))
+                    .containsEntry("operation_state", "RESERVED")
+                    .containsEntry("attempt_count", 2);
+            assertThat(jdbcTemplate.queryForObject(
+                            "SELECT refunded_amount FROM payment_order WHERE id = 970430", BigDecimal.class))
+                    .isEqualByComparingTo(BigDecimal.ZERO);
+        } finally {
+            transactions.releasePausedCommit();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void queryClaimTakeoverAndValidLeaseFenceProviderCalls() throws Exception {
+        allowOrder(970_015L, 1L);
+        paymentOrderRepository.saveAndFlush(queryReadyPayment(970_440L, 970_015L, "PAY970440", 1L));
+        MutableClock clock = new MutableClock(Instant.now(), ZoneId.systemDefault());
+        PausingPaymentTransactions transactions = pausingTransactions(1);
+        RecordingGateway staleGateway = new RecordingGateway();
+        PaymentApplicationService staleService =
+                applicationService(staleGateway, mock(AuditService.class), transactions, clock);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+
+        try {
+            Future<Integer> staleWorker = executor.submit(staleService::queryTimedOutPayments);
+            transactions.awaitPausedCommit();
+            clock.advance(Duration.ofMinutes(3));
+            PaymentQueryAttempt newerAttempt = claimQueryTakeover("PAY970440", clock);
+            transactions.releasePausedCommit();
+
+            assertThat(staleWorker.get(10, TimeUnit.SECONDS)).isZero();
+            assertThat(newerAttempt.attemptToken()).isEqualTo(2);
+            assertThat(staleGateway.queryPaymentNos).isEmpty();
+        } finally {
+            transactions.releasePausedCommit();
+            executor.shutdownNow();
+        }
+
+        allowOrder(970_016L, 1L);
+        paymentOrderRepository.saveAndFlush(queryReadyPayment(970_441L, 970_016L, "PAY970441", 1L));
+        BlockingQueryGateway blockingGateway = new BlockingQueryGateway();
+        PaymentApplicationService queryService = applicationService(blockingGateway, mock(AuditService.class));
+        ExecutorService queryWorkers = Executors.newFixedThreadPool(2);
+        try {
+            Future<Integer> firstWorker = queryWorkers.submit(queryService::queryTimedOutPayments);
+            blockingGateway.awaitQuery();
+            Future<Integer> secondWorker = queryWorkers.submit(queryService::queryTimedOutPayments);
+            assertThat(secondWorker.get(10, TimeUnit.SECONDS)).isZero();
+            assertThat(blockingGateway.queryCalls()).isEqualTo(1);
+            blockingGateway.releaseQuery();
+            assertThat(firstWorker.get(10, TimeUnit.SECONDS)).isZero();
+        } finally {
+            blockingGateway.releaseQuery();
+            queryWorkers.shutdownNow();
+        }
+        assertThat(blockingGateway.queryCalls()).isEqualTo(1);
+    }
+
+    @Test
+    void scheduledQueryRecoversTenantTwoAndStaleResultCannotOverwriteNewAttempt() throws Exception {
+        allowOrder(970_017L, 2L);
+        paymentOrderRepository.saveAndFlush(queryReadyPayment(970_450L, 970_017L, "PAY970450", 2L));
+        gateway.queryResult =
+                new PaymentGatewayResult(PaymentStatus.PAID, "LOCAL-QUERY-PAY970450", null, new BigDecimal("100.00"));
+        TenantContext.setTenantId(77L);
+
+        service.queryTimedOutPaymentsScheduled();
+
+        assertThat(TenantContext.currentTenantId()).contains(77L);
+        assertThat(gateway.queryPaymentNos).containsExactly("PAY970450");
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM payment_order WHERE id = 970450", String.class))
+                .isEqualTo("PAID");
+
+        TenantContext.setTenantId(1L);
+        allowOrder(970_018L, 1L);
+        paymentOrderRepository.saveAndFlush(queryReadyPayment(970_451L, 970_018L, "PAY970451", 1L));
+        TwoWorkerQueryGateway twoWorkerGateway = new TwoWorkerQueryGateway();
+        PaymentApplicationService queryService = applicationService(twoWorkerGateway, mock(AuditService.class));
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Integer> staleWorker = executor.submit(queryService::queryTimedOutPayments);
+            twoWorkerGateway.awaitFirstQuery();
+            jdbcTemplate.update(
+                    "UPDATE payment_order SET query_lease_expires_at = ? WHERE id = 970451",
+                    LocalDateTime.now().minusMinutes(1));
+            Future<Integer> newWorker = executor.submit(queryService::queryTimedOutPayments);
+            twoWorkerGateway.awaitSecondQuery();
+            twoWorkerGateway.releaseFirstQuery();
+            assertThat(staleWorker.get(10, TimeUnit.SECONDS)).isZero();
+            assertThat(jdbcTemplate.queryForMap("""
+                            SELECT status, query_attempt_count
+                            FROM payment_order WHERE id = 970451
+                            """))
+                    .containsEntry("status", "PENDING")
+                    .containsEntry("query_attempt_count", 2);
+            twoWorkerGateway.releaseSecondQuery();
+            assertThat(newWorker.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+        } finally {
+            twoWorkerGateway.releaseFirstQuery();
+            twoWorkerGateway.releaseSecondQuery();
+            executor.shutdownNow();
+        }
+        assertThat(twoWorkerGateway.queryCalls()).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject("SELECT status FROM payment_order WHERE id = 970451", String.class))
+                .isEqualTo("PAID");
     }
 
     @Test
@@ -529,15 +769,99 @@ class PaymentLocalMySqlAcceptanceTest {
         assertThat(twoWorkerGateway.createCalls()).isEqualTo(2);
     }
 
+    private PausingPaymentTransactions pausingTransactions(int commitNumber) {
+        PausingPaymentTransactions transactions =
+                new PausingPaymentTransactions(new RequiresNewPaymentTransactions(transactionManager));
+        transactions.pauseAfterCommit(commitNumber);
+        return transactions;
+    }
+
+    private PaymentOperationAttempt claimPaymentTakeover(String paymentNo, Clock clock) {
+        JpaPaymentStore store = paymentStore();
+        return new RequiresNewPaymentTransactions(transactionManager)
+                .execute(() -> store.withLockedPayment(paymentNo, ignored -> {
+                            PaymentStore.PaymentIntent latest = store.findPaymentIntentByPaymentNo(paymentNo)
+                                    .orElseThrow();
+                            return store.savePayment(
+                                            latest.payment(),
+                                            latest.requestFingerprint(),
+                                            latest.operation().claim(now(clock), Duration.ofMinutes(2)),
+                                            latest.merchantToken(),
+                                            latest.responseSnapshot())
+                                    .operation();
+                        })
+                        .orElseThrow());
+    }
+
+    private PaymentOperationAttempt claimRefundTakeover(String paymentNo, String requestKey, Clock clock) {
+        JpaPaymentStore store = paymentStore();
+        return new RequiresNewPaymentTransactions(transactionManager)
+                .execute(() -> store.withLockedPayment(paymentNo, payment -> {
+                            PaymentStore.RefundRequest latest = store.findRefundRequest(payment.id(), requestKey)
+                                    .orElseThrow();
+                            return store.saveLedger(
+                                            latest.ledger(),
+                                            latest.requestFingerprint(),
+                                            latest.operation().claim(now(clock), Duration.ofMinutes(2)),
+                                            latest.merchantToken(),
+                                            latest.responseSnapshot(),
+                                            latest.auditIntent())
+                                    .operation();
+                        })
+                        .orElseThrow());
+    }
+
+    private PaymentQueryAttempt claimQueryTakeover(String paymentNo, Clock clock) {
+        JpaPaymentStore store = paymentStore();
+        return new RequiresNewPaymentTransactions(transactionManager)
+                .execute(() -> store.withLockedPayment(paymentNo, payment -> {
+                            PaymentStore.PaymentIntent latest = store.findPaymentIntentByPaymentNo(paymentNo)
+                                    .orElseThrow();
+                            return store.savePaymentQueryAttempt(
+                                            payment, latest.queryAttempt().claim(now(clock), Duration.ofMinutes(2)))
+                                    .queryAttempt();
+                        })
+                        .orElseThrow());
+    }
+
+    private JpaPaymentStore paymentStore() {
+        return new JpaPaymentStore(
+                paymentOrderRepository, paymentLedgerRepository, reconciliationReportRepository, piiCryptoService);
+    }
+
+    private static LocalDateTime now(Clock clock) {
+        return LocalDateTime.ofInstant(clock.instant(), clock.getZone());
+    }
+
+    private static Throwable awaitWorkerFailure(Future<?> worker) throws Exception {
+        try {
+            worker.get(10, TimeUnit.SECONDS);
+            return null;
+        } catch (ExecutionException exception) {
+            return exception.getCause();
+        }
+    }
+
     private PaymentApplicationService applicationService(PaymentGateway paymentGateway, AuditService auditService) {
+        return applicationService(
+                paymentGateway,
+                auditService,
+                new RequiresNewPaymentTransactions(transactionManager),
+                Clock.systemDefaultZone());
+    }
+
+    private PaymentApplicationService applicationService(
+            PaymentGateway paymentGateway,
+            AuditService auditService,
+            PaymentTransactions paymentTransactions,
+            Clock clock) {
         OrderStore orderStore = mock(OrderStore.class);
         when(orderStore.findVisibleByIdAndUserId(anyLong(), anyLong())).thenAnswer(invocation -> {
             OrderRecord order = visibleOrders.get(invocation.getArgument(0, Long.class));
             Long userId = invocation.getArgument(1, Long.class);
             return order != null && order.userId().equals(userId) ? Optional.of(order) : Optional.empty();
         });
-        JpaPaymentStore store = new JpaPaymentStore(
-                paymentOrderRepository, paymentLedgerRepository, reconciliationReportRepository, piiCryptoService);
+        JpaPaymentStore store = paymentStore();
         PaymentCallbackReplayGuard replayGuard = (provider, paymentNo, callbackId, ttl) -> true;
         PaymentTransitionResolver resolver = (status, event) -> PaymentTransitionPolicy.nextStatus(status, event)
                 .orElseThrow(() -> new BusinessException(ErrorCode.CONFLICT, "invalid transition"));
@@ -552,9 +876,9 @@ class PaymentLocalMySqlAcceptanceTest {
                 mock(UserMfaVerifier.class),
                 idGenerator,
                 auditService,
-                new RequiresNewPaymentTransactions(transactionManager),
+                paymentTransactions,
                 new JdbcPaymentRecoveryTenantSource(jdbcTemplate),
-                Clock.systemDefaultZone(),
+                clock,
                 Duration.ofHours(24),
                 Duration.ofMinutes(5),
                 Duration.ofMinutes(2),
@@ -630,6 +954,60 @@ class PaymentLocalMySqlAcceptanceTest {
         entity.setCreateTime(now.minusMinutes(5));
         entity.setUpdateTime(now.minusMinutes(5));
         return entity;
+    }
+
+    private static PaymentOrderEntity queryReadyPayment(Long id, Long orderId, String paymentNo, Long tenantId) {
+        PaymentOrderEntity entity = reservedPayment(
+                id,
+                orderId,
+                paymentNo,
+                "query-" + id,
+                tenantId,
+                LocalDateTime.now().minusMinutes(1));
+        entity.setOperationState(PaymentOperationState.COMPLETED);
+        entity.setLeaseExpiresAt(null);
+        entity.setProviderTradeNo("LOCAL-PREPAY-" + paymentNo);
+        entity.setResponsePaidAmount(BigDecimal.ZERO.setScale(2));
+        entity.setResponseRefundedAmount(BigDecimal.ZERO.setScale(2));
+        entity.setResponseStatus(PaymentStatus.PENDING);
+        entity.setResponseProviderTradeNo("LOCAL-PREPAY-" + paymentNo);
+        entity.setQueryAttemptCount(0);
+        entity.setQueryLeaseExpiresAt(null);
+        entity.setNextQueryAt(LocalDateTime.now().minusMinutes(1));
+        return entity;
+    }
+
+    private static PaymentOrderEntity legacyQueryReadyPayment(
+            Long id,
+            Long orderId,
+            String paymentNo,
+            String idempotencyKey,
+            String requestFingerprint,
+            LocalDateTime nextQueryAt) {
+        PaymentOrderEntity entity = reservedPayment(
+                id, orderId, paymentNo, idempotencyKey, 1L, LocalDateTime.now().minusMinutes(1));
+        entity.setRequestFingerprint(requestFingerprint);
+        entity.setOperationState(PaymentOperationState.LEGACY_UNREPLAYABLE);
+        entity.setAttemptCount(0);
+        entity.setLeaseExpiresAt(null);
+        entity.setLastFailureClassification(PaymentFailureClassification.LEGACY_UNKNOWN);
+        entity.setMerchantToken(null);
+        entity.setResponsePaidAmount(null);
+        entity.setResponseRefundedAmount(null);
+        entity.setResponseStatus(null);
+        entity.setResponseProviderTradeNo(null);
+        entity.setResponsePaidAt(null);
+        entity.setQueryAttemptCount(0);
+        entity.setQueryLeaseExpiresAt(null);
+        entity.setNextQueryAt(nextQueryAt);
+        return entity;
+    }
+
+    private static LocalDateTime toLocalDateTime(Object value) {
+        if (value instanceof LocalDateTime localDateTime) {
+            return localDateTime;
+        }
+        return ((Timestamp) value).toLocalDateTime();
     }
 
     private static PaymentOrderEntity paidPayment(
@@ -727,11 +1105,15 @@ class PaymentLocalMySqlAcceptanceTest {
 
         private final List<String> createTokens = new CopyOnWriteArrayList<>();
         private final List<String> refundTokens = new CopyOnWriteArrayList<>();
+        private final List<String> queryPaymentNos = new CopyOnWriteArrayList<>();
         private String failedCreatePaymentNo;
         private RuntimeException refundFailure;
+        private PaymentGatewayResult queryResult;
 
         @Override
         public PaymentGatewayResult create(PaymentOrder payment, String merchantToken) {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive())
+                    .isFalse();
             createTokens.add(merchantToken);
             if (payment.paymentNo().equals(failedCreatePaymentNo)) {
                 throw new IllegalStateException("tenant one gateway failed");
@@ -745,11 +1127,18 @@ class PaymentLocalMySqlAcceptanceTest {
 
         @Override
         public PaymentGatewayResult query(PaymentOrder payment) {
-            return new PaymentGatewayResult(PaymentStatus.PENDING, null, null, payment.amount());
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive())
+                    .isFalse();
+            queryPaymentNos.add(payment.paymentNo());
+            return queryResult == null
+                    ? new PaymentGatewayResult(PaymentStatus.PENDING, null, null, payment.amount())
+                    : queryResult;
         }
 
         @Override
         public PaymentGatewayResult refund(PaymentOrder payment, BigDecimal amount, String merchantToken) {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive())
+                    .isFalse();
             refundTokens.add(merchantToken);
             if (refundFailure != null) {
                 throw refundFailure;
@@ -767,6 +1156,8 @@ class PaymentLocalMySqlAcceptanceTest {
 
         @Override
         public PaymentGatewayResult create(PaymentOrder payment, String merchantToken) {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive())
+                    .isFalse();
             createCalls.incrementAndGet();
             createEntered.countDown();
             await(releaseCreate, "release local MySQL create");
@@ -816,6 +1207,8 @@ class PaymentLocalMySqlAcceptanceTest {
 
         @Override
         public PaymentGatewayResult create(PaymentOrder payment, String merchantToken) {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive())
+                    .isFalse();
             int call = createCalls.incrementAndGet();
             if (call == 1) {
                 firstCreateEntered.countDown();
@@ -863,6 +1256,172 @@ class PaymentLocalMySqlAcceptanceTest {
 
         private int createCalls() {
             return createCalls.get();
+        }
+    }
+
+    private static final class BlockingQueryGateway implements PaymentGateway {
+
+        private final AtomicInteger queryCalls = new AtomicInteger();
+        private final CountDownLatch queryEntered = new CountDownLatch(1);
+        private final CountDownLatch releaseQuery = new CountDownLatch(1);
+
+        @Override
+        public PaymentGatewayResult create(PaymentOrder payment, String merchantToken) {
+            throw new AssertionError("create is not expected");
+        }
+
+        @Override
+        public PaymentGatewayResult query(PaymentOrder payment) {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive())
+                    .isFalse();
+            queryCalls.incrementAndGet();
+            queryEntered.countDown();
+            await(releaseQuery, "release local MySQL query");
+            return new PaymentGatewayResult(PaymentStatus.PENDING, null, null, payment.amount());
+        }
+
+        @Override
+        public PaymentGatewayResult refund(PaymentOrder payment, BigDecimal amount, String merchantToken) {
+            throw new AssertionError("refund is not expected");
+        }
+
+        private void awaitQuery() {
+            await(queryEntered, "local MySQL query");
+        }
+
+        private void releaseQuery() {
+            releaseQuery.countDown();
+        }
+
+        private int queryCalls() {
+            return queryCalls.get();
+        }
+    }
+
+    private static final class TwoWorkerQueryGateway implements PaymentGateway {
+
+        private final AtomicInteger queryCalls = new AtomicInteger();
+        private final CountDownLatch firstQueryEntered = new CountDownLatch(1);
+        private final CountDownLatch releaseFirstQuery = new CountDownLatch(1);
+        private final CountDownLatch secondQueryEntered = new CountDownLatch(1);
+        private final CountDownLatch releaseSecondQuery = new CountDownLatch(1);
+
+        @Override
+        public PaymentGatewayResult create(PaymentOrder payment, String merchantToken) {
+            throw new AssertionError("create is not expected");
+        }
+
+        @Override
+        public PaymentGatewayResult query(PaymentOrder payment) {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive())
+                    .isFalse();
+            int call = queryCalls.incrementAndGet();
+            if (call == 1) {
+                firstQueryEntered.countDown();
+                await(releaseFirstQuery, "release stale local MySQL query");
+                return new PaymentGatewayResult(PaymentStatus.FAILED, null, null, BigDecimal.ZERO);
+            }
+            if (call == 2) {
+                secondQueryEntered.countDown();
+                await(releaseSecondQuery, "release new local MySQL query");
+                return new PaymentGatewayResult(PaymentStatus.PAID, "LOCAL-QUERY-PAID", null, payment.amount());
+            }
+            throw new AssertionError("unexpected query invocation " + call);
+        }
+
+        @Override
+        public PaymentGatewayResult refund(PaymentOrder payment, BigDecimal amount, String merchantToken) {
+            throw new AssertionError("refund is not expected");
+        }
+
+        private void awaitFirstQuery() {
+            await(firstQueryEntered, "stale local MySQL query");
+        }
+
+        private void awaitSecondQuery() {
+            await(secondQueryEntered, "new local MySQL query");
+        }
+
+        private void releaseFirstQuery() {
+            releaseFirstQuery.countDown();
+        }
+
+        private void releaseSecondQuery() {
+            releaseSecondQuery.countDown();
+        }
+
+        private int queryCalls() {
+            return queryCalls.get();
+        }
+    }
+
+    private static final class PausingPaymentTransactions implements PaymentTransactions {
+
+        private final PaymentTransactions delegate;
+        private final AtomicInteger committedTransactions = new AtomicInteger();
+        private volatile int pauseAfterCommit = -1;
+        private volatile CountDownLatch pausedCommit;
+        private volatile CountDownLatch releaseCommit;
+
+        private PausingPaymentTransactions(PaymentTransactions delegate) {
+            this.delegate = delegate;
+        }
+
+        private void pauseAfterCommit(int commitNumber) {
+            pauseAfterCommit = commitNumber;
+            pausedCommit = new CountDownLatch(1);
+            releaseCommit = new CountDownLatch(1);
+        }
+
+        private void awaitPausedCommit() {
+            await(pausedCommit, "committed local MySQL transaction pause");
+        }
+
+        private void releasePausedCommit() {
+            CountDownLatch release = releaseCommit;
+            if (release != null) {
+                release.countDown();
+            }
+        }
+
+        @Override
+        public <T> T execute(java.util.function.Supplier<T> action) {
+            T result = delegate.execute(action);
+            if (committedTransactions.incrementAndGet() == pauseAfterCommit) {
+                pausedCommit.countDown();
+                await(releaseCommit, "release committed local MySQL transaction");
+            }
+            return result;
+        }
+    }
+
+    private static final class MutableClock extends Clock {
+
+        private volatile Instant current;
+        private final ZoneId zone;
+
+        private MutableClock(Instant current, ZoneId zone) {
+            this.current = current;
+            this.zone = zone;
+        }
+
+        private void advance(Duration duration) {
+            current = current.plus(duration);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return zone;
+        }
+
+        @Override
+        public Clock withZone(ZoneId targetZone) {
+            return new MutableClock(current, targetZone);
+        }
+
+        @Override
+        public Instant instant() {
+            return current;
         }
     }
 

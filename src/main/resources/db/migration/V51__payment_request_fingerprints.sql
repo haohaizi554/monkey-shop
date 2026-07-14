@@ -31,7 +31,10 @@ ALTER TABLE payment_order
     ADD COLUMN response_refunded_amount DECIMAL(10, 2) NULL AFTER response_paid_amount,
     ADD COLUMN response_status VARCHAR(32) NULL AFTER response_refunded_amount,
     ADD COLUMN response_provider_trade_no VARCHAR(96) NULL AFTER response_status,
-    ADD COLUMN response_paid_at DATETIME(6) NULL AFTER response_provider_trade_no;
+    ADD COLUMN response_paid_at DATETIME(6) NULL AFTER response_provider_trade_no,
+    ADD COLUMN query_attempt_count INT NOT NULL DEFAULT 0 AFTER response_paid_at,
+    ADD COLUMN query_lease_expires_at DATETIME(6) NULL AFTER query_attempt_count,
+    ADD COLUMN next_query_at DATETIME(6) NULL AFTER query_lease_expires_at;
 
 UPDATE payment_order
 SET request_fingerprint = LOWER(SHA2(CONCAT(
@@ -45,7 +48,13 @@ SET request_fingerprint = LOWER(SHA2(CONCAT(
     attempt_count = 0,
     lease_expires_at = NULL,
     last_failure_classification = 'LEGACY_UNKNOWN',
-    terminal_failure_code = NULL;
+    terminal_failure_code = NULL,
+    query_attempt_count = 0,
+    query_lease_expires_at = NULL,
+    next_query_at = CASE
+        WHEN status = 'PENDING' THEN create_time
+        ELSE NULL
+    END;
 
 ALTER TABLE payment_order
     MODIFY COLUMN request_fingerprint CHAR(64) NOT NULL,
@@ -63,6 +72,8 @@ ALTER TABLE payment_order
         UNIQUE (tenant_id, active_order_id),
     ADD INDEX idx_payment_order_operation_lease
         (tenant_id, operation_state, lease_expires_at),
+    ADD INDEX idx_payment_order_query_ready
+        (tenant_id, status, operation_state, next_query_at, query_lease_expires_at),
     ADD CONSTRAINT ck_payment_order_failed_not_recoverable
         CHECK (status <> 'FAILED' OR operation_state NOT IN ('RESERVED', 'RETRYABLE')),
     ADD CONSTRAINT ck_payment_order_operation_state
@@ -104,6 +115,21 @@ ALTER TABLE payment_order
                 AND terminal_failure_code IN ('PROVIDER_REJECTED', 'CARD_DECLINED', 'REFUND_DECLINED')
                 AND merchant_token IS NOT NULL
                 AND status = 'FAILED'
+            )
+        ),
+    ADD CONSTRAINT ck_payment_order_query_state
+        CHECK (
+            query_attempt_count >= 0
+            AND (
+                query_lease_expires_at IS NULL
+                OR (query_attempt_count >= 1 AND next_query_at IS NOT NULL)
+            )
+            AND (
+                next_query_at IS NULL
+                OR (
+                    status = 'PENDING'
+                    AND operation_state IN ('COMPLETED', 'LEGACY_UNREPLAYABLE')
+                )
             )
         );
 

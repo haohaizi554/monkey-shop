@@ -69,6 +69,15 @@ public class PaymentOrderEntity extends TenantScopedJpaEntity {
 
     private LocalDateTime leaseExpiresAt;
 
+    @Column(name = "query_attempt_count", nullable = false)
+    private int queryAttemptCount;
+
+    @Column(name = "query_lease_expires_at")
+    private LocalDateTime queryLeaseExpiresAt;
+
+    @Column(name = "next_query_at")
+    private LocalDateTime nextQueryAt;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 32)
     private PaymentFailureClassification lastFailureClassification;
@@ -230,6 +239,30 @@ public class PaymentOrderEntity extends TenantScopedJpaEntity {
 
     public void setLeaseExpiresAt(LocalDateTime leaseExpiresAt) {
         this.leaseExpiresAt = leaseExpiresAt;
+    }
+
+    public int getQueryAttemptCount() {
+        return queryAttemptCount;
+    }
+
+    public void setQueryAttemptCount(int queryAttemptCount) {
+        this.queryAttemptCount = queryAttemptCount;
+    }
+
+    public LocalDateTime getQueryLeaseExpiresAt() {
+        return queryLeaseExpiresAt;
+    }
+
+    public void setQueryLeaseExpiresAt(LocalDateTime queryLeaseExpiresAt) {
+        this.queryLeaseExpiresAt = queryLeaseExpiresAt;
+    }
+
+    public LocalDateTime getNextQueryAt() {
+        return nextQueryAt;
+    }
+
+    public void setNextQueryAt(LocalDateTime nextQueryAt) {
+        this.nextQueryAt = nextQueryAt;
     }
 
     public PaymentFailureClassification getLastFailureClassification() {

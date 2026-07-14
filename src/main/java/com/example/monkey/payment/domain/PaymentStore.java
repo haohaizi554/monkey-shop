@@ -14,7 +14,23 @@ public interface PaymentStore {
             String requestFingerprint,
             PaymentOperationAttempt operation,
             String merchantToken,
-            PaymentResponseSnapshot responseSnapshot) {
+            PaymentResponseSnapshot responseSnapshot,
+            PaymentQueryAttempt queryAttempt) {
+
+        public PaymentIntent(
+                PaymentOrder payment,
+                String requestFingerprint,
+                PaymentOperationAttempt operation,
+                String merchantToken,
+                PaymentResponseSnapshot responseSnapshot) {
+            this(
+                    payment,
+                    requestFingerprint,
+                    operation,
+                    merchantToken,
+                    responseSnapshot,
+                    PaymentQueryAttempt.notScheduled());
+        }
 
         public PaymentOperationState operationState() {
             return operation.state();
@@ -42,6 +58,8 @@ public interface PaymentStore {
 
     Optional<PaymentIntent> findByUserIdAndIdempotencyKey(Long userId, String idempotencyKey);
 
+    Optional<PaymentIntent> findPaymentIntentByPaymentNo(String paymentNo);
+
     Optional<PaymentIntent> findActiveByOrderId(Long orderId);
 
     <T> Optional<T> withLockedPayment(String paymentNo, Function<PaymentOrder, T> operation);
@@ -61,6 +79,8 @@ public interface PaymentStore {
             String merchantToken,
             PaymentResponseSnapshot responseSnapshot);
 
+    PaymentIntent savePaymentQueryAttempt(PaymentOrder payment, PaymentQueryAttempt queryAttempt);
+
     PaymentLedgerEntry saveLedger(PaymentLedgerEntry ledger);
 
     RefundRequest saveLedger(
@@ -78,6 +98,8 @@ public interface PaymentStore {
     List<RefundRequest> findPendingRefundAudits(int limit);
 
     List<PaymentOrder> findPendingCreatedBefore(LocalDateTime cutoff, int limit);
+
+    List<PaymentIntent> findPaymentsReadyForQuery(LocalDateTime readyAt, int limit);
 
     List<PaymentOrder> findPaidByProviderAndDate(PaymentMethod provider, LocalDate reportDate);
 

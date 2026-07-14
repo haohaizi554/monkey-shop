@@ -28,8 +28,12 @@ class JdbcPaymentRecoveryTenantSourceTest {
         jdbcTemplate.execute("""
                 CREATE TABLE payment_order (
                     tenant_id BIGINT NOT NULL,
+                    status VARCHAR(32),
                     operation_state VARCHAR(32) NOT NULL,
-                    lease_expires_at TIMESTAMP NULL
+                    lease_expires_at TIMESTAMP NULL,
+                    query_attempt_count INT NOT NULL DEFAULT 0,
+                    query_lease_expires_at TIMESTAMP NULL,
+                    next_query_at TIMESTAMP NULL
                 )
                 """);
         jdbcTemplate.execute("""
@@ -59,7 +63,7 @@ class JdbcPaymentRecoveryTenantSourceTest {
         insertLedger(4L, "CAPTURE", null, null, "PENDING");
         TenantContext.setTenantId(999L);
 
-        List<Long> tenants = tenantSource.findTenantIdsReadyForRecovery(CUTOFF, 10);
+        List<Long> tenants = tenantSource.findTenantIdsReadyForRecovery(CUTOFF, 0L, 10);
 
         assertThat(tenants).containsExactly(1L, 2L);
         assertThat(TenantContext.currentTenantId()).contains(999L);
@@ -73,7 +77,30 @@ class JdbcPaymentRecoveryTenantSourceTest {
         insertRefund(1L, "RETRYABLE", CUTOFF.minusMinutes(1), "WAITING");
         insertRefund(2L, "COMPLETED", null, "PENDING");
 
-        assertThat(tenantSource.findTenantIdsReadyForRecovery(CUTOFF, 2)).containsExactly(1L, 2L);
+        assertThat(tenantSource.findTenantIdsReadyForRecovery(CUTOFF, 0L, 2)).containsExactly(1L, 2L);
+    }
+
+    @Test
+    void discoversTenantTwoFromQueryReadyPaymentWithoutUsingTheAmbientTenantFilter() {
+        insertQueryPayment(2L, "PENDING", "COMPLETED", null, CUTOFF);
+        insertQueryPayment(3L, "PENDING", "LEGACY_UNREPLAYABLE", null, CUTOFF.plusSeconds(1));
+        insertQueryPayment(4L, "PAID", "COMPLETED", null, CUTOFF.minusSeconds(1));
+        insertQueryPayment(5L, "PENDING", "COMPLETED", CUTOFF.plusMinutes(1), CUTOFF.minusSeconds(1));
+        TenantContext.setTenantId(999L);
+
+        assertThat(tenantSource.findTenantIdsReadyForRecovery(CUTOFF, 0L, 10)).containsExactly(2L);
+        assertThat(TenantContext.currentTenantId()).contains(999L);
+    }
+
+    @Test
+    void keysetReturnsOnlyDistinctTenantsStrictlyAfterTheCursor() {
+        insertPayment(1L, "RESERVED", CUTOFF.minusMinutes(1));
+        insertPayment(2L, "RETRYABLE", CUTOFF.minusMinutes(1));
+        insertRefund(3L, "RETRYABLE", CUTOFF.minusMinutes(1), "WAITING");
+        insertQueryPayment(4L, "PENDING", "LEGACY_UNREPLAYABLE", null, CUTOFF);
+        insertRefund(4L, "COMPLETED", null, "PENDING");
+
+        assertThat(tenantSource.findTenantIdsReadyForRecovery(CUTOFF, 2L, 10)).containsExactly(3L, 4L);
     }
 
     private void insertPayment(long tenantId, String state, LocalDateTime leaseExpiresAt) {
@@ -82,6 +109,23 @@ class JdbcPaymentRecoveryTenantSourceTest {
                 tenantId,
                 state,
                 leaseExpiresAt);
+    }
+
+    private void insertQueryPayment(
+            long tenantId,
+            String status,
+            String operationState,
+            LocalDateTime queryLeaseExpiresAt,
+            LocalDateTime nextQueryAt) {
+        jdbcTemplate.update(
+                "INSERT INTO payment_order"
+                        + " (tenant_id, status, operation_state, query_lease_expires_at, next_query_at)"
+                        + " VALUES (?, ?, ?, ?, ?)",
+                tenantId,
+                status,
+                operationState,
+                queryLeaseExpiresAt,
+                nextQueryAt);
     }
 
     private void insertRefund(long tenantId, String state, LocalDateTime leaseExpiresAt, String auditState) {
