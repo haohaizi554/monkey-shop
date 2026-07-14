@@ -20,14 +20,17 @@ import com.example.monkey.payment.domain.PaymentLedgerEntry;
 import com.example.monkey.payment.domain.PaymentLedgerStatus;
 import com.example.monkey.payment.domain.PaymentLedgerType;
 import com.example.monkey.payment.domain.PaymentMethod;
+import com.example.monkey.payment.domain.PaymentOperationState;
 import com.example.monkey.payment.domain.PaymentOrder;
 import com.example.monkey.payment.domain.PaymentReconciliationReport;
 import com.example.monkey.payment.domain.PaymentRequestFingerprint;
+import com.example.monkey.payment.domain.PaymentResponseSnapshot;
 import com.example.monkey.payment.domain.PaymentStatus;
 import com.example.monkey.payment.domain.PaymentStore;
 import com.example.monkey.payment.domain.PaymentTransitionResolver;
 import com.example.monkey.payment.domain.ReconciliationLine;
 import com.example.monkey.payment.domain.ReconciliationStatus;
+import com.example.monkey.payment.domain.RefundResponseSnapshot;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.domain.exception.BusinessException;
@@ -54,13 +57,16 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.regex.Pattern;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
 import org.springframework.util.StringUtils;
 
 @Service
@@ -82,6 +88,7 @@ public class PaymentApplicationService {
     private final UserMfaVerifier userMfaVerifier;
     private final IdGenerator idGenerator;
     private final AuditService auditService;
+    private final TransactionOperations transactionOperations;
     private final Clock clock;
     private final Duration callbackTtl;
     private final Duration queryAfter;
@@ -99,6 +106,7 @@ public class PaymentApplicationService {
             UserMfaVerifier userMfaVerifier,
             IdGenerator idGenerator,
             AuditService auditService,
+            TransactionOperations transactionOperations,
             @Value("${app.payment.callback-ttl:PT24H}") Duration callbackTtl,
             @Value("${app.payment.query-after:PT5M}") Duration queryAfter,
             @Value("${app.payment.high-value-threshold:5000}") BigDecimal highValueThreshold,
@@ -113,6 +121,7 @@ public class PaymentApplicationService {
                 userMfaVerifier,
                 idGenerator,
                 auditService,
+                transactionOperations,
                 Clock.systemDefaultZone(),
                 callbackTtl,
                 queryAfter,
@@ -130,6 +139,7 @@ public class PaymentApplicationService {
             UserMfaVerifier userMfaVerifier,
             IdGenerator idGenerator,
             AuditService auditService,
+            TransactionOperations transactionOperations,
             Clock clock,
             Duration callbackTtl,
             Duration queryAfter,
@@ -144,6 +154,7 @@ public class PaymentApplicationService {
         this.userMfaVerifier = userMfaVerifier;
         this.idGenerator = idGenerator;
         this.auditService = auditService;
+        this.transactionOperations = transactionOperations;
         this.clock = clock;
         this.callbackTtl = callbackTtl == null ? Duration.ofHours(24) : callbackTtl;
         this.queryAfter = queryAfter == null ? Duration.ofMinutes(5) : queryAfter;
@@ -152,7 +163,6 @@ public class PaymentApplicationService {
     }
 
     @WithSpan("payment.create")
-    @Transactional
     public PaymentResponseDto createPayment(
             SessionUser currentUser, PaymentCreateRequestDto request, String idempotencyKey) {
         Long userId = requireUserId(currentUser);
@@ -163,13 +173,26 @@ public class PaymentApplicationService {
         BigDecimal amount = money(order.price());
         PaymentRequestFingerprint fingerprint =
                 PaymentRequestFingerprint.of(order.id(), request.method(), amount, "CNY");
-        PaymentStore.PaymentIntent existing =
-                paymentStore.findByUserIdAndIdempotencyKey(userId, key).orElse(null);
-        if (existing != null) {
-            requireMatchingFingerprint(existing.requestFingerprint(), fingerprint);
-            return PaymentDtoAssembler.toResponse(existing.payment(), existing.paymentUrl());
+        requireMfaForHighValue(userId, amount, request.totpCode());
+        String cardNo = normalizedCardNo(request.method(), request.bankCardNo());
+        PaymentStore.PaymentIntent reservation =
+                reservePayment(userId, request, key, order, amount, cardNo, fingerprint);
+        if (PaymentOperationState.COMPLETED.equals(reservation.operationState())) {
+            return PaymentDtoAssembler.toResponse(reservation.payment(), reservation.responseSnapshot());
         }
-        return createPaymentLocked(userId, request, key, order, amount, fingerprint);
+        PaymentGatewayResult gatewayResult = paymentGateway.create(reservation.payment(), reservation.merchantToken());
+        PaymentCompletion completion =
+                completePayment(reservation.payment().paymentNo(), userId, key, fingerprint, gatewayResult);
+        if (completion.completedNow()) {
+            audit(
+                    AuditService.PAYMENT_CREATED,
+                    userId,
+                    completion.intent().payment().paymentNo(),
+                    null,
+                    "orderId=" + order.id() + ",method=" + request.method());
+        }
+        return PaymentDtoAssembler.toResponse(
+                completion.intent().payment(), completion.intent().responseSnapshot());
     }
 
     @WithSpan("payment.callback")
@@ -197,25 +220,15 @@ public class PaymentApplicationService {
     }
 
     @WithSpan("payment.refund")
-    @Transactional
     public PaymentRefundResponseDto refund(
             SessionUser currentUser, PaymentRefundRequestDto request, String idempotencyKey) {
         Long userId = requireUserId(currentUser);
         String key = normalizeIdempotencyKey(idempotencyKey);
-        return paymentStore
-                .withLockedPayment(request.paymentNo(), payment -> {
-                    requireOwnedPayment(payment, userId);
-                    PaymentRequestFingerprint fingerprint =
-                            PaymentRequestFingerprint.ofRefund(payment.id(), request.amount(), request.reason());
-                    return paymentStore
-                            .findRefundRequest(payment.id(), key)
-                            .map(existing -> {
-                                requireMatchingFingerprint(existing.requestFingerprint(), fingerprint);
-                                return PaymentDtoAssembler.toRefundResponse(payment, existing.ledger());
-                            })
-                            .orElseGet(() -> refundLocked(payment, request, key, fingerprint));
-                })
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Payment order does not exist"));
+        return refund(
+                request,
+                key,
+                payment -> requireOwnedPayment(payment, userId),
+                new RefundAuditContext(AuditService.PAYMENT_REFUNDED, userId, CUSTOMER_ROLE, null, false, false));
     }
 
     @WithSpan("payment.find")
@@ -248,36 +261,16 @@ public class PaymentApplicationService {
     }
 
     @WithSpan("payment.admin.refund")
-    @Transactional
     public PaymentRefundResponseDto refundAsAdmin(
             SessionUser currentUser, PaymentRefundRequestDto request, String idempotencyKey, String sourceIp) {
         Long adminUserId = requireAdminUserId(currentUser);
         String key = normalizeIdempotencyKey(idempotencyKey);
-        return paymentStore
-                .withLockedPayment(request.paymentNo(), payment -> {
-                    requireMatchingOrderOwner(payment);
-                    PaymentRequestFingerprint fingerprint =
-                            PaymentRequestFingerprint.ofRefund(payment.id(), request.amount(), request.reason());
-                    return paymentStore
-                            .findRefundRequest(payment.id(), key)
-                            .map(existing -> {
-                                requireMatchingFingerprint(existing.requestFingerprint(), fingerprint);
-                                return PaymentDtoAssembler.toRefundResponse(payment, existing.ledger());
-                            })
-                            .orElseGet(() -> refundLocked(
-                                    payment,
-                                    request,
-                                    key,
-                                    fingerprint,
-                                    new RefundAuditContext(
-                                            AuditService.PAYMENT_ADMIN_REFUNDED,
-                                            adminUserId,
-                                            "ADMIN",
-                                            sourceIp,
-                                            true,
-                                            true)));
-                })
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Payment order does not exist"));
+        return refund(
+                request,
+                key,
+                this::requireMatchingOrderOwner,
+                new RefundAuditContext(
+                        AuditService.PAYMENT_ADMIN_REFUNDED, adminUserId, "ADMIN", sourceIp, true, true));
     }
 
     @WithSpan("payment.reconciliation")
@@ -324,97 +317,277 @@ public class PaymentApplicationService {
                 reconcileInternal(PaymentMethod.WECHAT, LocalDate.now(clock).minusDays(1), List.of()));
     }
 
-    private PaymentResponseDto createPaymentLocked(
+    private PaymentStore.PaymentIntent reservePayment(
             Long userId,
             PaymentCreateRequestDto request,
             String key,
             OrderRecord order,
             BigDecimal amount,
+            String cardNo,
             PaymentRequestFingerprint fingerprint) {
-        requireMfaForHighValue(userId, amount, request.totpCode());
-        String cardNo = normalizedCardNo(request.method(), request.bankCardNo());
-        Long id = idGenerator.nextId();
-        LocalDateTime now = now();
-        PaymentOrder payment = new PaymentOrder(
-                id,
-                "PAY" + id,
-                order.id(),
-                userId,
-                request.method(),
-                amount,
-                BigDecimal.ZERO,
-                BigDecimal.ZERO,
-                PaymentStatus.PENDING,
-                key,
-                null,
-                cardNo,
-                last4(cardNo),
-                null,
-                null,
-                now,
-                now);
-        PaymentOrder saved =
-                paymentStore.savePayment(payment, fingerprint.value(), null).payment();
-        PaymentGatewayResult gatewayResult = paymentGateway.create(saved);
-        PaymentStore.PaymentIntent withTradeNo = paymentStore.savePayment(
-                saved.withProviderTradeNo(gatewayResult.providerTradeNo(), now()),
-                fingerprint.value(),
-                gatewayResult.paymentUrl());
-        audit(
-                AuditService.PAYMENT_CREATED,
-                userId,
-                withTradeNo.payment().paymentNo(),
-                null,
-                "orderId=" + order.id() + ",method=" + request.method());
-        return PaymentDtoAssembler.toResponse(withTradeNo.payment(), withTradeNo.paymentUrl());
+        try {
+            return transactionOperations.execute(status -> {
+                PaymentStore.PaymentIntent existing =
+                        paymentStore.findByUserIdAndIdempotencyKey(userId, key).orElse(null);
+                if (existing != null) {
+                    return classifyPaymentIntent(existing, fingerprint);
+                }
+                if (paymentStore.findActiveByOrderId(order.id()).isPresent()) {
+                    throw paymentConflict("Order already has an active payment intent");
+                }
+                Long id = idGenerator.nextId();
+                LocalDateTime createdAt = now();
+                PaymentOrder payment = new PaymentOrder(
+                        id,
+                        "PAY" + id,
+                        order.id(),
+                        userId,
+                        request.method(),
+                        amount,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        PaymentStatus.PENDING,
+                        key,
+                        null,
+                        cardNo,
+                        last4(cardNo),
+                        null,
+                        null,
+                        createdAt,
+                        createdAt);
+                return paymentStore.savePayment(
+                        payment, fingerprint.value(), PaymentOperationState.RESERVED, payment.paymentNo(), null);
+            });
+        } catch (DataIntegrityViolationException exception) {
+            return transactionOperations.execute(
+                    status -> classifyPaymentReservationWinner(userId, key, order.id(), fingerprint));
+        }
     }
 
-    private PaymentRefundResponseDto refundLocked(
-            PaymentOrder payment, PaymentRefundRequestDto request, String key, PaymentRequestFingerprint fingerprint) {
-        return refundLocked(
-                payment,
-                request,
-                key,
-                fingerprint,
-                new RefundAuditContext(
-                        AuditService.PAYMENT_REFUNDED, payment.userId(), CUSTOMER_ROLE, null, false, false));
+    private PaymentStore.PaymentIntent classifyPaymentReservationWinner(
+            Long userId, String key, Long orderId, PaymentRequestFingerprint fingerprint) {
+        PaymentStore.PaymentIntent winner =
+                paymentStore.findByUserIdAndIdempotencyKey(userId, key).orElse(null);
+        if (winner != null) {
+            return classifyPaymentIntent(winner, fingerprint);
+        }
+        if (paymentStore.findActiveByOrderId(orderId).isPresent()) {
+            throw paymentConflict("Order already has an active payment intent");
+        }
+        throw paymentConflict("Payment intent reservation conflicts with an existing request");
     }
 
-    private PaymentRefundResponseDto refundLocked(
-            PaymentOrder payment,
-            PaymentRefundRequestDto request,
+    private PaymentStore.PaymentIntent classifyPaymentIntent(
+            PaymentStore.PaymentIntent intent, PaymentRequestFingerprint fingerprint) {
+        if (PaymentOperationState.LEGACY_UNREPLAYABLE.equals(intent.operationState())) {
+            throw paymentConflict("Legacy payment response cannot be replayed safely");
+        }
+        requireMatchingFingerprint(intent.requestFingerprint(), fingerprint);
+        if (!StringUtils.hasText(intent.merchantToken())) {
+            throw paymentConflict("Payment intent is missing its merchant idempotency token");
+        }
+        if (PaymentOperationState.COMPLETED.equals(intent.operationState()) && intent.responseSnapshot() == null) {
+            throw paymentConflict("Payment response snapshot is unavailable");
+        }
+        if (!PaymentOperationState.RESERVED.equals(intent.operationState())
+                && !PaymentOperationState.COMPLETED.equals(intent.operationState())) {
+            throw paymentConflict("Payment intent has an invalid idempotency state");
+        }
+        return intent;
+    }
+
+    private PaymentCompletion completePayment(
+            String paymentNo,
+            Long userId,
             String key,
             PaymentRequestFingerprint fingerprint,
+            PaymentGatewayResult gatewayResult) {
+        return transactionOperations.execute(status -> paymentStore
+                .withLockedPayment(paymentNo, ignored -> {
+                    PaymentStore.PaymentIntent latest = paymentStore
+                            .findByUserIdAndIdempotencyKey(userId, key)
+                            .map(intent -> classifyPaymentIntent(intent, fingerprint))
+                            .filter(intent -> intent.payment().paymentNo().equals(paymentNo))
+                            .orElseThrow(() -> paymentConflict("Payment intent reservation is missing"));
+                    if (PaymentOperationState.COMPLETED.equals(latest.operationState())) {
+                        return new PaymentCompletion(latest, false);
+                    }
+                    PaymentOrder completed =
+                            latest.payment().withProviderTradeNo(gatewayResult.providerTradeNo(), now());
+                    PaymentResponseSnapshot responseSnapshot =
+                            PaymentResponseSnapshot.capture(completed, gatewayResult.paymentUrl());
+                    PaymentStore.PaymentIntent saved = paymentStore.savePayment(
+                            completed,
+                            fingerprint.value(),
+                            PaymentOperationState.COMPLETED,
+                            latest.merchantToken(),
+                            responseSnapshot);
+                    return new PaymentCompletion(saved, true);
+                })
+                .orElseThrow(() -> paymentConflict("Payment intent reservation is missing")));
+    }
+
+    private PaymentRefundResponseDto refund(
+            PaymentRefundRequestDto request,
+            String key,
+            Consumer<PaymentOrder> accessCheck,
             RefundAuditContext auditContext) {
+        RefundReservation reservation = reserveRefund(request, key, accessCheck);
+        if (PaymentOperationState.COMPLETED.equals(reservation.refund().operationState())) {
+            return PaymentDtoAssembler.toRefundResponse(
+                    reservation.payment(),
+                    reservation.refund().ledger(),
+                    reservation.refund().responseSnapshot());
+        }
+        PaymentGatewayResult gatewayResult = paymentGateway.refund(
+                reservation.payment(),
+                reservation.refund().ledger().amount(),
+                reservation.refund().merchantToken());
+        RefundCompletion completion =
+                completeRefund(request.paymentNo(), key, reservation.fingerprint(), gatewayResult, accessCheck);
+        if (completion.completedNow()) {
+            auditRefund(completion.payment(), completion.refund().ledger(), auditContext);
+        }
+        return PaymentDtoAssembler.toRefundResponse(
+                completion.payment(),
+                completion.refund().ledger(),
+                completion.refund().responseSnapshot());
+    }
+
+    private RefundReservation reserveRefund(
+            PaymentRefundRequestDto request, String key, Consumer<PaymentOrder> accessCheck) {
+        try {
+            return transactionOperations.execute(status -> paymentStore
+                    .withLockedPayment(
+                            request.paymentNo(), payment -> reserveRefund(payment, request, key, accessCheck))
+                    .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Payment order does not exist")));
+        } catch (DataIntegrityViolationException exception) {
+            return transactionOperations.execute(status -> paymentStore
+                    .withLockedPayment(
+                            request.paymentNo(),
+                            payment -> classifyRefundReservationWinner(payment, request, key, accessCheck))
+                    .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Payment order does not exist")));
+        }
+    }
+
+    private RefundReservation reserveRefund(
+            PaymentOrder payment, PaymentRefundRequestDto request, String key, Consumer<PaymentOrder> accessCheck) {
+        accessCheck.accept(payment);
+        PaymentRequestFingerprint fingerprint =
+                PaymentRequestFingerprint.ofRefund(payment.id(), request.amount(), request.reason());
+        PaymentStore.RefundRequest existing =
+                paymentStore.findRefundRequest(payment.id(), key).orElse(null);
+        if (existing != null) {
+            return new RefundReservation(payment, classifyRefundRequest(existing, fingerprint), fingerprint);
+        }
         BigDecimal amount = money(request.amount());
-        if (amount.compareTo(BigDecimal.ZERO) <= 0 || amount.compareTo(payment.refundableAmount()) > 0) {
+        BigDecimal reservedAmount = money(paymentStore.sumAcceptedRefundAmount(payment.id()));
+        BigDecimal availableAmount = money(payment.refundableAmount().subtract(reservedAmount));
+        if (amount.compareTo(BigDecimal.ZERO) <= 0 || amount.compareTo(availableAmount) > 0) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Refund amount exceeds refundable amount");
         }
-        PaymentGatewayResult gatewayResult = paymentGateway.refund(payment, amount, key);
-        PaymentEvent event = amount.compareTo(payment.refundableAmount()) == 0
-                ? PaymentEvent.REFUND_ALL
-                : PaymentEvent.REFUND_PARTIAL;
-        PaymentStatus nextStatus = transitionResolver.nextStatus(payment.status(), event);
-        PaymentOrder updated = paymentStore.savePayment(payment.refund(amount, nextStatus, now()));
-        PaymentLedgerEntry ledger = paymentStore
-                .saveLedger(
-                        new PaymentLedgerEntry(
-                                idGenerator.nextId(),
-                                payment.id(),
-                                payment.orderId(),
-                                payment.userId(),
-                                PaymentLedgerType.REFUND,
-                                amount,
-                                PaymentLedgerStatus.SUCCESS,
-                                key,
-                                gatewayResult.providerTradeNo(),
-                                now()),
-                        fingerprint.value())
-                .ledger();
+        Long ledgerId = idGenerator.nextId();
+        PaymentLedgerEntry ledger = new PaymentLedgerEntry(
+                ledgerId,
+                payment.id(),
+                payment.orderId(),
+                payment.userId(),
+                PaymentLedgerType.REFUND,
+                amount,
+                PaymentLedgerStatus.ACCEPTED,
+                key,
+                null,
+                now());
+        String merchantToken = payment.paymentNo() + ":refund:" + ledgerId;
+        PaymentStore.RefundRequest saved = paymentStore.saveLedger(
+                ledger, fingerprint.value(), PaymentOperationState.RESERVED, merchantToken, null);
+        return new RefundReservation(payment, saved, fingerprint);
+    }
+
+    private RefundReservation classifyRefundReservationWinner(
+            PaymentOrder payment, PaymentRefundRequestDto request, String key, Consumer<PaymentOrder> accessCheck) {
+        accessCheck.accept(payment);
+        PaymentRequestFingerprint fingerprint =
+                PaymentRequestFingerprint.ofRefund(payment.id(), request.amount(), request.reason());
+        PaymentStore.RefundRequest winner = paymentStore
+                .findRefundRequest(payment.id(), key)
+                .orElseThrow(() -> paymentConflict("Refund reservation conflicts with an existing request"));
+        return new RefundReservation(payment, classifyRefundRequest(winner, fingerprint), fingerprint);
+    }
+
+    private PaymentStore.RefundRequest classifyRefundRequest(
+            PaymentStore.RefundRequest refund, PaymentRequestFingerprint fingerprint) {
+        if (PaymentOperationState.LEGACY_UNREPLAYABLE.equals(refund.operationState())) {
+            throw paymentConflict("Legacy refund response cannot be replayed safely");
+        }
+        requireMatchingFingerprint(refund.requestFingerprint(), fingerprint);
+        if (!StringUtils.hasText(refund.merchantToken())) {
+            throw paymentConflict("Refund reservation is missing its merchant idempotency token");
+        }
+        if (PaymentOperationState.COMPLETED.equals(refund.operationState()) && refund.responseSnapshot() == null) {
+            throw paymentConflict("Refund response snapshot is unavailable");
+        }
+        if (!PaymentOperationState.RESERVED.equals(refund.operationState())
+                && !PaymentOperationState.COMPLETED.equals(refund.operationState())) {
+            throw paymentConflict("Refund reservation has an invalid idempotency state");
+        }
+        return refund;
+    }
+
+    private RefundCompletion completeRefund(
+            String paymentNo,
+            String key,
+            PaymentRequestFingerprint fingerprint,
+            PaymentGatewayResult gatewayResult,
+            Consumer<PaymentOrder> accessCheck) {
+        return transactionOperations.execute(status -> paymentStore
+                .withLockedPayment(paymentNo, payment -> {
+                    accessCheck.accept(payment);
+                    PaymentStore.RefundRequest reserved = paymentStore
+                            .findRefundRequest(payment.id(), key)
+                            .map(refund -> classifyRefundRequest(refund, fingerprint))
+                            .orElseThrow(() -> paymentConflict("Refund reservation is missing"));
+                    if (PaymentOperationState.COMPLETED.equals(reserved.operationState())) {
+                        return new RefundCompletion(payment, reserved, false);
+                    }
+                    BigDecimal amount = reserved.ledger().amount();
+                    if (amount.compareTo(payment.refundableAmount()) > 0) {
+                        throw paymentConflict("Reserved refund exceeds the remaining refundable amount");
+                    }
+                    PaymentEvent event = amount.compareTo(payment.refundableAmount()) == 0
+                            ? PaymentEvent.REFUND_ALL
+                            : PaymentEvent.REFUND_PARTIAL;
+                    PaymentStatus nextStatus = transitionResolver.nextStatus(payment.status(), event);
+                    PaymentOrder updated = paymentStore.savePayment(payment.refund(amount, nextStatus, now()));
+                    PaymentLedgerEntry completedLedger = new PaymentLedgerEntry(
+                            reserved.ledger().id(),
+                            reserved.ledger().paymentId(),
+                            reserved.ledger().orderId(),
+                            reserved.ledger().userId(),
+                            reserved.ledger().type(),
+                            amount,
+                            PaymentLedgerStatus.SUCCESS,
+                            reserved.ledger().requestKey(),
+                            gatewayResult.providerTradeNo(),
+                            reserved.ledger().createTime());
+                    RefundResponseSnapshot responseSnapshot = RefundResponseSnapshot.capture(updated, completedLedger);
+                    PaymentStore.RefundRequest completed = paymentStore.saveLedger(
+                            completedLedger,
+                            fingerprint.value(),
+                            PaymentOperationState.COMPLETED,
+                            reserved.merchantToken(),
+                            responseSnapshot);
+                    return new RefundCompletion(updated, completed, true);
+                })
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Payment order does not exist")));
+    }
+
+    private void auditRefund(PaymentOrder payment, PaymentLedgerEntry ledger, RefundAuditContext auditContext) {
+        BigDecimal amount = ledger.amount();
         String detail = auditContext.includeOwner()
                 ? "orderId=" + payment.orderId() + ",ownerUserId=" + payment.userId() + ",amount=" + amount + ",status="
-                        + updated.status()
-                : "amount=" + amount + ",status=" + updated.status();
+                        + payment.status()
+                : "amount=" + amount + ",status=" + payment.status();
         if (auditContext.reliable()) {
             auditService.recordReliable(
                     auditContext.eventType(),
@@ -434,7 +607,10 @@ public class PaymentApplicationService {
                     auditContext.sourceIp(),
                     detail);
         }
-        return PaymentDtoAssembler.toRefundResponse(updated, ledger);
+    }
+
+    private static BusinessException paymentConflict(String message) {
+        return new BusinessException(ErrorCode.CONFLICT, message);
     }
 
     private PaymentOrder confirmPayment(PaymentOrder payment, String providerTradeNo, String requestKey) {
@@ -735,4 +911,11 @@ public class PaymentApplicationService {
             String sourceIp,
             boolean includeOwner,
             boolean reliable) {}
+
+    private record PaymentCompletion(PaymentStore.PaymentIntent intent, boolean completedNow) {}
+
+    private record RefundReservation(
+            PaymentOrder payment, PaymentStore.RefundRequest refund, PaymentRequestFingerprint fingerprint) {}
+
+    private record RefundCompletion(PaymentOrder payment, PaymentStore.RefundRequest refund, boolean completedNow) {}
 }

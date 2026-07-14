@@ -6,16 +6,14 @@ import com.example.monkey.payment.application.dto.PaymentResponseDto;
 import com.example.monkey.payment.domain.PaymentLedgerEntry;
 import com.example.monkey.payment.domain.PaymentOrder;
 import com.example.monkey.payment.domain.PaymentReconciliationReport;
+import com.example.monkey.payment.domain.PaymentResponseSnapshot;
+import com.example.monkey.payment.domain.RefundResponseSnapshot;
 
 public final class PaymentDtoAssembler {
 
     private PaymentDtoAssembler() {}
 
     public static PaymentResponseDto toResponse(PaymentOrder payment) {
-        return toResponse(payment, null);
-    }
-
-    public static PaymentResponseDto toResponse(PaymentOrder payment, String paymentUrl) {
         return new PaymentResponseDto(
                 payment.id(),
                 payment.paymentNo(),
@@ -28,8 +26,26 @@ public final class PaymentDtoAssembler {
                 payment.status(),
                 payment.providerTradeNo(),
                 payment.bankCardLast4(),
-                paymentUrl,
+                null,
                 payment.paidAt(),
+                payment.createTime());
+    }
+
+    public static PaymentResponseDto toResponse(PaymentOrder payment, PaymentResponseSnapshot snapshot) {
+        return new PaymentResponseDto(
+                payment.id(),
+                payment.paymentNo(),
+                payment.orderId(),
+                payment.userId(),
+                payment.method(),
+                payment.amount(),
+                snapshot.paidAmount(),
+                snapshot.refundedAmount(),
+                snapshot.status(),
+                snapshot.providerTradeNo(),
+                payment.bankCardLast4(),
+                snapshot.paymentUrl(),
+                snapshot.paidAt(),
                 payment.createTime());
     }
 
@@ -41,6 +57,18 @@ public final class PaymentDtoAssembler {
                 payment.refundedAmount(),
                 payment.status(),
                 ledger.status(),
+                ledger.createTime());
+    }
+
+    public static PaymentRefundResponseDto toRefundResponse(
+            PaymentOrder payment, PaymentLedgerEntry ledger, RefundResponseSnapshot snapshot) {
+        return new PaymentRefundResponseDto(
+                ledger.id(),
+                payment.paymentNo(),
+                ledger.amount(),
+                snapshot.refundedAmount(),
+                snapshot.paymentStatus(),
+                snapshot.ledgerStatus(),
                 ledger.createTime());
     }
 

@@ -1,6 +1,7 @@
 package com.example.monkey.payment.infrastructure;
 
 import com.example.monkey.payment.domain.PaymentMethod;
+import com.example.monkey.payment.domain.PaymentOperationState;
 import com.example.monkey.payment.domain.PaymentStatus;
 import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
@@ -9,12 +10,18 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.Version;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "payment_order")
+@Table(
+        name = "payment_order",
+        uniqueConstraints =
+                @UniqueConstraint(
+                        name = "uk_payment_order_user_key",
+                        columnNames = {"tenant_id", "user_id", "idempotency_key"}))
 public class PaymentOrderEntity extends TenantScopedJpaEntity {
 
     @Id
@@ -52,8 +59,30 @@ public class PaymentOrderEntity extends TenantScopedJpaEntity {
     @Column(nullable = false, columnDefinition = "CHAR(64)")
     private String requestFingerprint;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    private PaymentOperationState operationState;
+
+    @Column(length = 128)
+    private String merchantToken;
+
     @Column(length = 2048)
     private String paymentUrl;
+
+    @Column(precision = 10, scale = 2)
+    private BigDecimal responsePaidAmount;
+
+    @Column(precision = 10, scale = 2)
+    private BigDecimal responseRefundedAmount;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 32)
+    private PaymentStatus responseStatus;
+
+    @Column(length = 96)
+    private String responseProviderTradeNo;
+
+    private LocalDateTime responsePaidAt;
 
     @Column(length = 96)
     private String providerTradeNo;
@@ -166,12 +195,68 @@ public class PaymentOrderEntity extends TenantScopedJpaEntity {
         this.requestFingerprint = requestFingerprint;
     }
 
+    public PaymentOperationState getOperationState() {
+        return operationState;
+    }
+
+    public void setOperationState(PaymentOperationState operationState) {
+        this.operationState = operationState;
+    }
+
+    public String getMerchantToken() {
+        return merchantToken;
+    }
+
+    public void setMerchantToken(String merchantToken) {
+        this.merchantToken = merchantToken;
+    }
+
     public String getPaymentUrl() {
         return paymentUrl;
     }
 
     public void setPaymentUrl(String paymentUrl) {
         this.paymentUrl = paymentUrl;
+    }
+
+    public BigDecimal getResponsePaidAmount() {
+        return responsePaidAmount;
+    }
+
+    public void setResponsePaidAmount(BigDecimal responsePaidAmount) {
+        this.responsePaidAmount = responsePaidAmount;
+    }
+
+    public BigDecimal getResponseRefundedAmount() {
+        return responseRefundedAmount;
+    }
+
+    public void setResponseRefundedAmount(BigDecimal responseRefundedAmount) {
+        this.responseRefundedAmount = responseRefundedAmount;
+    }
+
+    public PaymentStatus getResponseStatus() {
+        return responseStatus;
+    }
+
+    public void setResponseStatus(PaymentStatus responseStatus) {
+        this.responseStatus = responseStatus;
+    }
+
+    public String getResponseProviderTradeNo() {
+        return responseProviderTradeNo;
+    }
+
+    public void setResponseProviderTradeNo(String responseProviderTradeNo) {
+        this.responseProviderTradeNo = responseProviderTradeNo;
+    }
+
+    public LocalDateTime getResponsePaidAt() {
+        return responsePaidAt;
+    }
+
+    public void setResponsePaidAt(LocalDateTime responsePaidAt) {
+        this.responsePaidAt = responsePaidAt;
     }
 
     public String getProviderTradeNo() {

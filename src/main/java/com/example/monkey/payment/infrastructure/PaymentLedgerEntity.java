@@ -2,6 +2,8 @@ package com.example.monkey.payment.infrastructure;
 
 import com.example.monkey.payment.domain.PaymentLedgerStatus;
 import com.example.monkey.payment.domain.PaymentLedgerType;
+import com.example.monkey.payment.domain.PaymentOperationState;
+import com.example.monkey.payment.domain.PaymentStatus;
 import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -45,8 +47,26 @@ public class PaymentLedgerEntity extends TenantScopedJpaEntity {
     @Column(columnDefinition = "CHAR(64)")
     private String requestFingerprint;
 
+    @Enumerated(EnumType.STRING)
+    @Column(length = 32)
+    private PaymentOperationState operationState;
+
+    @Column(length = 128)
+    private String merchantToken;
+
     @Column(length = 96)
     private String providerTradeNo;
+
+    @Column(precision = 10, scale = 2)
+    private BigDecimal responseRefundedAmount;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 32)
+    private PaymentStatus responsePaymentStatus;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 32)
+    private PaymentLedgerStatus responseLedgerStatus;
 
     @Column(nullable = false)
     private LocalDateTime createTime;
@@ -123,12 +143,52 @@ public class PaymentLedgerEntity extends TenantScopedJpaEntity {
         this.requestFingerprint = requestFingerprint;
     }
 
+    public PaymentOperationState getOperationState() {
+        return operationState;
+    }
+
+    public void setOperationState(PaymentOperationState operationState) {
+        this.operationState = operationState;
+    }
+
+    public String getMerchantToken() {
+        return merchantToken;
+    }
+
+    public void setMerchantToken(String merchantToken) {
+        this.merchantToken = merchantToken;
+    }
+
     public String getProviderTradeNo() {
         return providerTradeNo;
     }
 
     public void setProviderTradeNo(String providerTradeNo) {
         this.providerTradeNo = providerTradeNo;
+    }
+
+    public BigDecimal getResponseRefundedAmount() {
+        return responseRefundedAmount;
+    }
+
+    public void setResponseRefundedAmount(BigDecimal responseRefundedAmount) {
+        this.responseRefundedAmount = responseRefundedAmount;
+    }
+
+    public PaymentStatus getResponsePaymentStatus() {
+        return responsePaymentStatus;
+    }
+
+    public void setResponsePaymentStatus(PaymentStatus responsePaymentStatus) {
+        this.responsePaymentStatus = responsePaymentStatus;
+    }
+
+    public PaymentLedgerStatus getResponseLedgerStatus() {
+        return responseLedgerStatus;
+    }
+
+    public void setResponseLedgerStatus(PaymentLedgerStatus responseLedgerStatus) {
+        this.responseLedgerStatus = responseLedgerStatus;
     }
 
     public LocalDateTime getCreateTime() {

@@ -13,8 +13,8 @@ import org.springframework.stereotype.Component;
 public class SandboxPaymentGateway implements PaymentGateway {
 
     @Override
-    public PaymentGatewayResult create(PaymentOrder payment) {
-        String tradeNo = "SANDBOX-" + payment.method() + "-" + payment.paymentNo();
+    public PaymentGatewayResult create(PaymentOrder payment, String merchantToken) {
+        String tradeNo = "SANDBOX-" + payment.method() + "-" + merchantToken;
         return new PaymentGatewayResult(
                 PaymentStatus.PENDING, tradeNo, "/sandbox/payments/" + payment.paymentNo(), payment.amount());
     }
@@ -25,8 +25,7 @@ public class SandboxPaymentGateway implements PaymentGateway {
     }
 
     @Override
-    public PaymentGatewayResult refund(PaymentOrder payment, BigDecimal amount, String requestKey) {
-        return new PaymentGatewayResult(
-                PaymentStatus.REFUNDED, "RF-" + payment.paymentNo() + "-" + requestKey, null, amount);
+    public PaymentGatewayResult refund(PaymentOrder payment, BigDecimal amount, String merchantToken) {
+        return new PaymentGatewayResult(PaymentStatus.REFUNDED, "RF-" + merchantToken, null, amount);
     }
 }

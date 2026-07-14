@@ -4,9 +4,9 @@ import java.math.BigDecimal;
 
 public interface PaymentGateway {
 
-    PaymentGatewayResult create(PaymentOrder payment);
+    PaymentGatewayResult create(PaymentOrder payment, String merchantToken);
 
     PaymentGatewayResult query(PaymentOrder payment);
 
-    PaymentGatewayResult refund(PaymentOrder payment, BigDecimal amount, String requestKey);
+    PaymentGatewayResult refund(PaymentOrder payment, BigDecimal amount, String merchantToken);
 }
