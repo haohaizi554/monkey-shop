@@ -484,7 +484,16 @@ public class PaymentApplicationService {
                     nextAfterTenantId = tenantId;
                 }
 
-                if (tenantIds.size() < QUERY_BATCH_SIZE || nextAfterTenantId <= afterTenantId) {
+                if (nextAfterTenantId <= afterTenantId) {
+                    log.error(
+                            "Payment {} tenant page did not advance after tenant {}; pageSize={}",
+                            taskName,
+                            afterTenantId,
+                            tenantIds.size());
+                    throw new IllegalStateException(
+                            "Payment " + taskName + " tenant page did not advance after tenant " + afterTenantId);
+                }
+                if (tenantIds.size() < QUERY_BATCH_SIZE) {
                     return;
                 }
                 afterTenantId = nextAfterTenantId;

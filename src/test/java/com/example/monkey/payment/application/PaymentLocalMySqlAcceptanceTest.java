@@ -50,8 +50,6 @@ import com.example.monkey.user.domain.UserAccountStore;
 import com.example.monkey.user.domain.UserMfaVerifier;
 import java.math.BigDecimal;
 import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -83,7 +81,6 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -117,15 +114,17 @@ class PaymentLocalMySqlAcceptanceTest {
     private final PiiCryptoService piiCryptoService;
     private final AuditLogRepository auditLogRepository;
     private final PlatformTransactionManager transactionManager;
+    private final DataSource dataSource;
     private final JdbcTemplate jdbcTemplate;
     private final Map<Long, OrderRecord> visibleOrders = new java.util.concurrent.ConcurrentHashMap<>();
     private final AtomicLong ids = new AtomicLong(970_100L);
     private RecordingGateway gateway;
     private PaymentApplicationService service;
+    private boolean restoreSchemaAfterTest;
 
     @DynamicPropertySource
     static void mysqlProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", () -> requiredProperty("task4.mysql.url"));
+        registry.add("spring.datasource.url", PaymentLocalMySqlAcceptanceTest::requiredIsolatedMysqlUrl);
         registry.add("spring.datasource.username", () -> System.getProperty("task4.mysql.username", "root"));
         registry.add("spring.datasource.password", () -> System.getProperty("task4.mysql.password", ""));
         registry.add("spring.datasource.driver-class-name", () -> "com.mysql.cj.jdbc.Driver");
@@ -146,6 +145,7 @@ class PaymentLocalMySqlAcceptanceTest {
         this.piiCryptoService = piiCryptoService;
         this.auditLogRepository = auditLogRepository;
         this.transactionManager = transactionManager;
+        this.dataSource = dataSource;
         this.jdbcTemplate = new JdbcTemplate(dataSource);
     }
 
@@ -170,7 +170,14 @@ class PaymentLocalMySqlAcceptanceTest {
 
     @AfterEach
     void clearTenant() {
-        TenantContext.clear();
+        try {
+            if (restoreSchemaAfterTest) {
+                restoreSchemaAtV51();
+            }
+        } finally {
+            restoreSchemaAfterTest = false;
+            TenantContext.clear();
+        }
     }
 
     @Test
@@ -187,53 +194,100 @@ class PaymentLocalMySqlAcceptanceTest {
     }
 
     @Test
+    void foregroundSameKeyConvergesOnOneResponseRowAndProviderCall() throws Exception {
+        allowOrder(970_001L, 1L);
+        BlockingGateway blockingGateway = new BlockingGateway();
+        PaymentApplicationService createService = applicationService(blockingGateway, mock(AuditService.class));
+        PaymentCreateRequestDto request = new PaymentCreateRequestDto(970_001L, PaymentMethod.WECHAT, null, null);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<PaymentResponseDto> winner =
+                    executor.submit(() -> createService.createPayment(USER, request, "local-same-key"));
+            blockingGateway.awaitCreate();
+            Future<Object> duplicate = executor.submit(() -> {
+                try {
+                    return createService.createPayment(USER, request, "local-same-key");
+                } catch (RuntimeException exception) {
+                    return exception;
+                }
+            });
+
+            assertThat(duplicate.get(10, TimeUnit.SECONDS))
+                    .isInstanceOfSatisfying(
+                            BusinessException.class,
+                            failure -> assertThat(failure.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+            blockingGateway.releaseCreate();
+            PaymentResponseDto response = winner.get(10, TimeUnit.SECONDS);
+            PaymentResponseDto replay = createService.createPayment(USER, request, "local-same-key");
+            Map<String, Object> row = jdbcTemplate.queryForMap("""
+                    SELECT payment_no, merchant_token
+                    FROM payment_order
+                    WHERE user_id = 42 AND idempotency_key = 'local-same-key'
+                    """);
+
+            assertThat(replay).isEqualTo(response);
+            assertThat(response.paymentNo()).isEqualTo(row.get("payment_no"));
+            assertThat(row.get("merchant_token")).isEqualTo(response.paymentNo());
+            assertThat(jdbcTemplate.queryForObject("""
+                            SELECT COUNT(*) FROM payment_order
+                            WHERE user_id = 42 AND idempotency_key = 'local-same-key'
+                            """, Long.class)).isEqualTo(1L);
+            assertThat(blockingGateway.createTokens()).containsExactly(response.paymentNo());
+            assertThat(blockingGateway.createCalls()).isEqualTo(1);
+        } finally {
+            blockingGateway.releaseCreate();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     void v50LegacyDuplicateBlocksThenRepairMigratesThroughV51() throws Exception {
-        String url = requiredProperty("task4.mysql.legacy-url");
-        String username = System.getProperty("task4.mysql.username", "root");
-        String password = System.getProperty("task4.mysql.password", "");
-        Flyway flyway = Flyway.configure()
-                .dataSource(url, username, password)
+        restoreSchemaAfterTest = true;
+        Flyway v50 = Flyway.configure()
+                .dataSource(dataSource)
+                .cleanDisabled(false)
                 .target(MigrationVersion.fromVersion("50"))
                 .load();
-        flyway.migrate();
-        try (Connection connection = DriverManager.getConnection(url, username, password)) {
+        v50.clean();
+        v50.migrate();
+        try (Connection connection = dataSource.getConnection()) {
             ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/fixtures/payment_v50_task4_review.sql"));
         }
 
-        Flyway latest = Flyway.configure().dataSource(url, username, password).load();
+        Flyway latest =
+                Flyway.configure().dataSource(dataSource).cleanDisabled(false).load();
         Throwable blocked = catchThrowable(latest::migrate);
 
         assertThat(blocked).isNotNull();
         assertThat(causeMessages(blocked)).contains("ck_v51_resolve_duplicate_active_payment_intents");
-
-        JdbcTemplate fixtureJdbc = new JdbcTemplate(new DriverManagerDataSource(url, username, password));
-        assertThat(fixtureJdbc.update("DELETE FROM payment_order WHERE id = 905102"))
+        assertThat(jdbcTemplate.update("DELETE FROM payment_order WHERE id = 905102"))
                 .isEqualTo(1);
         latest.repair();
         latest.migrate();
 
-        assertThat(fixtureJdbc.queryForObject("""
-                        SELECT version
-                        FROM flyway_schema_history
-                        WHERE success = 1
-                        ORDER BY installed_rank DESC
-                        LIMIT 1
-                        """, String.class)).isEqualTo("51");
-        assertThat(fixtureJdbc.queryForMap("""
-                        SELECT operation_state, attempt_count, lease_expires_at,
-                               last_failure_classification, terminal_failure_code
-                        FROM payment_order WHERE id = 905103
-                        """))
+        assertThat(jdbcTemplate.queryForObject("""
+                            SELECT version
+                            FROM flyway_schema_history
+                            WHERE success = 1
+                            ORDER BY installed_rank DESC
+                            LIMIT 1
+                            """, String.class)).isEqualTo("51");
+        assertThat(jdbcTemplate.queryForMap("""
+                            SELECT operation_state, attempt_count, lease_expires_at,
+                                   last_failure_classification, terminal_failure_code
+                            FROM payment_order WHERE id = 905103
+                            """))
                 .containsEntry("operation_state", "LEGACY_UNREPLAYABLE")
                 .containsEntry("attempt_count", 0)
                 .containsEntry("lease_expires_at", null)
                 .containsEntry("last_failure_classification", "LEGACY_UNKNOWN")
                 .containsEntry("terminal_failure_code", null);
-        assertThat(fixtureJdbc.queryForMap("""
-                        SELECT operation_state, attempt_count, lease_expires_at,
-                               last_failure_classification, terminal_failure_code, audit_state
-                        FROM payment_ledger WHERE id = 905104
-                        """))
+        assertThat(jdbcTemplate.queryForMap("""
+                            SELECT operation_state, attempt_count, lease_expires_at,
+                                   last_failure_classification, terminal_failure_code, audit_state
+                            FROM payment_ledger WHERE id = 905104
+                            """))
                 .containsEntry("operation_state", "LEGACY_UNREPLAYABLE")
                 .containsEntry("attempt_count", 0)
                 .containsEntry("lease_expires_at", null)
@@ -241,12 +295,12 @@ class PaymentLocalMySqlAcceptanceTest {
                 .containsEntry("terminal_failure_code", null)
                 .containsEntry("audit_state", "NONE");
 
-        Map<String, Object> legacyPending = fixtureJdbc.queryForMap("""
-                SELECT operation_state, attempt_count, lease_expires_at,
-                       last_failure_classification, query_attempt_count,
-                       query_lease_expires_at, next_query_at, request_fingerprint
-                FROM payment_order WHERE id = 905105
-                """);
+        Map<String, Object> legacyPending = jdbcTemplate.queryForMap("""
+                    SELECT operation_state, attempt_count, lease_expires_at,
+                           last_failure_classification, query_attempt_count,
+                           query_lease_expires_at, next_query_at, request_fingerprint
+                    FROM payment_order WHERE id = 905105
+                    """);
         assertThat(legacyPending)
                 .containsEntry("operation_state", "LEGACY_UNREPLAYABLE")
                 .containsEntry("attempt_count", 0)
@@ -256,31 +310,28 @@ class PaymentLocalMySqlAcceptanceTest {
                 .containsEntry("query_lease_expires_at", null);
         assertThat(legacyPending.get("next_query_at")).isNotNull();
 
-        allowOrder(970_019L, 1L);
-        paymentOrderRepository.saveAndFlush(legacyQueryReadyPayment(
-                970_460L,
-                970_019L,
-                "PAY970460",
-                "local-legacy-pending",
-                legacyPending.get("request_fingerprint").toString(),
-                toLocalDateTime(legacyPending.get("next_query_at"))));
+        allowOrder(905_100L, 1L, 905_101L);
+        allowOrder(905_105L, 1L, 905_105L);
         gateway.queryResult =
                 new PaymentGatewayResult(PaymentStatus.PAID, "LOCAL-LEGACY-QUERY", null, new BigDecimal("100.00"));
 
-        assertThat(service.queryTimedOutPayments()).isEqualTo(1);
+        assertThat(service.queryTimedOutPayments()).isEqualTo(2);
         Throwable replay = catchThrowable(() -> service.createPayment(
-                USER, new PaymentCreateRequestDto(970_019L, PaymentMethod.WECHAT, null, null), "local-legacy-pending"));
+                new SessionUser(905_105L, "USER"),
+                new PaymentCreateRequestDto(905_105L, PaymentMethod.WECHAT, null, null),
+                "task4-legacy-pending-key"));
 
-        assertThat(gateway.queryPaymentNos).containsExactly("PAY970460");
+        assertThat(gateway.queryPaymentNos)
+                .containsExactlyInAnyOrder("TASK4-DUPLICATE-PAYMENT-1", "TASK4-LEGACY-PENDING");
         assertThat(gateway.createTokens).isEmpty();
         assertThat(replay)
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         failure -> assertThat(failure.errorCode()).isEqualTo(ErrorCode.CONFLICT));
         assertThat(jdbcTemplate.queryForMap("""
-                        SELECT status, operation_state, query_attempt_count, next_query_at
-                        FROM payment_order WHERE id = 970460
-                        """))
+                            SELECT status, operation_state, query_attempt_count, next_query_at
+                            FROM payment_order WHERE id = 905105
+                            """))
                 .containsEntry("status", "PAID")
                 .containsEntry("operation_state", "LEGACY_UNREPLAYABLE")
                 .containsEntry("query_attempt_count", 1)
@@ -888,15 +939,26 @@ class PaymentLocalMySqlAcceptanceTest {
     }
 
     private void allowOrder(Long orderId, Long tenantId) {
+        allowOrder(orderId, tenantId, 42L);
+    }
+
+    private void allowOrder(Long orderId, Long tenantId, Long userId) {
         jdbcTemplate.update(
                 "INSERT INTO orders (id, order_no, user_id, price, status, tenant_id) VALUES (?, ?, ?, ?, ?, ?)",
                 orderId,
                 "ORD" + orderId,
-                42L,
+                userId,
                 new BigDecimal("100.00"),
                 "PAID",
                 tenantId);
-        visibleOrders.put(orderId, order(orderId));
+        visibleOrders.put(orderId, order(orderId, userId));
+    }
+
+    private void restoreSchemaAtV51() {
+        Flyway latest =
+                Flyway.configure().dataSource(dataSource).cleanDisabled(false).load();
+        latest.clean();
+        latest.migrate();
     }
 
     private static int recoverAfter(CountDownLatch start, PaymentApplicationService service) throws Exception {
@@ -905,10 +967,14 @@ class PaymentLocalMySqlAcceptanceTest {
     }
 
     private static OrderRecord order(Long orderId) {
+        return order(orderId, 42L);
+    }
+
+    private static OrderRecord order(Long orderId, Long userId) {
         return new OrderRecord(
                 orderId,
                 "ORD" + orderId,
-                42L,
+                userId,
                 "buyer",
                 null,
                 7L,
@@ -975,39 +1041,6 @@ class PaymentLocalMySqlAcceptanceTest {
         entity.setQueryLeaseExpiresAt(null);
         entity.setNextQueryAt(LocalDateTime.now().minusMinutes(1));
         return entity;
-    }
-
-    private static PaymentOrderEntity legacyQueryReadyPayment(
-            Long id,
-            Long orderId,
-            String paymentNo,
-            String idempotencyKey,
-            String requestFingerprint,
-            LocalDateTime nextQueryAt) {
-        PaymentOrderEntity entity = reservedPayment(
-                id, orderId, paymentNo, idempotencyKey, 1L, LocalDateTime.now().minusMinutes(1));
-        entity.setRequestFingerprint(requestFingerprint);
-        entity.setOperationState(PaymentOperationState.LEGACY_UNREPLAYABLE);
-        entity.setAttemptCount(0);
-        entity.setLeaseExpiresAt(null);
-        entity.setLastFailureClassification(PaymentFailureClassification.LEGACY_UNKNOWN);
-        entity.setMerchantToken(null);
-        entity.setResponsePaidAmount(null);
-        entity.setResponseRefundedAmount(null);
-        entity.setResponseStatus(null);
-        entity.setResponseProviderTradeNo(null);
-        entity.setResponsePaidAt(null);
-        entity.setQueryAttemptCount(0);
-        entity.setQueryLeaseExpiresAt(null);
-        entity.setNextQueryAt(nextQueryAt);
-        return entity;
-    }
-
-    private static LocalDateTime toLocalDateTime(Object value) {
-        if (value instanceof LocalDateTime localDateTime) {
-            return localDateTime;
-        }
-        return ((Timestamp) value).toLocalDateTime();
     }
 
     private static PaymentOrderEntity paidPayment(
@@ -1093,6 +1126,14 @@ class PaymentLocalMySqlAcceptanceTest {
         return value;
     }
 
+    private static String requiredIsolatedMysqlUrl() {
+        String url = requiredProperty("task4.mysql.url");
+        if (!url.contains(":33316/")) {
+            throw new IllegalStateException("Task 4 local MySQL acceptance requires isolated port 33316");
+        }
+        return url;
+    }
+
     private static String causeMessages(Throwable failure) {
         StringBuilder messages = new StringBuilder();
         for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
@@ -1151,6 +1192,7 @@ class PaymentLocalMySqlAcceptanceTest {
     private static final class BlockingGateway implements PaymentGateway {
 
         private final AtomicInteger createCalls = new AtomicInteger();
+        private final List<String> createTokens = new CopyOnWriteArrayList<>();
         private final CountDownLatch createEntered = new CountDownLatch(1);
         private final CountDownLatch releaseCreate = new CountDownLatch(1);
 
@@ -1159,6 +1201,7 @@ class PaymentLocalMySqlAcceptanceTest {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive())
                     .isFalse();
             createCalls.incrementAndGet();
+            createTokens.add(merchantToken);
             createEntered.countDown();
             await(releaseCreate, "release local MySQL create");
             return new PaymentGatewayResult(
@@ -1189,6 +1232,10 @@ class PaymentLocalMySqlAcceptanceTest {
 
         private int createCalls() {
             return createCalls.get();
+        }
+
+        private List<String> createTokens() {
+            return List.copyOf(createTokens);
         }
     }
 

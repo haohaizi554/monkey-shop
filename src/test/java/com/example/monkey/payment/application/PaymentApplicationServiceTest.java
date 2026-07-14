@@ -197,7 +197,7 @@ class PaymentApplicationServiceTest {
     }
 
     @Test
-    void nonAdvancingRecoveryTenantPageStopsWithoutRepeatingTenantsAndRestoresContext() {
+    void nonAdvancingRecoveryTenantPageFailsWithoutRepeatingTenantsAndRestoresContext() {
         SequencedRecoveryTenantSource tenantSource =
                 new SequencedRecoveryTenantSource(List.of(tenantIds(1L, 100L), List.of(100L)));
         recoveryTenantSource = tenantSource;
@@ -205,7 +205,9 @@ class PaymentApplicationServiceTest {
         TenantContext.setTenantId(77L);
 
         try {
-            service.recoverExpiredOperationsScheduled();
+            assertThatThrownBy(service::recoverExpiredOperationsScheduled)
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("did not advance");
 
             assertThat(tenantSource.calls()).isEqualTo(2);
             assertThat(paymentStore.recoveryTenantQueries).containsExactlyElementsOf(tenantIds(1L, 100L));
