@@ -42,6 +42,9 @@ public class PaymentLedgerEntity extends TenantScopedJpaEntity {
     @Column(nullable = false, length = 128)
     private String requestKey;
 
+    @Column(columnDefinition = "CHAR(64)")
+    private String requestFingerprint;
+
     @Column(length = 96)
     private String providerTradeNo;
 
@@ -110,6 +113,14 @@ public class PaymentLedgerEntity extends TenantScopedJpaEntity {
 
     public void setRequestKey(String requestKey) {
         this.requestKey = requestKey;
+    }
+
+    public String getRequestFingerprint() {
+        return requestFingerprint;
+    }
+
+    public void setRequestFingerprint(String requestFingerprint) {
+        this.requestFingerprint = requestFingerprint;
     }
 
     public String getProviderTradeNo() {

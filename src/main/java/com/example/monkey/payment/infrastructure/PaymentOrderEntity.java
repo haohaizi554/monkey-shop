@@ -49,6 +49,12 @@ public class PaymentOrderEntity extends TenantScopedJpaEntity {
     @Column(nullable = false, length = 128)
     private String idempotencyKey;
 
+    @Column(nullable = false, columnDefinition = "CHAR(64)")
+    private String requestFingerprint;
+
+    @Column(length = 2048)
+    private String paymentUrl;
+
     @Column(length = 96)
     private String providerTradeNo;
 
@@ -150,6 +156,22 @@ public class PaymentOrderEntity extends TenantScopedJpaEntity {
 
     public void setIdempotencyKey(String idempotencyKey) {
         this.idempotencyKey = idempotencyKey;
+    }
+
+    public String getRequestFingerprint() {
+        return requestFingerprint;
+    }
+
+    public void setRequestFingerprint(String requestFingerprint) {
+        this.requestFingerprint = requestFingerprint;
+    }
+
+    public String getPaymentUrl() {
+        return paymentUrl;
+    }
+
+    public void setPaymentUrl(String paymentUrl) {
+        this.paymentUrl = paymentUrl;
     }
 
     public String getProviderTradeNo() {

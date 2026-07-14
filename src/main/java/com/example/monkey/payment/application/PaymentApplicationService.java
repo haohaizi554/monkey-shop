@@ -22,6 +22,7 @@ import com.example.monkey.payment.domain.PaymentLedgerType;
 import com.example.monkey.payment.domain.PaymentMethod;
 import com.example.monkey.payment.domain.PaymentOrder;
 import com.example.monkey.payment.domain.PaymentReconciliationReport;
+import com.example.monkey.payment.domain.PaymentRequestFingerprint;
 import com.example.monkey.payment.domain.PaymentStatus;
 import com.example.monkey.payment.domain.PaymentStore;
 import com.example.monkey.payment.domain.PaymentTransitionResolver;
@@ -156,10 +157,19 @@ public class PaymentApplicationService {
             SessionUser currentUser, PaymentCreateRequestDto request, String idempotencyKey) {
         Long userId = requireUserId(currentUser);
         String key = normalizeIdempotencyKey(idempotencyKey);
-        return paymentStore
-                .findByUserIdAndIdempotencyKey(userId, key)
-                .map(PaymentDtoAssembler::toResponse)
-                .orElseGet(() -> createPaymentLocked(userId, request, key));
+        OrderRecord order = orderStore
+                .findVisibleByIdAndUserId(request.orderId(), userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN, "Order is not available for payment"));
+        BigDecimal amount = money(order.price());
+        PaymentRequestFingerprint fingerprint =
+                PaymentRequestFingerprint.of(order.id(), request.method(), amount, "CNY");
+        PaymentStore.PaymentIntent existing =
+                paymentStore.findByUserIdAndIdempotencyKey(userId, key).orElse(null);
+        if (existing != null) {
+            requireMatchingFingerprint(existing.requestFingerprint(), fingerprint);
+            return PaymentDtoAssembler.toResponse(existing.payment(), existing.paymentUrl());
+        }
+        return createPaymentLocked(userId, request, key, order, amount, fingerprint);
     }
 
     @WithSpan("payment.callback")
@@ -195,10 +205,15 @@ public class PaymentApplicationService {
         return paymentStore
                 .withLockedPayment(request.paymentNo(), payment -> {
                     requireOwnedPayment(payment, userId);
+                    PaymentRequestFingerprint fingerprint =
+                            PaymentRequestFingerprint.ofRefund(payment.id(), request.amount(), request.reason());
                     return paymentStore
-                            .findLedger(payment.id(), PaymentLedgerType.REFUND, key)
-                            .map(ledger -> PaymentDtoAssembler.toRefundResponse(payment, ledger))
-                            .orElseGet(() -> refundLocked(payment, request, key));
+                            .findRefundRequest(payment.id(), key)
+                            .map(existing -> {
+                                requireMatchingFingerprint(existing.requestFingerprint(), fingerprint);
+                                return PaymentDtoAssembler.toRefundResponse(payment, existing.ledger());
+                            })
+                            .orElseGet(() -> refundLocked(payment, request, key, fingerprint));
                 })
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Payment order does not exist"));
     }
@@ -241,13 +256,19 @@ public class PaymentApplicationService {
         return paymentStore
                 .withLockedPayment(request.paymentNo(), payment -> {
                     requireMatchingOrderOwner(payment);
+                    PaymentRequestFingerprint fingerprint =
+                            PaymentRequestFingerprint.ofRefund(payment.id(), request.amount(), request.reason());
                     return paymentStore
-                            .findLedger(payment.id(), PaymentLedgerType.REFUND, key)
-                            .map(ledger -> PaymentDtoAssembler.toRefundResponse(payment, ledger))
+                            .findRefundRequest(payment.id(), key)
+                            .map(existing -> {
+                                requireMatchingFingerprint(existing.requestFingerprint(), fingerprint);
+                                return PaymentDtoAssembler.toRefundResponse(payment, existing.ledger());
+                            })
                             .orElseGet(() -> refundLocked(
                                     payment,
                                     request,
                                     key,
+                                    fingerprint,
                                     new RefundAuditContext(
                                             AuditService.PAYMENT_ADMIN_REFUNDED,
                                             adminUserId,
@@ -303,11 +324,13 @@ public class PaymentApplicationService {
                 reconcileInternal(PaymentMethod.WECHAT, LocalDate.now(clock).minusDays(1), List.of()));
     }
 
-    private PaymentResponseDto createPaymentLocked(Long userId, PaymentCreateRequestDto request, String key) {
-        OrderRecord order = orderStore
-                .findVisibleByIdAndUserId(request.orderId(), userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN, "Order is not available for payment"));
-        BigDecimal amount = money(order.price());
+    private PaymentResponseDto createPaymentLocked(
+            Long userId,
+            PaymentCreateRequestDto request,
+            String key,
+            OrderRecord order,
+            BigDecimal amount,
+            PaymentRequestFingerprint fingerprint) {
         requireMfaForHighValue(userId, amount, request.totpCode());
         String cardNo = normalizedCardNo(request.method(), request.bankCardNo());
         Long id = idGenerator.nextId();
@@ -330,30 +353,39 @@ public class PaymentApplicationService {
                 null,
                 now,
                 now);
-        PaymentOrder saved = paymentStore.savePayment(payment);
+        PaymentOrder saved =
+                paymentStore.savePayment(payment, fingerprint.value(), null).payment();
         PaymentGatewayResult gatewayResult = paymentGateway.create(saved);
-        PaymentOrder withTradeNo =
-                paymentStore.savePayment(saved.withProviderTradeNo(gatewayResult.providerTradeNo(), now()));
+        PaymentStore.PaymentIntent withTradeNo = paymentStore.savePayment(
+                saved.withProviderTradeNo(gatewayResult.providerTradeNo(), now()),
+                fingerprint.value(),
+                gatewayResult.paymentUrl());
         audit(
                 AuditService.PAYMENT_CREATED,
                 userId,
-                withTradeNo.paymentNo(),
+                withTradeNo.payment().paymentNo(),
                 null,
                 "orderId=" + order.id() + ",method=" + request.method());
-        return PaymentDtoAssembler.toResponse(withTradeNo, gatewayResult.paymentUrl());
+        return PaymentDtoAssembler.toResponse(withTradeNo.payment(), withTradeNo.paymentUrl());
     }
 
-    private PaymentRefundResponseDto refundLocked(PaymentOrder payment, PaymentRefundRequestDto request, String key) {
+    private PaymentRefundResponseDto refundLocked(
+            PaymentOrder payment, PaymentRefundRequestDto request, String key, PaymentRequestFingerprint fingerprint) {
         return refundLocked(
                 payment,
                 request,
                 key,
+                fingerprint,
                 new RefundAuditContext(
                         AuditService.PAYMENT_REFUNDED, payment.userId(), CUSTOMER_ROLE, null, false, false));
     }
 
     private PaymentRefundResponseDto refundLocked(
-            PaymentOrder payment, PaymentRefundRequestDto request, String key, RefundAuditContext auditContext) {
+            PaymentOrder payment,
+            PaymentRefundRequestDto request,
+            String key,
+            PaymentRequestFingerprint fingerprint,
+            RefundAuditContext auditContext) {
         BigDecimal amount = money(request.amount());
         if (amount.compareTo(BigDecimal.ZERO) <= 0 || amount.compareTo(payment.refundableAmount()) > 0) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Refund amount exceeds refundable amount");
@@ -364,17 +396,21 @@ public class PaymentApplicationService {
                 : PaymentEvent.REFUND_PARTIAL;
         PaymentStatus nextStatus = transitionResolver.nextStatus(payment.status(), event);
         PaymentOrder updated = paymentStore.savePayment(payment.refund(amount, nextStatus, now()));
-        PaymentLedgerEntry ledger = paymentStore.saveLedger(new PaymentLedgerEntry(
-                idGenerator.nextId(),
-                payment.id(),
-                payment.orderId(),
-                payment.userId(),
-                PaymentLedgerType.REFUND,
-                amount,
-                PaymentLedgerStatus.SUCCESS,
-                key,
-                gatewayResult.providerTradeNo(),
-                now()));
+        PaymentLedgerEntry ledger = paymentStore
+                .saveLedger(
+                        new PaymentLedgerEntry(
+                                idGenerator.nextId(),
+                                payment.id(),
+                                payment.orderId(),
+                                payment.userId(),
+                                PaymentLedgerType.REFUND,
+                                amount,
+                                PaymentLedgerStatus.SUCCESS,
+                                key,
+                                gatewayResult.providerTradeNo(),
+                                now()),
+                        fingerprint.value())
+                .ledger();
         String detail = auditContext.includeOwner()
                 ? "orderId=" + payment.orderId() + ",ownerUserId=" + payment.userId() + ",amount=" + amount + ",status="
                         + updated.status()
@@ -604,6 +640,14 @@ public class PaymentApplicationService {
     private static void assertAmountMatches(BigDecimal expected, BigDecimal actual) {
         if (money(expected).compareTo(money(actual)) != 0) {
             throw new BusinessException(ErrorCode.CONFLICT, "Payment callback amount does not match");
+        }
+    }
+
+    private static void requireMatchingFingerprint(
+            String storedFingerprint, PaymentRequestFingerprint requestFingerprint) {
+        if (!requestFingerprint.value().equals(storedFingerprint)) {
+            throw new BusinessException(
+                    ErrorCode.CONFLICT, "Idempotency-Key was already used for a different payment request");
         }
     }
 

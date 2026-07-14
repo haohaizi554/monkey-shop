@@ -53,10 +53,10 @@ public class JpaPaymentStore implements PaymentStore {
     }
 
     @Override
-    public Optional<PaymentOrder> findByUserIdAndIdempotencyKey(Long userId, String idempotencyKey) {
+    public Optional<PaymentIntent> findByUserIdAndIdempotencyKey(Long userId, String idempotencyKey) {
         return paymentOrderRepository
                 .findByUserIdAndIdempotencyKey(userId, idempotencyKey)
-                .map(this::toDomain);
+                .map(this::toPaymentIntent);
     }
 
     @Override
@@ -76,6 +76,13 @@ public class JpaPaymentStore implements PaymentStore {
     }
 
     @Override
+    public Optional<RefundRequest> findRefundRequest(Long paymentId, String requestKey) {
+        return paymentLedgerRepository
+                .findByPaymentIdAndLedgerTypeAndRequestKey(paymentId, PaymentLedgerType.REFUND, requestKey)
+                .map(JpaPaymentStore::toRefundRequest);
+    }
+
+    @Override
     public PaymentOrder savePayment(PaymentOrder payment) {
         PaymentOrderEntity existing = payment.id() == null
                 ? null
@@ -85,8 +92,28 @@ public class JpaPaymentStore implements PaymentStore {
     }
 
     @Override
+    public PaymentIntent savePayment(PaymentOrder payment, String requestFingerprint, String paymentUrl) {
+        PaymentOrderEntity existing = payment.id() == null
+                ? null
+                : paymentOrderRepository.findById(payment.id()).orElse(null);
+        PaymentOrderEntity entity = toEntity(payment, existing);
+        entity.setRequestFingerprint(requestFingerprint);
+        entity.setPaymentUrl(paymentUrl);
+        PaymentOrderEntity saved =
+                existing == null ? paymentOrderRepository.saveAndFlush(entity) : paymentOrderRepository.save(entity);
+        return toPaymentIntent(saved);
+    }
+
+    @Override
     public PaymentLedgerEntry saveLedger(PaymentLedgerEntry ledger) {
         return toDomain(paymentLedgerRepository.save(toEntity(ledger)));
+    }
+
+    @Override
+    public RefundRequest saveLedger(PaymentLedgerEntry ledger, String requestFingerprint) {
+        PaymentLedgerEntity entity = toEntity(ledger);
+        entity.setRequestFingerprint(requestFingerprint);
+        return toRefundRequest(paymentLedgerRepository.save(entity));
     }
 
     @Override
@@ -168,6 +195,10 @@ public class JpaPaymentStore implements PaymentStore {
                 entity.getUpdateTime());
     }
 
+    private PaymentIntent toPaymentIntent(PaymentOrderEntity entity) {
+        return new PaymentIntent(toDomain(entity), entity.getRequestFingerprint(), entity.getPaymentUrl());
+    }
+
     private static PaymentLedgerEntity toEntity(PaymentLedgerEntry ledger) {
         PaymentLedgerEntity entity = new PaymentLedgerEntity();
         entity.setId(ledger.id());
@@ -195,6 +226,10 @@ public class JpaPaymentStore implements PaymentStore {
                 entity.getRequestKey(),
                 entity.getProviderTradeNo(),
                 entity.getCreateTime());
+    }
+
+    private static RefundRequest toRefundRequest(PaymentLedgerEntity entity) {
+        return new RefundRequest(toDomain(entity), entity.getRequestFingerprint());
     }
 
     private PaymentReconciliationReportEntity toEntity(PaymentReconciliationReport report) {
