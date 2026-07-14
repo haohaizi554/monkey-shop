@@ -3,11 +3,15 @@ package com.example.monkey.payment.infrastructure;
 import com.example.monkey.payment.domain.PaymentLedgerEntry;
 import com.example.monkey.payment.domain.PaymentLedgerType;
 import com.example.monkey.payment.domain.PaymentMethod;
+import com.example.monkey.payment.domain.PaymentOperationState;
 import com.example.monkey.payment.domain.PaymentOrder;
 import com.example.monkey.payment.domain.PaymentReconciliationReport;
+import com.example.monkey.payment.domain.PaymentResponseSnapshot;
 import com.example.monkey.payment.domain.PaymentStatus;
 import com.example.monkey.payment.domain.PaymentStore;
+import com.example.monkey.payment.domain.RefundResponseSnapshot;
 import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -60,6 +64,19 @@ public class JpaPaymentStore implements PaymentStore {
     }
 
     @Override
+    public Optional<PaymentIntent> findActiveByOrderId(Long orderId) {
+        return paymentOrderRepository
+                .findFirstByOrderIdAndStatusInOrderByCreateTimeDesc(
+                        orderId,
+                        List.of(
+                                PaymentStatus.PENDING,
+                                PaymentStatus.PAID,
+                                PaymentStatus.PARTIALLY_REFUNDED,
+                                PaymentStatus.SUSPENDED))
+                .map(this::toPaymentIntent);
+    }
+
+    @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public <T> Optional<T> withLockedPayment(String paymentNo, Function<PaymentOrder, T> operation) {
         return paymentOrderRepository
@@ -83,6 +100,13 @@ public class JpaPaymentStore implements PaymentStore {
     }
 
     @Override
+    public BigDecimal sumAcceptedRefundAmount(Long paymentId) {
+        BigDecimal amount = paymentLedgerRepository.sumAmountByPaymentIdAndTypeAndStatus(
+                paymentId, PaymentLedgerType.REFUND, com.example.monkey.payment.domain.PaymentLedgerStatus.ACCEPTED);
+        return amount == null ? BigDecimal.ZERO : amount;
+    }
+
+    @Override
     public PaymentOrder savePayment(PaymentOrder payment) {
         PaymentOrderEntity existing = payment.id() == null
                 ? null
@@ -92,13 +116,20 @@ public class JpaPaymentStore implements PaymentStore {
     }
 
     @Override
-    public PaymentIntent savePayment(PaymentOrder payment, String requestFingerprint, String paymentUrl) {
+    public PaymentIntent savePayment(
+            PaymentOrder payment,
+            String requestFingerprint,
+            PaymentOperationState operationState,
+            String merchantToken,
+            PaymentResponseSnapshot responseSnapshot) {
         PaymentOrderEntity existing = payment.id() == null
                 ? null
                 : paymentOrderRepository.findById(payment.id()).orElse(null);
         PaymentOrderEntity entity = toEntity(payment, existing);
         entity.setRequestFingerprint(requestFingerprint);
-        entity.setPaymentUrl(paymentUrl);
+        entity.setOperationState(operationState);
+        entity.setMerchantToken(merchantToken);
+        applyResponseSnapshot(entity, responseSnapshot);
         PaymentOrderEntity saved =
                 existing == null ? paymentOrderRepository.saveAndFlush(entity) : paymentOrderRepository.save(entity);
         return toPaymentIntent(saved);
@@ -110,10 +141,24 @@ public class JpaPaymentStore implements PaymentStore {
     }
 
     @Override
-    public RefundRequest saveLedger(PaymentLedgerEntry ledger, String requestFingerprint) {
-        PaymentLedgerEntity entity = toEntity(ledger);
+    public RefundRequest saveLedger(
+            PaymentLedgerEntry ledger,
+            String requestFingerprint,
+            PaymentOperationState operationState,
+            String merchantToken,
+            RefundResponseSnapshot responseSnapshot) {
+        PaymentLedgerEntity entity = paymentLedgerRepository
+                .findById(ledger.id())
+                .map(existing -> toEntity(ledger, existing))
+                .orElseGet(() -> toEntity(ledger));
         entity.setRequestFingerprint(requestFingerprint);
-        return toRefundRequest(paymentLedgerRepository.save(entity));
+        entity.setOperationState(operationState);
+        entity.setMerchantToken(merchantToken);
+        applyResponseSnapshot(entity, responseSnapshot);
+        PaymentLedgerEntity saved = PaymentOperationState.RESERVED.equals(operationState)
+                ? paymentLedgerRepository.saveAndFlush(entity)
+                : paymentLedgerRepository.save(entity);
+        return toRefundRequest(saved);
     }
 
     @Override
@@ -196,11 +241,28 @@ public class JpaPaymentStore implements PaymentStore {
     }
 
     private PaymentIntent toPaymentIntent(PaymentOrderEntity entity) {
-        return new PaymentIntent(toDomain(entity), entity.getRequestFingerprint(), entity.getPaymentUrl());
+        PaymentResponseSnapshot snapshot = entity.getResponseStatus() == null
+                ? null
+                : new PaymentResponseSnapshot(
+                        entity.getResponsePaidAmount(),
+                        entity.getResponseRefundedAmount(),
+                        entity.getResponseStatus(),
+                        entity.getResponseProviderTradeNo(),
+                        entity.getPaymentUrl(),
+                        entity.getResponsePaidAt());
+        return new PaymentIntent(
+                toDomain(entity),
+                entity.getRequestFingerprint(),
+                entity.getOperationState(),
+                entity.getMerchantToken(),
+                snapshot);
     }
 
     private static PaymentLedgerEntity toEntity(PaymentLedgerEntry ledger) {
-        PaymentLedgerEntity entity = new PaymentLedgerEntity();
+        return toEntity(ledger, new PaymentLedgerEntity());
+    }
+
+    private static PaymentLedgerEntity toEntity(PaymentLedgerEntry ledger, PaymentLedgerEntity entity) {
         entity.setId(ledger.id());
         entity.setPaymentId(ledger.paymentId());
         entity.setOrderId(ledger.orderId());
@@ -229,7 +291,39 @@ public class JpaPaymentStore implements PaymentStore {
     }
 
     private static RefundRequest toRefundRequest(PaymentLedgerEntity entity) {
-        return new RefundRequest(toDomain(entity), entity.getRequestFingerprint());
+        RefundResponseSnapshot snapshot = entity.getResponsePaymentStatus() == null
+                ? null
+                : new RefundResponseSnapshot(
+                        entity.getResponseRefundedAmount(),
+                        entity.getResponsePaymentStatus(),
+                        entity.getResponseLedgerStatus());
+        return new RefundRequest(
+                toDomain(entity),
+                entity.getRequestFingerprint(),
+                entity.getOperationState(),
+                entity.getMerchantToken(),
+                snapshot);
+    }
+
+    private static void applyResponseSnapshot(PaymentOrderEntity entity, PaymentResponseSnapshot responseSnapshot) {
+        if (responseSnapshot == null) {
+            return;
+        }
+        entity.setResponsePaidAmount(responseSnapshot.paidAmount());
+        entity.setResponseRefundedAmount(responseSnapshot.refundedAmount());
+        entity.setResponseStatus(responseSnapshot.status());
+        entity.setResponseProviderTradeNo(responseSnapshot.providerTradeNo());
+        entity.setPaymentUrl(responseSnapshot.paymentUrl());
+        entity.setResponsePaidAt(responseSnapshot.paidAt());
+    }
+
+    private static void applyResponseSnapshot(PaymentLedgerEntity entity, RefundResponseSnapshot responseSnapshot) {
+        if (responseSnapshot == null) {
+            return;
+        }
+        entity.setResponseRefundedAmount(responseSnapshot.refundedAmount());
+        entity.setResponsePaymentStatus(responseSnapshot.paymentStatus());
+        entity.setResponseLedgerStatus(responseSnapshot.ledgerStatus());
     }
 
     private PaymentReconciliationReportEntity toEntity(PaymentReconciliationReport report) {

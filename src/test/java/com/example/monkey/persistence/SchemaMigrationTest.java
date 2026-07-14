@@ -11,6 +11,35 @@ import org.junit.jupiter.api.Test;
 class SchemaMigrationTest {
 
     @Test
+    void v51GuardsLegacyIdempotencyAndDuplicateActivePaymentIntents() throws IOException {
+        String v51 = read("src/main/resources/db/migration/V51__payment_request_fingerprints.sql");
+
+        assertThat(v51)
+                .contains("SIGNAL SQLSTATE '45000'")
+                .contains("V51 blocked: duplicate active payment intents")
+                .contains("operation_state VARCHAR(32) NOT NULL DEFAULT 'LEGACY_UNREPLAYABLE'")
+                .contains("merchant_token VARCHAR(128)")
+                .contains("response_paid_amount DECIMAL(10, 2)")
+                .contains("response_refunded_amount DECIMAL(10, 2)")
+                .contains("response_payment_status VARCHAR(32)")
+                .contains("response_ledger_status VARCHAR(32)")
+                .contains("CHECK (ledger_type <> 'REFUND' OR operation_state IS NOT NULL)")
+                .doesNotContain("'\"reason\":\"\"'");
+    }
+
+    @Test
+    void v50PaymentFixtureContainsDuplicateActiveIntentsAndUnverifiableLegacyRefund() throws IOException {
+        String fixture = read("src/test/resources/db/fixtures/payment_v50_task4_review.sql");
+
+        assertThat(fixture)
+                .contains("'TASK4-DUPLICATE-ORDER'")
+                .contains("'TASK4-DUPLICATE-PAYMENT-1'")
+                .contains("'TASK4-DUPLICATE-PAYMENT-2'")
+                .contains("'TASK4-LEGACY-REFUND-KEY'")
+                .contains("ledger_type, amount, status, request_key");
+    }
+
+    @Test
     void flywayIsBoundToValidatedJpaSchema() throws IOException {
         String pom = read("pom.xml");
         String application = read("src/main/resources/application.yml");

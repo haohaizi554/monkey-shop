@@ -25,6 +25,9 @@ public interface PaymentOrderRepository extends JpaRepository<PaymentOrderEntity
 
     Optional<PaymentOrderEntity> findByUserIdAndIdempotencyKey(Long userId, String idempotencyKey);
 
+    Optional<PaymentOrderEntity> findFirstByOrderIdAndStatusInOrderByCreateTimeDesc(
+            Long orderId, Collection<PaymentStatus> statuses);
+
     List<PaymentOrderEntity> findByStatusAndCreateTimeBeforeOrderByCreateTimeAsc(
             PaymentStatus status, LocalDateTime cutoff, Pageable pageable);
 

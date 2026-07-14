@@ -9,11 +9,14 @@ import com.example.monkey.payment.domain.PaymentLedgerEntry;
 import com.example.monkey.payment.domain.PaymentLedgerStatus;
 import com.example.monkey.payment.domain.PaymentLedgerType;
 import com.example.monkey.payment.domain.PaymentMethod;
+import com.example.monkey.payment.domain.PaymentOperationState;
 import com.example.monkey.payment.domain.PaymentOrder;
 import com.example.monkey.payment.domain.PaymentReconciliationReport;
 import com.example.monkey.payment.domain.PaymentRequestFingerprint;
+import com.example.monkey.payment.domain.PaymentResponseSnapshot;
 import com.example.monkey.payment.domain.PaymentStatus;
 import com.example.monkey.payment.domain.ReconciliationStatus;
+import com.example.monkey.payment.domain.RefundResponseSnapshot;
 import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
 import jakarta.persistence.LockModeType;
 import java.math.BigDecimal;
@@ -73,7 +76,13 @@ class JpaPaymentStoreTest {
         PaymentRequestFingerprint fingerprint =
                 PaymentRequestFingerprint.of(10L, PaymentMethod.BANK_CARD, new BigDecimal("100.00"), "CNY");
 
-        store.savePayment(bankCardPayment(), fingerprint.value(), "/payments/PAY100");
+        PaymentOrder payment = bankCardPayment();
+        store.savePayment(
+                payment,
+                fingerprint.value(),
+                PaymentOperationState.COMPLETED,
+                payment.paymentNo(),
+                PaymentResponseSnapshot.capture(payment, "/payments/PAY100"));
 
         PaymentOrderEntity entity = captureFlushedPayment();
         assertThat(entity.getRequestFingerprint()).isEqualTo(fingerprint.value());
@@ -109,19 +118,24 @@ class JpaPaymentStoreTest {
         PaymentRequestFingerprint fingerprint =
                 PaymentRequestFingerprint.ofRefund(100L, new BigDecimal("30.00"), "damaged item");
 
+        PaymentLedgerEntry ledger = new PaymentLedgerEntry(
+                200L,
+                100L,
+                10L,
+                42L,
+                PaymentLedgerType.REFUND,
+                new BigDecimal("30.00"),
+                PaymentLedgerStatus.SUCCESS,
+                "refund-key",
+                "refund-trade-1",
+                LocalDateTime.parse("2026-07-04T09:00:00"));
         store.saveLedger(
-                new PaymentLedgerEntry(
-                        200L,
-                        100L,
-                        10L,
-                        42L,
-                        PaymentLedgerType.REFUND,
-                        new BigDecimal("30.00"),
-                        PaymentLedgerStatus.SUCCESS,
-                        "refund-key",
-                        "refund-trade-1",
-                        LocalDateTime.parse("2026-07-04T09:00:00")),
-                fingerprint.value());
+                ledger,
+                fingerprint.value(),
+                PaymentOperationState.COMPLETED,
+                "PAY100:refund:200",
+                new RefundResponseSnapshot(
+                        new BigDecimal("30.00"), PaymentStatus.PARTIALLY_REFUNDED, PaymentLedgerStatus.SUCCESS));
 
         assertThat(captureLedger().getRequestFingerprint()).isEqualTo(fingerprint.value());
     }
