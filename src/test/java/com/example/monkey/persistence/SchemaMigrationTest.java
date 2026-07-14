@@ -22,6 +22,7 @@ class SchemaMigrationTest {
                 .contains("attempt_count INT NOT NULL DEFAULT 0")
                 .contains("lease_expires_at DATETIME(6)")
                 .contains("last_failure_classification VARCHAR(32) NOT NULL DEFAULT 'LEGACY_UNKNOWN'")
+                .contains("terminal_failure_code VARCHAR(64)")
                 .contains("merchant_token VARCHAR(128)")
                 .contains("response_paid_amount DECIMAL(10, 2)")
                 .contains("response_refunded_amount DECIMAL(10, 2)")
@@ -37,6 +38,8 @@ class SchemaMigrationTest {
                 .contains("operation_state IN ('RESERVED', 'RETRYABLE')")
                 .contains("status <> 'FAILED' OR operation_state NOT IN ('RESERVED', 'RETRYABLE')")
                 .contains("last_failure_classification = 'LEGACY_UNKNOWN'")
+                .contains("terminal_failure_code IS NOT NULL")
+                .contains("terminal_failure_code IN ('PROVIDER_REJECTED', 'CARD_DECLINED', 'REFUND_DECLINED')")
                 .contains("audit_state IN ('PENDING', 'DELIVERED')")
                 .contains("CHECK (ledger_type <> 'REFUND' OR operation_state IS NOT NULL)")
                 .doesNotContain("'\"reason\":\"\"'");

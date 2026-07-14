@@ -24,7 +24,8 @@ ALTER TABLE payment_order
     ADD COLUMN attempt_count INT NOT NULL DEFAULT 0 AFTER operation_state,
     ADD COLUMN lease_expires_at DATETIME(6) NULL AFTER attempt_count,
     ADD COLUMN last_failure_classification VARCHAR(32) NOT NULL DEFAULT 'LEGACY_UNKNOWN' AFTER lease_expires_at,
-    ADD COLUMN merchant_token VARCHAR(128) NULL AFTER last_failure_classification,
+    ADD COLUMN terminal_failure_code VARCHAR(64) NULL AFTER last_failure_classification,
+    ADD COLUMN merchant_token VARCHAR(128) NULL AFTER terminal_failure_code,
     ADD COLUMN payment_url VARCHAR(2048) NULL AFTER merchant_token,
     ADD COLUMN response_paid_amount DECIMAL(10, 2) NULL AFTER payment_url,
     ADD COLUMN response_refunded_amount DECIMAL(10, 2) NULL AFTER response_paid_amount,
@@ -43,7 +44,8 @@ SET request_fingerprint = LOWER(SHA2(CONCAT(
     operation_state = 'LEGACY_UNREPLAYABLE',
     attempt_count = 0,
     lease_expires_at = NULL,
-    last_failure_classification = 'LEGACY_UNKNOWN';
+    last_failure_classification = 'LEGACY_UNKNOWN',
+    terminal_failure_code = NULL;
 
 ALTER TABLE payment_order
     MODIFY COLUMN request_fingerprint CHAR(64) NOT NULL,
@@ -70,11 +72,13 @@ ALTER TABLE payment_order
                 AND attempt_count = 0
                 AND lease_expires_at IS NULL
                 AND last_failure_classification = 'LEGACY_UNKNOWN'
+                AND terminal_failure_code IS NULL
             )
             OR (
                 operation_state IN ('RESERVED', 'RETRYABLE')
                 AND attempt_count >= 1
                 AND lease_expires_at IS NOT NULL
+                AND terminal_failure_code IS NULL
                 AND merchant_token IS NOT NULL
                 AND (
                     operation_state = 'RESERVED'
@@ -85,6 +89,7 @@ ALTER TABLE payment_order
                 operation_state = 'COMPLETED'
                 AND attempt_count >= 1
                 AND lease_expires_at IS NULL
+                AND terminal_failure_code IS NULL
                 AND merchant_token IS NOT NULL
                 AND response_paid_amount IS NOT NULL
                 AND response_refunded_amount IS NOT NULL
@@ -95,6 +100,8 @@ ALTER TABLE payment_order
                 AND attempt_count >= 1
                 AND lease_expires_at IS NULL
                 AND last_failure_classification = 'PROVIDER_REJECTED'
+                AND terminal_failure_code IS NOT NULL
+                AND terminal_failure_code IN ('PROVIDER_REJECTED', 'CARD_DECLINED', 'REFUND_DECLINED')
                 AND merchant_token IS NOT NULL
                 AND status = 'FAILED'
             )
@@ -106,7 +113,8 @@ ALTER TABLE payment_ledger
     ADD COLUMN attempt_count INT NOT NULL DEFAULT 0 AFTER operation_state,
     ADD COLUMN lease_expires_at DATETIME(6) NULL AFTER attempt_count,
     ADD COLUMN last_failure_classification VARCHAR(32) NOT NULL DEFAULT 'NONE' AFTER lease_expires_at,
-    ADD COLUMN merchant_token VARCHAR(128) NULL AFTER last_failure_classification,
+    ADD COLUMN terminal_failure_code VARCHAR(64) NULL AFTER last_failure_classification,
+    ADD COLUMN merchant_token VARCHAR(128) NULL AFTER terminal_failure_code,
     ADD COLUMN response_refunded_amount DECIMAL(10, 2) NULL AFTER provider_trade_no,
     ADD COLUMN response_payment_status VARCHAR(32) NULL AFTER response_refunded_amount,
     ADD COLUMN response_ledger_status VARCHAR(32) NULL AFTER response_payment_status,
@@ -123,6 +131,7 @@ SET operation_state = 'LEGACY_UNREPLAYABLE',
     attempt_count = 0,
     lease_expires_at = NULL,
     last_failure_classification = 'LEGACY_UNKNOWN',
+    terminal_failure_code = NULL,
     audit_state = 'NONE',
     audit_include_owner = FALSE
 WHERE ledger_type = 'REFUND';
@@ -142,6 +151,7 @@ ALTER TABLE payment_ledger
                 AND attempt_count = 0
                 AND lease_expires_at IS NULL
                 AND last_failure_classification = 'NONE'
+                AND terminal_failure_code IS NULL
             )
         ),
     ADD CONSTRAINT ck_payment_ledger_operation_state
@@ -152,12 +162,14 @@ ALTER TABLE payment_ledger
                 AND attempt_count = 0
                 AND lease_expires_at IS NULL
                 AND last_failure_classification = 'LEGACY_UNKNOWN'
+                AND terminal_failure_code IS NULL
                 AND audit_state = 'NONE'
             )
             OR (
                 operation_state IN ('RESERVED', 'RETRYABLE')
                 AND attempt_count >= 1
                 AND lease_expires_at IS NOT NULL
+                AND terminal_failure_code IS NULL
                 AND request_fingerprint IS NOT NULL
                 AND merchant_token IS NOT NULL
                 AND status = 'ACCEPTED'
@@ -171,6 +183,7 @@ ALTER TABLE payment_ledger
                 operation_state = 'COMPLETED'
                 AND attempt_count >= 1
                 AND lease_expires_at IS NULL
+                AND terminal_failure_code IS NULL
                 AND request_fingerprint IS NOT NULL
                 AND merchant_token IS NOT NULL
                 AND status = 'SUCCESS'
@@ -184,6 +197,8 @@ ALTER TABLE payment_ledger
                 AND attempt_count >= 1
                 AND lease_expires_at IS NULL
                 AND last_failure_classification = 'PROVIDER_REJECTED'
+                AND terminal_failure_code IS NOT NULL
+                AND terminal_failure_code IN ('PROVIDER_REJECTED', 'CARD_DECLINED', 'REFUND_DECLINED')
                 AND request_fingerprint IS NOT NULL
                 AND merchant_token IS NOT NULL
                 AND status = 'FAILED'
