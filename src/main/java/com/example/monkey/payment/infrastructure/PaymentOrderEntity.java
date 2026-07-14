@@ -1,5 +1,6 @@
 package com.example.monkey.payment.infrastructure;
 
+import com.example.monkey.payment.domain.PaymentFailureClassification;
 import com.example.monkey.payment.domain.PaymentMethod;
 import com.example.monkey.payment.domain.PaymentOperationState;
 import com.example.monkey.payment.domain.PaymentStatus;
@@ -62,6 +63,15 @@ public class PaymentOrderEntity extends TenantScopedJpaEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 32)
     private PaymentOperationState operationState;
+
+    @Column(nullable = false)
+    private int attemptCount;
+
+    private LocalDateTime leaseExpiresAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    private PaymentFailureClassification lastFailureClassification;
 
     @Column(length = 128)
     private String merchantToken;
@@ -201,6 +211,30 @@ public class PaymentOrderEntity extends TenantScopedJpaEntity {
 
     public void setOperationState(PaymentOperationState operationState) {
         this.operationState = operationState;
+    }
+
+    public int getAttemptCount() {
+        return attemptCount;
+    }
+
+    public void setAttemptCount(int attemptCount) {
+        this.attemptCount = attemptCount;
+    }
+
+    public LocalDateTime getLeaseExpiresAt() {
+        return leaseExpiresAt;
+    }
+
+    public void setLeaseExpiresAt(LocalDateTime leaseExpiresAt) {
+        this.leaseExpiresAt = leaseExpiresAt;
+    }
+
+    public PaymentFailureClassification getLastFailureClassification() {
+        return lastFailureClassification;
+    }
+
+    public void setLastFailureClassification(PaymentFailureClassification lastFailureClassification) {
+        this.lastFailureClassification = lastFailureClassification;
     }
 
     public String getMerchantToken() {

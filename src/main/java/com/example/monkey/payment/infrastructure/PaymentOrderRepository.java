@@ -1,6 +1,7 @@
 package com.example.monkey.payment.infrastructure;
 
 import com.example.monkey.payment.domain.PaymentMethod;
+import com.example.monkey.payment.domain.PaymentOperationState;
 import com.example.monkey.payment.domain.PaymentStatus;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
@@ -28,8 +29,11 @@ public interface PaymentOrderRepository extends JpaRepository<PaymentOrderEntity
     Optional<PaymentOrderEntity> findFirstByOrderIdAndStatusInOrderByCreateTimeDesc(
             Long orderId, Collection<PaymentStatus> statuses);
 
-    List<PaymentOrderEntity> findByStatusAndCreateTimeBeforeOrderByCreateTimeAsc(
-            PaymentStatus status, LocalDateTime cutoff, Pageable pageable);
+    List<PaymentOrderEntity> findByStatusAndOperationStateAndCreateTimeBeforeOrderByCreateTimeAsc(
+            PaymentStatus status, PaymentOperationState operationState, LocalDateTime cutoff, Pageable pageable);
+
+    List<PaymentOrderEntity> findByOperationStateInAndLeaseExpiresAtLessThanEqualOrderByLeaseExpiresAtAsc(
+            Collection<PaymentOperationState> states, LocalDateTime cutoff, Pageable pageable);
 
     List<PaymentOrderEntity> findByMethodAndPaidAtGreaterThanEqualAndPaidAtLessThanAndStatusIn(
             PaymentMethod method, LocalDateTime start, LocalDateTime end, Collection<PaymentStatus> statuses);

@@ -5,10 +5,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.example.monkey.payment.domain.PaymentFailureClassification;
 import com.example.monkey.payment.domain.PaymentLedgerEntry;
 import com.example.monkey.payment.domain.PaymentLedgerStatus;
 import com.example.monkey.payment.domain.PaymentLedgerType;
 import com.example.monkey.payment.domain.PaymentMethod;
+import com.example.monkey.payment.domain.PaymentOperationAttempt;
 import com.example.monkey.payment.domain.PaymentOperationState;
 import com.example.monkey.payment.domain.PaymentOrder;
 import com.example.monkey.payment.domain.PaymentReconciliationReport;
@@ -16,6 +18,7 @@ import com.example.monkey.payment.domain.PaymentRequestFingerprint;
 import com.example.monkey.payment.domain.PaymentResponseSnapshot;
 import com.example.monkey.payment.domain.PaymentStatus;
 import com.example.monkey.payment.domain.ReconciliationStatus;
+import com.example.monkey.payment.domain.RefundAuditIntent;
 import com.example.monkey.payment.domain.RefundResponseSnapshot;
 import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
 import jakarta.persistence.LockModeType;
@@ -80,7 +83,7 @@ class JpaPaymentStoreTest {
         store.savePayment(
                 payment,
                 fingerprint.value(),
-                PaymentOperationState.COMPLETED,
+                completedOperation(),
                 payment.paymentNo(),
                 PaymentResponseSnapshot.capture(payment, "/payments/PAY100"));
 
@@ -132,10 +135,12 @@ class JpaPaymentStoreTest {
         store.saveLedger(
                 ledger,
                 fingerprint.value(),
-                PaymentOperationState.COMPLETED,
+                completedOperation(),
                 "PAY100:refund:200",
                 new RefundResponseSnapshot(
-                        new BigDecimal("30.00"), PaymentStatus.PARTIALLY_REFUNDED, PaymentLedgerStatus.SUCCESS));
+                        new BigDecimal("30.00"), PaymentStatus.PARTIALLY_REFUNDED, PaymentLedgerStatus.SUCCESS),
+                RefundAuditIntent.waiting("PAYMENT_REFUNDED", 42L, "CUSTOMER", null, false)
+                        .pending("amount=30.00,status=PARTIALLY_REFUNDED"));
 
         assertThat(captureLedger().getRequestFingerprint()).isEqualTo(fingerprint.value());
     }
@@ -153,6 +158,10 @@ class JpaPaymentStoreTest {
                 .getAnnotation(Lock.class);
         assertThat(lock).isNotNull();
         assertThat(lock.value()).isEqualTo(LockModeType.PESSIMISTIC_WRITE);
+    }
+
+    private static PaymentOperationAttempt completedOperation() {
+        return new PaymentOperationAttempt(PaymentOperationState.COMPLETED, 1, null, PaymentFailureClassification.NONE);
     }
 
     @Test

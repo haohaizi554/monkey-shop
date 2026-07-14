@@ -2,7 +2,11 @@ package com.example.monkey.payment.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.order.domain.OrderStore;
@@ -16,12 +20,15 @@ import com.example.monkey.payment.application.dto.PaymentResponseDto;
 import com.example.monkey.payment.application.dto.ReconciliationLineDto;
 import com.example.monkey.payment.domain.PaymentCallbackReplayGuard;
 import com.example.monkey.payment.domain.PaymentEvent;
+import com.example.monkey.payment.domain.PaymentFailureClassification;
 import com.example.monkey.payment.domain.PaymentGateway;
+import com.example.monkey.payment.domain.PaymentGatewayException;
 import com.example.monkey.payment.domain.PaymentGatewayResult;
 import com.example.monkey.payment.domain.PaymentLedgerEntry;
 import com.example.monkey.payment.domain.PaymentLedgerStatus;
 import com.example.monkey.payment.domain.PaymentLedgerType;
 import com.example.monkey.payment.domain.PaymentMethod;
+import com.example.monkey.payment.domain.PaymentOperationAttempt;
 import com.example.monkey.payment.domain.PaymentOperationState;
 import com.example.monkey.payment.domain.PaymentOrder;
 import com.example.monkey.payment.domain.PaymentReconciliationReport;
@@ -32,6 +39,8 @@ import com.example.monkey.payment.domain.PaymentStore;
 import com.example.monkey.payment.domain.PaymentTransitionPolicy;
 import com.example.monkey.payment.domain.PaymentTransitionResolver;
 import com.example.monkey.payment.domain.ReconciliationStatus;
+import com.example.monkey.payment.domain.RefundAuditIntent;
+import com.example.monkey.payment.domain.RefundAuditState;
 import com.example.monkey.payment.domain.RefundResponseSnapshot;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionUser;
@@ -70,14 +79,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.SimpleTransactionStatus;
-import org.springframework.transaction.support.TransactionCallback;
-import org.springframework.transaction.support.TransactionOperations;
 
 @ExtendWith(MockitoExtension.class)
 class PaymentApplicationServiceTest {
 
     private static final String CALLBACK_SECRET = "secret";
+    private static final String CUSTOMER_ROLE = "CUSTOMER";
     private static final Clock FIXED_CLOCK = Clock.fixed(Instant.parse("2026-07-04T08:30:00Z"), ZoneOffset.UTC);
 
     @Mock
@@ -137,6 +144,8 @@ class PaymentApplicationServiceTest {
         assertThat(transactions.events)
                 .containsExactly(
                         "transaction-begin",
+                        "transaction-commit",
+                        "transaction-begin",
                         "payment-reservation",
                         "transaction-commit",
                         "gateway-create",
@@ -163,6 +172,9 @@ class PaymentApplicationServiceTest {
                         "transaction-begin",
                         "payment-update",
                         "refund-completion",
+                        "transaction-commit",
+                        "transaction-begin",
+                        "refund-audit-delivery",
                         "transaction-commit");
     }
 
@@ -225,6 +237,43 @@ class PaymentApplicationServiceTest {
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.FORBIDDEN));
+    }
+
+    @Test
+    void completedReplayDoesNotRequireFreshTotpOrBankCardValidation() {
+        when(orderStore.findVisibleByIdAndUserId(10L, 42L)).thenReturn(Optional.of(order(new BigDecimal("6000.00"))));
+        when(userAccountStore.findById(42L)).thenReturn(Optional.of(account(true)));
+        when(userMfaVerifier.verifyCode("totp-secret", "739201")).thenReturn(true);
+        when(idGenerator.nextId()).thenReturn(1000L);
+        PaymentResponseDto first = service.createPayment(
+                user(),
+                new PaymentCreateRequestDto(10L, PaymentMethod.BANK_CARD, "6222 0260 0670 5354 210", "739201"),
+                "pay-key");
+        clearInvocations(userAccountStore, userMfaVerifier);
+
+        PaymentResponseDto replay = service.createPayment(
+                user(), new PaymentCreateRequestDto(10L, PaymentMethod.BANK_CARD, null, null), "pay-key");
+
+        assertThat(replay).isEqualTo(first);
+        verifyNoInteractions(userAccountStore, userMfaVerifier);
+    }
+
+    @Test
+    void mismatchedReplayReturnsConflictBeforeTotpOrBankCardValidation() {
+        when(orderStore.findVisibleByIdAndUserId(10L, 42L)).thenReturn(Optional.of(order(new BigDecimal("6000.00"))));
+        when(userAccountStore.findById(42L)).thenReturn(Optional.of(account(true)));
+        when(userMfaVerifier.verifyCode("totp-secret", "739201")).thenReturn(true);
+        when(idGenerator.nextId()).thenReturn(1000L);
+        service.createPayment(
+                user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, "739201"), "pay-key");
+        clearInvocations(userAccountStore, userMfaVerifier);
+
+        assertThatThrownBy(() -> service.createPayment(
+                        user(), new PaymentCreateRequestDto(10L, PaymentMethod.BANK_CARD, null, null), "pay-key"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+        verifyNoInteractions(userAccountStore, userMfaVerifier);
     }
 
     @Test
@@ -353,6 +402,20 @@ class PaymentApplicationServiceTest {
     }
 
     @Test
+    void unrelatedPaymentConstraintViolationIsNotMisclassifiedAsIdempotencyConflict() {
+        when(orderStore.findVisibleByIdAndUserId(10L, 42L))
+                .thenReturn(Optional.of(orderForId(10L, new BigDecimal("100.00"))));
+        when(idGenerator.nextId()).thenReturn(1000L);
+        DataIntegrityViolationException primaryKeyFailure =
+                new DataIntegrityViolationException("Duplicate entry '1000' for key 'payment_order.PRIMARY'");
+        paymentStore.nextPaymentReservationFailure = primaryKeyFailure;
+
+        assertThatThrownBy(() -> service.createPayment(
+                        user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "payment-key"))
+                .isSameAs(primaryKeyFailure);
+    }
+
+    @Test
     void createRecoversAfterGatewaySuccessAndLocalCompletionFailureWithStableToken() {
         when(orderStore.findVisibleByIdAndUserId(10L, 42L))
                 .thenReturn(Optional.of(orderForId(10L, new BigDecimal("100.00"))));
@@ -369,6 +432,79 @@ class PaymentApplicationServiceTest {
         assertThat(recovered.paymentNo()).isEqualTo("PAY1000");
         assertThat(paymentGateway.createRequests).containsExactly("PAY1000", "PAY1000");
         assertThat(paymentGateway.createRequests.stream().distinct()).hasSize(1);
+    }
+
+    @Test
+    void timeoutMarksPaymentRetryableAndRetryUsesTheSameMerchantToken() {
+        when(orderStore.findVisibleByIdAndUserId(10L, 42L))
+                .thenReturn(Optional.of(orderForId(10L, new BigDecimal("100.00"))));
+        when(idGenerator.nextId()).thenReturn(1000L);
+        PaymentGatewayException timeout = PaymentGatewayException.timeout("provider timed out");
+        paymentGateway.createFailure = timeout;
+
+        assertThatThrownBy(() -> service.createPayment(
+                        user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "payment-key"))
+                .isSameAs(timeout);
+
+        PaymentStore.PaymentIntent retryable =
+                paymentStore.findByUserIdAndIdempotencyKey(42L, "payment-key").orElseThrow();
+        assertThat(retryable.operation().state()).isEqualTo(PaymentOperationState.RETRYABLE);
+        assertThat(retryable.operation().lastFailure()).isEqualTo(PaymentFailureClassification.TIMEOUT_UNKNOWN);
+
+        paymentGateway.createFailure = null;
+        service.createPayment(
+                user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "payment-key");
+
+        assertThat(paymentGateway.createRequests).containsExactly("PAY1000", "PAY1000");
+    }
+
+    @Test
+    void deterministicPaymentRejectionTerminatesReservationAndReleasesActiveOrder() {
+        when(orderStore.findVisibleByIdAndUserId(10L, 42L))
+                .thenReturn(Optional.of(orderForId(10L, new BigDecimal("100.00"))));
+        when(idGenerator.nextId()).thenReturn(1000L, 1001L);
+        PaymentGatewayException rejected = PaymentGatewayException.rejected("declined");
+        paymentGateway.createFailure = rejected;
+
+        assertThatThrownBy(() -> service.createPayment(
+                        user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "declined-key"))
+                .isSameAs(rejected);
+
+        PaymentStore.PaymentIntent failed =
+                paymentStore.findByUserIdAndIdempotencyKey(42L, "declined-key").orElseThrow();
+        assertThat(failed.payment().status()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(failed.operation().state()).isEqualTo(PaymentOperationState.TERMINAL_FAILED);
+
+        paymentGateway.createFailure = null;
+        PaymentResponseDto replacement = service.createPayment(
+                user(), new PaymentCreateRequestDto(10L, PaymentMethod.WECHAT, null, null), "replacement-key");
+        assertThat(replacement.paymentNo()).isEqualTo("PAY1001");
+    }
+
+    @Test
+    void expiredAbandonedPaymentIsClaimedAndCompletedByBackgroundRecovery() {
+        PaymentOrder payment = pendingPayment();
+        PaymentRequestFingerprint fingerprint =
+                PaymentRequestFingerprint.of(10L, PaymentMethod.WECHAT, new BigDecimal("100.00"), "CNY");
+        paymentStore.savePayment(
+                payment,
+                fingerprint.value(),
+                new PaymentOperationAttempt(
+                        PaymentOperationState.RESERVED,
+                        1,
+                        LocalDateTime.parse("2026-07-04T08:29:00"),
+                        PaymentFailureClassification.NONE),
+                payment.paymentNo(),
+                null);
+
+        int recovered = service.recoverExpiredOperations();
+
+        PaymentStore.PaymentIntent completed =
+                paymentStore.findByUserIdAndIdempotencyKey(42L, "pay-key").orElseThrow();
+        assertThat(recovered).isEqualTo(1);
+        assertThat(completed.operation().state()).isEqualTo(PaymentOperationState.COMPLETED);
+        assertThat(completed.operation().attemptCount()).isEqualTo(2);
+        assertThat(paymentGateway.createRequests).containsExactly("PAY100");
     }
 
     @Test
@@ -583,6 +719,19 @@ class PaymentApplicationServiceTest {
     }
 
     @Test
+    void unrelatedRefundConstraintViolationIsNotMisclassifiedAsIdempotencyConflict() {
+        paymentStore.savePayment(paidPayment());
+        when(idGenerator.nextId()).thenReturn(3000L);
+        DataIntegrityViolationException foreignKeyFailure =
+                new DataIntegrityViolationException("Cannot add child row: constraint fk_payment_ledger_payment");
+        paymentStore.nextRefundReservationFailure = foreignKeyFailure;
+
+        assertThatThrownBy(() -> service.refund(
+                        user(), new PaymentRefundRequestDto("PAY100", new BigDecimal("30.00"), "return"), "refund-key"))
+                .isSameAs(foreignKeyFailure);
+    }
+
+    @Test
     void refundRecoversAfterGatewaySuccessAndLocalCompletionFailureWithStableMerchantToken() {
         paymentStore.savePayment(paidPayment());
         when(idGenerator.nextId()).thenReturn(3000L);
@@ -600,6 +749,110 @@ class PaymentApplicationServiceTest {
         assertThat(recovered.refundedAmount()).isEqualByComparingTo(new BigDecimal("30.00"));
         assertThat(paymentGateway.refundRequests).containsExactly("PAY100:refund:3000", "PAY100:refund:3000");
         assertThat(paymentGateway.refundRequests.stream().distinct()).hasSize(1);
+    }
+
+    @Test
+    void expiredRefundCanBeCompletedByBackgroundRecovery() {
+        PaymentOrder payment = paymentStore.savePayment(paidPayment());
+        PaymentLedgerEntry ledger = refundLedger(3000L, PaymentLedgerStatus.ACCEPTED, "abandoned-refund");
+        PaymentRequestFingerprint fingerprint =
+                PaymentRequestFingerprint.ofRefund(payment.id(), ledger.amount(), "abandoned");
+        paymentStore.saveLedger(
+                ledger,
+                fingerprint.value(),
+                new PaymentOperationAttempt(
+                        PaymentOperationState.RETRYABLE,
+                        1,
+                        LocalDateTime.parse("2026-07-04T08:29:00"),
+                        PaymentFailureClassification.TIMEOUT_UNKNOWN),
+                "PAY100:refund:3000",
+                null,
+                RefundAuditIntent.waiting(AuditService.PAYMENT_REFUNDED, 42L, CUSTOMER_ROLE, null, false));
+
+        int recovered = service.recoverExpiredOperations();
+
+        PaymentStore.RefundRequest completed =
+                paymentStore.findRefundRequest(payment.id(), "abandoned-refund").orElseThrow();
+        assertThat(recovered).isEqualTo(1);
+        assertThat(completed.ledger().status()).isEqualTo(PaymentLedgerStatus.SUCCESS);
+        assertThat(completed.operation().state()).isEqualTo(PaymentOperationState.COMPLETED);
+        assertThat(paymentGateway.refundRequests).containsExactly("PAY100:refund:3000");
+    }
+
+    @Test
+    void deterministicRefundRejectionReleasesReservedRefundAmount() {
+        paymentStore.savePayment(paidPayment());
+        when(idGenerator.nextId()).thenReturn(3000L, 3001L);
+        PaymentGatewayException rejected = PaymentGatewayException.rejected("refund declined");
+        paymentGateway.refundFailure = rejected;
+
+        assertThatThrownBy(() -> service.refund(
+                        user(),
+                        new PaymentRefundRequestDto("PAY100", new BigDecimal("80.00"), "declined"),
+                        "declined-key"))
+                .isSameAs(rejected);
+
+        PaymentStore.RefundRequest failed =
+                paymentStore.findRefundRequest(100L, "declined-key").orElseThrow();
+        assertThat(failed.ledger().status()).isEqualTo(PaymentLedgerStatus.FAILED);
+        assertThat(failed.operation().state()).isEqualTo(PaymentOperationState.TERMINAL_FAILED);
+        assertThat(paymentStore.sumAcceptedRefundAmount(100L)).isEqualByComparingTo(BigDecimal.ZERO);
+
+        paymentGateway.refundFailure = null;
+        PaymentRefundResponseDto replacement = service.refund(
+                user(), new PaymentRefundRequestDto("PAY100", new BigDecimal("80.00"), "retry"), "replacement-key");
+        assertThat(replacement.refundedAmount()).isEqualByComparingTo(new BigDecimal("80.00"));
+    }
+
+    @Test
+    void completedRefundRemainsSuccessfulWhilePendingReliableAuditIsRetriedExactlyOnce() {
+        paymentStore.savePayment(paidPayment());
+        when(idGenerator.nextId()).thenReturn(3000L);
+        doThrow(new IllegalStateException("audit unavailable"))
+                .doNothing()
+                .when(auditService)
+                .recordReliable(
+                        AuditService.PAYMENT_REFUNDED,
+                        AuditService.OUTCOME_SUCCESS,
+                        42L,
+                        CUSTOMER_ROLE,
+                        "PAY100",
+                        null,
+                        "amount=30.00,status=PARTIALLY_REFUNDED");
+
+        PaymentRefundResponseDto completed = service.refund(
+                user(), new PaymentRefundRequestDto("PAY100", new BigDecimal("30.00"), "audit"), "audit-key");
+        assertThat(completed.refundedAmount()).isEqualByComparingTo(new BigDecimal("30.00"));
+        assertThat(paymentStore
+                        .findRefundRequest(100L, "audit-key")
+                        .orElseThrow()
+                        .auditIntent()
+                        .state())
+                .isEqualTo(RefundAuditState.PENDING);
+
+        PaymentRefundResponseDto replay = service.refund(
+                user(), new PaymentRefundRequestDto("PAY100", new BigDecimal("30.00"), "audit"), "audit-key");
+        PaymentRefundResponseDto secondReplay = service.refund(
+                user(), new PaymentRefundRequestDto("PAY100", new BigDecimal("30.00"), "audit"), "audit-key");
+
+        assertThat(replay).isEqualTo(completed);
+        assertThat(secondReplay).isEqualTo(completed);
+        assertThat(paymentStore
+                        .findRefundRequest(100L, "audit-key")
+                        .orElseThrow()
+                        .auditIntent()
+                        .state())
+                .isEqualTo(RefundAuditState.DELIVERED);
+        assertThat(paymentGateway.refundRequests).hasSize(1);
+        verify(auditService, times(2))
+                .recordReliable(
+                        AuditService.PAYMENT_REFUNDED,
+                        AuditService.OUTCOME_SUCCESS,
+                        42L,
+                        CUSTOMER_ROLE,
+                        "PAY100",
+                        null,
+                        "amount=30.00,status=PARTIALLY_REFUNDED");
     }
 
     @Test
@@ -864,6 +1117,20 @@ class PaymentApplicationServiceTest {
                 paidAt);
     }
 
+    private static PaymentLedgerEntry refundLedger(Long id, PaymentLedgerStatus status, String requestKey) {
+        return new PaymentLedgerEntry(
+                id,
+                100L,
+                10L,
+                42L,
+                PaymentLedgerType.REFUND,
+                new BigDecimal("30.00"),
+                status,
+                requestKey,
+                null,
+                LocalDateTime.parse("2026-07-04T08:20:00"));
+    }
+
     private static PaymentCallbackRequestDto callback(String callbackId, String status, BigDecimal amount) {
         String signature = PaymentApplicationService.signature(
                 PaymentMethod.WECHAT, "PAY100", "wx-trade-1", amount, status, CALLBACK_SECRET);
@@ -920,6 +1187,7 @@ class PaymentApplicationServiceTest {
         private final List<String> refundRequests = new CopyOnWriteArrayList<>();
         private final List<String> createRequests = new CopyOnWriteArrayList<>();
         private final List<BigDecimal> refundAmounts = new CopyOnWriteArrayList<>();
+        private RuntimeException createFailure;
         private RuntimeException refundFailure;
         private Runnable afterNextRefund;
         private List<String> boundaryEvents;
@@ -928,6 +1196,9 @@ class PaymentApplicationServiceTest {
         public PaymentGatewayResult create(PaymentOrder payment, String merchantToken) {
             recordBoundary("gateway-create");
             createRequests.add(merchantToken);
+            if (createFailure != null) {
+                throw createFailure;
+            }
             return new PaymentGatewayResult(
                     PaymentStatus.PENDING,
                     "SANDBOX-" + payment.paymentNo(),
@@ -968,19 +1239,22 @@ class PaymentApplicationServiceTest {
         private final Map<Long, PaymentOrder> payments = new ConcurrentHashMap<>();
         private final Map<Long, String> paymentFingerprints = new ConcurrentHashMap<>();
         private final Map<Long, PaymentResponseSnapshot> paymentSnapshots = new ConcurrentHashMap<>();
-        private final Map<Long, PaymentOperationState> paymentOperationStates = new ConcurrentHashMap<>();
+        private final Map<Long, PaymentOperationAttempt> paymentOperations = new ConcurrentHashMap<>();
         private final Map<Long, String> paymentMerchantTokens = new ConcurrentHashMap<>();
         private final List<PaymentLedgerEntry> ledgers = new CopyOnWriteArrayList<>();
         private final Map<Long, String> ledgerFingerprints = new ConcurrentHashMap<>();
         private final Map<Long, RefundResponseSnapshot> refundSnapshots = new ConcurrentHashMap<>();
-        private final Map<Long, PaymentOperationState> refundOperationStates = new ConcurrentHashMap<>();
+        private final Map<Long, PaymentOperationAttempt> refundOperations = new ConcurrentHashMap<>();
         private final Map<Long, String> refundMerchantTokens = new ConcurrentHashMap<>();
+        private final Map<Long, RefundAuditIntent> refundAuditIntents = new ConcurrentHashMap<>();
         private final List<PaymentReconciliationReport> reports = new ArrayList<>();
         private volatile CountDownLatch paymentReads;
         private volatile CountDownLatch intentReads;
         private List<String> boundaryEvents;
         private volatile boolean failNextPaymentCompletion;
         private volatile boolean failNextPaymentUpdate;
+        private volatile DataIntegrityViolationException nextPaymentReservationFailure;
+        private volatile DataIntegrityViolationException nextRefundReservationFailure;
         private volatile boolean requirePaymentLockForCompletion;
         private final ThreadLocal<Boolean> paymentLockHeld = ThreadLocal.withInitial(() -> false);
 
@@ -995,12 +1269,13 @@ class PaymentApplicationServiceTest {
         private void saveLegacyPaymentIntent(PaymentOrder payment, String requestFingerprint) {
             payments.put(payment.id(), payment);
             paymentFingerprints.put(payment.id(), requestFingerprint);
-            paymentOperationStates.put(payment.id(), PaymentOperationState.LEGACY_UNREPLAYABLE);
+            paymentOperations.put(payment.id(), PaymentOperationAttempt.legacy());
         }
 
         private void saveLegacyRefund(PaymentLedgerEntry ledger) {
             ledgers.add(ledger);
-            refundOperationStates.put(ledger.id(), PaymentOperationState.LEGACY_UNREPLAYABLE);
+            refundOperations.put(ledger.id(), PaymentOperationAttempt.legacy());
+            refundAuditIntents.put(ledger.id(), RefundAuditIntent.legacy());
         }
 
         @Override
@@ -1025,6 +1300,11 @@ class PaymentApplicationServiceTest {
         }
 
         @Override
+        public Optional<PaymentOrder> findById(Long paymentId) {
+            return Optional.ofNullable(payments.get(paymentId));
+        }
+
+        @Override
         public Optional<PaymentOrder> findByOrderIdAndUserId(Long orderId, Long userId) {
             return payments.values().stream()
                     .filter(payment -> payment.orderId().equals(orderId)
@@ -1041,7 +1321,7 @@ class PaymentApplicationServiceTest {
                     .map(payment -> new PaymentIntent(
                             payment,
                             paymentFingerprints.get(payment.id()),
-                            paymentOperationStates.get(payment.id()),
+                            paymentOperations.get(payment.id()),
                             paymentMerchantTokens.get(payment.id()),
                             paymentSnapshots.get(payment.id())));
             awaitConcurrentReads(intentReads, "payment intent");
@@ -1063,7 +1343,7 @@ class PaymentApplicationServiceTest {
                     .map(payment -> new PaymentIntent(
                             payment,
                             paymentFingerprints.get(payment.id()),
-                            paymentOperationStates.get(payment.id()),
+                            paymentOperations.get(payment.id()),
                             paymentMerchantTokens.get(payment.id()),
                             paymentSnapshots.get(payment.id())));
         }
@@ -1096,9 +1376,10 @@ class PaymentApplicationServiceTest {
                     .map(ledger -> new RefundRequest(
                             ledger,
                             ledgerFingerprints.get(ledger.id()),
-                            refundOperationStates.get(ledger.id()),
+                            refundOperations.get(ledger.id()),
                             refundMerchantTokens.get(ledger.id()),
-                            refundSnapshots.get(ledger.id())));
+                            refundSnapshots.get(ledger.id()),
+                            refundAuditIntents.getOrDefault(ledger.id(), RefundAuditIntent.legacy())));
         }
 
         @Override
@@ -1126,11 +1407,16 @@ class PaymentApplicationServiceTest {
         public synchronized PaymentIntent savePayment(
                 PaymentOrder payment,
                 String requestFingerprint,
-                PaymentOperationState operationState,
+                PaymentOperationAttempt operation,
                 String merchantToken,
                 PaymentResponseSnapshot responseSnapshot) {
             recordBoundary(responseSnapshot == null ? "payment-reservation" : "payment-completion");
-            if (responseSnapshot == null) {
+            if (responseSnapshot == null && !payments.containsKey(payment.id())) {
+                if (nextPaymentReservationFailure != null) {
+                    DataIntegrityViolationException failure = nextPaymentReservationFailure;
+                    nextPaymentReservationFailure = null;
+                    throw failure;
+                }
                 boolean duplicateKey = payments.values().stream()
                         .anyMatch(existing -> existing.userId().equals(payment.userId())
                                 && existing.idempotencyKey().equals(payment.idempotencyKey()));
@@ -1143,7 +1429,8 @@ class PaymentApplicationServiceTest {
                                                 PaymentStatus.SUSPENDED)
                                         .contains(existing.status()));
                 if (duplicateKey || duplicateActiveOrder) {
-                    throw new DataIntegrityViolationException("simulated payment unique constraint");
+                    String constraint = duplicateKey ? "uk_payment_order_user_key" : "uk_payment_order_active_order";
+                    throw new DataIntegrityViolationException("Duplicate entry for key '" + constraint + "'");
                 }
             } else if (requirePaymentLockForCompletion && !paymentLockHeld.get()) {
                 throw new LocalCompletionFailure();
@@ -1153,13 +1440,13 @@ class PaymentApplicationServiceTest {
             }
             payments.put(payment.id(), payment);
             paymentFingerprints.put(payment.id(), requestFingerprint);
-            paymentOperationStates.put(payment.id(), operationState);
+            paymentOperations.put(payment.id(), operation);
             paymentMerchantTokens.put(payment.id(), merchantToken);
             if (responseSnapshot != null) {
                 paymentSnapshots.put(payment.id(), responseSnapshot);
             }
             return new PaymentIntent(
-                    payment, requestFingerprint, operationState, merchantToken, paymentSnapshots.get(payment.id()));
+                    payment, requestFingerprint, operation, merchantToken, paymentSnapshots.get(payment.id()));
         }
 
         @Override
@@ -1172,27 +1459,79 @@ class PaymentApplicationServiceTest {
         public synchronized RefundRequest saveLedger(
                 PaymentLedgerEntry ledger,
                 String requestFingerprint,
-                PaymentOperationState operationState,
+                PaymentOperationAttempt operation,
                 String merchantToken,
-                RefundResponseSnapshot responseSnapshot) {
-            recordBoundary(responseSnapshot == null ? "refund-reservation" : "refund-completion");
-            if (PaymentOperationState.RESERVED.equals(operationState)
+                RefundResponseSnapshot responseSnapshot,
+                RefundAuditIntent auditIntent) {
+            recordBoundary(
+                    RefundAuditState.DELIVERED.equals(auditIntent.state())
+                            ? "refund-audit-delivery"
+                            : responseSnapshot == null ? "refund-reservation" : "refund-completion");
+            if (PaymentOperationState.RESERVED.equals(operation.state())
+                    && ledgers.stream().noneMatch(existing -> existing.id().equals(ledger.id()))
+                    && nextRefundReservationFailure != null) {
+                DataIntegrityViolationException failure = nextRefundReservationFailure;
+                nextRefundReservationFailure = null;
+                throw failure;
+            }
+            if (PaymentOperationState.RESERVED.equals(operation.state())
+                    && ledgers.stream().noneMatch(existing -> existing.id().equals(ledger.id()))
                     && ledgers.stream()
                             .anyMatch(existing -> existing.paymentId().equals(ledger.paymentId())
                                     && existing.type().equals(ledger.type())
                                     && existing.requestKey().equals(ledger.requestKey()))) {
-                throw new DataIntegrityViolationException("simulated refund unique constraint");
+                throw new DataIntegrityViolationException("Duplicate entry for key 'uk_payment_ledger_request'");
             }
             ledgers.removeIf(existing -> existing.id().equals(ledger.id()));
             ledgers.add(ledger);
             ledgerFingerprints.put(ledger.id(), requestFingerprint);
-            refundOperationStates.put(ledger.id(), operationState);
+            refundOperations.put(ledger.id(), operation);
             refundMerchantTokens.put(ledger.id(), merchantToken);
+            refundAuditIntents.put(ledger.id(), auditIntent);
             if (responseSnapshot != null) {
                 refundSnapshots.put(ledger.id(), responseSnapshot);
             }
             return new RefundRequest(
-                    ledger, requestFingerprint, operationState, merchantToken, refundSnapshots.get(ledger.id()));
+                    ledger,
+                    requestFingerprint,
+                    operation,
+                    merchantToken,
+                    refundSnapshots.get(ledger.id()),
+                    auditIntent);
+        }
+
+        @Override
+        public List<PaymentIntent> findExpiredPaymentOperations(LocalDateTime cutoff, int limit) {
+            return payments.values().stream()
+                    .map(payment -> findByUserIdAndIdempotencyKey(payment.userId(), payment.idempotencyKey()))
+                    .flatMap(Optional::stream)
+                    .filter(intent -> intent.operation() != null)
+                    .filter(intent -> intent.operation().isExpired(cutoff))
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
+        public List<RefundRequest> findExpiredRefundOperations(LocalDateTime cutoff, int limit) {
+            return ledgers.stream()
+                    .filter(ledger -> PaymentLedgerType.REFUND.equals(ledger.type()))
+                    .map(ledger -> findRefundRequest(ledger.paymentId(), ledger.requestKey()))
+                    .flatMap(Optional::stream)
+                    .filter(refund -> refund.operation().isExpired(cutoff))
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
+        public List<RefundRequest> findPendingRefundAudits(int limit) {
+            return ledgers.stream()
+                    .filter(ledger -> PaymentLedgerType.REFUND.equals(ledger.type()))
+                    .map(ledger -> findRefundRequest(ledger.paymentId(), ledger.requestKey()))
+                    .flatMap(Optional::stream)
+                    .filter(refund ->
+                            RefundAuditState.PENDING.equals(refund.auditIntent().state()))
+                    .limit(limit)
+                    .toList();
         }
 
         private void recordBoundary(String event) {
@@ -1249,14 +1588,14 @@ class PaymentApplicationServiceTest {
         }
     }
 
-    private static final class RecordingTransactions implements TransactionOperations {
+    private static final class RecordingTransactions implements PaymentTransactions {
         private final List<String> events = new CopyOnWriteArrayList<>();
 
         @Override
-        public <T> T execute(TransactionCallback<T> action) {
+        public <T> T execute(java.util.function.Supplier<T> action) {
             events.add("transaction-begin");
             try {
-                T result = action.doInTransaction(new SimpleTransactionStatus());
+                T result = action.get();
                 events.add("transaction-commit");
                 return result;
             } catch (RuntimeException exception) {
