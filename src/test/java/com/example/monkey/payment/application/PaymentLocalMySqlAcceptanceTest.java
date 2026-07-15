@@ -107,6 +107,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 class PaymentLocalMySqlAcceptanceTest {
 
     private static final SessionUser USER = new SessionUser(42L, "USER");
+    private static final String LATEST_SCHEMA_VERSION = "52";
 
     private final PaymentOrderRepository paymentOrderRepository;
     private final PaymentLedgerRepository paymentLedgerRepository;
@@ -172,7 +173,7 @@ class PaymentLocalMySqlAcceptanceTest {
     void clearTenant() {
         try {
             if (restoreSchemaAfterTest) {
-                restoreSchemaAtV51();
+                restoreLatestSchema();
             }
         } finally {
             restoreSchemaAfterTest = false;
@@ -181,16 +182,65 @@ class PaymentLocalMySqlAcceptanceTest {
     }
 
     @Test
-    void emptySchemaMigratesThroughV51AndHibernateValidates() {
+    void emptySchemaMigratesThroughLatestVersionAndHibernateValidates() {
         assertThat(jdbcTemplate.queryForObject("""
                         SELECT version
                         FROM flyway_schema_history
                         WHERE success = 1
                         ORDER BY installed_rank DESC
                         LIMIT 1
-                        """, String.class)).isEqualTo("51");
+                        """, String.class)).isEqualTo(LATEST_SCHEMA_VERSION);
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM payment_order", Long.class))
                 .isZero();
+    }
+
+    @Test
+    void v52CartCheckoutCleanupSchemaMatchesContract() {
+        assertThat(jdbcTemplate.queryForObject("""
+                        SELECT IS_NULLABLE
+                        FROM information_schema.columns
+                        WHERE table_schema = DATABASE()
+                          AND table_name = 'cart_checkout'
+                          AND column_name = 'request_fingerprint'
+                        """, String.class)).isEqualTo("NO");
+        assertThat(jdbcTemplate.queryForObject("""
+                        SELECT CHARACTER_MAXIMUM_LENGTH
+                        FROM information_schema.columns
+                        WHERE table_schema = DATABASE()
+                          AND table_name = 'cart_checkout'
+                          AND column_name = 'request_fingerprint'
+                        """, Long.class)).isEqualTo(64L);
+        assertThat(jdbcTemplate.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM information_schema.tables
+                        WHERE table_schema = DATABASE()
+                          AND table_name = 'cart_cleanup_intent'
+                        """, Long.class)).isEqualTo(1L);
+        assertThat(jdbcTemplate.queryForObject("""
+                        SELECT COUNT(*)
+                        FROM information_schema.table_constraints
+                        WHERE table_schema = DATABASE()
+                          AND table_name = 'cart_cleanup_intent'
+                          AND constraint_name IN (
+                              'PRIMARY',
+                              'fk_cart_cleanup_intent_tenant',
+                              'fk_cart_cleanup_intent_checkout_tenant',
+                              'ck_cart_cleanup_intent_status',
+                              'ck_cart_cleanup_intent_attempt_count',
+                              'ck_cart_cleanup_intent_ttl',
+                              'ck_cart_cleanup_intent_completion'
+                          )
+                        """, Long.class)).isEqualTo(7L);
+        assertThat(jdbcTemplate.queryForObject("""
+                        SELECT COUNT(DISTINCT index_name)
+                        FROM information_schema.statistics
+                        WHERE table_schema = DATABASE()
+                          AND table_name = 'cart_cleanup_intent'
+                          AND index_name IN (
+                              'idx_cart_cleanup_intent_ready',
+                              'idx_cart_cleanup_intent_user_created'
+                          )
+                        """, Long.class)).isEqualTo(2L);
     }
 
     @Test
@@ -242,7 +292,7 @@ class PaymentLocalMySqlAcceptanceTest {
     }
 
     @Test
-    void v50LegacyDuplicateBlocksThenRepairMigratesThroughV51() throws Exception {
+    void v50LegacyDuplicateBlocksThenRepairMigratesThroughLatestVersion() throws Exception {
         restoreSchemaAfterTest = true;
         Flyway v50 = Flyway.configure()
                 .dataSource(dataSource)
@@ -272,7 +322,7 @@ class PaymentLocalMySqlAcceptanceTest {
                             WHERE success = 1
                             ORDER BY installed_rank DESC
                             LIMIT 1
-                            """, String.class)).isEqualTo("51");
+                            """, String.class)).isEqualTo(LATEST_SCHEMA_VERSION);
         assertThat(jdbcTemplate.queryForMap("""
                             SELECT operation_state, attempt_count, lease_expires_at,
                                    last_failure_classification, terminal_failure_code
@@ -954,7 +1004,7 @@ class PaymentLocalMySqlAcceptanceTest {
         visibleOrders.put(orderId, order(orderId, userId));
     }
 
-    private void restoreSchemaAtV51() {
+    private void restoreLatestSchema() {
         Flyway latest =
                 Flyway.configure().dataSource(dataSource).cleanDisabled(false).load();
         latest.clean();
