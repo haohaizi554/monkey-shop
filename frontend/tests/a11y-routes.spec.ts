@@ -179,6 +179,14 @@ const tenant = {
 
 const apiFixtures: Record<string, unknown> = {
   'GET /auth/captcha/config': { provider: 'local', siteKey: '' },
+  'GET /auth/password-policy': {
+    minLength: 10,
+    requireUppercase: true,
+    requireLowercase: true,
+    requireDigit: true,
+    requireSpecial: true,
+    forbidWhitespace: true,
+  },
   'GET /monkeys': [monkey],
   'GET /catalog/categories/tree': [],
   'GET /catalog/spus/1': catalogSpu,
