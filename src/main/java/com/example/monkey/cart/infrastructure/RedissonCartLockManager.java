@@ -1,6 +1,7 @@
 package com.example.monkey.cart.infrastructure;
 
 import com.example.monkey.cart.domain.CartLockManager;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import java.time.Duration;
@@ -27,7 +28,8 @@ public class RedissonCartLockManager implements CartLockManager {
         if (redissonClient == null) {
             return action.get();
         }
-        RLock lock = redissonClient.getLock(LOCK_PREFIX + userId + ":" + idempotencyKey);
+        long tenantId = TenantContext.currentTenantIdOrDefault();
+        RLock lock = redissonClient.getLock(LOCK_PREFIX + tenantId + ":" + userId + ":" + idempotencyKey);
         boolean acquired = false;
         try {
             acquired = lock.tryLock(WAIT_TIME.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);

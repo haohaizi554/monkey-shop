@@ -996,6 +996,27 @@ class CheckoutTransactionIntegrationTest {
         }
 
         @Override
+        public boolean putItemIfUnchanged(Long userId, CartItem expectedItem, CartItem item, Duration ttl) {
+            AtomicBoolean updated = new AtomicBoolean();
+            carts.compute(userId, (ignored, current) -> {
+                CartSnapshot cart = current == null ? new CartSnapshot(userId, List.of()) : current;
+                CartItem actual = cart.items().stream()
+                        .filter(existing -> existing.skuId().equals(item.skuId()))
+                        .findFirst()
+                        .orElse(null);
+                if (!java.util.Objects.equals(actual, expectedItem)) {
+                    return current;
+                }
+                List<CartItem> items = new java.util.ArrayList<>(cart.items());
+                items.removeIf(existing -> existing.skuId().equals(item.skuId()));
+                items.add(item);
+                updated.set(true);
+                return new CartSnapshot(userId, items);
+            });
+            return updated.get();
+        }
+
+        @Override
         public void putItem(Long userId, CartItem item, Duration ttl) {
             carts.compute(userId, (ignored, current) -> {
                 CartSnapshot cart = current == null ? new CartSnapshot(userId, List.of()) : current;

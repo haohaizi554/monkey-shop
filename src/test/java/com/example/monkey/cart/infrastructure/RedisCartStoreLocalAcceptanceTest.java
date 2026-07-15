@@ -59,7 +59,7 @@ class RedisCartStoreLocalAcceptanceTest {
 
     @Test
     @EnabledIfEnvironmentVariable(named = "RUN_CART_REDIS_ACCEPTANCE", matches = "true")
-    void delayedFieldMutationAfterCleanupCannotRestoreOtherSnapshotFields() {
+    void staleCasAfterCleanupCannotResurrectRemovedItems() {
         String host = System.getenv().getOrDefault("CART_REDIS_HOST", "127.0.0.1");
         int port = Integer.parseInt(System.getenv().getOrDefault("CART_REDIS_PORT", "6379"));
         RedisStandaloneConfiguration configuration = new RedisStandaloneConfiguration(host, port);
@@ -87,24 +87,66 @@ class RedisCartStoreLocalAcceptanceTest {
             var staleMutationRead = store.findCart(userId);
 
             store.removeMatchingItems(userId, checkoutSnapshots, ttl);
-            CartItem quantityChanged = staleMutationRead.items().stream()
+            CartItem staleQuantity = staleMutationRead.items().stream()
                     .filter(item -> item.skuId().equals(1001L))
                     .findFirst()
-                    .orElseThrow()
-                    .withQuantity(3, later);
-            CartItem unselected = staleMutationRead.items().stream()
+                    .orElseThrow();
+            CartItem quantityChanged = staleQuantity.withQuantity(3, later);
+            CartItem staleSelection = staleMutationRead.items().stream()
                     .filter(item -> item.skuId().equals(1002L))
                     .findFirst()
-                    .orElseThrow()
-                    .select(false, later);
+                    .orElseThrow();
+            CartItem unselected = staleSelection.select(false, later);
             CartItem readded = new CartItem(1003L, 501L, 1, true, later, later);
             CartItem brandNew = new CartItem(2001L, 502L, 1, true, later, later);
-            List<CartItem> postCheckoutItems = List.of(quantityChanged, unselected, readded, brandNew);
-            postCheckoutItems.forEach(item -> store.putItem(userId, item, ttl));
 
-            assertThat(store.findCart(userId).items()).containsExactlyInAnyOrderElementsOf(postCheckoutItems);
+            assertThat(store.putItemIfUnchanged(userId, staleQuantity, quantityChanged, ttl))
+                    .isFalse();
+            assertThat(store.putItemIfUnchanged(userId, staleSelection, unselected, ttl))
+                    .isFalse();
+            assertThat(store.putItemIfUnchanged(userId, null, readded, ttl)).isTrue();
+            assertThat(store.putItemIfUnchanged(userId, null, brandNew, ttl)).isTrue();
+
+            assertThat(store.findCart(userId).items()).containsExactlyInAnyOrder(readded, brandNew);
             assertThat(store.findCart(userId).items())
-                    .noneMatch(item -> item.skuId().equals(1004L));
+                    .noneMatch(item -> List.of(1001L, 1002L, 1004L).contains(item.skuId()));
+        } finally {
+            TenantContext.clear();
+            redisTemplate.delete(key);
+            connectionFactory.destroy();
+        }
+    }
+
+    @Test
+    @EnabledIfEnvironmentVariable(named = "RUN_CART_REDIS_ACCEPTANCE", matches = "true")
+    void staleCasCannotOverwriteNewerRedisItem() {
+        String host = System.getenv().getOrDefault("CART_REDIS_HOST", "127.0.0.1");
+        int port = Integer.parseInt(System.getenv().getOrDefault("CART_REDIS_PORT", "6379"));
+        RedisStandaloneConfiguration configuration = new RedisStandaloneConfiguration(host, port);
+        JedisConnectionFactory connectionFactory = new JedisConnectionFactory(configuration);
+        connectionFactory.afterPropertiesSet();
+        connectionFactory.start();
+        StringRedisTemplate redisTemplate = new StringRedisTemplate(connectionFactory);
+        redisTemplate.afterPropertiesSet();
+        ObjectProvider<StringRedisTemplate> provider = mock();
+        when(provider.getIfAvailable()).thenReturn(redisTemplate);
+        RedisCartStore store = new RedisCartStore(provider, new ObjectMapper().findAndRegisterModules());
+        Long userId = UUID.randomUUID().getMostSignificantBits() & Long.MAX_VALUE;
+        String key = "cart:tenant:1:user:" + userId;
+        Duration ttl = Duration.ofMinutes(10);
+        LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
+        CartItem initial = new CartItem(1001L, 501L, 1, true, now, now);
+        CartItem newer = initial.withQuantity(2, now.plusSeconds(1));
+        CartItem staleOverwrite = initial.select(false, now.plusSeconds(2));
+        try {
+            TenantContext.setTenantId(1L);
+            store.putItem(userId, initial, ttl);
+
+            assertThat(store.putItemIfUnchanged(userId, initial, newer, ttl)).isTrue();
+            assertThat(store.putItemIfUnchanged(userId, initial, staleOverwrite, ttl))
+                    .isFalse();
+
+            assertThat(store.findCart(userId).items()).containsExactly(newer);
         } finally {
             TenantContext.clear();
             redisTemplate.delete(key);

@@ -75,6 +75,49 @@ class CartInfrastructureTest {
     }
 
     @Test
+    void fallbackCompareAndSetRejectsStaleItem() {
+        ObjectProvider<StringRedisTemplate> provider = mock();
+        when(provider.getIfAvailable()).thenReturn(null);
+        RedisCartStore store = new RedisCartStore(provider, new ObjectMapper().registerModule(new JavaTimeModule()));
+        Duration ttl = Duration.ofDays(7);
+        LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
+        CartItem initial = new CartItem(1001L, 1L, 1, true, now, now);
+        CartItem quantityChanged = initial.withQuantity(2, now.plusSeconds(1));
+        CartItem staleSelection = initial.select(false, now.plusSeconds(1));
+        store.putItem(7L, initial, ttl);
+
+        assertThat(store.putItemIfUnchanged(7L, initial, quantityChanged, ttl)).isTrue();
+        assertThat(store.putItemIfUnchanged(7L, initial, staleSelection, ttl)).isFalse();
+
+        assertThat(store.findCart(7L).items()).containsExactly(quantityChanged);
+    }
+
+    @Test
+    void redisCompareAndSetUsesOneLuaScriptWithTenantKeyAndTtlRefresh() {
+        ObjectProvider<StringRedisTemplate> provider = mock();
+        StringRedisTemplate redisTemplate = mock();
+        when(provider.getIfAvailable()).thenReturn(redisTemplate);
+        when(redisTemplate.execute(
+                        any(DefaultRedisScript.class), eq(List.of("cart:tenant:1:user:7")), any(Object[].class)))
+                .thenReturn(1L, 0L);
+        RedisCartStore store = new RedisCartStore(provider, new ObjectMapper().registerModule(new JavaTimeModule()));
+        Duration ttl = Duration.ofDays(7);
+        LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
+        CartItem initial = new CartItem(1001L, 1L, 1, true, now, now);
+        CartItem changed = initial.withQuantity(2, now.plusSeconds(1));
+
+        assertThat(store.putItemIfUnchanged(7L, initial, changed, ttl)).isTrue();
+        assertThat(store.putItemIfUnchanged(7L, initial, changed, ttl)).isFalse();
+
+        var scriptCaptor = org.mockito.ArgumentCaptor.forClass(DefaultRedisScript.class);
+        verify(redisTemplate, times(2))
+                .execute(scriptCaptor.capture(), eq(List.of("cart:tenant:1:user:7")), any(Object[].class));
+        assertThat(scriptCaptor.getAllValues())
+                .allSatisfy(script -> assertThat(script.getScriptAsString())
+                        .contains("HGET", "HSET", "EXPIRE", "current ~= ARGV[3]"));
+    }
+
+    @Test
     void fallbackCartExpiresAndFieldMutationsRefreshTtl() {
         ObjectProvider<StringRedisTemplate> provider = mock();
         when(provider.getIfAvailable()).thenReturn(null);
@@ -296,7 +339,7 @@ class CartInfrastructureTest {
         RedissonClient client = mock();
         RLock lock = mock();
         when(provider.getIfAvailable()).thenReturn(client);
-        when(client.getLock("cart:checkout:7:idem")).thenReturn(lock);
+        when(client.getLock("cart:checkout:1:7:idem")).thenReturn(lock);
         when(lock.tryLock(2000L, TimeUnit.MILLISECONDS)).thenReturn(true);
         when(lock.isHeldByCurrentThread()).thenReturn(true);
 
@@ -306,6 +349,31 @@ class CartInfrastructureTest {
         verify(lock).tryLock(2000L, TimeUnit.MILLISECONDS);
         verify(lock, never()).tryLock(anyLong(), anyLong(), eq(TimeUnit.MILLISECONDS));
         verify(lock).unlock();
+    }
+
+    @Test
+    void redissonCartLockScopesSameUserAndKeyByTenant() throws InterruptedException {
+        ObjectProvider<RedissonClient> provider = mock();
+        RedissonClient client = mock();
+        RLock lock = mock();
+        when(provider.getIfAvailable()).thenReturn(client);
+        when(client.getLock(anyString())).thenReturn(lock);
+        when(lock.tryLock(2000L, TimeUnit.MILLISECONDS)).thenReturn(true);
+        when(lock.isHeldByCurrentThread()).thenReturn(true);
+        RedissonCartLockManager manager = new RedissonCartLockManager(provider);
+        try {
+            TenantContext.setTenantId(1L);
+            assertThat(manager.withCheckoutLock(7L, "idem", () -> "one")).isEqualTo("one");
+            TenantContext.setTenantId(2L);
+            assertThat(manager.withCheckoutLock(7L, "idem", () -> "two")).isEqualTo("two");
+        } finally {
+            TenantContext.clear();
+        }
+
+        verify(client).getLock("cart:checkout:1:7:idem");
+        verify(client).getLock("cart:checkout:2:7:idem");
+        verify(lock, times(2)).tryLock(2000L, TimeUnit.MILLISECONDS);
+        verify(lock, times(2)).unlock();
     }
 
     @Test

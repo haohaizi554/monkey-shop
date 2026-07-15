@@ -53,6 +53,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -67,6 +68,7 @@ public class CartApplicationService {
     private static final int MAX_IDEMPOTENCY_KEY_LENGTH = 128;
     private static final Pattern IDEMPOTENCY_KEY_PATTERN = Pattern.compile("[A-Za-z0-9._:-]+");
     private static final String CUSTOMER_ROLE = "CUSTOMER";
+    private static final int MAX_CART_MUTATION_ATTEMPTS = 32;
 
     private final CartStore cartStore;
     private final CartCatalogReader catalogReader;
@@ -158,10 +160,18 @@ public class CartApplicationService {
     public CartResponseDto addItem(SessionUser currentUser, CartAddItemRequestDto request) {
         Long userId = requireUserId(currentUser);
         requireSku(request.skuId());
-        CartSnapshot updated = cartStore
-                .findCart(userId)
-                .upsert(request.skuId(), request.shopId(), request.quantity(), request.selected(), now());
-        cartStore.putItem(userId, requireCartItem(updated, request.skuId()), cartTtl);
+        mutateItemAtomically(userId, request.skuId(), current -> {
+            LocalDateTime mutationTime = now();
+            return current.map(
+                            item -> item.add(request.quantity(), mutationTime).select(request.selected(), mutationTime))
+                    .orElseGet(() -> new CartItem(
+                            request.skuId(),
+                            request.shopId(),
+                            request.quantity(),
+                            request.selected(),
+                            mutationTime,
+                            mutationTime));
+        });
         CartSnapshot saved = cartStore.findCart(userId);
         audit(AuditService.CART_ITEM_CHANGED, userId, "skuId=" + request.skuId() + ",quantity=" + request.quantity());
         return CartDtoAssembler.toResponse(saved, skuSnapshots(saved.items()));
@@ -171,8 +181,12 @@ public class CartApplicationService {
     @Transactional
     public CartResponseDto updateItem(SessionUser currentUser, Long skuId, CartUpdateItemRequestDto request) {
         Long userId = requireUserId(currentUser);
-        CartItem current = requireCartItem(cartStore.findCart(userId), skuId);
-        cartStore.putItem(userId, current.withQuantity(request.quantity(), now()), cartTtl);
+        mutateItemAtomically(
+                userId,
+                skuId,
+                current -> current.orElseThrow(
+                                () -> new BusinessException(ErrorCode.NOT_FOUND, "Cart item does not exist"))
+                        .withQuantity(request.quantity(), now()));
         CartSnapshot saved = cartStore.findCart(userId);
         audit(AuditService.CART_ITEM_CHANGED, userId, "skuId=" + skuId + ",quantity=" + request.quantity());
         return CartDtoAssembler.toResponse(saved, skuSnapshots(saved.items()));
@@ -182,8 +196,12 @@ public class CartApplicationService {
     @Transactional
     public CartResponseDto selectItem(SessionUser currentUser, Long skuId, CartSelectItemRequestDto request) {
         Long userId = requireUserId(currentUser);
-        CartItem current = requireCartItem(cartStore.findCart(userId), skuId);
-        cartStore.putItem(userId, current.select(request.selected(), now()), cartTtl);
+        mutateItemAtomically(
+                userId,
+                skuId,
+                current -> current.orElseThrow(
+                                () -> new BusinessException(ErrorCode.NOT_FOUND, "Cart item does not exist"))
+                        .select(request.selected(), now()));
         CartSnapshot saved = cartStore.findCart(userId);
         audit(AuditService.CART_ITEM_CHANGED, userId, "skuId=" + skuId + ",selected=" + request.selected());
         return CartDtoAssembler.toResponse(saved, skuSnapshots(saved.items()));
@@ -539,6 +557,19 @@ public class CartApplicationService {
                 .filter(item -> item.skuId().equals(skuId))
                 .findFirst()
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Cart item does not exist"));
+    }
+
+    private void mutateItemAtomically(Long userId, Long skuId, Function<Optional<CartItem>, CartItem> mutation) {
+        for (int attempt = 0; attempt < MAX_CART_MUTATION_ATTEMPTS; attempt++) {
+            Optional<CartItem> current = cartStore.findCart(userId).items().stream()
+                    .filter(item -> item.skuId().equals(skuId))
+                    .findFirst();
+            CartItem next = mutation.apply(current);
+            if (cartStore.putItemIfUnchanged(userId, current.orElse(null), next, cartTtl)) {
+                return;
+            }
+        }
+        throw new BusinessException(ErrorCode.CONFLICT, "Cart item changed concurrently; retry the request");
     }
 
     private Map<Long, CartSkuSnapshot> skuSnapshots(List<CartItem> items) {

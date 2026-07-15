@@ -38,8 +38,10 @@ class Ws4CartWorkflowTest {
         assertThat(cleanupWorker).contains("@Scheduled", "findReadyCheckoutIds");
         assertThat(cleanupTenantSource).contains("SELECT DISTINCT tenant_id", "next_attempt_at <= ?");
         assertThat(controller).contains("@RequestMapping({\"/api/cart\", \"/api/v1/cart\"})");
-        assertThat(redisStore).contains("cart:tenant:", ":user:", "opsForHash()");
-        assertThat(lock).contains("cart:checkout:", "tryLock");
+        assertThat(redisStore)
+                .contains(
+                        "cart:tenant:", ":user:", "opsForHash()", "PUT_ITEM_IF_UNCHANGED_SCRIPT", "current ~= ARGV[3]");
+        assertThat(lock).contains("cart:checkout:", "TenantContext.currentTenantIdOrDefault()", "tryLock");
         assertThat(rateLimit).contains("ApiRateLimitOperation.CART", "isCartPath", "startsWith(\"/api/cart/\")");
         assertThat(frontendApi).contains("checkoutCart", "Idempotency-Key");
         assertThat(cartView).contains("addCartItem", "selectCartItem");

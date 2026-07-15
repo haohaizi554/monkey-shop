@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 
 import com.example.monkey.cart.application.dto.CartAddItemRequestDto;
 import com.example.monkey.cart.application.dto.CartCheckoutRequestDto;
+import com.example.monkey.cart.application.dto.CartSelectItemRequestDto;
 import com.example.monkey.cart.application.dto.CartUpdateItemRequestDto;
 import com.example.monkey.cart.domain.CartCheckoutStore;
 import com.example.monkey.cart.domain.CartItem;
@@ -80,7 +81,75 @@ class CartApplicationServiceTest {
 
     @Test
     @Timeout(value = 15, unit = TimeUnit.SECONDS)
-    void delayedFieldMutationCannotRestoreOtherItemsRemovedByCheckoutCleanup() throws Exception {
+    void concurrentAddsDoNotLoseQuantity() throws Exception {
+        ConcurrentMutationCartStore cartStore = new ConcurrentMutationCartStore();
+        Fixture fixture = new Fixture(cartStore);
+        fixture.seedSelectedCart();
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> first = executor.submit(() -> {
+                await(start);
+                fixture.service.addItem(USER, new CartAddItemRequestDto(1001L, 1L, 1, true));
+            });
+            Future<?> second = executor.submit(() -> {
+                await(start);
+                fixture.service.addItem(USER, new CartAddItemRequestDto(1001L, 1L, 1, true));
+            });
+
+            start.countDown();
+            first.get(5, TimeUnit.SECONDS);
+            second.get(5, TimeUnit.SECONDS);
+
+            assertThat(cartStore.findCart(USER.id()).items())
+                    .filteredOn(item -> item.skuId().equals(1001L))
+                    .singleElement()
+                    .extracting(CartItem::quantity)
+                    .isEqualTo(4);
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    @Timeout(value = 15, unit = TimeUnit.SECONDS)
+    void concurrentQuantityAndSelectionChangesPreserveBothFields() throws Exception {
+        ConcurrentMutationCartStore cartStore = new ConcurrentMutationCartStore();
+        Fixture fixture = new Fixture(cartStore);
+        fixture.seedSelectedCart();
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> quantity = executor.submit(() -> {
+                await(start);
+                fixture.service.updateItem(USER, 1001L, new CartUpdateItemRequestDto(3));
+            });
+            Future<?> selection = executor.submit(() -> {
+                await(start);
+                fixture.service.selectItem(USER, 1001L, new CartSelectItemRequestDto(false));
+            });
+
+            start.countDown();
+            quantity.get(5, TimeUnit.SECONDS);
+            selection.get(5, TimeUnit.SECONDS);
+
+            assertThat(cartStore.findCart(USER.id()).items())
+                    .filteredOn(item -> item.skuId().equals(1001L))
+                    .singleElement()
+                    .satisfies(item -> {
+                        assertThat(item.quantity()).isEqualTo(3);
+                        assertThat(item.selected()).isFalse();
+                    });
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    @Timeout(value = 15, unit = TimeUnit.SECONDS)
+    void delayedMutationAfterCheckoutCleanupDoesNotResurrectRemovedItem() throws Exception {
         BlockingMutationCartStore cartStore = new BlockingMutationCartStore();
         Fixture fixture = new Fixture(cartStore);
         fixture.seedSelectedCart();
@@ -95,12 +164,11 @@ class CartApplicationServiceTest {
             cartStore.removeMatchingItems(USER.id(), checkoutSnapshots, Duration.ofDays(7));
             assertThat(cartStore.findCart(USER.id()).items()).isEmpty();
             cartStore.releaseBlockedRead();
-            mutation.get(5, TimeUnit.SECONDS);
-
-            assertThat(cartStore.findCart(USER.id()).items()).singleElement().satisfies(item -> {
-                assertThat(item.skuId()).isEqualTo(1001L);
-                assertThat(item.quantity()).isEqualTo(3);
-            });
+            assertThatThrownBy(() -> mutation.get(5, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(BusinessException.class)
+                    .satisfies(failure -> assertThat(((BusinessException) failure.getCause()).errorCode())
+                            .isEqualTo(ErrorCode.NOT_FOUND));
+            assertThat(cartStore.findCart(USER.id()).items()).isEmpty();
         } finally {
             cartStore.releaseBlockedRead();
             executor.shutdownNow();
@@ -399,6 +467,15 @@ class CartApplicationServiceTest {
         verify(fixture.inventoryApplicationService, never()).reserve(any(InventoryReserveRequestDto.class));
     }
 
+    private static void await(CountDownLatch latch) {
+        try {
+            latch.await();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("concurrent cart test interrupted", exception);
+        }
+    }
+
     private static final class Fixture {
         private final InMemoryCartStore cartStore;
         private final InMemoryCheckoutStore checkoutStore = new InMemoryCheckoutStore();
@@ -537,6 +614,27 @@ class CartApplicationServiceTest {
         }
 
         @Override
+        public boolean putItemIfUnchanged(Long userId, CartItem expectedItem, CartItem item, Duration ttl) {
+            AtomicBoolean updated = new AtomicBoolean();
+            carts.compute(userId, (ignored, current) -> {
+                CartSnapshot cart = current == null ? new CartSnapshot(userId, List.of()) : current;
+                CartItem actual = cart.items().stream()
+                        .filter(existing -> existing.skuId().equals(item.skuId()))
+                        .findFirst()
+                        .orElse(null);
+                if (!java.util.Objects.equals(actual, expectedItem)) {
+                    return current;
+                }
+                List<CartItem> items = new java.util.ArrayList<>(cart.items());
+                items.removeIf(existing -> existing.skuId().equals(item.skuId()));
+                items.add(item);
+                updated.set(true);
+                return new CartSnapshot(userId, items);
+            });
+            return updated.get();
+        }
+
+        @Override
         public void putItem(Long userId, CartItem item, Duration ttl) {
             carts.compute(userId, (ignored, current) -> {
                 CartSnapshot cart = current == null ? new CartSnapshot(userId, List.of()) : current;
@@ -606,6 +704,28 @@ class CartApplicationServiceTest {
 
         private void releaseBlockedRead() {
             releaseRead.countDown();
+        }
+    }
+
+    private static final class ConcurrentMutationCartStore extends InMemoryCartStore {
+        private final AtomicLong readsToSynchronize = new AtomicLong(2);
+        private final CountDownLatch bothReadsCaptured = new CountDownLatch(2);
+
+        @Override
+        public CartSnapshot findCart(Long userId) {
+            CartSnapshot snapshot = super.findCart(userId);
+            if (readsToSynchronize.getAndDecrement() > 0) {
+                bothReadsCaptured.countDown();
+                try {
+                    if (!bothReadsCaptured.await(5, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("concurrent cart reads did not rendezvous");
+                    }
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("concurrent cart read interrupted", exception);
+                }
+            }
+            return snapshot;
         }
     }
 

@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -26,6 +27,20 @@ import org.springframework.stereotype.Component;
 public class RedisCartStore implements CartStore {
 
     private static final String KEY_PREFIX = "cart:tenant:";
+    private static final DefaultRedisScript<Long> PUT_ITEM_IF_UNCHANGED_SCRIPT =
+            new DefaultRedisScript<>("""
+            local current = redis.call('HGET', KEYS[1], ARGV[1])
+            if ARGV[2] == 'ABSENT' then
+                if current then
+                    return 0
+                end
+            elseif not current or current ~= ARGV[3] then
+                return 0
+            end
+            redis.call('HSET', KEYS[1], ARGV[1], ARGV[4])
+            redis.call('EXPIRE', KEYS[1], ARGV[5])
+            return 1
+            """, Long.class);
     private static final DefaultRedisScript<Long> PUT_ITEM_SCRIPT = new DefaultRedisScript<>("""
             redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
             redis.call('EXPIRE', KEYS[1], ARGV[3])
@@ -74,6 +89,29 @@ public class RedisCartStore implements CartStore {
         Map<String, String> values = redisTemplate == null ? fallbackCart(identity) : redisCart(identity);
         return new CartSnapshot(
                 userId, values.values().stream().map(this::deserialize).toList());
+    }
+
+    @Override
+    public boolean putItemIfUnchanged(Long userId, CartItem expectedItem, CartItem item, Duration ttl) {
+        if (expectedItem != null && !expectedItem.skuId().equals(item.skuId())) {
+            throw new IllegalArgumentException("Expected and replacement cart items must use the same SKU");
+        }
+        CartIdentity identity = identity(userId);
+        String field = item.skuId().toString();
+        String expectedValue = expectedItem == null ? null : serialize(expectedItem);
+        String value = serialize(item);
+        if (redisTemplate == null) {
+            return putFallbackItemIfUnchanged(identity, field, expectedValue, value, ttl);
+        }
+        Long updated = redisTemplate.execute(
+                PUT_ITEM_IF_UNCHANGED_SCRIPT,
+                List.of(key(identity)),
+                field,
+                expectedItem == null ? "ABSENT" : "PRESENT",
+                expectedValue == null ? "" : expectedValue,
+                value,
+                Long.toString(ttlSeconds(ttl)));
+        return Long.valueOf(1L).equals(updated);
     }
 
     @Override
@@ -133,6 +171,23 @@ public class RedisCartStore implements CartStore {
         FallbackCartState state = fallback.compute(
                 identity, (ignored, current) -> current == null || current.expiredAt(clock.instant()) ? null : current);
         return state == null ? Map.of() : state.items();
+    }
+
+    private boolean putFallbackItemIfUnchanged(
+            CartIdentity identity, String field, String expectedValue, String value, Duration ttl) {
+        Instant now = clock.instant();
+        AtomicBoolean updated = new AtomicBoolean();
+        fallback.compute(identity, (ignored, current) -> {
+            boolean expired = current == null || current.expiredAt(now);
+            Map<String, String> items = mutableItems(current, now);
+            if (!Objects.equals(items.get(field), expectedValue)) {
+                return expired ? null : current;
+            }
+            items.put(field, value);
+            updated.set(true);
+            return new FallbackCartState(Map.copyOf(items), now.plusSeconds(ttlSeconds(ttl)));
+        });
+        return updated.get();
     }
 
     private void putFallbackItem(CartIdentity identity, String field, String value, Duration ttl) {
