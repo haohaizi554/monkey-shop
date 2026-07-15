@@ -1,10 +1,22 @@
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
+import { ApiError } from '@/api/http'
+import type { ApiProblem } from '@/types'
 
 export const ASYNC_REQUEST_ERROR = 'common.requestFailed'
 export const ASYNC_TIMEOUT_ERROR = 'common.requestTimeout'
 export type AsyncErrorKey = typeof ASYNC_REQUEST_ERROR | typeof ASYNC_TIMEOUT_ERROR
 
 export type AsyncStatus = 'idle' | 'loading' | 'updating' | 'success' | 'empty' | 'error'
+
+export interface ResourceProblem extends ApiProblem {
+  messageKey: AsyncErrorKey
+}
+
+export type ResourceState<T> =
+  | { status: 'idle' | 'loading'; data?: undefined }
+  | { status: 'success' | 'updating'; data: T }
+  | { status: 'empty'; data?: undefined }
+  | { status: 'error'; data?: T; problem: ResourceProblem }
 
 export interface AsyncLoadContext {
   signal: AbortSignal
@@ -22,6 +34,8 @@ export interface AsyncState<T> {
   data: Ref<T | null>
   status: Ref<AsyncStatus>
   error: Ref<string | null>
+  problem: Ref<ResourceProblem | null>
+  state: ComputedRef<ResourceState<T>>
   isLoading: ComputedRef<boolean>
   isEmpty: ComputedRef<boolean>
   isError: ComputedRef<boolean>
@@ -38,6 +52,7 @@ export function useAsyncState<T>(defaults: AsyncLoadOptions<T> = {}): AsyncState
   const data = ref<T | null>(null) as Ref<T | null>
   const status = ref<AsyncStatus>('idle')
   const error = ref<string | null>(null)
+  const problem = ref<ResourceProblem | null>(null)
   const defaultTimeoutMs = defaults.timeoutMs ?? 15000
 
   let activeRequestId = 0
@@ -48,6 +63,19 @@ export function useAsyncState<T>(defaults: AsyncLoadOptions<T> = {}): AsyncState
   const isEmpty = computed(() => status.value === 'empty')
   const isError = computed(() => status.value === 'error')
   const isSuccess = computed(() => status.value === 'success')
+  const state = computed<ResourceState<T>>(() => {
+    if (status.value === 'success' || status.value === 'updating') {
+      return { status: status.value, data: data.value as T }
+    }
+    if (status.value === 'error') {
+      return {
+        status: 'error',
+        ...(data.value === null ? {} : { data: data.value }),
+        problem: problem.value ?? { messageKey: ASYNC_REQUEST_ERROR },
+      }
+    }
+    return { status: status.value }
+  })
 
   function invalidateActiveRequest() {
     activeRequestId += 1
@@ -57,6 +85,7 @@ export function useAsyncState<T>(defaults: AsyncLoadOptions<T> = {}): AsyncState
 
   function restoreSettledState() {
     error.value = null
+    problem.value = null
     if (data.value === null) {
       status.value = 'idle'
       return
@@ -84,6 +113,7 @@ export function useAsyncState<T>(defaults: AsyncLoadOptions<T> = {}): AsyncState
 
     status.value = data.value !== null && preserveData ? 'updating' : 'loading'
     error.value = null
+    problem.value = null
 
     let timer: ReturnType<typeof setTimeout> | undefined
     let didTimeout = false
@@ -116,10 +146,24 @@ export function useAsyncState<T>(defaults: AsyncLoadOptions<T> = {}): AsyncState
       }
 
       status.value = 'error'
-      error.value =
+      const messageKey =
         didTimeout || caught instanceof AsyncTimeoutError
           ? ASYNC_TIMEOUT_ERROR
           : ASYNC_REQUEST_ERROR
+      error.value = messageKey
+      problem.value = {
+        messageKey,
+        ...(caught instanceof ApiError
+          ? {
+              status: caught.status,
+              code: caught.code,
+              traceId: caught.traceId,
+              retryAfterSeconds: caught.retryAfterSeconds,
+              retryAt: caught.retryAt,
+              fieldErrors: caught.fieldErrors ? [...caught.fieldErrors] : undefined,
+            }
+          : {}),
+      }
       return null
     } finally {
       if (timer !== undefined) {
@@ -145,18 +189,23 @@ export function useAsyncState<T>(defaults: AsyncLoadOptions<T> = {}): AsyncState
     settledStatus = 'idle'
     status.value = 'idle'
     error.value = null
+    problem.value = null
   }
 
   function setError(message: AsyncErrorKey) {
     invalidateActiveRequest()
     status.value = 'error'
-    error.value = message === ASYNC_TIMEOUT_ERROR ? ASYNC_TIMEOUT_ERROR : ASYNC_REQUEST_ERROR
+    const messageKey = message === ASYNC_TIMEOUT_ERROR ? ASYNC_TIMEOUT_ERROR : ASYNC_REQUEST_ERROR
+    error.value = messageKey
+    problem.value = { messageKey }
   }
 
   return {
     data,
     status,
     error,
+    problem,
+    state,
     isLoading,
     isEmpty,
     isError,

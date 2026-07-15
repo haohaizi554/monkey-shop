@@ -146,6 +146,28 @@ function safeFallback(fallbackKey: string): string {
   return i18n.global.te(fallbackKey) ? translate(fallbackKey) : translate('feedback.requestFailed')
 }
 
+export function normalizeFeedbackMessage(message: string): string {
+  const normalized = message.trim().toLowerCase()
+  if (
+    normalized.includes('too many requests') ||
+    normalized.includes('too many attempts') ||
+    normalized.includes('temporarily locked')
+  ) {
+    return translate('feedback.rateLimited')
+  }
+  if (
+    normalized === 'operation is not permitted' ||
+    normalized.includes('permission denied') ||
+    normalized === 'forbidden'
+  ) {
+    return translate('feedback.forbidden')
+  }
+  if (normalized === 'unauthorized' || normalized.includes('session expired')) {
+    return translate('feedback.unauthorized')
+  }
+  return message
+}
+
 export function clearFeedback() {
   for (const id of dismissalTimers.keys()) {
     clearDismissalTimer(id)
@@ -156,7 +178,7 @@ export function clearFeedback() {
 
 export function useNotify() {
   function notify(level: FeedbackLevel, message: string, input?: FeedbackInput): string {
-    return enqueue(level, message, input)
+    return enqueue(level, normalizeFeedbackMessage(message), input)
   }
 
   function success(message: string, input?: FeedbackInput): string {
@@ -164,15 +186,15 @@ export function useNotify() {
   }
 
   function info(message: string, input?: FeedbackInput): string {
-    return enqueue('info', message, input)
+    return enqueue('info', normalizeFeedbackMessage(message), input)
   }
 
   function warning(message: string, input?: FeedbackInput): string {
-    return enqueue('warning', message, input)
+    return enqueue('warning', normalizeFeedbackMessage(message), input)
   }
 
   function error(message: string, input?: FeedbackInput): string {
-    return enqueue('error', message, input)
+    return enqueue('error', normalizeFeedbackMessage(message), input)
   }
 
   function fromApiError(apiError: unknown, fallbackKey: string): string {
@@ -215,5 +237,15 @@ export function useNotify() {
     }
   }
 
-  return { notify, success, info, warning, error, fromApiError, confirm, dismiss }
+  return {
+    notify,
+    success,
+    info,
+    warning,
+    error,
+    fromApiError,
+    confirm,
+    dismiss,
+    normalize: normalizeFeedbackMessage,
+  }
 }

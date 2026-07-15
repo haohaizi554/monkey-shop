@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { ApiError } from '@/api/http'
 import {
   ASYNC_REQUEST_ERROR,
   ASYNC_TIMEOUT_ERROR,
@@ -48,6 +49,7 @@ describe('useAsyncState', () => {
 
     expect(state.status.value).toBe('updating')
     expect(state.data.value).toBe('first')
+    expect(state.state.value).toEqual({ status: 'updating', data: 'first' })
     request.resolve('second')
     await pending
     expect(state.data.value).toBe('second')
@@ -170,6 +172,33 @@ describe('useAsyncState', () => {
 
     expect(state.status.value).toBe('error')
     expect(state.error.value).toBe('common.requestFailed')
+  })
+
+  it('keeps safe API problem metadata without exposing the provider message', async () => {
+    const state = useAsyncState<string>()
+    const apiError = new ApiError('database connection details', 429, 'trace-429', 'RATE_LIMITED', {
+      retryAfterSeconds: 12,
+      retryAt: '2026-07-15T12:00:00Z',
+      fieldErrors: [{ field: 'username', code: 'TAKEN', message: 'already used' }],
+    })
+
+    await state.load(async () => {
+      throw apiError
+    })
+
+    expect(state.state.value).toEqual({
+      status: 'error',
+      problem: {
+        messageKey: ASYNC_REQUEST_ERROR,
+        status: 429,
+        code: 'RATE_LIMITED',
+        traceId: 'trace-429',
+        retryAfterSeconds: 12,
+        retryAt: '2026-07-15T12:00:00Z',
+        fieldErrors: [{ field: 'username', code: 'TAKEN', message: 'already used' }],
+      },
+    })
+    expect(JSON.stringify(state.problem.value)).not.toContain('database connection details')
   })
 
   it('normalizes a synchronous loader failure', async () => {

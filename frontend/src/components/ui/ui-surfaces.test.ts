@@ -45,6 +45,17 @@ describe('PageHeader', () => {
 })
 
 describe('AsyncStateView', () => {
+  it('publishes the requested layout mode without changing state ownership', () => {
+    const host = mount(
+      AsyncStateView,
+      { status: 'success', mode: 'grid' },
+      { default: () => h('p', 'Products') },
+    )
+
+    expect(host.querySelector('.async-state-view')?.getAttribute('data-mode')).toBe('grid')
+    expect(host.textContent).toContain('Products')
+  })
+
   it('renders only the branch selected by status', () => {
     const host = mount(AsyncStateView, {
       status: 'empty',

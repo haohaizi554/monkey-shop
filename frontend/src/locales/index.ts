@@ -164,10 +164,49 @@ const messages = {
       titleWarning: 'Attention needed',
       titleError: 'Could not complete',
       repeated: 'Repeated {count} times',
+      retryAfter: 'Try again in {seconds}s',
       rateLimited: 'Too many operations. Please wait a moment and try again.',
       unauthorized: 'Your session has expired. Please sign in again.',
       forbidden: 'This account does not have permission to perform this action.',
       requestFailed: 'The request failed. Please try again later.',
+    },
+    status: {
+      common: {
+        unknown: 'Unknown',
+        completed: 'Completed',
+        failed: 'Failed',
+        approved: 'Approved',
+        rejected: 'Rejected',
+      },
+      order: {
+        pendingPayment: 'Pending payment',
+        fulfilling: 'Fulfilling',
+        cancelled: 'Cancelled',
+      },
+      payment: {
+        paid: 'Paid',
+        processing: 'Processing',
+        refunding: 'Refunding',
+        refunded: 'Refunded',
+      },
+      logistics: {
+        shipped: 'Shipped',
+        delivered: 'Delivered',
+      },
+      inventory: {
+        inStock: 'In stock',
+        lowStock: 'Low stock',
+        outOfStock: 'Out of stock',
+      },
+      risk: {
+        pendingReview: 'Pending review',
+        blocked: 'Blocked',
+      },
+      tenant: {
+        active: 'Active',
+        suspended: 'Suspended',
+        expired: 'Expired',
+      },
     },
     shop: {
       title: 'MonkeyShop',
@@ -929,12 +968,51 @@ const messages = {
       titleWarning: '\u8bf7\u6ce8\u610f',
       titleError: '\u64cd\u4f5c\u672a\u5b8c\u6210',
       repeated: '\u5df2\u91cd\u590d {count} \u6b21',
+      retryAfter: '{seconds} \u79d2\u540e\u53ef\u91cd\u8bd5',
       rateLimited: '\u64cd\u4f5c\u592a\u9891\u7e41\u4e86\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5\u3002',
       unauthorized:
         '\u767b\u5f55\u72b6\u6001\u5df2\u5931\u6548\uff0c\u8bf7\u91cd\u65b0\u767b\u5f55\u3002',
       forbidden:
         '\u5f53\u524d\u8d26\u53f7\u6ca1\u6709\u6743\u9650\u6267\u884c\u8fd9\u4e2a\u64cd\u4f5c\u3002',
       requestFailed: '\u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5\u3002',
+    },
+    status: {
+      common: {
+        unknown: '\u672a\u77e5',
+        completed: '\u5df2\u5b8c\u6210',
+        failed: '\u5931\u8d25',
+        approved: '\u5df2\u901a\u8fc7',
+        rejected: '\u5df2\u62d2\u7edd',
+      },
+      order: {
+        pendingPayment: '\u5f85\u652f\u4ed8',
+        fulfilling: '\u5c65\u7ea6\u4e2d',
+        cancelled: '\u5df2\u53d6\u6d88',
+      },
+      payment: {
+        paid: '\u5df2\u652f\u4ed8',
+        processing: '\u5904\u7406\u4e2d',
+        refunding: '\u9000\u6b3e\u4e2d',
+        refunded: '\u5df2\u9000\u6b3e',
+      },
+      logistics: {
+        shipped: '\u5df2\u53d1\u8d27',
+        delivered: '\u5df2\u9001\u8fbe',
+      },
+      inventory: {
+        inStock: '\u5e93\u5b58\u5145\u8db3',
+        lowStock: '\u5e93\u5b58\u504f\u4f4e',
+        outOfStock: '\u7f3a\u8d27',
+      },
+      risk: {
+        pendingReview: '\u5f85\u5ba1\u6838',
+        blocked: '\u5df2\u963b\u65ad',
+      },
+      tenant: {
+        active: '\u6b63\u5e38',
+        suspended: '\u5df2\u6682\u505c',
+        expired: '\u5df2\u8fc7\u671f',
+      },
     },
     shop: {
       title: 'MonkeyShop',

@@ -94,7 +94,7 @@ function title(item: FeedbackItem): string {
   position: fixed;
   top: var(--space-4);
   right: var(--space-4);
-  z-index: 3000;
+  z-index: var(--z-toast);
   display: grid;
   gap: var(--space-2);
   width: min(360px, calc(100vw - 32px));
@@ -110,7 +110,7 @@ function title(item: FeedbackItem): string {
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--color-line);
   border-radius: var(--radius-surface);
-  color: var(--color-text);
+  color: var(--color-ink);
   background: var(--color-surface);
   box-shadow: var(--shadow-overlay);
   pointer-events: auto;
@@ -163,7 +163,7 @@ function title(item: FeedbackItem): string {
 }
 
 .app-feedback-item__content p {
-  color: var(--color-text-muted);
+  color: var(--color-muted);
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
 }
@@ -175,13 +175,13 @@ function title(item: FeedbackItem): string {
   min-height: 20px;
   border-radius: var(--radius-pill);
   padding: 0 var(--space-2);
-  color: var(--color-text-muted);
+  color: var(--color-muted);
   background: var(--color-surface-subtle);
   font-size: var(--text-xs);
 }
 
 .app-feedback-item__details {
-  color: var(--color-text-muted);
+  color: var(--color-muted);
   font-size: var(--text-xs);
 }
 
@@ -204,13 +204,13 @@ function title(item: FeedbackItem): string {
   padding: 0;
   border: 0;
   border-radius: var(--radius-control);
-  color: var(--color-text-muted);
+  color: var(--color-muted);
   background: transparent;
   cursor: pointer;
 }
 
 .app-feedback-item__dismiss:hover {
-  color: var(--color-text);
+  color: var(--color-ink);
   background: var(--color-surface-subtle);
 }
 

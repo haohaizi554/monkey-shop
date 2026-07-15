@@ -7,6 +7,7 @@ import type { AsyncStatus } from '@/composables/useAsyncState'
 const props = withDefaults(
   defineProps<{
     status: AsyncStatus
+    mode?: 'table' | 'grid' | 'detail' | 'form'
     error?: string | null
     loadingLines?: number
     emptyTitle?: string
@@ -15,6 +16,7 @@ const props = withDefaults(
   }>(),
   {
     error: null,
+    mode: 'detail',
     loadingLines: 3,
     emptyTitle: undefined,
     emptyDescription: undefined,
@@ -34,6 +36,7 @@ const errorMessage = computed(() => {
   <div
     class="async-state-view"
     :data-status="status"
+    :data-mode="mode"
     :aria-busy="status === 'loading' || status === 'updating'"
   >
     <div v-if="status === 'idle'" class="async-state-view__idle">

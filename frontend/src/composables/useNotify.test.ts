@@ -87,6 +87,15 @@ describe('useNotify', () => {
     expect(feedbackItems[0]?.traceId).toBe('trace-rate-limit')
   })
 
+  it('normalizes raw provider rate-limit and permission messages', () => {
+    const notify = useNotify()
+
+    expect(notify.normalize('Too many requests')).toBe('操作太频繁了，请稍后再试。')
+    expect(notify.normalize('Operation is not permitted')).toBe(
+      '当前账号没有权限执行这个操作。',
+    )
+  })
+
   it.each([
     [401, '\u767b\u5f55'],
     [403, '\u6743\u9650'],
