@@ -24,6 +24,7 @@ import com.example.monkey.cart.domain.CartLockManager;
 import com.example.monkey.cart.domain.CartSkuSnapshot;
 import com.example.monkey.cart.domain.CartSnapshot;
 import com.example.monkey.cart.domain.CartStore;
+import com.example.monkey.cart.domain.CheckoutOrder;
 import com.example.monkey.cart.infrastructure.CartCheckoutLineRepository;
 import com.example.monkey.cart.infrastructure.CartCheckoutRepository;
 import com.example.monkey.cart.infrastructure.CartCleanupIntentRepository;
@@ -31,6 +32,7 @@ import com.example.monkey.cart.infrastructure.CartSubOrderRepository;
 import com.example.monkey.cart.infrastructure.JdbcCartCleanupTenantSource;
 import com.example.monkey.cart.infrastructure.JpaCartCheckoutStore;
 import com.example.monkey.cart.infrastructure.JpaCartCleanupIntentStore;
+import com.example.monkey.cart.infrastructure.RedisCartStore;
 import com.example.monkey.cart.infrastructure.RequiresNewCartTransactions;
 import com.example.monkey.inventory.application.InventoryApplicationService;
 import com.example.monkey.inventory.application.dto.InventoryReservationResponseDto;
@@ -74,6 +76,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -88,9 +91,14 @@ import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.mockito.ArgumentCaptor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
+import org.springframework.data.redis.connection.jedis.JedisConnectionFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -260,6 +268,39 @@ class CheckoutTransactionIntegrationTest {
     }
 
     @Test
+    void v51LegacyCheckoutReplayReturnsPersistedResponseWithoutNewSideEffects() {
+        Fixture fixture = new Fixture(
+                new JpaCartCheckoutStore(checkoutRepository, subOrderRepository, lineRepository),
+                new OrderFormalOrderCreator(new CheckoutOrderApplicationService(
+                        new JpaOrderStore(orderRepository, stockLogRepository, orderLineRepository), customerPort())),
+                cleanupIntentRepository,
+                new JdbcCartCleanupTenantSource(jdbcTemplate),
+                transactionManager);
+        fixture.seedSelectedCart();
+        var first = fixture.service.checkout(
+                USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of()), "v51-legacy-checkout-key");
+        var persisted = fixture.service.checkout(
+                USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of()), "v51-legacy-checkout-key");
+        inNewTransaction(() -> {
+            var legacy = checkoutRepository.findById(first.id()).orElseThrow();
+            legacy.setRequestFingerprint(CheckoutOrder.LEGACY_V51_REQUEST_FINGERPRINT);
+            checkoutRepository.saveAndFlush(legacy);
+            return null;
+        });
+        fixture.seedSelectedCart();
+
+        var replay = fixture.service.checkout(
+                USER, new CartCheckoutRequestDto(9L, "CN-SH", List.of("DIFFERENT")), "v51-legacy-checkout-key");
+
+        assertThat(replay).isEqualTo(persisted);
+        assertThat(checkoutRepository.count()).isEqualTo(1L);
+        assertThat(orderRepository.count()).isEqualTo(2L);
+        assertThat(cleanupIntentRepository.count()).isEqualTo(1L);
+        verify(fixture.inventoryApplicationService, times(2)).reserve(any());
+        verify(fixture.marketingApplicationService, times(1)).redeemForCheckout(any(), any(), any());
+    }
+
+    @Test
     void failureAfterFormalOrderCreationRollsBackDatabaseAndKeepsCart() {
         Fixture fixture = new Fixture(
                 new JpaCartCheckoutStore(checkoutRepository, subOrderRepository, lineRepository),
@@ -413,7 +454,7 @@ class CheckoutTransactionIntegrationTest {
         JpaCartCleanupIntentStore store = cleanupIntentStore();
         store.save(CartCleanupIntent.pending(8806L, USER.id(), List.of(selected), Duration.ofDays(7), now));
         InMemoryCartStore cartStore = new InMemoryCartStore();
-        cartStore.save(new CartSnapshot(USER.id(), List.of(selected)), Duration.ofDays(7));
+        cartStore.seed(new CartSnapshot(USER.id(), List.of(selected)));
         CartCleanupProcessor processor = new CartCleanupProcessor(
                 store,
                 cartStore,
@@ -475,7 +516,7 @@ class CheckoutTransactionIntegrationTest {
         JpaCartCleanupIntentStore delegate = cleanupIntentStore();
         delegate.save(CartCleanupIntent.pending(8804L, USER.id(), checkoutSnapshots, Duration.ofDays(7), now));
         InMemoryCartStore cartStore = new InMemoryCartStore();
-        cartStore.save(new CartSnapshot(USER.id(), checkoutSnapshots), Duration.ofDays(7));
+        cartStore.seed(new CartSnapshot(USER.id(), checkoutSnapshots));
         CartCleanupIntentStore failFirstCompletion = new FailFirstCompletionIntentStore(delegate);
         CartCleanupProcessor firstProcessor = new CartCleanupProcessor(
                 failFirstCompletion,
@@ -495,7 +536,8 @@ class CheckoutTransactionIntegrationTest {
         CartItem quantityChanged = new CartItem(1001L, 501L, 3, true, now, later);
         CartItem unselected = new CartItem(1002L, 501L, 1, false, now, later);
         CartItem readded = new CartItem(1003L, 501L, 1, true, later, later);
-        cartStore.save(new CartSnapshot(USER.id(), List.of(quantityChanged, unselected, readded)), Duration.ofDays(7));
+        CartItem brandNew = new CartItem(2001L, 502L, 1, true, later, later);
+        cartStore.seed(new CartSnapshot(USER.id(), List.of(quantityChanged, unselected, readded, brandNew)));
         CartCleanupProcessor retryProcessor = new CartCleanupProcessor(
                 delegate,
                 cartStore,
@@ -505,25 +547,131 @@ class CheckoutTransactionIntegrationTest {
 
         assertThat(retryProcessor.process(8804L)).isTrue();
         assertThat(cartStore.findCart(USER.id()).items())
-                .containsExactlyInAnyOrder(quantityChanged, unselected, readded);
+                .containsExactlyInAnyOrder(quantityChanged, unselected, readded, brandNew);
         assertThat(delegate.findByCheckoutId(8804L).orElseThrow().status())
                 .isEqualTo(CartCleanupIntentStatus.COMPLETED);
         assertThat(cartStore.cleanupAttempts()).isEqualTo(2);
     }
 
     @Test
-    void tenantAndIntentDiscoveryIncludeExpiredProcessingClaims() {
+    void retryWorkerProcessesReadyAndExpiredClaimsForTwoTenantsAndRestoresContext() {
         LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
         JpaCartCleanupIntentStore store = cleanupIntentStore();
-        store.save(CartCleanupIntent.pending(
-                8805L, USER.id(), List.of(new CartItem(1001L, 501L, 2, true, now, now)), Duration.ofDays(7), now));
-        assertThat(inNewTransaction(() -> store.claim(8805L, "expired-token", now, now.plusSeconds(30))))
-                .isPresent();
         LocalDateTime cutoff = now.plusSeconds(31);
+        CartItem tenantOneItem = new CartItem(1001L, 501L, 2, true, now, now);
+        CartItem tenantTwoItem = new CartItem(2001L, 502L, 1, true, now, now);
+        jdbcTemplate.update("""
+                MERGE INTO tenant (id, code, name, status, plan, created_at, expires_at, version) KEY (id)
+                VALUES (1, 'cart-worker-one', 'Cart Worker One', 'ACTIVE', 'STARTER', ?, ?, 0)
+                """, now, now.plusYears(10));
+        jdbcTemplate.update("""
+                MERGE INTO tenant (id, code, name, status, plan, created_at, expires_at, version) KEY (id)
+                VALUES (2, 'cart-worker-two', 'Cart Worker Two', 'ACTIVE', 'STARTER', ?, ?, 0)
+                """, now, now.plusYears(10));
+        InMemoryCartStore cartStore = new InMemoryCartStore();
+        cartStore.seed(new CartSnapshot(USER.id(), List.of(tenantOneItem)));
+        cartStore.seed(new CartSnapshot(8L, List.of(tenantTwoItem)));
+        try {
+            TenantContext.setTenantId(1L);
+            store.save(CartCleanupIntent.pending(8805L, USER.id(), List.of(tenantOneItem), Duration.ofDays(7), now));
+            TenantContext.setTenantId(2L);
+            store.save(CartCleanupIntent.pending(8807L, 8L, List.of(tenantTwoItem), Duration.ofDays(7), now));
+            assertThat(inNewTransaction(() -> store.claim(8807L, "expired-token", now, now.plusSeconds(30))))
+                    .isPresent();
 
-        assertThat(store.findReadyCheckoutIds(cutoff)).contains(8805L);
-        assertThat(new JdbcCartCleanupTenantSource(jdbcTemplate).findTenantIdsWithReadyIntents(cutoff, 0L, 100))
-                .contains(1L);
+            JdbcCartCleanupTenantSource tenantSource = new JdbcCartCleanupTenantSource(jdbcTemplate);
+            assertThat(tenantSource.findTenantIdsWithReadyIntents(cutoff, 0L, 100))
+                    .containsExactly(1L, 2L);
+            CartCleanupProcessor processor = new CartCleanupProcessor(
+                    store,
+                    cartStore,
+                    transactionManager,
+                    Clock.fixed(Instant.parse("2026-01-01T00:00:31Z"), ZoneOffset.UTC),
+                    Duration.ofSeconds(30));
+            CartCleanupRetryWorker worker = new CartCleanupRetryWorker(store, tenantSource, processor);
+            TenantContext.setTenantId(77L);
+
+            worker.retryPending();
+
+            assertThat(TenantContext.currentTenantId()).contains(77L);
+            TenantContext.setTenantId(1L);
+            assertThat(store.findByCheckoutId(8805L).orElseThrow().status())
+                    .isEqualTo(CartCleanupIntentStatus.COMPLETED);
+            TenantContext.setTenantId(2L);
+            assertThat(store.findByCheckoutId(8807L).orElseThrow().status())
+                    .isEqualTo(CartCleanupIntentStatus.COMPLETED);
+            assertThat(cartStore.findCart(USER.id()).items()).isEmpty();
+            assertThat(cartStore.findCart(8L).items()).isEmpty();
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    @EnabledIfEnvironmentVariable(named = "RUN_CART_REDIS_ACCEPTANCE", matches = "true")
+    void realRedisCrashWindowReclaimsIntentWithoutDeletingPostCheckoutMutations() {
+        String host = System.getenv().getOrDefault("CART_REDIS_HOST", "127.0.0.1");
+        int port = Integer.parseInt(System.getenv().getOrDefault("CART_REDIS_PORT", "6379"));
+        RedisStandaloneConfiguration configuration = new RedisStandaloneConfiguration(host, port);
+        JedisConnectionFactory connectionFactory = new JedisConnectionFactory(configuration);
+        connectionFactory.afterPropertiesSet();
+        connectionFactory.start();
+        StringRedisTemplate redisTemplate = new StringRedisTemplate(connectionFactory);
+        redisTemplate.afterPropertiesSet();
+        ObjectProvider<StringRedisTemplate> provider = mock();
+        when(provider.getIfAvailable()).thenReturn(redisTemplate);
+        RedisCartStore cartStore = new RedisCartStore(provider, new ObjectMapper().findAndRegisterModules());
+        Long userId = positiveRandomId();
+        Long checkoutId = positiveRandomId();
+        String key = "cart:user:" + userId;
+        LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
+        LocalDateTime later = now.plusMinutes(1);
+        List<CartItem> checkoutSnapshots = List.of(
+                new CartItem(1001L, 501L, 2, true, now, now),
+                new CartItem(1002L, 501L, 1, true, now, now),
+                new CartItem(1003L, 501L, 1, true, now, now),
+                new CartItem(1004L, 501L, 1, true, now, now));
+        JpaCartCleanupIntentStore delegate = cleanupIntentStore();
+        try {
+            delegate.save(CartCleanupIntent.pending(checkoutId, userId, checkoutSnapshots, Duration.ofDays(7), now));
+            checkoutSnapshots.forEach(item -> cartStore.putItem(userId, item, Duration.ofDays(7)));
+            CartCleanupProcessor firstProcessor = new CartCleanupProcessor(
+                    new FailFirstCompletionIntentStore(delegate),
+                    cartStore,
+                    transactionManager,
+                    Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC),
+                    Duration.ofSeconds(30));
+
+            assertThatThrownBy(() -> firstProcessor.process(checkoutId))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessage("completion unavailable");
+            assertThat(cartStore.findCart(userId).items()).isEmpty();
+            assertThat(delegate.findByCheckoutId(checkoutId).orElseThrow().status())
+                    .isEqualTo(CartCleanupIntentStatus.PROCESSING);
+
+            CartItem quantityChanged = new CartItem(1001L, 501L, 3, true, now, later);
+            CartItem unselected = new CartItem(1002L, 501L, 1, false, now, later);
+            CartItem readded = new CartItem(1003L, 501L, 1, true, later, later);
+            CartItem brandNew = new CartItem(2001L, 502L, 1, true, later, later);
+            List<CartItem> postCheckoutItems = List.of(quantityChanged, unselected, readded, brandNew);
+            postCheckoutItems.forEach(item -> cartStore.putItem(userId, item, Duration.ofDays(7)));
+            CartCleanupProcessor retryProcessor = new CartCleanupProcessor(
+                    delegate,
+                    cartStore,
+                    transactionManager,
+                    Clock.fixed(Instant.parse("2026-01-01T00:00:31Z"), ZoneOffset.UTC),
+                    Duration.ofSeconds(30));
+
+            assertThat(retryProcessor.process(checkoutId)).isTrue();
+            assertThat(cartStore.findCart(userId).items()).containsExactlyInAnyOrderElementsOf(postCheckoutItems);
+            assertThat(delegate.findByCheckoutId(checkoutId).orElseThrow().status())
+                    .isEqualTo(CartCleanupIntentStatus.COMPLETED);
+        } finally {
+            redisTemplate.delete(key);
+            jdbcTemplate.update("DELETE FROM cart_cleanup_intent WHERE checkout_id = ?", checkoutId);
+            connectionFactory.destroy();
+        }
     }
 
     @Test
@@ -639,6 +787,10 @@ class CheckoutTransactionIntegrationTest {
         TransactionTemplate template = new TransactionTemplate(transactionManager);
         template.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         return template.execute(status -> action.get());
+    }
+
+    private static long positiveRandomId() {
+        return UUID.randomUUID().getMostSignificantBits() & Long.MAX_VALUE;
     }
 
     private void seedInventory() {
@@ -791,13 +943,9 @@ class CheckoutTransactionIntegrationTest {
 
         private void seedSelectedCart() {
             LocalDateTime now = LocalDateTime.now();
-            cartStore.save(
-                    new CartSnapshot(
-                            USER.id(),
-                            List.of(
-                                    new CartItem(1001L, 1L, 2, true, now, now),
-                                    new CartItem(1002L, 2L, 1, true, now, now))),
-                    Duration.ofDays(7));
+            cartStore.seed(new CartSnapshot(
+                    USER.id(),
+                    List.of(new CartItem(1001L, 1L, 2, true, now, now), new CartItem(1002L, 2L, 1, true, now, now))));
         }
 
         private static InventoryReservationResponseDto reservation(InventoryReserveRequestDto request) {
@@ -840,9 +988,25 @@ class CheckoutTransactionIntegrationTest {
         }
 
         @Override
-        public CartSnapshot save(CartSnapshot cart, Duration ttl) {
-            carts.put(cart.userId(), cart);
-            return cart;
+        public void putItem(Long userId, CartItem item, Duration ttl) {
+            carts.compute(userId, (ignored, current) -> {
+                CartSnapshot cart = current == null ? new CartSnapshot(userId, List.of()) : current;
+                List<CartItem> items = new java.util.ArrayList<>(cart.items());
+                items.removeIf(existing -> existing.skuId().equals(item.skuId()));
+                items.add(item);
+                return new CartSnapshot(userId, items);
+            });
+        }
+
+        @Override
+        public void removeItem(Long userId, Long skuId, Duration ttl) {
+            carts.computeIfPresent(
+                    userId,
+                    (ignored, cart) -> new CartSnapshot(
+                            userId,
+                            cart.items().stream()
+                                    .filter(item -> !item.skuId().equals(skuId))
+                                    .toList()));
         }
 
         @Override
@@ -852,14 +1016,17 @@ class CheckoutTransactionIntegrationTest {
             if (cleanupFailures.getAndUpdate(remaining -> Math.max(0, remaining - 1)) > 0) {
                 throw new IllegalStateException("cart unavailable");
             }
-            CartSnapshot cart = findCart(userId);
-            save(
-                    new CartSnapshot(
+            carts.computeIfPresent(
+                    userId,
+                    (ignored, cart) -> new CartSnapshot(
                             userId,
                             cart.items().stream()
                                     .filter(item -> !expectedItems.contains(item))
-                                    .toList()),
-                    ttl);
+                                    .toList()));
+        }
+
+        private void seed(CartSnapshot cart) {
+            carts.put(cart.userId(), cart);
         }
 
         private void failNextCleanup() {

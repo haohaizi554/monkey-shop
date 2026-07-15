@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.example.monkey.cart.domain.CheckoutOrder;
 import com.example.monkey.order.domain.OrderStore;
 import com.example.monkey.order.domain.OrderStore.OrderRecord;
 import com.example.monkey.payment.application.dto.PaymentCreateRequestDto;
@@ -262,9 +263,39 @@ class PaymentLocalMySqlAcceptanceTest {
                               'uk_cart_cleanup_intent_claim',
                               'idx_cart_cleanup_intent_pending_ready',
                               'idx_cart_cleanup_intent_processing_lease',
-                              'idx_cart_cleanup_intent_user_created'
+                              'idx_cart_cleanup_intent_user_created',
+                              'idx_cart_cleanup_intent_completed_purge'
                           )
-                        """, Long.class)).isEqualTo(4L);
+                        """, Long.class)).isEqualTo(5L);
+    }
+
+    @Test
+    void v51CartCheckoutMigratesToExplicitLegacyReplayMarker() {
+        restoreSchemaAfterTest = true;
+        Flyway v51 = Flyway.configure()
+                .dataSource(dataSource)
+                .cleanDisabled(false)
+                .target(MigrationVersion.fromVersion("51"))
+                .load();
+        v51.clean();
+        v51.migrate();
+        jdbcTemplate.update("""
+                INSERT INTO cart_checkout (
+                    id, checkout_no, user_id, address_id, idempotency_key,
+                    original_amount, discount_amount, payable_amount, status,
+                    province, version, create_time, tenant_id
+                ) VALUES (
+                    951200, 'V51-CHECKOUT-951200', 42, 9, 'v51-legacy-key',
+                    100.00, 10.00, 90.00, 'CHECKED_OUT',
+                    'CN-BJ', 0, '2026-01-01 00:00:00', 1
+                )
+                """);
+
+        Flyway.configure().dataSource(dataSource).cleanDisabled(false).load().migrate();
+
+        assertThat(jdbcTemplate.queryForObject(
+                        "SELECT request_fingerprint FROM cart_checkout WHERE id = 951200", String.class))
+                .isEqualTo(CheckoutOrder.LEGACY_V51_REQUEST_FINGERPRINT);
     }
 
     @Test

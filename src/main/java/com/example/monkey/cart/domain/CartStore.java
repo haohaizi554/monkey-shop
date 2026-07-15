@@ -7,7 +7,9 @@ public interface CartStore {
 
     CartSnapshot findCart(Long userId);
 
-    CartSnapshot save(CartSnapshot cart, Duration ttl);
+    void putItem(Long userId, CartItem item, Duration ttl);
+
+    void removeItem(Long userId, Long skuId, Duration ttl);
 
     void removeMatchingItems(Long userId, List<CartItem> expectedItems, Duration ttl);
 }

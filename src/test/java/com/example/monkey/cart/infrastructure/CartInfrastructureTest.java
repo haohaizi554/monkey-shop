@@ -15,18 +15,25 @@ import static org.mockito.Mockito.when;
 import com.example.monkey.cart.domain.CartCheckoutStatus;
 import com.example.monkey.cart.domain.CartItem;
 import com.example.monkey.cart.domain.CartSkuSnapshot;
-import com.example.monkey.cart.domain.CartSnapshot;
 import com.example.monkey.cart.domain.CheckoutLine;
 import com.example.monkey.cart.domain.CheckoutOrder;
 import com.example.monkey.cart.domain.CheckoutSubOrder;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
@@ -43,6 +50,113 @@ import org.springframework.transaction.support.SimpleTransactionStatus;
 class CartInfrastructureTest {
 
     @Test
+    void fallbackCartExpiresAndFieldMutationsRefreshTtl() {
+        ObjectProvider<StringRedisTemplate> provider = mock();
+        when(provider.getIfAvailable()).thenReturn(null);
+        MutableClock clock = new MutableClock(Instant.parse("2026-01-01T00:00:00Z"));
+        RedisCartStore store =
+                new RedisCartStore(provider, new ObjectMapper().registerModule(new JavaTimeModule()), clock);
+        Duration ttl = Duration.ofSeconds(10);
+        LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
+        CartItem first = new CartItem(1001L, 1L, 2, true, now, now);
+        CartItem second = new CartItem(1002L, 1L, 1, true, now, now);
+
+        store.putItem(7L, first, ttl);
+        clock.advance(Duration.ofSeconds(9));
+        store.putItem(7L, second, ttl);
+        clock.advance(Duration.ofSeconds(2));
+
+        assertThat(store.findCart(7L).items()).containsExactlyInAnyOrder(first, second);
+        clock.advance(Duration.ofSeconds(9));
+        assertThat(store.findCart(7L).items()).isEmpty();
+
+        store.putItem(7L, first, ttl);
+        store.removeItem(7L, first.skuId(), ttl);
+        assertThat(store.findCart(7L).items()).isEmpty();
+    }
+
+    @Test
+    void fallbackCleanupRefreshesTtlWhenItemsRemain() {
+        ObjectProvider<StringRedisTemplate> provider = mock();
+        when(provider.getIfAvailable()).thenReturn(null);
+        MutableClock clock = new MutableClock(Instant.parse("2026-01-01T00:00:00Z"));
+        RedisCartStore store =
+                new RedisCartStore(provider, new ObjectMapper().registerModule(new JavaTimeModule()), clock);
+        Duration ttl = Duration.ofSeconds(10);
+        LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
+        CartItem removed = new CartItem(1001L, 1L, 2, true, now, now);
+        CartItem retained = new CartItem(1002L, 1L, 1, true, now, now.plusSeconds(1));
+        store.putItem(7L, removed, ttl);
+        store.putItem(7L, retained, ttl);
+
+        clock.advance(Duration.ofSeconds(9));
+        store.removeMatchingItems(7L, List.of(removed), ttl);
+        clock.advance(Duration.ofSeconds(2));
+
+        assertThat(store.findCart(7L).items()).containsExactly(retained);
+        clock.advance(Duration.ofSeconds(9));
+        assertThat(store.findCart(7L).items()).isEmpty();
+    }
+
+    @Test
+    void fallbackConcurrentCleanupCannotRestoreUnrelatedCheckoutItem() throws Exception {
+        ObjectProvider<StringRedisTemplate> provider = mock();
+        when(provider.getIfAvailable()).thenReturn(null);
+        RedisCartStore store = new RedisCartStore(provider, new ObjectMapper().registerModule(new JavaTimeModule()));
+        Duration ttl = Duration.ofDays(7);
+        LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
+        CartItem first = new CartItem(1001L, 1L, 2, true, now, now);
+        CartItem second = new CartItem(1002L, 1L, 1, true, now, now);
+        CartItem changed = new CartItem(1001L, 1L, 3, true, now, now.plusSeconds(1));
+        store.putItem(7L, first, ttl);
+        store.putItem(7L, second, ttl);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> cleanup = executor.submit(() -> {
+                await(start);
+                store.removeMatchingItems(7L, List.of(first, second), ttl);
+            });
+            Future<?> mutation = executor.submit(() -> {
+                await(start);
+                store.putItem(7L, changed, ttl);
+            });
+
+            start.countDown();
+            cleanup.get(5, TimeUnit.SECONDS);
+            mutation.get(5, TimeUnit.SECONDS);
+
+            assertThat(store.findCart(7L).items()).doesNotContain(second);
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void redisFieldMutationsUseOneLuaScriptWithTtlRefresh() {
+        ObjectProvider<StringRedisTemplate> provider = mock();
+        StringRedisTemplate redisTemplate = mock();
+        HashOperations<String, Object, Object> hashOperations = mock();
+        when(provider.getIfAvailable()).thenReturn(redisTemplate);
+        when(redisTemplate.opsForHash()).thenReturn(hashOperations);
+        RedisCartStore store = new RedisCartStore(provider, new ObjectMapper().registerModule(new JavaTimeModule()));
+        LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
+
+        store.putItem(7L, new CartItem(1001L, 1L, 2, true, now, now), Duration.ofDays(7));
+        store.removeItem(7L, 1001L, Duration.ofDays(7));
+
+        var scriptCaptor = org.mockito.ArgumentCaptor.forClass(DefaultRedisScript.class);
+        verify(redisTemplate, times(2))
+                .execute(scriptCaptor.capture(), eq(List.of("cart:user:7")), any(Object[].class));
+        assertThat(scriptCaptor.getAllValues().get(0).getScriptAsString()).contains("HSET", "EXPIRE");
+        assertThat(scriptCaptor.getAllValues().get(1).getScriptAsString()).contains("HDEL", "EXPIRE");
+        verify(redisTemplate, never()).delete(anyString());
+        verify(redisTemplate, never()).expire(anyString(), any(Duration.class));
+        verifyNoInteractions(hashOperations);
+    }
+
+    @Test
     void redisCartStoreFallsBackToLocalHashWhenRedisIsUnavailable() {
         ObjectProvider<StringRedisTemplate> provider = mock();
         when(provider.getIfAvailable()).thenReturn(null);
@@ -50,7 +164,7 @@ class CartInfrastructureTest {
         RedisCartStore store = new RedisCartStore(provider, objectMapper);
         LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
 
-        store.save(new CartSnapshot(7L, List.of(new CartItem(1001L, 1L, 2, true, now, now))), Duration.ofDays(7));
+        store.putItem(7L, new CartItem(1001L, 1L, 2, true, now, now), Duration.ofDays(7));
         assertThat(store.findCart(7L).items()).hasSize(1);
 
         store.removeMatchingItems(7L, List.of(new CartItem(1001L, 1L, 2, true, now, now)), Duration.ofDays(7));
@@ -68,7 +182,8 @@ class CartInfrastructureTest {
         CartItem unselected = new CartItem(1002L, 1L, 1, false, checkoutTime, later);
         CartItem readded = new CartItem(1003L, 1L, 1, true, later, later);
         CartItem unchanged = new CartItem(1004L, 1L, 1, true, checkoutTime, checkoutTime);
-        store.save(new CartSnapshot(7L, List.of(quantityChanged, unselected, readded, unchanged)), Duration.ofDays(7));
+        List.of(quantityChanged, unselected, readded, unchanged)
+                .forEach(item -> store.putItem(7L, item, Duration.ofDays(7)));
 
         store.removeMatchingItems(
                 7L,
@@ -240,6 +355,45 @@ class CartInfrastructureTest {
         entity.setProvince("CN-BJ");
         entity.setCreateTime(now);
         return entity;
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Timed out waiting for concurrent cart operation");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while waiting for concurrent cart operation", exception);
+        }
+    }
+
+    private static final class MutableClock extends Clock {
+
+        private final AtomicReference<Instant> instant;
+
+        private MutableClock(Instant instant) {
+            this.instant = new AtomicReference<>(instant);
+        }
+
+        private void advance(Duration duration) {
+            instant.updateAndGet(current -> current.plus(duration));
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneId.of("UTC");
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return instant.get();
+        }
     }
 
     private static CartSubOrderEntity subOrderEntity(LocalDateTime now) {

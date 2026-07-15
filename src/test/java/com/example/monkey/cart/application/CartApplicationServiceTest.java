@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 
 import com.example.monkey.cart.application.dto.CartAddItemRequestDto;
 import com.example.monkey.cart.application.dto.CartCheckoutRequestDto;
+import com.example.monkey.cart.application.dto.CartUpdateItemRequestDto;
 import com.example.monkey.cart.domain.CartCheckoutStore;
 import com.example.monkey.cart.domain.CartItem;
 import com.example.monkey.cart.domain.CartLockManager;
@@ -47,15 +48,24 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.mockito.InOrder;
 
 class CartApplicationServiceTest {
 
     private static final SessionUser USER = new SessionUser(7L, "USER");
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC);
+    private static final String LEGACY_V51_FINGERPRINT =
+            "LEGACY_V51_CHECKOUT_REPLAY_SENTINEL_____________________________";
 
     @Test
     void addItemRecalculatesCartFromCatalogSnapshot() {
@@ -66,6 +76,35 @@ class CartApplicationServiceTest {
         assertThat(response.items()).hasSize(1);
         assertThat(response.items().get(0).lineAmount()).isEqualByComparingTo("200.00");
         assertThat(response.selectedQuantity()).isEqualTo(2);
+    }
+
+    @Test
+    @Timeout(value = 15, unit = TimeUnit.SECONDS)
+    void delayedFieldMutationCannotRestoreOtherItemsRemovedByCheckoutCleanup() throws Exception {
+        BlockingMutationCartStore cartStore = new BlockingMutationCartStore();
+        Fixture fixture = new Fixture(cartStore);
+        fixture.seedSelectedCart();
+        List<CartItem> checkoutSnapshots = cartStore.findCart(USER.id()).items();
+        cartStore.blockNextRead();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> mutation =
+                    executor.submit(() -> fixture.service.updateItem(USER, 1001L, new CartUpdateItemRequestDto(3)));
+            assertThat(cartStore.awaitBlockedRead(5, TimeUnit.SECONDS)).isTrue();
+
+            cartStore.removeMatchingItems(USER.id(), checkoutSnapshots, Duration.ofDays(7));
+            assertThat(cartStore.findCart(USER.id()).items()).isEmpty();
+            cartStore.releaseBlockedRead();
+            mutation.get(5, TimeUnit.SECONDS);
+
+            assertThat(cartStore.findCart(USER.id()).items()).singleElement().satisfies(item -> {
+                assertThat(item.skuId()).isEqualTo(1001L);
+                assertThat(item.quantity()).isEqualTo(3);
+            });
+        } finally {
+            cartStore.releaseBlockedRead();
+            executor.shutdownNow();
+        }
     }
 
     @Test
@@ -141,6 +180,24 @@ class CartApplicationServiceTest {
 
         assertThat(duplicate.id()).isEqualTo(first.id());
         verify(fixture.inventoryApplicationService, times(2)).reserve(any(InventoryReserveRequestDto.class));
+    }
+
+    @Test
+    void v51LegacyCheckoutReplayReturnsOriginalResultWithoutSideEffects() {
+        Fixture fixture = new Fixture();
+        fixture.seedSelectedCart();
+        var first = fixture.service.checkout(
+                USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of("SHOP-10")), "cart-key-v51-replay");
+        fixture.checkoutStore.replaceFingerprint(USER.id(), "cart-key-v51-replay", LEGACY_V51_FINGERPRINT);
+        fixture.seedSelectedCart();
+
+        var replay = fixture.service.checkout(
+                USER, new CartCheckoutRequestDto(9L, "CN-SH", List.of("DIFFERENT")), "cart-key-v51-replay");
+
+        assertThat(replay).isEqualTo(first);
+        verify(fixture.inventoryApplicationService, times(2)).reserve(any(InventoryReserveRequestDto.class));
+        verify(fixture.formalOrderCreator, times(1)).create(any());
+        verify(fixture.marketingApplicationService, times(1)).redeemForCheckout(any(), any(), any());
     }
 
     @Test
@@ -270,19 +327,16 @@ class CartApplicationServiceTest {
     void fingerprintSeparatesCouponAndCartLineSections() {
         Fixture fixture = new Fixture();
         LocalDateTime now = LocalDateTime.now(CLOCK);
-        fixture.cartStore.save(
-                new CartSnapshot(USER.id(), List.of(new CartItem(1001L, 1L, 2, true, now, now))), Duration.ofDays(7));
+        fixture.cartStore.seed(new CartSnapshot(USER.id(), List.of(new CartItem(1001L, 1L, 2, true, now, now))));
         fixture.service.checkout(
                 USER,
                 new CartCheckoutRequestDto(9L, "CN-BJ", List.of("1", "2", "3", "4", "5", "6", "7.00")),
                 "cart-key-section-boundary");
 
         fixture.catalog.put(1L, new CartSkuSnapshot(1L, 99L, 4L, "IGNORED", "5", "6", new BigDecimal("7.00")));
-        fixture.cartStore.save(
-                new CartSnapshot(
-                        USER.id(),
-                        List.of(new CartItem(1L, 2L, 3, true, now, now), new CartItem(1001L, 1L, 2, true, now, now))),
-                Duration.ofDays(7));
+        fixture.cartStore.seed(new CartSnapshot(
+                USER.id(),
+                List.of(new CartItem(1L, 2L, 3, true, now, now), new CartItem(1001L, 1L, 2, true, now, now))));
 
         assertThatThrownBy(() -> fixture.service.checkout(
                         USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of()), "cart-key-section-boundary"))
@@ -310,7 +364,7 @@ class CartApplicationServiceTest {
     }
 
     private static final class Fixture {
-        private final InMemoryCartStore cartStore = new InMemoryCartStore();
+        private final InMemoryCartStore cartStore;
         private final InMemoryCheckoutStore checkoutStore = new InMemoryCheckoutStore();
         private final Map<Long, CartSkuSnapshot> catalog = new ConcurrentHashMap<>();
         private final InventoryApplicationService inventoryApplicationService = mock(InventoryApplicationService.class);
@@ -319,6 +373,11 @@ class CartApplicationServiceTest {
         private final CartApplicationService service;
 
         private Fixture() {
+            this(new InMemoryCartStore());
+        }
+
+        private Fixture(InMemoryCartStore cartStore) {
+            this.cartStore = cartStore;
             catalog.put(
                     1001L,
                     new CartSkuSnapshot(1001L, 501L, 11L, "SKU-1001", "Phone", "/phone.png", new BigDecimal("100.00")));
@@ -362,24 +421,18 @@ class CartApplicationServiceTest {
 
         private void seedSelectedCart(int firstQuantity) {
             LocalDateTime now = LocalDateTime.now(CLOCK);
-            cartStore.save(
-                    new CartSnapshot(
-                            USER.id(),
-                            List.of(
-                                    new CartItem(1001L, 1L, firstQuantity, true, now, now),
-                                    new CartItem(1002L, 2L, 1, true, now, now))),
-                    Duration.ofDays(7));
+            cartStore.seed(new CartSnapshot(
+                    USER.id(),
+                    List.of(
+                            new CartItem(1001L, 1L, firstQuantity, true, now, now),
+                            new CartItem(1002L, 2L, 1, true, now, now))));
         }
 
         private void seedSameShopMixedCategories() {
             LocalDateTime now = LocalDateTime.now(CLOCK);
-            cartStore.save(
-                    new CartSnapshot(
-                            USER.id(),
-                            List.of(
-                                    new CartItem(1001L, 1L, 1, true, now, now),
-                                    new CartItem(1002L, 1L, 1, true, now, now))),
-                    Duration.ofDays(7));
+            cartStore.seed(new CartSnapshot(
+                    USER.id(),
+                    List.of(new CartItem(1001L, 1L, 1, true, now, now), new CartItem(1002L, 1L, 1, true, now, now))));
         }
 
         private static InventoryReservationResponseDto reservation(InventoryReserveRequestDto request) {
@@ -439,7 +492,7 @@ class CartApplicationServiceTest {
         }
     }
 
-    private static final class InMemoryCartStore implements CartStore {
+    private static class InMemoryCartStore implements CartStore {
         private final Map<Long, CartSnapshot> carts = new ConcurrentHashMap<>();
 
         @Override
@@ -448,21 +501,75 @@ class CartApplicationServiceTest {
         }
 
         @Override
-        public CartSnapshot save(CartSnapshot cart, Duration ttl) {
-            carts.put(cart.userId(), cart);
-            return cart;
+        public void putItem(Long userId, CartItem item, Duration ttl) {
+            carts.compute(userId, (ignored, current) -> {
+                CartSnapshot cart = current == null ? new CartSnapshot(userId, List.of()) : current;
+                List<CartItem> items = new java.util.ArrayList<>(cart.items());
+                items.removeIf(existing -> existing.skuId().equals(item.skuId()));
+                items.add(item);
+                return new CartSnapshot(userId, items);
+            });
+        }
+
+        @Override
+        public void removeItem(Long userId, Long skuId, Duration ttl) {
+            carts.computeIfPresent(
+                    userId,
+                    (ignored, cart) -> new CartSnapshot(
+                            userId,
+                            cart.items().stream()
+                                    .filter(item -> !item.skuId().equals(skuId))
+                                    .toList()));
         }
 
         @Override
         public void removeMatchingItems(Long userId, List<CartItem> expectedItems, Duration ttl) {
-            CartSnapshot cart = findCart(userId);
-            save(
-                    new CartSnapshot(
+            carts.computeIfPresent(
+                    userId,
+                    (ignored, cart) -> new CartSnapshot(
                             userId,
                             cart.items().stream()
                                     .filter(item -> !expectedItems.contains(item))
-                                    .toList()),
-                    ttl);
+                                    .toList()));
+        }
+
+        private void seed(CartSnapshot cart) {
+            carts.put(cart.userId(), cart);
+        }
+    }
+
+    private static final class BlockingMutationCartStore extends InMemoryCartStore {
+        private final AtomicBoolean blockNextRead = new AtomicBoolean();
+        private final CountDownLatch blockedRead = new CountDownLatch(1);
+        private final CountDownLatch releaseRead = new CountDownLatch(1);
+
+        @Override
+        public CartSnapshot findCart(Long userId) {
+            CartSnapshot snapshot = super.findCart(userId);
+            if (blockNextRead.compareAndSet(true, false)) {
+                blockedRead.countDown();
+                try {
+                    if (!releaseRead.await(5, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("cart mutation read release timed out");
+                    }
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("cart mutation read interrupted", exception);
+                }
+            }
+            return snapshot;
+        }
+
+        private void blockNextRead() {
+            blockNextRead.set(true);
+        }
+
+        private boolean awaitBlockedRead(long timeout, TimeUnit unit) throws InterruptedException {
+            return blockedRead.await(timeout, unit);
+        }
+
+        private void releaseBlockedRead() {
+            releaseRead.countDown();
         }
     }
 
@@ -478,6 +585,25 @@ class CartApplicationServiceTest {
         public CheckoutOrder save(CheckoutOrder checkout) {
             checkouts.put(checkout.userId() + ":" + checkout.idempotencyKey(), checkout);
             return checkout;
+        }
+
+        private void replaceFingerprint(Long userId, String idempotencyKey, String fingerprint) {
+            checkouts.compute(
+                    userId + ":" + idempotencyKey,
+                    (ignored, checkout) -> new CheckoutOrder(
+                            checkout.id(),
+                            checkout.checkoutNo(),
+                            checkout.userId(),
+                            checkout.addressId(),
+                            checkout.idempotencyKey(),
+                            fingerprint,
+                            checkout.originalAmount(),
+                            checkout.discountAmount(),
+                            checkout.payableAmount(),
+                            checkout.status(),
+                            checkout.province(),
+                            checkout.createdAt(),
+                            checkout.subOrders()));
         }
     }
 
