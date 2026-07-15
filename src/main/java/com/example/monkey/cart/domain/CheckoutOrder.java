@@ -18,6 +18,10 @@ public record CheckoutOrder(
         String province,
         LocalDateTime createdAt,
         List<CheckoutSubOrder> subOrders) {
+
+    public static final String LEGACY_V51_REQUEST_FINGERPRINT =
+            "LEGACY_V51_CHECKOUT_REPLAY_SENTINEL_____________________________";
+
     public CheckoutOrder {
         subOrders = subOrders == null ? List.of() : List.copyOf(subOrders);
     }

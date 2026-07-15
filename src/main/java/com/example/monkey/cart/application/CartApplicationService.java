@@ -158,11 +158,11 @@ public class CartApplicationService {
     public CartResponseDto addItem(SessionUser currentUser, CartAddItemRequestDto request) {
         Long userId = requireUserId(currentUser);
         requireSku(request.skuId());
-        CartSnapshot saved = cartStore.save(
-                cartStore
-                        .findCart(userId)
-                        .upsert(request.skuId(), request.shopId(), request.quantity(), request.selected(), now()),
-                cartTtl);
+        CartSnapshot updated = cartStore
+                .findCart(userId)
+                .upsert(request.skuId(), request.shopId(), request.quantity(), request.selected(), now());
+        cartStore.putItem(userId, requireCartItem(updated, request.skuId()), cartTtl);
+        CartSnapshot saved = cartStore.findCart(userId);
         audit(AuditService.CART_ITEM_CHANGED, userId, "skuId=" + request.skuId() + ",quantity=" + request.quantity());
         return CartDtoAssembler.toResponse(saved, skuSnapshots(saved.items()));
     }
@@ -171,8 +171,9 @@ public class CartApplicationService {
     @Transactional
     public CartResponseDto updateItem(SessionUser currentUser, Long skuId, CartUpdateItemRequestDto request) {
         Long userId = requireUserId(currentUser);
-        CartSnapshot current = requireCartItem(cartStore.findCart(userId), skuId);
-        CartSnapshot saved = cartStore.save(current.changeQuantity(skuId, request.quantity(), now()), cartTtl);
+        CartItem current = requireCartItem(cartStore.findCart(userId), skuId);
+        cartStore.putItem(userId, current.withQuantity(request.quantity(), now()), cartTtl);
+        CartSnapshot saved = cartStore.findCart(userId);
         audit(AuditService.CART_ITEM_CHANGED, userId, "skuId=" + skuId + ",quantity=" + request.quantity());
         return CartDtoAssembler.toResponse(saved, skuSnapshots(saved.items()));
     }
@@ -181,8 +182,9 @@ public class CartApplicationService {
     @Transactional
     public CartResponseDto selectItem(SessionUser currentUser, Long skuId, CartSelectItemRequestDto request) {
         Long userId = requireUserId(currentUser);
-        CartSnapshot current = requireCartItem(cartStore.findCart(userId), skuId);
-        CartSnapshot saved = cartStore.save(current.select(skuId, request.selected(), now()), cartTtl);
+        CartItem current = requireCartItem(cartStore.findCart(userId), skuId);
+        cartStore.putItem(userId, current.select(request.selected(), now()), cartTtl);
+        CartSnapshot saved = cartStore.findCart(userId);
         audit(AuditService.CART_ITEM_CHANGED, userId, "skuId=" + skuId + ",selected=" + request.selected());
         return CartDtoAssembler.toResponse(saved, skuSnapshots(saved.items()));
     }
@@ -191,8 +193,9 @@ public class CartApplicationService {
     @Transactional
     public CartResponseDto removeItem(SessionUser currentUser, Long skuId) {
         Long userId = requireUserId(currentUser);
-        CartSnapshot current = requireCartItem(cartStore.findCart(userId), skuId);
-        CartSnapshot saved = cartStore.save(current.remove(skuId), cartTtl);
+        requireCartItem(cartStore.findCart(userId), skuId);
+        cartStore.removeItem(userId, skuId, cartTtl);
+        CartSnapshot saved = cartStore.findCart(userId);
         audit(AuditService.CART_ITEM_CHANGED, userId, "skuId=" + skuId + ",removed=true");
         return CartDtoAssembler.toResponse(saved, skuSnapshots(saved.items()));
     }
@@ -229,7 +232,9 @@ public class CartApplicationService {
                 : fingerprintLines(inputLines);
         String fingerprint = requestFingerprint(effectiveRequest, lines);
         if (existing.isPresent()) {
-            if (!fingerprint.equals(existing.get().requestFingerprint())) {
+            if (!CheckoutOrder.LEGACY_V51_REQUEST_FINGERPRINT.equals(
+                            existing.get().requestFingerprint())
+                    && !fingerprint.equals(existing.get().requestFingerprint())) {
                 throw new BusinessException(
                         ErrorCode.CONFLICT, "Idempotency key was already used for another checkout");
             }
@@ -514,12 +519,11 @@ public class CartApplicationService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "SKU does not exist or is not active"));
     }
 
-    private CartSnapshot requireCartItem(CartSnapshot cart, Long skuId) {
-        boolean exists = cart.items().stream().anyMatch(item -> item.skuId().equals(skuId));
-        if (!exists) {
-            throw new BusinessException(ErrorCode.NOT_FOUND, "Cart item does not exist");
-        }
-        return cart;
+    private CartItem requireCartItem(CartSnapshot cart, Long skuId) {
+        return cart.items().stream()
+                .filter(item -> item.skuId().equals(skuId))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Cart item does not exist"));
     }
 
     private Map<Long, CartSkuSnapshot> skuSnapshots(List<CartItem> items) {

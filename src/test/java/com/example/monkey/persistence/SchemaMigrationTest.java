@@ -18,6 +18,8 @@ class SchemaMigrationTest {
 
         assertThat(v52)
                 .contains("ADD COLUMN request_fingerprint CHAR(64)")
+                .contains("LEGACY_V51_CHECKOUT_REPLAY_SENTINEL_____________________________")
+                .doesNotContain("CONCAT('legacy:'")
                 .contains("CREATE TABLE cart_cleanup_intent")
                 .contains("item_snapshots_json LONGTEXT NOT NULL")
                 .contains("JSON_VALID(item_snapshots_json)")
@@ -33,6 +35,7 @@ class SchemaMigrationTest {
                 .contains("UNIQUE KEY uk_cart_cleanup_intent_claim (tenant_id, claim_token)")
                 .contains("idx_cart_cleanup_intent_pending_ready")
                 .contains("idx_cart_cleanup_intent_processing_lease")
+                .contains("idx_cart_cleanup_intent_completed_purge (status, completed_at")
                 .contains("FOREIGN KEY (tenant_id, checkout_id) REFERENCES cart_checkout (tenant_id, id)");
     }
 

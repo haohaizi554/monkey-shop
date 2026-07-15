@@ -2,10 +2,7 @@ ALTER TABLE cart_checkout
     ADD COLUMN request_fingerprint CHAR(64) NULL AFTER idempotency_key;
 
 UPDATE cart_checkout
-SET request_fingerprint = SHA2(
-    CONCAT('legacy:', tenant_id, ':', id, ':', idempotency_key),
-    256
-)
+SET request_fingerprint = 'LEGACY_V51_CHECKOUT_REPLAY_SENTINEL_____________________________'
 WHERE request_fingerprint IS NULL;
 
 ALTER TABLE cart_checkout
@@ -51,5 +48,6 @@ CREATE TABLE cart_cleanup_intent (
     UNIQUE KEY uk_cart_cleanup_intent_claim (tenant_id, claim_token),
     KEY idx_cart_cleanup_intent_pending_ready (tenant_id, status, next_attempt_at, create_time),
     KEY idx_cart_cleanup_intent_processing_lease (tenant_id, status, lease_expires_at, create_time),
-    KEY idx_cart_cleanup_intent_user_created (tenant_id, user_id, create_time)
+    KEY idx_cart_cleanup_intent_user_created (tenant_id, user_id, create_time),
+    KEY idx_cart_cleanup_intent_completed_purge (status, completed_at, checkout_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
