@@ -11,6 +11,24 @@ import org.junit.jupiter.api.Test;
 class SchemaMigrationTest {
 
     @Test
+    void v52PersistsCheckoutFingerprintAndRetryableCartCleanupIntent() throws IOException {
+        Path v52Path = Path.of("src/main/resources/db/migration/V52__durable_cart_checkout_cleanup.sql");
+        assertThat(v52Path).exists();
+        String v52 = Files.readString(v52Path, StandardCharsets.UTF_8);
+
+        assertThat(v52)
+                .contains("ADD COLUMN request_fingerprint CHAR(64)")
+                .contains("CREATE TABLE cart_cleanup_intent")
+                .contains("sku_ids VARCHAR(2048) NOT NULL")
+                .contains("status VARCHAR(32) NOT NULL DEFAULT 'PENDING'")
+                .contains("attempt_count INT NOT NULL DEFAULT 0")
+                .contains("next_attempt_at DATETIME(6) NOT NULL")
+                .contains("last_error VARCHAR(255)")
+                .contains("idx_cart_cleanup_intent_ready")
+                .contains("FOREIGN KEY (tenant_id, checkout_id) REFERENCES cart_checkout (tenant_id, id)");
+    }
+
+    @Test
     void v51GuardsLegacyIdempotencyAndDuplicateActivePaymentIntents() throws IOException {
         String v51 = read("src/main/resources/db/migration/V51__payment_request_fingerprints.sql");
 

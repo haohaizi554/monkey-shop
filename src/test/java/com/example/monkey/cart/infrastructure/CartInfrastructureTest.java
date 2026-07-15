@@ -113,6 +113,7 @@ class CartInfrastructureTest {
                 7L,
                 9L,
                 "idem",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 new BigDecimal("100.00"),
                 new BigDecimal("10.00"),
                 new BigDecimal("90.00"),
@@ -137,6 +138,7 @@ class CartInfrastructureTest {
         entity.setUserId(7L);
         entity.setAddressId(9L);
         entity.setIdempotencyKey("idem");
+        entity.setRequestFingerprint("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         entity.setOriginalAmount(new BigDecimal("100.00"));
         entity.setDiscountAmount(new BigDecimal("10.00"));
         entity.setPayableAmount(new BigDecimal("90.00"));

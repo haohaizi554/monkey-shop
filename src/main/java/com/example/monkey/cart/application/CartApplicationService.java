@@ -11,6 +11,7 @@ import com.example.monkey.cart.application.dto.CartUpdateItemRequestDto;
 import com.example.monkey.cart.domain.CartCatalogReader;
 import com.example.monkey.cart.domain.CartCheckoutStatus;
 import com.example.monkey.cart.domain.CartCheckoutStore;
+import com.example.monkey.cart.domain.CartCleanupScheduler;
 import com.example.monkey.cart.domain.CartItem;
 import com.example.monkey.cart.domain.CartLockManager;
 import com.example.monkey.cart.domain.CartSkuSnapshot;
@@ -45,9 +46,11 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -68,6 +71,7 @@ public class CartApplicationService {
     private final CartStore cartStore;
     private final CartCatalogReader catalogReader;
     private final CartCheckoutStore checkoutStore;
+    private final CartCleanupScheduler cartCleanupScheduler;
     private final CartLockManager lockManager;
     private final InventoryApplicationService inventoryApplicationService;
     private final MarketingApplicationService marketingApplicationService;
@@ -83,6 +87,7 @@ public class CartApplicationService {
             CartStore cartStore,
             CartCatalogReader catalogReader,
             CartCheckoutStore checkoutStore,
+            CartCleanupScheduler cartCleanupScheduler,
             CartLockManager lockManager,
             InventoryApplicationService inventoryApplicationService,
             MarketingApplicationService marketingApplicationService,
@@ -95,6 +100,7 @@ public class CartApplicationService {
                 cartStore,
                 catalogReader,
                 checkoutStore,
+                cartCleanupScheduler,
                 lockManager,
                 inventoryApplicationService,
                 marketingApplicationService,
@@ -110,6 +116,7 @@ public class CartApplicationService {
             CartStore cartStore,
             CartCatalogReader catalogReader,
             CartCheckoutStore checkoutStore,
+            CartCleanupScheduler cartCleanupScheduler,
             CartLockManager lockManager,
             InventoryApplicationService inventoryApplicationService,
             MarketingApplicationService marketingApplicationService,
@@ -122,6 +129,7 @@ public class CartApplicationService {
         this.cartStore = cartStore;
         this.catalogReader = catalogReader;
         this.checkoutStore = checkoutStore;
+        this.cartCleanupScheduler = cartCleanupScheduler;
         this.lockManager = lockManager;
         this.inventoryApplicationService = inventoryApplicationService;
         this.marketingApplicationService = marketingApplicationService;
@@ -188,8 +196,11 @@ public class CartApplicationService {
     @Transactional(readOnly = true)
     public CartCheckoutResponseDto previewCheckout(SessionUser currentUser, CartCheckoutRequestDto request) {
         Long userId = requireUserId(currentUser);
-        CartSnapshot cart = cartStore.findCart(userId);
-        CheckoutOrder preview = buildCheckout(userId, request, "preview:" + requestHash(cart), false);
+        CartCheckoutRequestDto effectiveRequest = normalizeCheckoutRequest(request);
+        List<CheckoutInputLine> inputLines = selectedCheckoutInputLines(userId);
+        String fingerprint = requestFingerprint(effectiveRequest, fingerprintLines(inputLines));
+        CheckoutOrder preview =
+                buildCheckout(userId, effectiveRequest, "preview:" + fingerprint, fingerprint, inputLines, false);
         return CartDtoAssembler.toResponse(preview);
     }
 
@@ -204,18 +215,29 @@ public class CartApplicationService {
     }
 
     private CheckoutOrder checkoutLocked(Long userId, CartCheckoutRequestDto request, String idempotencyKey) {
+        CartCheckoutRequestDto effectiveRequest = normalizeCheckoutRequest(request);
+        List<CheckoutInputLine> inputLines = selectedCheckoutInputLines(userId);
         Optional<CheckoutOrder> existing = checkoutStore.findByUserIdAndIdempotencyKey(userId, idempotencyKey);
+        List<FingerprintLine> lines = inputLines.isEmpty() && existing.isPresent()
+                ? fingerprintLines(existing.get())
+                : fingerprintLines(inputLines);
+        String fingerprint = requestFingerprint(effectiveRequest, lines);
         if (existing.isPresent()) {
+            if (!fingerprint.equals(existing.get().requestFingerprint())) {
+                throw new BusinessException(
+                        ErrorCode.CONFLICT, "Idempotency key was already used for another checkout");
+            }
             return existing.get();
         }
-        CheckoutOrder checkout = buildCheckout(userId, request, idempotencyKey, true);
+        CheckoutOrder checkout = buildCheckout(userId, effectiveRequest, idempotencyKey, fingerprint, inputLines, true);
         CheckoutOrder persisted = checkoutStore.save(checkout);
         List<Long> orderIds = formalOrderCreator.create(toOrderCommand(persisted));
         marketingApplicationService.redeemForCheckout(userId, persisted.id(), appliedCouponCodes(persisted));
         CheckoutOrder saved = checkoutStore.save(persisted.confirmed(orderIds));
-        cartStore.removeItems(
+        cartCleanupScheduler.schedule(
+                saved.id(),
                 userId,
-                checkout.subOrders().stream()
+                saved.subOrders().stream()
                         .flatMap(subOrder -> subOrder.lines().stream())
                         .map(CheckoutLine::skuId)
                         .toList(),
@@ -275,15 +297,19 @@ public class CartApplicationService {
     }
 
     private CheckoutOrder buildCheckout(
-            Long userId, CartCheckoutRequestDto request, String idempotencyKey, boolean reserveInventory) {
-        List<CartItem> selectedItems = cartStore.findCart(userId).selectedItems();
-        if (selectedItems.isEmpty()) {
+            Long userId,
+            CartCheckoutRequestDto request,
+            String idempotencyKey,
+            String requestFingerprint,
+            List<CheckoutInputLine> inputLines,
+            boolean reserveInventory) {
+        if (inputLines.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "No selected cart items to checkout");
         }
         Long checkoutId = idGenerator.nextId();
         CartCheckoutStatus status = reserveInventory ? CartCheckoutStatus.CHECKED_OUT : CartCheckoutStatus.RESERVED;
-        List<ResolvedCartLine> lines = selectedItems.stream()
-                .map(item -> resolveLine(checkoutId, userId, request, idempotencyKey, item, reserveInventory))
+        List<ResolvedCartLine> lines = inputLines.stream()
+                .map(line -> resolveLine(checkoutId, userId, request, idempotencyKey, line, reserveInventory))
                 .toList();
         List<CheckoutSubOrder> subOrders = splitByShop(userId, lines, status);
         BigDecimal originalAmount = sumSubOrders(subOrders, CheckoutSubOrder::originalAmount);
@@ -295,6 +321,7 @@ public class CartApplicationService {
                 userId,
                 request.addressId(),
                 idempotencyKey,
+                requestFingerprint,
                 originalAmount,
                 discountAmount,
                 payableAmount,
@@ -309,9 +336,10 @@ public class CartApplicationService {
             Long userId,
             CartCheckoutRequestDto request,
             String idempotencyKey,
-            CartItem item,
+            CheckoutInputLine inputLine,
             boolean reserveInventory) {
-        CartSkuSnapshot sku = requireSku(item.skuId());
+        CartItem item = inputLine.item();
+        CartSkuSnapshot sku = inputLine.sku();
         String reservationKey = "cart:" + userId + ":" + idempotencyKey + ":" + item.skuId();
         Long warehouseId = null;
         if (reserveInventory) {
@@ -573,16 +601,89 @@ public class CartApplicationService {
         return normalized;
     }
 
-    private static String requestHash(CartSnapshot cart) {
+    private static String normalizeProvince(String province) {
+        return StringUtils.hasText(province) ? province.trim().toUpperCase(Locale.ROOT) : "";
+    }
+
+    private static CartCheckoutRequestDto normalizeCheckoutRequest(CartCheckoutRequestDto request) {
+        return new CartCheckoutRequestDto(
+                request.addressId(),
+                normalizeProvince(request.province()),
+                normalizeCouponCodes(request.couponCodes()));
+    }
+
+    private static List<String> normalizeCouponCodes(List<String> couponCodes) {
+        if (couponCodes == null) {
+            return List.of();
+        }
+        return couponCodes.stream()
+                .filter(StringUtils::hasText)
+                .map(code -> code.trim().toUpperCase(Locale.ROOT))
+                .distinct()
+                .sorted()
+                .toList();
+    }
+
+    private List<CheckoutInputLine> selectedCheckoutInputLines(Long userId) {
+        return cartStore.findCart(userId).selectedItems().stream()
+                .map(item -> new CheckoutInputLine(item, requireSku(item.skuId())))
+                .toList();
+    }
+
+    private static List<FingerprintLine> fingerprintLines(List<CheckoutInputLine> inputLines) {
+        return inputLines.stream()
+                .map(input -> FingerprintLine.from(input.item(), input.sku()))
+                .toList();
+    }
+
+    private static List<FingerprintLine> fingerprintLines(CheckoutOrder checkout) {
+        return checkout.subOrders().stream()
+                .flatMap(subOrder -> subOrder.lines().stream())
+                .map(FingerprintLine::from)
+                .toList();
+    }
+
+    private static String requestFingerprint(CartCheckoutRequestDto request, List<FingerprintLine> lines) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            for (CartItem item : cart.selectedItems()) {
-                digest.update((item.skuId() + ":" + item.quantity() + ";").getBytes(StandardCharsets.UTF_8));
+            updateFingerprint(digest, "checkout-request-v1");
+            updateFingerprint(digest, "address");
+            updateFingerprint(digest, String.valueOf(request.addressId()));
+            updateFingerprint(digest, "province");
+            updateFingerprint(digest, normalizeProvince(request.province()));
+            List<String> couponCodes = normalizeCouponCodes(request.couponCodes());
+            updateFingerprint(digest, "coupons");
+            updateFingerprint(digest, String.valueOf(couponCodes.size()));
+            for (String couponCode : couponCodes) {
+                updateFingerprint(digest, couponCode);
+            }
+            List<FingerprintLine> sortedLines = lines.stream()
+                    .sorted(Comparator.comparing(FingerprintLine::skuId)
+                            .thenComparing(FingerprintLine::shopId)
+                            .thenComparing(FingerprintLine::quantity))
+                    .toList();
+            updateFingerprint(digest, "lines");
+            updateFingerprint(digest, String.valueOf(sortedLines.size()));
+            for (FingerprintLine line : sortedLines) {
+                updateFingerprint(digest, String.valueOf(line.skuId()));
+                updateFingerprint(digest, String.valueOf(line.shopId()));
+                updateFingerprint(digest, String.valueOf(line.quantity()));
+                updateFingerprint(digest, String.valueOf(line.categoryId()));
+                updateFingerprint(digest, line.productName());
+                updateFingerprint(digest, line.productImage());
+                updateFingerprint(digest, money(line.unitPrice()).toPlainString());
             }
             return java.util.HexFormat.of().formatHex(digest.digest());
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 digest is unavailable", e);
         }
+    }
+
+    private static void updateFingerprint(MessageDigest digest, String value) {
+        byte[] bytes = (value == null ? "" : value).getBytes(StandardCharsets.UTF_8);
+        digest.update(Integer.toString(bytes.length).getBytes(StandardCharsets.US_ASCII));
+        digest.update((byte) ':');
+        digest.update(bytes);
     }
 
     private static BigDecimal money(BigDecimal value) {
@@ -600,6 +701,40 @@ public class CartApplicationService {
             Long warehouseId) {
         ResolvedCartLine {
             couponCodes = couponCodes == null ? List.of() : List.copyOf(couponCodes);
+        }
+    }
+
+    private record CheckoutInputLine(CartItem item, CartSkuSnapshot sku) {}
+
+    private record FingerprintLine(
+            Long skuId,
+            Long shopId,
+            int quantity,
+            Long categoryId,
+            String productName,
+            String productImage,
+            BigDecimal unitPrice) {
+
+        private static FingerprintLine from(CartItem item, CartSkuSnapshot sku) {
+            return new FingerprintLine(
+                    item.skuId(),
+                    item.shopId(),
+                    item.quantity(),
+                    sku.categoryId(),
+                    sku.productName(),
+                    sku.productImage(),
+                    sku.salePrice());
+        }
+
+        private static FingerprintLine from(CheckoutLine line) {
+            return new FingerprintLine(
+                    line.skuId(),
+                    line.shopId(),
+                    line.quantity(),
+                    line.categoryId(),
+                    line.productName(),
+                    line.productImage(),
+                    line.unitPrice());
         }
     }
 
