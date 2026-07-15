@@ -64,6 +64,7 @@ public class JpaCartCheckoutStore implements CartCheckoutStore {
                 checkout.getUserId(),
                 checkout.getAddressId(),
                 checkout.getIdempotencyKey(),
+                checkout.getRequestFingerprint(),
                 checkout.getOriginalAmount(),
                 checkout.getDiscountAmount(),
                 checkout.getPayableAmount(),
@@ -101,6 +102,7 @@ public class JpaCartCheckoutStore implements CartCheckoutStore {
         entity.setUserId(checkout.userId());
         entity.setAddressId(checkout.addressId());
         entity.setIdempotencyKey(checkout.idempotencyKey());
+        entity.setRequestFingerprint(checkout.requestFingerprint());
         entity.setOriginalAmount(checkout.originalAmount());
         entity.setDiscountAmount(checkout.discountAmount());
         entity.setPayableAmount(checkout.payableAmount());

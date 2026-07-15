@@ -31,6 +31,9 @@ public class CartCheckoutEntity extends TenantScopedJpaEntity {
     @Column(nullable = false, length = 128)
     private String idempotencyKey;
 
+    @Column(name = "request_fingerprint", nullable = false, length = 64, columnDefinition = "CHAR(64)")
+    private String requestFingerprint;
+
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal originalAmount;
 
@@ -92,6 +95,14 @@ public class CartCheckoutEntity extends TenantScopedJpaEntity {
 
     public void setIdempotencyKey(String idempotencyKey) {
         this.idempotencyKey = idempotencyKey;
+    }
+
+    public String getRequestFingerprint() {
+        return requestFingerprint;
+    }
+
+    public void setRequestFingerprint(String requestFingerprint) {
+        this.requestFingerprint = requestFingerprint;
     }
 
     public BigDecimal getOriginalAmount() {

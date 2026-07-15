@@ -1,6 +1,7 @@
 package com.example.monkey.cart.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
@@ -33,6 +34,8 @@ import com.example.monkey.order.domain.CheckoutOrderCommand;
 import com.example.monkey.order.domain.OrderNumberGenerator;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.domain.exception.BusinessException;
+import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -141,6 +144,134 @@ class CartApplicationServiceTest {
     }
 
     @Test
+    void repeatedCheckoutWithDifferentAddressConflictsBeforeSideEffects() {
+        Fixture fixture = new Fixture();
+        fixture.seedSelectedCart();
+        fixture.service.checkout(
+                USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of("SHOP-10")), "cart-key-conflict");
+
+        assertThatThrownBy(() -> fixture.service.checkout(
+                        USER, new CartCheckoutRequestDto(10L, "CN-BJ", List.of("SHOP-10")), "cart-key-conflict"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+        verify(fixture.inventoryApplicationService, times(2)).reserve(any(InventoryReserveRequestDto.class));
+        verify(fixture.formalOrderCreator, times(1)).create(any());
+        verify(fixture.marketingApplicationService, times(1)).redeemForCheckout(any(), any(), any());
+    }
+
+    @Test
+    void repeatedCheckoutWithDifferentProvinceConflictsBeforeSideEffects() {
+        Fixture fixture = new Fixture();
+        fixture.seedSelectedCart();
+        fixture.service.checkout(
+                USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of("SHOP-10")), "cart-key-province");
+
+        assertThatThrownBy(() -> fixture.service.checkout(
+                        USER, new CartCheckoutRequestDto(9L, "CN-SH", List.of("SHOP-10")), "cart-key-province"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+        verify(fixture.inventoryApplicationService, times(2)).reserve(any(InventoryReserveRequestDto.class));
+        verify(fixture.formalOrderCreator, times(1)).create(any());
+    }
+
+    @Test
+    void repeatedCheckoutWithDifferentCouponSetConflictsBeforeSideEffects() {
+        Fixture fixture = new Fixture();
+        fixture.seedSelectedCart();
+        fixture.service.checkout(USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of("SHOP-10")), "cart-key-coupons");
+
+        assertThatThrownBy(() -> fixture.service.checkout(
+                        USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of("PLATFORM-20")), "cart-key-coupons"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+        verify(fixture.inventoryApplicationService, times(2)).reserve(any(InventoryReserveRequestDto.class));
+        verify(fixture.formalOrderCreator, times(1)).create(any());
+    }
+
+    @Test
+    void repeatedCheckoutWithDifferentSelectedCartConflictsBeforeSideEffects() {
+        Fixture fixture = new Fixture();
+        fixture.seedSelectedCart();
+        fixture.service.checkout(USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of("SHOP-10")), "cart-key-lines");
+        fixture.seedSelectedCart(3);
+
+        assertThatThrownBy(() -> fixture.service.checkout(
+                        USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of("SHOP-10")), "cart-key-lines"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+        verify(fixture.inventoryApplicationService, times(2)).reserve(any(InventoryReserveRequestDto.class));
+        verify(fixture.formalOrderCreator, times(1)).create(any());
+    }
+
+    @Test
+    void repeatedCheckoutWithNormalizedEquivalentInputReplaysOriginal() {
+        Fixture fixture = new Fixture();
+        fixture.seedSelectedCart();
+
+        var first = fixture.service.checkout(
+                USER,
+                new CartCheckoutRequestDto(9L, " cn-bj ", List.of(" shop-10 ", "SHOP-10")),
+                "cart-key-normalized");
+        var replay = fixture.service.checkout(
+                USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of("SHOP-10")), "cart-key-normalized");
+
+        assertThat(replay.id()).isEqualTo(first.id());
+        verify(fixture.inventoryApplicationService, times(2)).reserve(any(InventoryReserveRequestDto.class));
+        verify(fixture.formalOrderCreator, times(1)).create(any());
+    }
+
+    @Test
+    void repeatedCheckoutWithDifferentCatalogSnapshotConflictsBeforeSideEffects() {
+        Fixture fixture = new Fixture();
+        fixture.seedSelectedCart();
+        fixture.service.checkout(USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of()), "cart-key-catalog");
+        fixture.seedSelectedCart();
+        fixture.catalog.put(
+                1001L,
+                new CartSkuSnapshot(
+                        1001L, 501L, 11L, "SKU-1001", "Phone Pro", "/phone-pro.png", new BigDecimal("120.00")));
+
+        assertThatThrownBy(() -> fixture.service.checkout(
+                        USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of()), "cart-key-catalog"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+        verify(fixture.inventoryApplicationService, times(2)).reserve(any(InventoryReserveRequestDto.class));
+        verify(fixture.formalOrderCreator, times(1)).create(any());
+    }
+
+    @Test
+    void fingerprintSeparatesCouponAndCartLineSections() {
+        Fixture fixture = new Fixture();
+        LocalDateTime now = LocalDateTime.now(CLOCK);
+        fixture.cartStore.save(
+                new CartSnapshot(USER.id(), List.of(new CartItem(1001L, 1L, 2, true, now, now))), Duration.ofDays(7));
+        fixture.service.checkout(
+                USER,
+                new CartCheckoutRequestDto(9L, "CN-BJ", List.of("1", "2", "3", "4", "5", "6", "7.00")),
+                "cart-key-section-boundary");
+
+        fixture.catalog.put(1L, new CartSkuSnapshot(1L, 99L, 4L, "IGNORED", "5", "6", new BigDecimal("7.00")));
+        fixture.cartStore.save(
+                new CartSnapshot(
+                        USER.id(),
+                        List.of(new CartItem(1L, 2L, 3, true, now, now), new CartItem(1001L, 1L, 2, true, now, now))),
+                Duration.ofDays(7));
+
+        assertThatThrownBy(() -> fixture.service.checkout(
+                        USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of()), "cart-key-section-boundary"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+        verify(fixture.inventoryApplicationService, times(1)).reserve(any(InventoryReserveRequestDto.class));
+        verify(fixture.formalOrderCreator, times(1)).create(any());
+    }
+
+    @Test
     void previewRecalculatesPriceWithoutInventoryReservation() {
         Fixture fixture = new Fixture();
         fixture.seedSelectedCart();
@@ -189,6 +320,7 @@ class CartApplicationServiceTest {
                     cartStore,
                     skuId -> Optional.ofNullable(catalog.get(skuId)),
                     checkoutStore,
+                    (checkoutId, userId, skuIds, ttl) -> cartStore.removeItems(userId, skuIds, ttl),
                     new DirectCartLockManager(),
                     inventoryApplicationService,
                     marketingApplicationService,
@@ -201,12 +333,16 @@ class CartApplicationServiceTest {
         }
 
         private void seedSelectedCart() {
+            seedSelectedCart(2);
+        }
+
+        private void seedSelectedCart(int firstQuantity) {
             LocalDateTime now = LocalDateTime.now(CLOCK);
             cartStore.save(
                     new CartSnapshot(
                             USER.id(),
                             List.of(
-                                    new CartItem(1001L, 1L, 2, true, now, now),
+                                    new CartItem(1001L, 1L, firstQuantity, true, now, now),
                                     new CartItem(1002L, 2L, 1, true, now, now))),
                     Duration.ofDays(7));
         }

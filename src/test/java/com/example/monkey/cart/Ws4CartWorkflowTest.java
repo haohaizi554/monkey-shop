@@ -13,7 +13,13 @@ class Ws4CartWorkflowTest {
     void cartArtifactsWireRedisSplitCheckoutInventoryAndMarketing() throws IOException {
         String docs = read("docs/cart/ws4.md");
         String migration = read("src/main/resources/db/migration/V27__cart.sql");
+        String cleanupMigration = read("src/main/resources/db/migration/V52__durable_cart_checkout_cleanup.sql");
         String service = read("src/main/java/com/example/monkey/cart/application/CartApplicationService.java");
+        String cleanupScheduler =
+                read("src/main/java/com/example/monkey/cart/application/DurableCartCleanupScheduler.java");
+        String cleanupWorker = read("src/main/java/com/example/monkey/cart/application/CartCleanupRetryWorker.java");
+        String cleanupTenantSource =
+                read("src/main/java/com/example/monkey/cart/infrastructure/JdbcCartCleanupTenantSource.java");
         String controller = read("src/main/java/com/example/monkey/cart/interfaces/CartController.java");
         String redisStore = read("src/main/java/com/example/monkey/cart/infrastructure/RedisCartStore.java");
         String lock = read("src/main/java/com/example/monkey/cart/infrastructure/RedissonCartLockManager.java");
@@ -25,8 +31,12 @@ class Ws4CartWorkflowTest {
         assertThat(docs).contains("cross-shop cart", "Idempotency-Key");
         assertThat(migration).contains("CREATE TABLE cart_checkout", "CREATE TABLE cart_sub_order");
         assertThat(migration).contains("CREATE TABLE cart_checkout_line", "uk_cart_checkout_user_idempotency");
+        assertThat(cleanupMigration).contains("request_fingerprint", "CREATE TABLE cart_cleanup_intent");
         assertThat(service).contains("InventoryApplicationService", "MarketingApplicationService");
-        assertThat(service).contains("@WithSpan(\"cart.checkout\")", "removeItems");
+        assertThat(service).contains("@WithSpan(\"cart.checkout\")", "cartCleanupScheduler.schedule");
+        assertThat(cleanupScheduler).contains("intentStore.save", "afterCommit");
+        assertThat(cleanupWorker).contains("@Scheduled", "findReadyCheckoutIds");
+        assertThat(cleanupTenantSource).contains("SELECT DISTINCT tenant_id", "next_attempt_at <= ?");
         assertThat(controller).contains("@RequestMapping({\"/api/cart\", \"/api/v1/cart\"})");
         assertThat(redisStore).contains("cart:user:", "opsForHash()");
         assertThat(lock).contains("cart:checkout:", "tryLock");
