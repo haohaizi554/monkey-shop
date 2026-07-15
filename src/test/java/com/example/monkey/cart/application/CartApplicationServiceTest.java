@@ -201,6 +201,42 @@ class CartApplicationServiceTest {
     }
 
     @Test
+    void v51LegacyCheckoutReplayIgnoresCurrentUnavailableSku() {
+        Fixture fixture = new Fixture();
+        fixture.seedSelectedCart();
+        var first = fixture.service.checkout(
+                USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of("SHOP-10")), "cart-key-v51-unavailable");
+        fixture.checkoutStore.replaceFingerprint(USER.id(), "cart-key-v51-unavailable", LEGACY_V51_FINGERPRINT);
+        fixture.seedSelectedCart();
+        fixture.catalog.clear();
+
+        var replay = fixture.service.checkout(
+                USER, new CartCheckoutRequestDto(9L, "CN-SH", List.of("DIFFERENT")), "cart-key-v51-unavailable");
+
+        assertThat(replay).isEqualTo(first);
+        verify(fixture.inventoryApplicationService, times(2)).reserve(any(InventoryReserveRequestDto.class));
+        verify(fixture.formalOrderCreator, times(1)).create(any());
+    }
+
+    @Test
+    void v2ReplayWithCurrentUnavailableSkuFailsAsIdempotencyConflict() {
+        Fixture fixture = new Fixture();
+        fixture.seedSelectedCart();
+        fixture.service.checkout(
+                USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of("SHOP-10")), "cart-key-v2-unavailable");
+        fixture.seedSelectedCart();
+        fixture.catalog.clear();
+
+        assertThatThrownBy(() -> fixture.service.checkout(
+                        USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of("SHOP-10")), "cart-key-v2-unavailable"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+        verify(fixture.inventoryApplicationService, times(2)).reserve(any(InventoryReserveRequestDto.class));
+        verify(fixture.formalOrderCreator, times(1)).create(any());
+    }
+
+    @Test
     void repeatedCheckoutWithDifferentAddressConflictsBeforeSideEffects() {
         Fixture fixture = new Fixture();
         fixture.seedSelectedCart();

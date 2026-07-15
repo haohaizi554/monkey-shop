@@ -3,6 +3,7 @@ package com.example.monkey.cart.infrastructure;
 import com.example.monkey.cart.domain.CartItem;
 import com.example.monkey.cart.domain.CartSnapshot;
 import com.example.monkey.cart.domain.CartStore;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
@@ -24,7 +25,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class RedisCartStore implements CartStore {
 
-    private static final String KEY_PREFIX = "cart:user:";
+    private static final String KEY_PREFIX = "cart:tenant:";
     private static final DefaultRedisScript<Long> PUT_ITEM_SCRIPT = new DefaultRedisScript<>("""
             redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
             redis.call('EXPIRE', KEYS[1], ARGV[3])
@@ -54,7 +55,7 @@ public class RedisCartStore implements CartStore {
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final Clock clock;
-    private final Map<Long, FallbackCartState> fallback = new ConcurrentHashMap<>();
+    private final Map<CartIdentity, FallbackCartState> fallback = new ConcurrentHashMap<>();
 
     @Autowired
     public RedisCartStore(ObjectProvider<StringRedisTemplate> redisTemplateProvider, ObjectMapper objectMapper) {
@@ -69,30 +70,33 @@ public class RedisCartStore implements CartStore {
 
     @Override
     public CartSnapshot findCart(Long userId) {
-        Map<String, String> values = redisTemplate == null ? fallbackCart(userId) : redisCart(userId);
+        CartIdentity identity = identity(userId);
+        Map<String, String> values = redisTemplate == null ? fallbackCart(identity) : redisCart(identity);
         return new CartSnapshot(
                 userId, values.values().stream().map(this::deserialize).toList());
     }
 
     @Override
     public void putItem(Long userId, CartItem item, Duration ttl) {
+        CartIdentity identity = identity(userId);
         String field = item.skuId().toString();
         String value = serialize(item);
         if (redisTemplate == null) {
-            putFallbackItem(userId, field, value, ttl);
+            putFallbackItem(identity, field, value, ttl);
             return;
         }
-        redisTemplate.execute(PUT_ITEM_SCRIPT, List.of(key(userId)), field, value, Long.toString(ttlSeconds(ttl)));
+        redisTemplate.execute(PUT_ITEM_SCRIPT, List.of(key(identity)), field, value, Long.toString(ttlSeconds(ttl)));
     }
 
     @Override
     public void removeItem(Long userId, Long skuId, Duration ttl) {
+        CartIdentity identity = identity(userId);
         if (redisTemplate == null) {
-            removeFallbackItem(userId, skuId.toString(), ttl);
+            removeFallbackItem(identity, skuId.toString(), ttl);
             return;
         }
         redisTemplate.execute(
-                REMOVE_ITEM_SCRIPT, List.of(key(userId)), skuId.toString(), Long.toString(ttlSeconds(ttl)));
+                REMOVE_ITEM_SCRIPT, List.of(key(identity)), skuId.toString(), Long.toString(ttlSeconds(ttl)));
     }
 
     @Override
@@ -100,8 +104,9 @@ public class RedisCartStore implements CartStore {
         if (expectedItems == null || expectedItems.isEmpty()) {
             return;
         }
+        CartIdentity identity = identity(userId);
         if (redisTemplate == null) {
-            removeMatchingFallbackItems(userId, expectedItems, ttl);
+            removeMatchingFallbackItems(identity, expectedItems, ttl);
             return;
         }
         List<Object> arguments = new ArrayList<>(expectedItems.size() * 2 + 1);
@@ -110,49 +115,49 @@ public class RedisCartStore implements CartStore {
             arguments.add(serialize(item));
         });
         arguments.add(Long.toString(ttlSeconds(ttl)));
-        redisTemplate.execute(REMOVE_MATCHING_ITEMS_SCRIPT, List.of(key(userId)), arguments.toArray());
+        redisTemplate.execute(REMOVE_MATCHING_ITEMS_SCRIPT, List.of(key(identity)), arguments.toArray());
     }
 
-    private Map<String, String> redisCart(Long userId) {
+    private Map<String, String> redisCart(CartIdentity identity) {
         try {
-            Map<Object, Object> entries = redisTemplate.opsForHash().entries(key(userId));
+            Map<Object, Object> entries = redisTemplate.opsForHash().entries(key(identity));
             Map<String, String> values = new LinkedHashMap<>();
             entries.forEach((field, value) -> values.put(String.valueOf(field), String.valueOf(value)));
             return values;
         } catch (RuntimeException exception) {
-            return fallbackCart(userId);
+            return fallbackCart(identity);
         }
     }
 
-    private Map<String, String> fallbackCart(Long userId) {
+    private Map<String, String> fallbackCart(CartIdentity identity) {
         FallbackCartState state = fallback.compute(
-                userId, (ignored, current) -> current == null || current.expiredAt(clock.instant()) ? null : current);
+                identity, (ignored, current) -> current == null || current.expiredAt(clock.instant()) ? null : current);
         return state == null ? Map.of() : state.items();
     }
 
-    private void putFallbackItem(Long userId, String field, String value, Duration ttl) {
+    private void putFallbackItem(CartIdentity identity, String field, String value, Duration ttl) {
         Instant now = clock.instant();
-        fallback.compute(userId, (ignored, current) -> {
+        fallback.compute(identity, (ignored, current) -> {
             Map<String, String> items = mutableItems(current, now);
             items.put(field, value);
             return new FallbackCartState(Map.copyOf(items), now.plusSeconds(ttlSeconds(ttl)));
         });
     }
 
-    private void removeFallbackItem(Long userId, String field, Duration ttl) {
+    private void removeFallbackItem(CartIdentity identity, String field, Duration ttl) {
         Instant now = clock.instant();
-        fallback.compute(userId, (ignored, current) -> {
+        fallback.compute(identity, (ignored, current) -> {
             Map<String, String> items = mutableItems(current, now);
             items.remove(field);
             return items.isEmpty() ? null : new FallbackCartState(Map.copyOf(items), now.plusSeconds(ttlSeconds(ttl)));
         });
     }
 
-    private void removeMatchingFallbackItems(Long userId, List<CartItem> expectedItems, Duration ttl) {
+    private void removeMatchingFallbackItems(CartIdentity identity, List<CartItem> expectedItems, Duration ttl) {
         Map<String, String> expectedValues = new LinkedHashMap<>();
         expectedItems.forEach(item -> expectedValues.put(item.skuId().toString(), serialize(item)));
         Instant now = clock.instant();
-        fallback.compute(userId, (ignored, current) -> {
+        fallback.compute(identity, (ignored, current) -> {
             Map<String, String> items = mutableItems(current, now);
             expectedValues.forEach((field, expectedValue) ->
                     items.compute(field, (key, value) -> Objects.equals(value, expectedValue) ? null : value));
@@ -187,9 +192,15 @@ public class RedisCartStore implements CartStore {
         }
     }
 
-    private static String key(Long userId) {
-        return KEY_PREFIX + userId;
+    private static CartIdentity identity(Long userId) {
+        return new CartIdentity(TenantContext.currentTenantIdOrDefault(), userId);
     }
+
+    private static String key(CartIdentity identity) {
+        return KEY_PREFIX + identity.tenantId() + ":user:" + identity.userId();
+    }
+
+    private record CartIdentity(long tenantId, Long userId) {}
 
     private record FallbackCartState(Map<String, String> items, Instant expiresAt) {
 

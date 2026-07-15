@@ -18,6 +18,7 @@ import com.example.monkey.cart.domain.CartSkuSnapshot;
 import com.example.monkey.cart.domain.CheckoutLine;
 import com.example.monkey.cart.domain.CheckoutOrder;
 import com.example.monkey.cart.domain.CheckoutSubOrder;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.math.BigDecimal;
@@ -48,6 +49,30 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
 class CartInfrastructureTest {
+
+    @Test
+    void fallbackCartScopesSameUserIdByTenant() {
+        ObjectProvider<StringRedisTemplate> provider = mock();
+        when(provider.getIfAvailable()).thenReturn(null);
+        RedisCartStore store = new RedisCartStore(provider, new ObjectMapper().registerModule(new JavaTimeModule()));
+        LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
+        CartItem tenantOneItem = new CartItem(1001L, 1L, 1, true, now, now);
+        CartItem tenantTwoItem = new CartItem(2001L, 2L, 2, true, now, now);
+        try {
+            TenantContext.setTenantId(1L);
+            store.putItem(7L, tenantOneItem, Duration.ofDays(7));
+            TenantContext.setTenantId(2L);
+            store.putItem(7L, tenantTwoItem, Duration.ofDays(7));
+
+            TenantContext.setTenantId(1L);
+            assertThat(store.findCart(7L).items()).containsExactly(tenantOneItem);
+            store.removeMatchingItems(7L, List.of(tenantOneItem), Duration.ofDays(7));
+            TenantContext.setTenantId(2L);
+            assertThat(store.findCart(7L).items()).containsExactly(tenantTwoItem);
+        } finally {
+            TenantContext.clear();
+        }
+    }
 
     @Test
     void fallbackCartExpiresAndFieldMutationsRefreshTtl() {
@@ -148,7 +173,7 @@ class CartInfrastructureTest {
 
         var scriptCaptor = org.mockito.ArgumentCaptor.forClass(DefaultRedisScript.class);
         verify(redisTemplate, times(2))
-                .execute(scriptCaptor.capture(), eq(List.of("cart:user:7")), any(Object[].class));
+                .execute(scriptCaptor.capture(), eq(List.of("cart:tenant:1:user:7")), any(Object[].class));
         assertThat(scriptCaptor.getAllValues().get(0).getScriptAsString()).contains("HSET", "EXPIRE");
         assertThat(scriptCaptor.getAllValues().get(1).getScriptAsString()).contains("HDEL", "EXPIRE");
         verify(redisTemplate, never()).delete(anyString());
@@ -213,7 +238,7 @@ class CartInfrastructureTest {
 
         var scriptCaptor = org.mockito.ArgumentCaptor.forClass(DefaultRedisScript.class);
         verify(redisTemplate, times(1))
-                .execute(scriptCaptor.capture(), eq(List.of("cart:user:7")), any(Object[].class));
+                .execute(scriptCaptor.capture(), eq(List.of("cart:tenant:1:user:7")), any(Object[].class));
         assertThat(scriptCaptor.getValue().getScriptAsString()).contains("HGET", "HDEL", "EXPIRE");
         verify(redisTemplate, never()).expire(anyString(), any(Duration.class));
         verifyNoInteractions(hashOperations);

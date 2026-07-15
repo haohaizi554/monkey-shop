@@ -568,17 +568,23 @@ class CheckoutTransactionIntegrationTest {
                 MERGE INTO tenant (id, code, name, status, plan, created_at, expires_at, version) KEY (id)
                 VALUES (2, 'cart-worker-two', 'Cart Worker Two', 'ACTIVE', 'STARTER', ?, ?, 0)
                 """, now, now.plusYears(10));
-        InMemoryCartStore cartStore = new InMemoryCartStore();
-        cartStore.seed(new CartSnapshot(USER.id(), List.of(tenantOneItem)));
-        cartStore.seed(new CartSnapshot(8L, List.of(tenantTwoItem)));
+        ObjectProvider<StringRedisTemplate> redisProvider = mock();
+        when(redisProvider.getIfAvailable()).thenReturn(null);
+        RedisCartStore cartStore = new RedisCartStore(redisProvider, new ObjectMapper().findAndRegisterModules());
         try {
             TenantContext.setTenantId(1L);
             store.save(CartCleanupIntent.pending(8805L, USER.id(), List.of(tenantOneItem), Duration.ofDays(7), now));
+            cartStore.putItem(USER.id(), tenantOneItem, Duration.ofDays(7));
             TenantContext.setTenantId(2L);
-            store.save(CartCleanupIntent.pending(8807L, 8L, List.of(tenantTwoItem), Duration.ofDays(7), now));
+            store.save(CartCleanupIntent.pending(8807L, USER.id(), List.of(tenantTwoItem), Duration.ofDays(7), now));
+            cartStore.putItem(USER.id(), tenantTwoItem, Duration.ofDays(7));
             assertThat(inNewTransaction(() -> store.claim(8807L, "expired-token", now, now.plusSeconds(30))))
                     .isPresent();
 
+            TenantContext.setTenantId(1L);
+            assertThat(cartStore.findCart(USER.id()).items()).containsExactly(tenantOneItem);
+            TenantContext.setTenantId(2L);
+            assertThat(cartStore.findCart(USER.id()).items()).containsExactly(tenantTwoItem);
             JdbcCartCleanupTenantSource tenantSource = new JdbcCartCleanupTenantSource(jdbcTemplate);
             assertThat(tenantSource.findTenantIdsWithReadyIntents(cutoff, 0L, 100))
                     .containsExactly(1L, 2L);
@@ -597,11 +603,11 @@ class CheckoutTransactionIntegrationTest {
             TenantContext.setTenantId(1L);
             assertThat(store.findByCheckoutId(8805L).orElseThrow().status())
                     .isEqualTo(CartCleanupIntentStatus.COMPLETED);
+            assertThat(cartStore.findCart(USER.id()).items()).isEmpty();
             TenantContext.setTenantId(2L);
             assertThat(store.findByCheckoutId(8807L).orElseThrow().status())
                     .isEqualTo(CartCleanupIntentStatus.COMPLETED);
             assertThat(cartStore.findCart(USER.id()).items()).isEmpty();
-            assertThat(cartStore.findCart(8L).items()).isEmpty();
         } finally {
             TenantContext.clear();
         }
@@ -624,7 +630,7 @@ class CheckoutTransactionIntegrationTest {
         RedisCartStore cartStore = new RedisCartStore(provider, new ObjectMapper().findAndRegisterModules());
         Long userId = positiveRandomId();
         Long checkoutId = positiveRandomId();
-        String key = "cart:user:" + userId;
+        String key = "cart:tenant:1:user:" + userId;
         LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
         LocalDateTime later = now.plusMinutes(1);
         List<CartItem> checkoutSnapshots = List.of(
@@ -634,6 +640,7 @@ class CheckoutTransactionIntegrationTest {
                 new CartItem(1004L, 501L, 1, true, now, now));
         JpaCartCleanupIntentStore delegate = cleanupIntentStore();
         try {
+            TenantContext.setTenantId(1L);
             delegate.save(CartCleanupIntent.pending(checkoutId, userId, checkoutSnapshots, Duration.ofDays(7), now));
             checkoutSnapshots.forEach(item -> cartStore.putItem(userId, item, Duration.ofDays(7)));
             CartCleanupProcessor firstProcessor = new CartCleanupProcessor(
@@ -668,6 +675,7 @@ class CheckoutTransactionIntegrationTest {
             assertThat(delegate.findByCheckoutId(checkoutId).orElseThrow().status())
                     .isEqualTo(CartCleanupIntentStatus.COMPLETED);
         } finally {
+            TenantContext.clear();
             redisTemplate.delete(key);
             jdbcTemplate.update("DELETE FROM cart_cleanup_intent WHERE checkout_id = ?", checkoutId);
             connectionFactory.destroy();

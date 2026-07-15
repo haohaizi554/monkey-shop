@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.cart.domain.CartItem;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -35,12 +36,13 @@ class RedisCartStoreLocalAcceptanceTest {
         when(provider.getIfAvailable()).thenReturn(redisTemplate);
         RedisCartStore store = new RedisCartStore(provider, new ObjectMapper().findAndRegisterModules());
         Long userId = UUID.randomUUID().getMostSignificantBits() & Long.MAX_VALUE;
-        String key = "cart:user:" + userId;
+        String key = "cart:tenant:1:user:" + userId;
         LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
         CartItem checkoutSnapshot = new CartItem(1001L, 501L, 2, true, now, now);
         CartItem changed = new CartItem(1001L, 501L, 3, true, now, now.plusMinutes(1));
         CartItem unchanged = new CartItem(1002L, 501L, 1, true, now, now);
         try {
+            TenantContext.setTenantId(1L);
             store.putItem(userId, changed, Duration.ofMinutes(5));
             store.putItem(userId, unchanged, Duration.ofMinutes(5));
 
@@ -49,6 +51,7 @@ class RedisCartStoreLocalAcceptanceTest {
             assertThat(store.findCart(userId).items()).containsExactly(changed);
             assertThat(redisTemplate.getExpire(key, TimeUnit.SECONDS)).isBetween(500L, 600L);
         } finally {
+            TenantContext.clear();
             redisTemplate.delete(key);
             connectionFactory.destroy();
         }
@@ -69,7 +72,7 @@ class RedisCartStoreLocalAcceptanceTest {
         when(provider.getIfAvailable()).thenReturn(redisTemplate);
         RedisCartStore store = new RedisCartStore(provider, new ObjectMapper().findAndRegisterModules());
         Long userId = UUID.randomUUID().getMostSignificantBits() & Long.MAX_VALUE;
-        String key = "cart:user:" + userId;
+        String key = "cart:tenant:1:user:" + userId;
         Duration ttl = Duration.ofMinutes(10);
         LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
         LocalDateTime later = now.plusMinutes(1);
@@ -79,6 +82,7 @@ class RedisCartStoreLocalAcceptanceTest {
                 new CartItem(1003L, 501L, 1, true, now, now),
                 new CartItem(1004L, 501L, 1, true, now, now));
         try {
+            TenantContext.setTenantId(1L);
             checkoutSnapshots.forEach(item -> store.putItem(userId, item, ttl));
             var staleMutationRead = store.findCart(userId);
 
@@ -102,7 +106,48 @@ class RedisCartStoreLocalAcceptanceTest {
             assertThat(store.findCart(userId).items())
                     .noneMatch(item -> item.skuId().equals(1004L));
         } finally {
+            TenantContext.clear();
             redisTemplate.delete(key);
+            connectionFactory.destroy();
+        }
+    }
+
+    @Test
+    @EnabledIfEnvironmentVariable(named = "RUN_CART_REDIS_ACCEPTANCE", matches = "true")
+    void sameUserIdIsIsolatedAcrossTenants() {
+        String host = System.getenv().getOrDefault("CART_REDIS_HOST", "127.0.0.1");
+        int port = Integer.parseInt(System.getenv().getOrDefault("CART_REDIS_PORT", "6379"));
+        RedisStandaloneConfiguration configuration = new RedisStandaloneConfiguration(host, port);
+        JedisConnectionFactory connectionFactory = new JedisConnectionFactory(configuration);
+        connectionFactory.afterPropertiesSet();
+        connectionFactory.start();
+        StringRedisTemplate redisTemplate = new StringRedisTemplate(connectionFactory);
+        redisTemplate.afterPropertiesSet();
+        ObjectProvider<StringRedisTemplate> provider = mock();
+        when(provider.getIfAvailable()).thenReturn(redisTemplate);
+        RedisCartStore store = new RedisCartStore(provider, new ObjectMapper().findAndRegisterModules());
+        Long userId = UUID.randomUUID().getMostSignificantBits() & Long.MAX_VALUE;
+        String tenantOneKey = "cart:tenant:1:user:" + userId;
+        String tenantTwoKey = "cart:tenant:2:user:" + userId;
+        LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
+        CartItem tenantOneItem = new CartItem(1001L, 501L, 1, true, now, now);
+        CartItem tenantTwoItem = new CartItem(2001L, 502L, 2, true, now, now);
+        try {
+            TenantContext.setTenantId(1L);
+            store.putItem(userId, tenantOneItem, Duration.ofMinutes(10));
+            TenantContext.setTenantId(2L);
+            store.putItem(userId, tenantTwoItem, Duration.ofMinutes(10));
+
+            TenantContext.setTenantId(1L);
+            assertThat(store.findCart(userId).items()).containsExactly(tenantOneItem);
+            store.removeMatchingItems(userId, List.of(tenantOneItem), Duration.ofMinutes(10));
+            TenantContext.setTenantId(2L);
+            assertThat(store.findCart(userId).items()).containsExactly(tenantTwoItem);
+            assertThat(redisTemplate.hasKey(tenantOneKey)).isFalse();
+            assertThat(redisTemplate.hasKey(tenantTwoKey)).isTrue();
+        } finally {
+            TenantContext.clear();
+            redisTemplate.delete(List.of(tenantOneKey, tenantTwoKey));
             connectionFactory.destroy();
         }
     }

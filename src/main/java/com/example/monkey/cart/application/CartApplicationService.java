@@ -225,18 +225,29 @@ public class CartApplicationService {
 
     private CheckoutOrder checkoutLocked(Long userId, CartCheckoutRequestDto request, String idempotencyKey) {
         CartCheckoutRequestDto effectiveRequest = normalizeCheckoutRequest(request);
-        List<CheckoutInputLine> inputLines = selectedCheckoutInputLines(userId);
         Optional<CheckoutOrder> existing = checkoutStore.findByUserIdAndIdempotencyKey(userId, idempotencyKey);
+        if (existing.isPresent()
+                && CheckoutOrder.LEGACY_V51_REQUEST_FINGERPRINT.equals(
+                        existing.get().requestFingerprint())) {
+            return existing.get();
+        }
+
+        List<CheckoutInputLine> inputLines;
+        try {
+            inputLines = selectedCheckoutInputLines(userId);
+        } catch (BusinessException exception) {
+            if (existing.isPresent() && exception.errorCode() == ErrorCode.NOT_FOUND) {
+                throw idempotencyConflict();
+            }
+            throw exception;
+        }
         List<FingerprintLine> lines = inputLines.isEmpty() && existing.isPresent()
                 ? fingerprintLines(existing.get())
                 : fingerprintLines(inputLines);
         String fingerprint = requestFingerprint(effectiveRequest, lines);
         if (existing.isPresent()) {
-            if (!CheckoutOrder.LEGACY_V51_REQUEST_FINGERPRINT.equals(
-                            existing.get().requestFingerprint())
-                    && !fingerprint.equals(existing.get().requestFingerprint())) {
-                throw new BusinessException(
-                        ErrorCode.CONFLICT, "Idempotency key was already used for another checkout");
+            if (!fingerprint.equals(existing.get().requestFingerprint())) {
+                throw idempotencyConflict();
             }
             return existing.get();
         }
@@ -255,6 +266,10 @@ public class CartApplicationService {
                 userId,
                 "checkoutId=" + saved.id() + ",subOrders=" + saved.subOrders().size());
         return saved;
+    }
+
+    private static BusinessException idempotencyConflict() {
+        return new BusinessException(ErrorCode.CONFLICT, "Idempotency key was already used for another checkout");
     }
 
     private static List<String> appliedCouponCodes(CheckoutOrder checkout) {
