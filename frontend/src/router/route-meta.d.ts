@@ -9,6 +9,7 @@ declare module 'vue-router' {
     requiresAuth?: boolean
     requiresAdmin?: boolean
     publicOnly?: boolean
+    hideConsumerBottomNav?: boolean
   }
 }
 

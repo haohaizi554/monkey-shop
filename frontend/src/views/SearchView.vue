@@ -230,6 +230,7 @@ onBeforeUnmount(clearScheduledSearch)
         @update:model-value="resetPage"
       />
       <el-input
+        id="category-filter"
         v-model="query.category"
         :aria-label="$t('search.categoryPlaceholder')"
         :placeholder="$t('search.categoryPlaceholder')"

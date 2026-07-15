@@ -2,6 +2,7 @@
 import {
   Document,
   Goods,
+  Grid,
   House,
   Moon,
   Search,
@@ -29,20 +30,15 @@ interface HeaderLink {
   icon: Component
 }
 
-const primaryLinks = computed<HeaderLink[]>(() => {
-  const links: HeaderLink[] = [
-    { to: '/shop', label: t('nav.shop'), icon: House },
-    { to: '/search', label: t('nav.search'), icon: Search },
-  ]
-  if (auth.isLoggedIn) {
-    links.push(
-      { to: '/recommendations', label: t('nav.recommend'), icon: Star },
-      { to: '/orders', label: t('nav.orders'), icon: Document },
-      { to: '/cart', label: t('nav.cart'), icon: ShoppingCart },
-    )
-  }
-  return links
-})
+const primaryLinks = computed<HeaderLink[]>(() => [
+  { to: '/shop', label: t('nav.discover'), icon: House },
+  { to: '/search#category-filter', label: t('nav.categories'), icon: Grid },
+  { to: '/search', label: t('nav.search'), icon: Search },
+  { to: '/recommendations', label: t('nav.recommend'), icon: Star },
+  { to: '/orders', label: t('nav.orders'), icon: Document },
+  { to: '/cart', label: t('nav.cart'), icon: ShoppingCart },
+  { to: '/membership', label: t('nav.membership'), icon: Goods },
+])
 
 const languageLabel = computed(() => (locale.value === 'zh' ? 'EN' : 'ZH'))
 const themeIcon = computed(() => (theme.isDark ? Sunny : Moon))
@@ -90,7 +86,20 @@ async function logout() {
       >
         <Search aria-hidden="true" />
       </RouterLink>
-      <button class="icon-button" type="button" :aria-label="themeLabel" @click="theme.toggle()">
+      <RouterLink
+        v-if="!props.compact"
+        class="icon-button consumer-header__cart-shortcut"
+        to="/cart"
+        :aria-label="$t('nav.cart')"
+      >
+        <ShoppingCart aria-hidden="true" />
+      </RouterLink>
+      <button
+        class="icon-button consumer-header__theme"
+        type="button"
+        :aria-label="themeLabel"
+        @click="theme.toggle()"
+      >
         <component :is="themeIcon" aria-hidden="true" />
       </button>
       <button
@@ -102,26 +111,30 @@ async function logout() {
         {{ languageLabel }}
       </button>
 
-      <RouterLink v-if="props.compact" class="secondary-button" to="/shop">
+      <RouterLink
+        v-if="props.compact"
+        class="secondary-button consumer-header__compact-shop"
+        to="/shop"
+      >
         <House aria-hidden="true" />
         <span>{{ $t('nav.shop') }}</span>
       </RouterLink>
       <RouterLink
         v-else-if="auth.isLoggedIn"
-        class="secondary-button consumer-header__account"
+        class="secondary-button consumer-header__account consumer-header__account-action"
         to="/profile"
         :aria-label="$t('nav.account')"
       >
         <User aria-hidden="true" />
         <span>{{ auth.displayName }}</span>
       </RouterLink>
-      <RouterLink v-else class="primary-button" to="/login">
+      <RouterLink v-else class="primary-button consumer-header__account-action" to="/login">
         <User aria-hidden="true" />
         <span>{{ $t('nav.login') }}</span>
       </RouterLink>
       <button
         v-if="!props.compact && auth.isLoggedIn"
-        class="icon-button"
+        class="icon-button consumer-header__logout"
         type="button"
         :aria-label="$t('nav.logout')"
         @click="logout"

@@ -82,7 +82,9 @@ test('the production error boundary never renders exception internals', async ()
   expect(source).toContain('common.errorReference')
 })
 
-test('consumer routes own one consumer shell with unique home and shop names', async ({ page }) => {
+test('consumer routes own one consumer shell with unique home and discover names', async ({
+  page,
+}) => {
   await installShellMocks(page, { isLogin: false })
   await page.goto('/shop')
 
@@ -93,7 +95,7 @@ test('consumer routes own one consumer shell with unique home and shop names', a
   await expect(
     page
       .getByRole('navigation', { name: 'Primary' })
-      .getByRole('link', { name: 'Shop', exact: true }),
+      .getByRole('link', { name: 'Discover', exact: true }),
   ).toBeVisible()
 })
 
@@ -210,4 +212,61 @@ test('admin mobile navigation opens, receives focus, and closes with Escape', as
   await expect(sidebar).toBeHidden()
   await expect(navigationTrigger).toHaveAttribute('aria-expanded', 'false')
   await expect(navigationTrigger).toBeFocused()
+})
+
+test('desktop consumer shell exposes the complete commerce navigation', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await installShellMocks(page, { isLogin: true, identity: 'USER', username: 'member' })
+  await page.goto('/shop')
+
+  const navigation = page.getByRole('navigation', { name: 'Primary' })
+  const labels = ['Discover', 'Categories', 'Search', 'Recommend', 'Orders', 'Cart', 'Membership']
+  for (const label of labels) {
+    await expect(navigation.getByRole('link', { name: label, exact: true })).toBeVisible()
+  }
+  await expect(page.locator('.consumer-bottom-nav')).toBeHidden()
+
+  await navigation.getByRole('link', { name: 'Categories', exact: true }).click()
+  await expect(page).toHaveURL(/\/search#category-filter$/)
+  await expect(page.locator('#category-filter')).toBeVisible()
+})
+
+test('mobile consumer shell keeps five stable destinations and hides them in focused flows', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await installShellMocks(page, { isLogin: true, identity: 'USER', username: 'member' })
+  await page.goto('/shop')
+
+  const navigation = page.getByRole('navigation', { name: 'Mobile primary' })
+  await expect(navigation.getByRole('link')).toHaveCount(5)
+  for (const label of ['Discover', 'Search', 'Cart', 'Orders', 'Me']) {
+    await expect(navigation.getByRole('link', { name: label, exact: true })).toBeVisible()
+  }
+
+  await page.goto('/checkout')
+  await expect(page.locator('.consumer-bottom-nav')).toHaveCount(0)
+  await page.goto('/payment/42')
+  await expect(page.locator('.consumer-bottom-nav')).toHaveCount(0)
+})
+
+test('skip navigation and route changes focus the single main landmark', async ({ page }) => {
+  await installShellMocks(page, { isLogin: false })
+  await page.goto('/shop')
+
+  await expect(page.locator('main')).toHaveCount(1)
+  await expect(page.locator('h1')).toHaveCount(1)
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+  await expect(page).toHaveTitle('Shop | MonkeyShop')
+
+  const skipLink = page.getByRole('link', { name: 'Skip to content', exact: true })
+  await skipLink.focus()
+  await expect(skipLink).toBeVisible()
+  await skipLink.click()
+  await expect(page.locator('#main-content')).toBeFocused()
+
+  await page.getByRole('link', { name: 'Search', exact: true }).first().click()
+  await expect(page).toHaveURL(/\/search$/)
+  await expect(page).toHaveTitle('Search | MonkeyShop')
+  await expect(page.locator('#main-content')).toBeFocused()
 })

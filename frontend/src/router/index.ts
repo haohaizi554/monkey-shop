@@ -1,4 +1,6 @@
+import { nextTick } from 'vue'
 import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
+import { i18n } from '@/locales'
 import { useAuthStore } from '@/stores/auth'
 
 function requiresAuth(route: RouteLocationNormalized): boolean {
@@ -51,7 +53,12 @@ export const router = createRouter({
     {
       path: '/payment/:orderId?',
       component: () => import('@/views/PaymentView.vue'),
-      meta: { area: 'consumer', titleKey: 'nav.payment', requiresAuth: true },
+      meta: {
+        area: 'consumer',
+        titleKey: 'nav.payment',
+        requiresAuth: true,
+        hideConsumerBottomNav: true,
+      },
     },
     {
       path: '/logistics/:orderId?',
@@ -71,7 +78,12 @@ export const router = createRouter({
     {
       path: '/checkout',
       component: () => import('@/views/CheckoutView.vue'),
-      meta: { area: 'consumer', titleKey: 'shop.checkout', requiresAuth: true },
+      meta: {
+        area: 'consumer',
+        titleKey: 'shop.checkout',
+        requiresAuth: true,
+        hideConsumerBottomNav: true,
+      },
     },
     {
       path: '/profile',
@@ -171,6 +183,20 @@ router.beforeEach(async (to) => {
     return redirect ? { path: redirect } : { path: auth.isAdmin ? '/admin' : '/shop' }
   }
   return true
+})
+
+router.afterEach(async (to) => {
+  await nextTick()
+  if (typeof document === 'undefined') {
+    return
+  }
+
+  document.documentElement.lang = i18n.global.locale.value
+  document.title = `${i18n.global.t(to.meta.titleKey)} | MonkeyShop`
+  const focusTarget =
+    document.querySelector<HTMLElement>('#page-title') ??
+    document.querySelector<HTMLElement>('#main-content')
+  focusTarget?.focus({ preventScroll: true })
 })
 
 router.onError((error) => {

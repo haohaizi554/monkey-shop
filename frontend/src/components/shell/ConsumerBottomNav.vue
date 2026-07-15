@@ -14,20 +14,17 @@ interface BottomLink {
 }
 
 const links = computed<BottomLink[]>(() => {
-  const items: BottomLink[] = [
-    { to: '/shop', label: t('nav.shop'), icon: House },
+  return [
+    { to: '/shop', label: t('nav.discover'), icon: House },
     { to: '/search', label: t('nav.search'), icon: Search },
+    { to: '/cart', label: t('nav.cart'), icon: ShoppingCart },
+    { to: '/orders', label: t('nav.orders'), icon: Document },
+    {
+      to: auth.isLoggedIn ? '/profile' : '/login',
+      label: t('nav.me'),
+      icon: User,
+    },
   ]
-  if (auth.isLoggedIn) {
-    items.push(
-      { to: '/cart', label: t('nav.cart'), icon: ShoppingCart },
-      { to: '/orders', label: t('nav.orders'), icon: Document },
-      { to: '/profile', label: t('nav.profile'), icon: User },
-    )
-  } else {
-    items.push({ to: '/login', label: t('nav.login'), icon: User })
-  }
-  return items
 })
 </script>
 

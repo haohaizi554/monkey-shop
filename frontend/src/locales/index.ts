@@ -6,6 +6,8 @@ const messages = {
   en: {
     nav: {
       shop: 'Shop',
+      discover: 'Discover',
+      categories: 'Categories',
       search: 'Search',
       recommend: 'Recommend',
       orders: 'Orders',
@@ -14,6 +16,7 @@ const messages = {
       logistics: 'Logistics',
       membership: 'Membership',
       profile: 'Profile',
+      me: 'Me',
       admin: 'Admin',
       inventory: 'Inventory',
       marketing: 'Marketing',
@@ -28,6 +31,7 @@ const messages = {
       homeLabel: 'MonkeyShop home',
       primaryNavigation: 'Primary',
       mobilePrimary: 'Mobile primary',
+      skipToContent: 'Skip to content',
       adminNavigation: 'Admin navigation',
       openNavigation: 'Open navigation',
       closeNavigation: 'Close navigation',
@@ -808,6 +812,8 @@ const messages = {
   zh: {
     nav: {
       shop: '\u5546\u57ce',
+      discover: '\u53d1\u73b0',
+      categories: '\u5206\u7c7b',
       search: '\u641c\u7d22',
       recommend: '\u63a8\u8350',
       orders: '\u8ba2\u5355',
@@ -816,6 +822,7 @@ const messages = {
       logistics: '\u7269\u6d41',
       membership: '\u4f1a\u5458',
       profile: '\u4e2a\u4eba\u4e2d\u5fc3',
+      me: '\u6211\u7684',
       admin: '\u7ba1\u7406\u53f0',
       inventory: '\u5e93\u5b58',
       marketing: '\u8425\u9500',
@@ -830,6 +837,7 @@ const messages = {
       homeLabel: 'MonkeyShop \u9996\u9875',
       primaryNavigation: '\u4e3b\u5bfc\u822a',
       mobilePrimary: '\u79fb\u52a8\u7aef\u4e3b\u5bfc\u822a',
+      skipToContent: '\u8df3\u8f6c\u5230\u4e3b\u8981\u5185\u5bb9',
       adminNavigation: '\u7ba1\u7406\u5bfc\u822a',
       openNavigation: '\u6253\u5f00\u5bfc\u822a',
       closeNavigation: '\u5173\u95ed\u5bfc\u822a',
