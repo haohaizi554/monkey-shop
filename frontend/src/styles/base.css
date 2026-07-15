@@ -1,7 +1,7 @@
 html {
   font-family: var(--font-sans);
   letter-spacing: 0;
-  color: var(--color-text);
+  color: var(--color-ink);
   background: var(--color-canvas);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -17,7 +17,7 @@ body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
-  color: var(--color-text);
+  color: var(--color-ink);
   background: var(--color-canvas);
 }
 
@@ -30,8 +30,12 @@ textarea {
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-brand);
-  outline-offset: 2px;
+  outline: var(--focus-width) solid var(--color-primary);
+  outline-offset: var(--focus-offset);
+}
+
+:where(.price, .money, .stock, .metric-value, .order-id, .numeric, [data-numeric]) {
+  font-variant-numeric: tabular-nums;
 }
 
 a {
@@ -55,4 +59,15 @@ h2 {
   font-size: 1.1rem;
   line-height: 1.2;
   font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
