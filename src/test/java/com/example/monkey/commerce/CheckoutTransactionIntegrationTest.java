@@ -15,6 +15,9 @@ import com.example.monkey.cart.application.CartCleanupProcessor;
 import com.example.monkey.cart.application.CartCleanupRetryWorker;
 import com.example.monkey.cart.application.DurableCartCleanupScheduler;
 import com.example.monkey.cart.application.dto.CartCheckoutRequestDto;
+import com.example.monkey.cart.domain.CartCleanupIntent;
+import com.example.monkey.cart.domain.CartCleanupIntentStatus;
+import com.example.monkey.cart.domain.CartCleanupIntentStore;
 import com.example.monkey.cart.domain.CartCleanupTenantSource;
 import com.example.monkey.cart.domain.CartItem;
 import com.example.monkey.cart.domain.CartLockManager;
@@ -28,6 +31,7 @@ import com.example.monkey.cart.infrastructure.CartSubOrderRepository;
 import com.example.monkey.cart.infrastructure.JdbcCartCleanupTenantSource;
 import com.example.monkey.cart.infrastructure.JpaCartCheckoutStore;
 import com.example.monkey.cart.infrastructure.JpaCartCleanupIntentStore;
+import com.example.monkey.cart.infrastructure.RequiresNewCartTransactions;
 import com.example.monkey.inventory.application.InventoryApplicationService;
 import com.example.monkey.inventory.application.dto.InventoryReservationResponseDto;
 import com.example.monkey.inventory.application.dto.InventoryReserveRequestDto;
@@ -54,35 +58,48 @@ import com.example.monkey.order.infrastructure.OrderRepository;
 import com.example.monkey.order.infrastructure.StockLogRepository;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
 import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.mockito.ArgumentCaptor;
-import org.springframework.aop.framework.ProxyFactory;
-import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.interceptor.TransactionInterceptor;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @DataJpaTest(showSql = false)
 @ActiveProfiles("test")
@@ -254,7 +271,6 @@ class CheckoutTransactionIntegrationTest {
         fixture.seedSelectedCart();
         fixture.failAuditAfterCartCleanup();
 
-        assertThat(AopUtils.isAopProxy(fixture.service)).isTrue();
         assertThatThrownBy(() -> fixture.service.checkout(
                         USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of()), "checkout-key-rollback"))
                 .isInstanceOf(IllegalStateException.class)
@@ -266,6 +282,58 @@ class CheckoutTransactionIntegrationTest {
         assertThat(orderRepository.count()).isZero();
         assertThat(orderLineRepository.count()).isZero();
         assertThat(fixture.cartStore.findCart(USER.id()).items()).hasSize(2);
+    }
+
+    @Test
+    @Timeout(value = 15, unit = TimeUnit.SECONDS)
+    void sameKeyLockIsHeldThroughCommitBeforeConflictingReplayRuns() throws Exception {
+        ObservingCartLockManager lockManager = new ObservingCartLockManager();
+        Fixture fixture = new Fixture(
+                new JpaCartCheckoutStore(checkoutRepository, subOrderRepository, lineRepository),
+                new OrderFormalOrderCreator(new CheckoutOrderApplicationService(
+                        new JpaOrderStore(orderRepository, stockLogRepository, orderLineRepository), customerPort())),
+                cleanupIntentRepository,
+                new JdbcCartCleanupTenantSource(jdbcTemplate),
+                transactionManager,
+                mock(InventoryApplicationService.class),
+                lockManager);
+        fixture.seedSelectedCart();
+        CountDownLatch beforeCommit = new CountDownLatch(1);
+        CountDownLatch releaseCommit = new CountDownLatch(1);
+        fixture.pauseNextCommit(beforeCommit, releaseCommit);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> first = executor.submit(() -> fixture.service.checkout(
+                    USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of()), "checkout-lock-key"));
+            assertThat(beforeCommit.await(5, TimeUnit.SECONDS)).isTrue();
+            Future<Throwable> second = executor.submit(() -> {
+                try {
+                    fixture.service.checkout(
+                            USER, new CartCheckoutRequestDto(9L, "CN-SH", List.of()), "checkout-lock-key");
+                    return null;
+                } catch (Throwable throwable) {
+                    return throwable;
+                }
+            });
+
+            boolean secondEnteredBeforeCommit = lockManager.awaitSecondEntry(500, TimeUnit.MILLISECONDS);
+            releaseCommit.countDown();
+            first.get(5, TimeUnit.SECONDS);
+            Throwable conflict = second.get(5, TimeUnit.SECONDS);
+
+            assertThat(secondEnteredBeforeCommit).isFalse();
+            assertThat(conflict)
+                    .isInstanceOfSatisfying(
+                            BusinessException.class,
+                            exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+            verify(fixture.inventoryApplicationService, times(2)).reserve(any());
+            verify(fixture.marketingApplicationService, times(1)).redeemForCheckout(any(), any(), any());
+            assertThat(checkoutRepository.count()).isEqualTo(1);
+            assertThat(orderRepository.count()).isEqualTo(2);
+        } finally {
+            releaseCommit.countDown();
+            executor.shutdownNow();
+        }
     }
 
     @Test
@@ -298,6 +366,164 @@ class CheckoutTransactionIntegrationTest {
         assertThat(fixture.cartStore.findCart(USER.id()).items()).isEmpty();
         assertThat(fixture.cleanupProcessor.process(checkout.id())).isTrue();
         assertThat(fixture.cartStore.cleanupAttempts()).isEqualTo(2);
+    }
+
+    @Test
+    void cleanupIntentRoundTripsExactSelectedCartItemSnapshots() {
+        LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
+        CartItem selected = new CartItem(1001L, 501L, 2, true, now.minusMinutes(2), now);
+        JpaCartCleanupIntentStore store = new JpaCartCleanupIntentStore(
+                cleanupIntentRepository, new ObjectMapper().registerModule(new JavaTimeModule()));
+
+        store.save(CartCleanupIntent.pending(8801L, USER.id(), List.of(selected), Duration.ofDays(7), now));
+
+        assertThat(store.findByCheckoutId(8801L).orElseThrow().itemSnapshots()).containsExactly(selected);
+    }
+
+    @Test
+    @Timeout(value = 15, unit = TimeUnit.SECONDS)
+    void concurrentCleanupWorkersAllowOnlyOneActiveClaim() throws Exception {
+        LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
+        JpaCartCleanupIntentStore store = cleanupIntentStore();
+        store.save(CartCleanupIntent.pending(
+                8802L, USER.id(), List.of(new CartItem(1001L, 501L, 2, true, now, now)), Duration.ofDays(7), now));
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Boolean> first = executor.submit(
+                    () -> claimAfterBarrier(store, 8802L, "claim-one", now, now.plusMinutes(1), ready, start));
+            Future<Boolean> second = executor.submit(
+                    () -> claimAfterBarrier(store, 8802L, "claim-two", now, now.plusMinutes(1), ready, start));
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+
+            assertThat(List.of(first.get(5, TimeUnit.SECONDS), second.get(5, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(true, false);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @Timeout(value = 15, unit = TimeUnit.SECONDS)
+    void concurrentCleanupProcessorsPerformOnlyOneCartCleanup() throws Exception {
+        LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
+        CartItem selected = new CartItem(1001L, 501L, 2, true, now, now);
+        JpaCartCleanupIntentStore store = cleanupIntentStore();
+        store.save(CartCleanupIntent.pending(8806L, USER.id(), List.of(selected), Duration.ofDays(7), now));
+        InMemoryCartStore cartStore = new InMemoryCartStore();
+        cartStore.save(new CartSnapshot(USER.id(), List.of(selected)), Duration.ofDays(7));
+        CartCleanupProcessor processor = new CartCleanupProcessor(
+                store,
+                cartStore,
+                transactionManager,
+                Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC),
+                Duration.ofSeconds(30));
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Boolean> first = executor.submit(() -> processAfterBarrier(processor, 8806L, ready, start));
+            Future<Boolean> second = executor.submit(() -> processAfterBarrier(processor, 8806L, ready, start));
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            first.get(5, TimeUnit.SECONDS);
+            second.get(5, TimeUnit.SECONDS);
+
+            assertThat(cartStore.cleanupAttempts()).isEqualTo(1);
+            assertThat(store.findByCheckoutId(8806L).orElseThrow().status())
+                    .isEqualTo(CartCleanupIntentStatus.COMPLETED);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void expiredCleanupClaimIsReclaimedAndStaleTokenCannotCompleteOrFail() {
+        LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
+        JpaCartCleanupIntentStore store = cleanupIntentStore();
+        store.save(CartCleanupIntent.pending(
+                8803L, USER.id(), List.of(new CartItem(1001L, 501L, 2, true, now, now)), Duration.ofDays(7), now));
+
+        assertThat(inNewTransaction(() -> store.claim(8803L, "stale-token", now, now.plusSeconds(30))))
+                .isPresent();
+        LocalDateTime reclaimedAt = now.plusSeconds(31);
+        assertThat(inNewTransaction(
+                        () -> store.claim(8803L, "current-token", reclaimedAt, reclaimedAt.plusSeconds(30))))
+                .isPresent();
+
+        assertThat(inNewTransaction(() -> store.completeClaim(8803L, "stale-token", reclaimedAt)))
+                .isFalse();
+        assertThat(inNewTransaction(() -> store.failClaim(
+                        8803L, "stale-token", reclaimedAt, reclaimedAt.plusMinutes(1), "stale failure")))
+                .isFalse();
+        assertThat(store.findByCheckoutId(8803L).orElseThrow().claimToken()).isEqualTo("current-token");
+        assertThat(inNewTransaction(() -> store.completeClaim(8803L, "current-token", reclaimedAt)))
+                .isTrue();
+    }
+
+    @Test
+    void cleanupReclaimsAfterDeleteBeforeCompletionAndPreservesNewerCartItems() {
+        LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
+        LocalDateTime later = now.plusMinutes(1);
+        List<CartItem> checkoutSnapshots = List.of(
+                new CartItem(1001L, 501L, 2, true, now, now),
+                new CartItem(1002L, 501L, 1, true, now, now),
+                new CartItem(1003L, 501L, 1, true, now, now),
+                new CartItem(1004L, 501L, 1, true, now, now));
+        JpaCartCleanupIntentStore delegate = cleanupIntentStore();
+        delegate.save(CartCleanupIntent.pending(8804L, USER.id(), checkoutSnapshots, Duration.ofDays(7), now));
+        InMemoryCartStore cartStore = new InMemoryCartStore();
+        cartStore.save(new CartSnapshot(USER.id(), checkoutSnapshots), Duration.ofDays(7));
+        CartCleanupIntentStore failFirstCompletion = new FailFirstCompletionIntentStore(delegate);
+        CartCleanupProcessor firstProcessor = new CartCleanupProcessor(
+                failFirstCompletion,
+                cartStore,
+                transactionManager,
+                Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC),
+                Duration.ofSeconds(30));
+
+        assertThatThrownBy(() -> firstProcessor.process(8804L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("completion unavailable");
+        assertThat(delegate.findByCheckoutId(8804L).orElseThrow().status())
+                .isEqualTo(CartCleanupIntentStatus.PROCESSING);
+        assertThat(cartStore.findCart(USER.id()).items()).isEmpty();
+        assertThat(cartStore.cleanupRanInsideTransaction()).isFalse();
+
+        CartItem quantityChanged = new CartItem(1001L, 501L, 3, true, now, later);
+        CartItem unselected = new CartItem(1002L, 501L, 1, false, now, later);
+        CartItem readded = new CartItem(1003L, 501L, 1, true, later, later);
+        cartStore.save(new CartSnapshot(USER.id(), List.of(quantityChanged, unselected, readded)), Duration.ofDays(7));
+        CartCleanupProcessor retryProcessor = new CartCleanupProcessor(
+                delegate,
+                cartStore,
+                transactionManager,
+                Clock.fixed(Instant.parse("2026-01-01T00:00:31Z"), ZoneOffset.UTC),
+                Duration.ofSeconds(30));
+
+        assertThat(retryProcessor.process(8804L)).isTrue();
+        assertThat(cartStore.findCart(USER.id()).items())
+                .containsExactlyInAnyOrder(quantityChanged, unselected, readded);
+        assertThat(delegate.findByCheckoutId(8804L).orElseThrow().status())
+                .isEqualTo(CartCleanupIntentStatus.COMPLETED);
+        assertThat(cartStore.cleanupAttempts()).isEqualTo(2);
+    }
+
+    @Test
+    void tenantAndIntentDiscoveryIncludeExpiredProcessingClaims() {
+        LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
+        JpaCartCleanupIntentStore store = cleanupIntentStore();
+        store.save(CartCleanupIntent.pending(
+                8805L, USER.id(), List.of(new CartItem(1001L, 501L, 2, true, now, now)), Duration.ofDays(7), now));
+        assertThat(inNewTransaction(() -> store.claim(8805L, "expired-token", now, now.plusSeconds(30))))
+                .isPresent();
+        LocalDateTime cutoff = now.plusSeconds(31);
+
+        assertThat(store.findReadyCheckoutIds(cutoff)).contains(8805L);
+        assertThat(new JdbcCartCleanupTenantSource(jdbcTemplate).findTenantIdsWithReadyIntents(cutoff, 0L, 100))
+                .contains(1L);
     }
 
     @Test
@@ -367,6 +593,54 @@ class CheckoutTransactionIntegrationTest {
         assertThat(fixture.cartStore.findCart(USER.id()).items()).hasSize(2);
     }
 
+    private JpaCartCleanupIntentStore cleanupIntentStore() {
+        return new JpaCartCleanupIntentStore(
+                cleanupIntentRepository, new ObjectMapper().registerModule(new JavaTimeModule()));
+    }
+
+    private boolean claimAfterBarrier(
+            JpaCartCleanupIntentStore store,
+            Long checkoutId,
+            String claimToken,
+            LocalDateTime now,
+            LocalDateTime leaseExpiresAt,
+            CountDownLatch ready,
+            CountDownLatch start)
+            throws InterruptedException {
+        TenantContext.setTenantId(1L);
+        try {
+            ready.countDown();
+            if (!start.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("claim start barrier timed out");
+            }
+            return inNewTransaction(() -> store.claim(checkoutId, claimToken, now, leaseExpiresAt))
+                    .isPresent();
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    private boolean processAfterBarrier(
+            CartCleanupProcessor processor, Long checkoutId, CountDownLatch ready, CountDownLatch start)
+            throws InterruptedException {
+        TenantContext.setTenantId(1L);
+        try {
+            ready.countDown();
+            if (!start.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("processor start barrier timed out");
+            }
+            return processor.process(checkoutId);
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    private <T> T inNewTransaction(Supplier<T> action) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return template.execute(status -> action.get());
+    }
+
     private void seedInventory() {
         jdbcTemplate.update(
                 "INSERT INTO inventory_warehouse "
@@ -423,6 +697,24 @@ class CheckoutTransactionIntegrationTest {
                 CartCleanupTenantSource cleanupTenantSource,
                 PlatformTransactionManager transactionManager,
                 InventoryApplicationService inventoryApplicationService) {
+            this(
+                    checkoutStore,
+                    formalOrderCreator,
+                    cleanupIntentRepository,
+                    cleanupTenantSource,
+                    transactionManager,
+                    inventoryApplicationService,
+                    new DirectCartLockManager());
+        }
+
+        private Fixture(
+                JpaCartCheckoutStore checkoutStore,
+                OrderFormalOrderCreator formalOrderCreator,
+                CartCleanupIntentRepository cleanupIntentRepository,
+                CartCleanupTenantSource cleanupTenantSource,
+                PlatformTransactionManager transactionManager,
+                InventoryApplicationService inventoryApplicationService,
+                CartLockManager cartLockManager) {
             this.inventoryApplicationService = inventoryApplicationService;
             catalog.put(
                     1001L,
@@ -439,7 +731,8 @@ class CheckoutTransactionIntegrationTest {
                     .thenAnswer(invocation -> noDiscount(invocation.getArgument(0)));
             when(marketingApplicationService.quoteStorePrice(any()))
                     .thenAnswer(invocation -> noDiscount(invocation.getArgument(0)));
-            JpaCartCleanupIntentStore cleanupIntentStore = new JpaCartCleanupIntentStore(cleanupIntentRepository);
+            JpaCartCleanupIntentStore cleanupIntentStore = new JpaCartCleanupIntentStore(
+                    cleanupIntentRepository, new ObjectMapper().registerModule(new JavaTimeModule()));
             cleanupProcessor = new CartCleanupProcessor(cleanupIntentStore, cartStore, transactionManager);
             cleanupRetryWorker = new CartCleanupRetryWorker(cleanupIntentStore, cleanupTenantSource, cleanupProcessor);
             CartApplicationService target = new CartApplicationService(
@@ -447,7 +740,8 @@ class CheckoutTransactionIntegrationTest {
                     skuId -> Optional.ofNullable(catalog.get(skuId)),
                     checkoutStore,
                     new DurableCartCleanupScheduler(cleanupIntentStore, cleanupProcessor),
-                    new DirectCartLockManager(),
+                    cartLockManager,
+                    new RequiresNewCartTransactions(transactionManager),
                     inventoryApplicationService,
                     marketingApplicationService,
                     formalOrderCreator,
@@ -455,10 +749,32 @@ class CheckoutTransactionIntegrationTest {
                     new AtomicIdGenerator(),
                     auditService,
                     Duration.ofDays(7));
-            ProxyFactory proxyFactory = new ProxyFactory(target);
-            proxyFactory.addAdvice(
-                    new TransactionInterceptor(transactionManager, new AnnotationTransactionAttributeSource()));
-            service = (CartApplicationService) proxyFactory.getProxy();
+            service = target;
+        }
+
+        private void pauseNextCommit(CountDownLatch beforeCommit, CountDownLatch releaseCommit) {
+            AtomicBoolean pause = new AtomicBoolean(true);
+            org.mockito.Mockito.doAnswer(invocation -> {
+                        if (pause.compareAndSet(true, false)) {
+                            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                                @Override
+                                public void beforeCommit(boolean readOnly) {
+                                    beforeCommit.countDown();
+                                    try {
+                                        if (!releaseCommit.await(5, TimeUnit.SECONDS)) {
+                                            throw new IllegalStateException("commit release timed out");
+                                        }
+                                    } catch (InterruptedException exception) {
+                                        Thread.currentThread().interrupt();
+                                        throw new IllegalStateException("commit wait interrupted", exception);
+                                    }
+                                }
+                            });
+                        }
+                        return null;
+                    })
+                    .when(auditService)
+                    .record(any(), any(), any(), any(), any(), any(), any());
         }
 
         private void failAuditAfterCartCleanup() {
@@ -516,6 +832,7 @@ class CheckoutTransactionIntegrationTest {
         private final Map<Long, CartSnapshot> carts = new ConcurrentHashMap<>();
         private final AtomicInteger cleanupFailures = new AtomicInteger();
         private final AtomicInteger cleanupAttempts = new AtomicInteger();
+        private final AtomicBoolean cleanupRanInsideTransaction = new AtomicBoolean();
 
         @Override
         public CartSnapshot findCart(Long userId) {
@@ -529,16 +846,20 @@ class CheckoutTransactionIntegrationTest {
         }
 
         @Override
-        public void removeItems(Long userId, List<Long> skuIds, Duration ttl) {
+        public void removeMatchingItems(Long userId, List<CartItem> expectedItems, Duration ttl) {
+            cleanupRanInsideTransaction.set(TransactionSynchronizationManager.isActualTransactionActive());
             cleanupAttempts.incrementAndGet();
             if (cleanupFailures.getAndUpdate(remaining -> Math.max(0, remaining - 1)) > 0) {
                 throw new IllegalStateException("cart unavailable");
             }
             CartSnapshot cart = findCart(userId);
-            for (Long skuId : skuIds) {
-                cart = cart.remove(skuId);
-            }
-            save(cart, ttl);
+            save(
+                    new CartSnapshot(
+                            userId,
+                            cart.items().stream()
+                                    .filter(item -> !expectedItems.contains(item))
+                                    .toList()),
+                    ttl);
         }
 
         private void failNextCleanup() {
@@ -547,6 +868,77 @@ class CheckoutTransactionIntegrationTest {
 
         private int cleanupAttempts() {
             return cleanupAttempts.get();
+        }
+
+        private boolean cleanupRanInsideTransaction() {
+            return cleanupRanInsideTransaction.get();
+        }
+    }
+
+    private static final class FailFirstCompletionIntentStore implements CartCleanupIntentStore {
+        private final CartCleanupIntentStore delegate;
+        private final AtomicBoolean failCompletion = new AtomicBoolean(true);
+
+        private FailFirstCompletionIntentStore(CartCleanupIntentStore delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public CartCleanupIntent save(CartCleanupIntent intent) {
+            return delegate.save(intent);
+        }
+
+        @Override
+        public Optional<CartCleanupIntent> findByCheckoutId(Long checkoutId) {
+            return delegate.findByCheckoutId(checkoutId);
+        }
+
+        @Override
+        public Optional<CartCleanupIntent> claim(
+                Long checkoutId, String claimToken, LocalDateTime now, LocalDateTime leaseExpiresAt) {
+            return delegate.claim(checkoutId, claimToken, now, leaseExpiresAt);
+        }
+
+        @Override
+        public boolean completeClaim(Long checkoutId, String claimToken, LocalDateTime now) {
+            if (failCompletion.compareAndSet(true, false)) {
+                throw new IllegalStateException("completion unavailable");
+            }
+            return delegate.completeClaim(checkoutId, claimToken, now);
+        }
+
+        @Override
+        public boolean failClaim(
+                Long checkoutId, String claimToken, LocalDateTime now, LocalDateTime nextAttemptAt, String error) {
+            return delegate.failClaim(checkoutId, claimToken, now, nextAttemptAt, error);
+        }
+
+        @Override
+        public List<Long> findReadyCheckoutIds(LocalDateTime now) {
+            return delegate.findReadyCheckoutIds(now);
+        }
+    }
+
+    private static final class ObservingCartLockManager implements CartLockManager {
+        private final ReentrantLock lock = new ReentrantLock();
+        private final AtomicInteger entries = new AtomicInteger();
+        private final CountDownLatch secondEntry = new CountDownLatch(1);
+
+        @Override
+        public <T> T withCheckoutLock(Long userId, String idempotencyKey, Supplier<T> action) {
+            lock.lock();
+            try {
+                if (entries.incrementAndGet() == 2) {
+                    secondEntry.countDown();
+                }
+                return action.get();
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        private boolean awaitSecondEntry(long timeout, TimeUnit unit) throws InterruptedException {
+            return secondEntry.await(timeout, unit);
         }
     }
 

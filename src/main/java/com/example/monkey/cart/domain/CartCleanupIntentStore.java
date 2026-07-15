@@ -10,5 +10,12 @@ public interface CartCleanupIntentStore {
 
     Optional<CartCleanupIntent> findByCheckoutId(Long checkoutId);
 
+    Optional<CartCleanupIntent> claim(
+            Long checkoutId, String claimToken, LocalDateTime now, LocalDateTime leaseExpiresAt);
+
+    boolean completeClaim(Long checkoutId, String claimToken, LocalDateTime now);
+
+    boolean failClaim(Long checkoutId, String claimToken, LocalDateTime now, LocalDateTime nextAttemptAt, String error);
+
     List<Long> findReadyCheckoutIds(LocalDateTime now);
 }

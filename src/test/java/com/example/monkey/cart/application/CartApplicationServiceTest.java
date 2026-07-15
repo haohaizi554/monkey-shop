@@ -245,6 +245,28 @@ class CartApplicationServiceTest {
     }
 
     @Test
+    void repeatedCheckoutDistinguishesNullAndEmptyCatalogImageBeforeSideEffects() {
+        Fixture fixture = new Fixture();
+        fixture.catalog.put(
+                1001L, new CartSkuSnapshot(1001L, 501L, 11L, "SKU-1001", "Phone", null, new BigDecimal("100.00")));
+        fixture.seedSelectedCart();
+        fixture.service.checkout(USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of()), "cart-key-null-image");
+
+        fixture.catalog.put(
+                1001L, new CartSkuSnapshot(1001L, 501L, 11L, "SKU-1001", "Phone", "", new BigDecimal("100.00")));
+        fixture.seedSelectedCart();
+
+        assertThatThrownBy(() -> fixture.service.checkout(
+                        USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of()), "cart-key-null-image"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+        verify(fixture.inventoryApplicationService, times(2)).reserve(any(InventoryReserveRequestDto.class));
+        verify(fixture.formalOrderCreator, times(1)).create(any());
+        verify(fixture.marketingApplicationService, times(1)).redeemForCheckout(any(), any(), any());
+    }
+
+    @Test
     void fingerprintSeparatesCouponAndCartLineSections() {
         Fixture fixture = new Fixture();
         LocalDateTime now = LocalDateTime.now(CLOCK);
@@ -320,8 +342,10 @@ class CartApplicationServiceTest {
                     cartStore,
                     skuId -> Optional.ofNullable(catalog.get(skuId)),
                     checkoutStore,
-                    (checkoutId, userId, skuIds, ttl) -> cartStore.removeItems(userId, skuIds, ttl),
+                    (checkoutId, userId, itemSnapshots, ttl) ->
+                            cartStore.removeMatchingItems(userId, itemSnapshots, ttl),
                     new DirectCartLockManager(),
+                    Supplier::get,
                     inventoryApplicationService,
                     marketingApplicationService,
                     formalOrderCreator,
@@ -430,12 +454,15 @@ class CartApplicationServiceTest {
         }
 
         @Override
-        public void removeItems(Long userId, List<Long> skuIds, Duration ttl) {
+        public void removeMatchingItems(Long userId, List<CartItem> expectedItems, Duration ttl) {
             CartSnapshot cart = findCart(userId);
-            for (Long skuId : skuIds) {
-                cart = cart.remove(skuId);
-            }
-            save(cart, ttl);
+            save(
+                    new CartSnapshot(
+                            userId,
+                            cart.items().stream()
+                                    .filter(item -> !expectedItems.contains(item))
+                                    .toList()),
+                    ttl);
         }
     }
 

@@ -7,34 +7,45 @@ import java.util.List;
 public record CartCleanupIntent(
         Long checkoutId,
         Long userId,
-        List<Long> skuIds,
+        List<CartItem> itemSnapshots,
         long cartTtlSeconds,
         CartCleanupIntentStatus status,
         int attemptCount,
         LocalDateTime nextAttemptAt,
+        String claimToken,
+        LocalDateTime leaseExpiresAt,
         String lastError,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
         LocalDateTime completedAt) {
 
     public CartCleanupIntent {
-        skuIds =
-                skuIds == null ? List.of() : skuIds.stream().distinct().sorted().toList();
-        if (checkoutId == null || userId == null || skuIds.isEmpty()) {
+        itemSnapshots = itemSnapshots == null
+                ? List.of()
+                : itemSnapshots.stream()
+                        .sorted(java.util.Comparator.comparing(CartItem::skuId))
+                        .toList();
+        if (checkoutId == null || userId == null || itemSnapshots.isEmpty()) {
             throw new IllegalArgumentException("Cart cleanup intent is incomplete");
+        }
+        boolean processing = CartCleanupIntentStatus.PROCESSING.equals(status);
+        if (processing != (claimToken != null && leaseExpiresAt != null)) {
+            throw new IllegalArgumentException("Cart cleanup claim state is inconsistent");
         }
     }
 
     public static CartCleanupIntent pending(
-            Long checkoutId, Long userId, List<Long> skuIds, Duration cartTtl, LocalDateTime now) {
+            Long checkoutId, Long userId, List<CartItem> itemSnapshots, Duration cartTtl, LocalDateTime now) {
         return new CartCleanupIntent(
                 checkoutId,
                 userId,
-                skuIds,
+                itemSnapshots,
                 cartTtl.toSeconds(),
                 CartCleanupIntentStatus.PENDING,
                 0,
                 now,
+                null,
+                null,
                 null,
                 now,
                 now,
@@ -43,35 +54,5 @@ public record CartCleanupIntent(
 
     public Duration cartTtl() {
         return Duration.ofSeconds(cartTtlSeconds);
-    }
-
-    public CartCleanupIntent completed(LocalDateTime now) {
-        return new CartCleanupIntent(
-                checkoutId,
-                userId,
-                skuIds,
-                cartTtlSeconds,
-                CartCleanupIntentStatus.COMPLETED,
-                attemptCount,
-                nextAttemptAt,
-                null,
-                createdAt,
-                now,
-                now);
-    }
-
-    public CartCleanupIntent failed(LocalDateTime now, Duration retryDelay, String error) {
-        return new CartCleanupIntent(
-                checkoutId,
-                userId,
-                skuIds,
-                cartTtlSeconds,
-                CartCleanupIntentStatus.PENDING,
-                attemptCount + 1,
-                now.plus(retryDelay),
-                error,
-                createdAt,
-                now,
-                null);
     }
 }

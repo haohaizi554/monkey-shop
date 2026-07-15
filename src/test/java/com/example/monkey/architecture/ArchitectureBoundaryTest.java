@@ -13,6 +13,7 @@ import com.example.monkey.admin.interfaces.StatsController;
 import com.example.monkey.admin.interfaces.dto.AuditTraceRequestDto;
 import com.example.monkey.admin.interfaces.dto.StatsQueryRequestDto;
 import com.example.monkey.cart.application.CartApplicationService;
+import com.example.monkey.cart.application.CartTransactions;
 import com.example.monkey.cart.application.dto.CartAddItemRequestDto;
 import com.example.monkey.cart.application.dto.CartCheckoutRequestDto;
 import com.example.monkey.cart.application.dto.CartResponseDto;
@@ -26,6 +27,7 @@ import com.example.monkey.cart.infrastructure.JpaCartCatalogReader;
 import com.example.monkey.cart.infrastructure.JpaCartCheckoutStore;
 import com.example.monkey.cart.infrastructure.RedisCartStore;
 import com.example.monkey.cart.infrastructure.RedissonCartLockManager;
+import com.example.monkey.cart.infrastructure.RequiresNewCartTransactions;
 import com.example.monkey.cart.interfaces.CartController;
 import com.example.monkey.inventory.application.InventoryApplicationService;
 import com.example.monkey.inventory.application.dto.InventoryCompensateRequestDto;
@@ -1155,6 +1157,7 @@ class ArchitectureBoundaryTest {
         assertThat(CartCatalogReader.class.getPackageName()).isEqualTo("com.example.monkey.cart.domain");
         assertThat(CartItem.class.getPackageName()).isEqualTo("com.example.monkey.cart.domain");
         assertThat(CartApplicationService.class.getPackageName()).isEqualTo("com.example.monkey.cart.application");
+        assertThat(CartTransactions.class.getPackageName()).isEqualTo("com.example.monkey.cart.application");
         assertThat(CartAddItemRequestDto.class.getPackageName()).isEqualTo("com.example.monkey.cart.application.dto");
         assertThat(CartCheckoutRequestDto.class.getPackageName()).isEqualTo("com.example.monkey.cart.application.dto");
         assertThat(CartResponseDto.class.getPackageName()).isEqualTo("com.example.monkey.cart.application.dto");
@@ -1162,6 +1165,8 @@ class ArchitectureBoundaryTest {
         assertThat(JpaCartCatalogReader.class.getPackageName()).isEqualTo("com.example.monkey.cart.infrastructure");
         assertThat(RedisCartStore.class.getPackageName()).isEqualTo("com.example.monkey.cart.infrastructure");
         assertThat(RedissonCartLockManager.class.getPackageName()).isEqualTo("com.example.monkey.cart.infrastructure");
+        assertThat(RequiresNewCartTransactions.class.getPackageName())
+                .isEqualTo("com.example.monkey.cart.infrastructure");
         assertThat(CartCheckoutEntity.class.getPackageName()).isEqualTo("com.example.monkey.cart.infrastructure");
         assertThat(CartController.class.getPackageName()).isEqualTo("com.example.monkey.cart.interfaces");
     }
