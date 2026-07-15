@@ -31,6 +31,12 @@ public interface MarketingUserCouponRepository extends JpaRepository<MarketingUs
                             AND start_time <= :usedAt
                             AND end_time > :usedAt
                       )
+                      AND EXISTS (
+                          SELECT 1 FROM `orders`
+                          WHERE id = :orderId
+                            AND tenant_id = :tenantId
+                            AND user_id = :userId
+                      )
                     """, nativeQuery = true)
     int redeemClaimedForOrder(
             @Param("tenantId") Long tenantId,
