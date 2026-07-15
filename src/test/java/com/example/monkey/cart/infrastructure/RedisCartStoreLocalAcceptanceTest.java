@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
-import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.connection.jedis.JedisConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 class RedisCartStoreLocalAcceptanceTest {
@@ -27,7 +27,7 @@ class RedisCartStoreLocalAcceptanceTest {
         String host = System.getenv().getOrDefault("CART_REDIS_HOST", "127.0.0.1");
         int port = Integer.parseInt(System.getenv().getOrDefault("CART_REDIS_PORT", "6379"));
         RedisStandaloneConfiguration configuration = new RedisStandaloneConfiguration(host, port);
-        LettuceConnectionFactory connectionFactory = new LettuceConnectionFactory(configuration);
+        JedisConnectionFactory connectionFactory = new JedisConnectionFactory(configuration);
         connectionFactory.afterPropertiesSet();
         connectionFactory.start();
         StringRedisTemplate redisTemplate = new StringRedisTemplate(connectionFactory);
