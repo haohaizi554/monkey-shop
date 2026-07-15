@@ -73,6 +73,7 @@ public class CartApplicationService {
     private final CartCheckoutStore checkoutStore;
     private final CartCleanupScheduler cartCleanupScheduler;
     private final CartLockManager lockManager;
+    private final CartTransactions transactions;
     private final InventoryApplicationService inventoryApplicationService;
     private final MarketingApplicationService marketingApplicationService;
     private final FormalOrderCreator formalOrderCreator;
@@ -89,6 +90,7 @@ public class CartApplicationService {
             CartCheckoutStore checkoutStore,
             CartCleanupScheduler cartCleanupScheduler,
             CartLockManager lockManager,
+            CartTransactions transactions,
             InventoryApplicationService inventoryApplicationService,
             MarketingApplicationService marketingApplicationService,
             FormalOrderCreator formalOrderCreator,
@@ -102,6 +104,7 @@ public class CartApplicationService {
                 checkoutStore,
                 cartCleanupScheduler,
                 lockManager,
+                transactions,
                 inventoryApplicationService,
                 marketingApplicationService,
                 formalOrderCreator,
@@ -118,6 +121,7 @@ public class CartApplicationService {
             CartCheckoutStore checkoutStore,
             CartCleanupScheduler cartCleanupScheduler,
             CartLockManager lockManager,
+            CartTransactions transactions,
             InventoryApplicationService inventoryApplicationService,
             MarketingApplicationService marketingApplicationService,
             FormalOrderCreator formalOrderCreator,
@@ -131,6 +135,7 @@ public class CartApplicationService {
         this.checkoutStore = checkoutStore;
         this.cartCleanupScheduler = cartCleanupScheduler;
         this.lockManager = lockManager;
+        this.transactions = transactions;
         this.inventoryApplicationService = inventoryApplicationService;
         this.marketingApplicationService = marketingApplicationService;
         this.formalOrderCreator = formalOrderCreator;
@@ -205,13 +210,14 @@ public class CartApplicationService {
     }
 
     @WithSpan("cart.checkout")
-    @Transactional
     public CartCheckoutResponseDto checkout(
             SessionUser currentUser, CartCheckoutRequestDto request, String idempotencyKey) {
         Long userId = requireUserId(currentUser);
         String key = normalizeIdempotencyKey(idempotencyKey);
         return lockManager.withCheckoutLock(
-                userId, key, () -> CartDtoAssembler.toResponse(checkoutLocked(userId, request, key)));
+                userId,
+                key,
+                () -> transactions.execute(() -> CartDtoAssembler.toResponse(checkoutLocked(userId, request, key))));
     }
 
     private CheckoutOrder checkoutLocked(Long userId, CartCheckoutRequestDto request, String idempotencyKey) {
@@ -237,10 +243,7 @@ public class CartApplicationService {
         cartCleanupScheduler.schedule(
                 saved.id(),
                 userId,
-                saved.subOrders().stream()
-                        .flatMap(subOrder -> subOrder.lines().stream())
-                        .map(CheckoutLine::skuId)
-                        .toList(),
+                inputLines.stream().map(CheckoutInputLine::item).toList(),
                 cartTtl);
         audit(
                 AuditService.CART_CHECKOUT_CREATED,
@@ -646,7 +649,7 @@ public class CartApplicationService {
     private static String requestFingerprint(CartCheckoutRequestDto request, List<FingerprintLine> lines) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            updateFingerprint(digest, "checkout-request-v1");
+            updateFingerprint(digest, "checkout-request-v2");
             updateFingerprint(digest, "address");
             updateFingerprint(digest, String.valueOf(request.addressId()));
             updateFingerprint(digest, "province");
@@ -680,7 +683,12 @@ public class CartApplicationService {
     }
 
     private static void updateFingerprint(MessageDigest digest, String value) {
-        byte[] bytes = (value == null ? "" : value).getBytes(StandardCharsets.UTF_8);
+        if (value == null) {
+            digest.update((byte) 0);
+            return;
+        }
+        digest.update((byte) 1);
+        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
         digest.update(Integer.toString(bytes.length).getBytes(StandardCharsets.US_ASCII));
         digest.update((byte) ':');
         digest.update(bytes);

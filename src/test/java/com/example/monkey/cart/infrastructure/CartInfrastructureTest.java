@@ -2,10 +2,14 @@ package com.example.monkey.cart.infrastructure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.cart.domain.CartCheckoutStatus;
@@ -22,11 +26,19 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 class CartInfrastructureTest {
 
@@ -41,8 +53,55 @@ class CartInfrastructureTest {
         store.save(new CartSnapshot(7L, List.of(new CartItem(1001L, 1L, 2, true, now, now))), Duration.ofDays(7));
         assertThat(store.findCart(7L).items()).hasSize(1);
 
-        store.removeItems(7L, List.of(1001L), Duration.ofDays(7));
+        store.removeMatchingItems(7L, List.of(new CartItem(1001L, 1L, 2, true, now, now)), Duration.ofDays(7));
         assertThat(store.findCart(7L).items()).isEmpty();
+    }
+
+    @Test
+    void cartCleanupRemovesOnlyItemsThatStillExactlyMatchCheckoutSnapshots() {
+        ObjectProvider<StringRedisTemplate> provider = mock();
+        when(provider.getIfAvailable()).thenReturn(null);
+        RedisCartStore store = new RedisCartStore(provider, new ObjectMapper().registerModule(new JavaTimeModule()));
+        LocalDateTime checkoutTime = LocalDateTime.parse("2026-01-01T00:00:00");
+        LocalDateTime later = checkoutTime.plusMinutes(1);
+        CartItem quantityChanged = new CartItem(1001L, 1L, 3, true, checkoutTime, later);
+        CartItem unselected = new CartItem(1002L, 1L, 1, false, checkoutTime, later);
+        CartItem readded = new CartItem(1003L, 1L, 1, true, later, later);
+        CartItem unchanged = new CartItem(1004L, 1L, 1, true, checkoutTime, checkoutTime);
+        store.save(new CartSnapshot(7L, List.of(quantityChanged, unselected, readded, unchanged)), Duration.ofDays(7));
+
+        store.removeMatchingItems(
+                7L,
+                List.of(
+                        new CartItem(1001L, 1L, 2, true, checkoutTime, checkoutTime),
+                        new CartItem(1002L, 1L, 1, true, checkoutTime, checkoutTime),
+                        new CartItem(1003L, 1L, 1, true, checkoutTime, checkoutTime),
+                        unchanged),
+                Duration.ofDays(7));
+
+        assertThat(store.findCart(7L).items()).containsExactlyInAnyOrder(quantityChanged, unselected, readded);
+        store.removeMatchingItems(7L, List.of(unchanged), Duration.ofDays(7));
+        assertThat(store.findCart(7L).items()).containsExactlyInAnyOrder(quantityChanged, unselected, readded);
+    }
+
+    @Test
+    void redisCleanupUsesOneLuaScriptForCompareDeleteAndTtlRefresh() {
+        ObjectProvider<StringRedisTemplate> provider = mock();
+        StringRedisTemplate redisTemplate = mock();
+        HashOperations<String, Object, Object> hashOperations = mock();
+        when(provider.getIfAvailable()).thenReturn(redisTemplate);
+        when(redisTemplate.opsForHash()).thenReturn(hashOperations);
+        RedisCartStore store = new RedisCartStore(provider, new ObjectMapper().registerModule(new JavaTimeModule()));
+        LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
+
+        store.removeMatchingItems(7L, List.of(new CartItem(1001L, 1L, 2, true, now, now)), Duration.ofDays(7));
+
+        var scriptCaptor = org.mockito.ArgumentCaptor.forClass(DefaultRedisScript.class);
+        verify(redisTemplate, times(1))
+                .execute(scriptCaptor.capture(), eq(List.of("cart:user:7")), any(Object[].class));
+        assertThat(scriptCaptor.getValue().getScriptAsString()).contains("HGET", "HDEL", "EXPIRE");
+        verify(redisTemplate, never()).expire(anyString(), any(Duration.class));
+        verifyNoInteractions(hashOperations);
     }
 
     @Test
@@ -89,6 +148,41 @@ class CartInfrastructureTest {
         String result = new RedissonCartLockManager(provider).withCheckoutLock(7L, "idem", () -> "ok");
 
         assertThat(result).isEqualTo("ok");
+    }
+
+    @Test
+    void redissonCartLockUsesWatchdogInsteadOfFixedLease() throws InterruptedException {
+        ObjectProvider<RedissonClient> provider = mock();
+        RedissonClient client = mock();
+        RLock lock = mock();
+        when(provider.getIfAvailable()).thenReturn(client);
+        when(client.getLock("cart:checkout:7:idem")).thenReturn(lock);
+        when(lock.tryLock(2000L, TimeUnit.MILLISECONDS)).thenReturn(true);
+        when(lock.isHeldByCurrentThread()).thenReturn(true);
+
+        String result = new RedissonCartLockManager(provider).withCheckoutLock(7L, "idem", () -> "ok");
+
+        assertThat(result).isEqualTo("ok");
+        verify(lock).tryLock(2000L, TimeUnit.MILLISECONDS);
+        verify(lock, never()).tryLock(anyLong(), anyLong(), eq(TimeUnit.MILLISECONDS));
+        verify(lock).unlock();
+    }
+
+    @Test
+    void cartTransactionRunnerCommitsRequiresNewBeforeReturning() {
+        PlatformTransactionManager transactionManager = mock();
+        SimpleTransactionStatus status = new SimpleTransactionStatus();
+        when(transactionManager.getTransaction(any())).thenReturn(status);
+        RequiresNewCartTransactions transactions = new RequiresNewCartTransactions(transactionManager);
+
+        String result = transactions.execute(() -> "committed");
+
+        var definition = org.mockito.ArgumentCaptor.forClass(TransactionDefinition.class);
+        verify(transactionManager).getTransaction(definition.capture());
+        verify(transactionManager).commit(status);
+        assertThat(definition.getValue().getPropagationBehavior())
+                .isEqualTo(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        assertThat(result).isEqualTo("committed");
     }
 
     private static CheckoutOrder checkout(LocalDateTime now) {

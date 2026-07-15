@@ -3,6 +3,7 @@ package com.example.monkey.cart.application;
 import com.example.monkey.cart.domain.CartCleanupIntent;
 import com.example.monkey.cart.domain.CartCleanupIntentStore;
 import com.example.monkey.cart.domain.CartCleanupScheduler;
+import com.example.monkey.cart.domain.CartItem;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -26,11 +27,11 @@ public class DurableCartCleanupScheduler implements CartCleanupScheduler {
     }
 
     @Override
-    public void schedule(Long checkoutId, Long userId, List<Long> skuIds, Duration cartTtl) {
+    public void schedule(Long checkoutId, Long userId, List<CartItem> itemSnapshots, Duration cartTtl) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
             throw new IllegalStateException("Cart cleanup must be scheduled inside the checkout transaction");
         }
-        intentStore.save(CartCleanupIntent.pending(checkoutId, userId, skuIds, cartTtl, LocalDateTime.now()));
+        intentStore.save(CartCleanupIntent.pending(checkoutId, userId, itemSnapshots, cartTtl, LocalDateTime.now()));
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {

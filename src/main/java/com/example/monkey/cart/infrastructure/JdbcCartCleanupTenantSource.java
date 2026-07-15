@@ -20,11 +20,11 @@ public class JdbcCartCleanupTenantSource implements CartCleanupTenantSource {
         return jdbcTemplate.queryForList("""
                 SELECT DISTINCT tenant_id
                 FROM cart_cleanup_intent
-                WHERE status = 'PENDING'
-                  AND next_attempt_at <= ?
+                WHERE ((status = 'PENDING' AND next_attempt_at <= ?)
+                    OR (status = 'PROCESSING' AND lease_expires_at <= ?))
                   AND tenant_id > ?
                 ORDER BY tenant_id
                 LIMIT ?
-                """, Long.class, cutoff, afterTenantId, Math.max(1, limit));
+                """, Long.class, cutoff, cutoff, afterTenantId, Math.max(1, limit));
     }
 }

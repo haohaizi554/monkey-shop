@@ -14,7 +14,6 @@ import org.springframework.stereotype.Component;
 public class RedissonCartLockManager implements CartLockManager {
 
     private static final Duration WAIT_TIME = Duration.ofSeconds(2);
-    private static final Duration LEASE_TIME = Duration.ofSeconds(10);
     private static final String LOCK_PREFIX = "cart:checkout:";
 
     private final RedissonClient redissonClient;
@@ -31,8 +30,7 @@ public class RedissonCartLockManager implements CartLockManager {
         RLock lock = redissonClient.getLock(LOCK_PREFIX + userId + ":" + idempotencyKey);
         boolean acquired = false;
         try {
-            acquired = lock.tryLock(
-                    WAIT_TIME.toMillis(), LEASE_TIME.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+            acquired = lock.tryLock(WAIT_TIME.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
             if (!acquired) {
                 throw new BusinessException(ErrorCode.CONFLICT, "Checkout is already in progress");
             }

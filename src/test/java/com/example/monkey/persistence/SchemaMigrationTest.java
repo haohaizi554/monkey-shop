@@ -19,12 +19,20 @@ class SchemaMigrationTest {
         assertThat(v52)
                 .contains("ADD COLUMN request_fingerprint CHAR(64)")
                 .contains("CREATE TABLE cart_cleanup_intent")
-                .contains("sku_ids VARCHAR(2048) NOT NULL")
+                .contains("item_snapshots_json LONGTEXT NOT NULL")
+                .contains("JSON_VALID(item_snapshots_json)")
+                .contains("JSON_TYPE(item_snapshots_json) = 'ARRAY'")
                 .contains("status VARCHAR(32) NOT NULL DEFAULT 'PENDING'")
+                .contains("claim_token VARCHAR(64)")
+                .contains("lease_expires_at DATETIME(6)")
                 .contains("attempt_count INT NOT NULL DEFAULT 0")
                 .contains("next_attempt_at DATETIME(6) NOT NULL")
                 .contains("last_error VARCHAR(255)")
-                .contains("idx_cart_cleanup_intent_ready")
+                .contains("status IN ('PENDING', 'PROCESSING', 'COMPLETED')")
+                .contains("status = 'PROCESSING' AND claim_token IS NOT NULL")
+                .contains("UNIQUE KEY uk_cart_cleanup_intent_claim (tenant_id, claim_token)")
+                .contains("idx_cart_cleanup_intent_pending_ready")
+                .contains("idx_cart_cleanup_intent_processing_lease")
                 .contains("FOREIGN KEY (tenant_id, checkout_id) REFERENCES cart_checkout (tenant_id, id)");
     }
 

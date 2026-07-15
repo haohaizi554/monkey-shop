@@ -217,6 +217,20 @@ class PaymentLocalMySqlAcceptanceTest {
                           AND table_name = 'cart_cleanup_intent'
                         """, Long.class)).isEqualTo(1L);
         assertThat(jdbcTemplate.queryForObject("""
+                        SELECT DATA_TYPE
+                        FROM information_schema.columns
+                        WHERE table_schema = DATABASE()
+                          AND table_name = 'cart_cleanup_intent'
+                          AND column_name = 'item_snapshots_json'
+                        """, String.class)).isEqualTo("longtext");
+        assertThat(jdbcTemplate.queryForObject("""
+                        SELECT CHARACTER_MAXIMUM_LENGTH
+                        FROM information_schema.columns
+                        WHERE table_schema = DATABASE()
+                          AND table_name = 'cart_cleanup_intent'
+                          AND column_name = 'claim_token'
+                        """, Long.class)).isEqualTo(64L);
+        assertThat(jdbcTemplate.queryForObject("""
                         SELECT COUNT(*)
                         FROM information_schema.table_constraints
                         WHERE table_schema = DATABASE()
@@ -228,19 +242,29 @@ class PaymentLocalMySqlAcceptanceTest {
                               'ck_cart_cleanup_intent_status',
                               'ck_cart_cleanup_intent_attempt_count',
                               'ck_cart_cleanup_intent_ttl',
-                              'ck_cart_cleanup_intent_completion'
+                              'ck_cart_cleanup_intent_snapshots_json',
+                              'ck_cart_cleanup_intent_claim_state',
+                              'uk_cart_cleanup_intent_claim'
                           )
-                        """, Long.class)).isEqualTo(7L);
+                        """, Long.class)).isEqualTo(9L);
+        assertThat(jdbcTemplate.queryForObject("""
+                        SELECT CHECK_CLAUSE
+                        FROM information_schema.check_constraints
+                        WHERE constraint_schema = DATABASE()
+                          AND constraint_name = 'ck_cart_cleanup_intent_snapshots_json'
+                        """, String.class)).contains("json_valid", "json_type", "ARRAY");
         assertThat(jdbcTemplate.queryForObject("""
                         SELECT COUNT(DISTINCT index_name)
                         FROM information_schema.statistics
                         WHERE table_schema = DATABASE()
                           AND table_name = 'cart_cleanup_intent'
                           AND index_name IN (
-                              'idx_cart_cleanup_intent_ready',
+                              'uk_cart_cleanup_intent_claim',
+                              'idx_cart_cleanup_intent_pending_ready',
+                              'idx_cart_cleanup_intent_processing_lease',
                               'idx_cart_cleanup_intent_user_created'
                           )
-                        """, Long.class)).isEqualTo(2L);
+                        """, Long.class)).isEqualTo(4L);
     }
 
     @Test

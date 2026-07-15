@@ -4,8 +4,12 @@ import com.example.monkey.cart.domain.CartCleanupIntent;
 import com.example.monkey.cart.domain.CartCleanupIntentStatus;
 import com.example.monkey.cart.domain.CartCleanupIntentStore;
 import com.example.monkey.cart.domain.CartStore;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Optional;
+import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -18,38 +22,64 @@ public class CartCleanupProcessor {
 
     private final CartCleanupIntentStore intentStore;
     private final CartStore cartStore;
-    private final TransactionTemplate transactionTemplate;
+    private final TransactionTemplate requiresNew;
+    private final TransactionTemplate withoutTransaction;
+    private final Clock clock;
+    private final Duration claimLease;
 
+    @Autowired
     public CartCleanupProcessor(
             CartCleanupIntentStore intentStore, CartStore cartStore, PlatformTransactionManager transactionManager) {
+        this(intentStore, cartStore, transactionManager, Clock.systemDefaultZone(), Duration.ofMinutes(1));
+    }
+
+    public CartCleanupProcessor(
+            CartCleanupIntentStore intentStore,
+            CartStore cartStore,
+            PlatformTransactionManager transactionManager,
+            Clock clock,
+            Duration claimLease) {
         this.intentStore = intentStore;
         this.cartStore = cartStore;
-        this.transactionTemplate = new TransactionTemplate(transactionManager);
-        this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.clock = clock;
+        this.claimLease = claimLease;
+        this.requiresNew = new TransactionTemplate(transactionManager);
+        this.requiresNew.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.withoutTransaction = new TransactionTemplate(transactionManager);
+        this.withoutTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_NOT_SUPPORTED);
     }
 
     public boolean process(Long checkoutId) {
-        Boolean result = transactionTemplate.execute(status -> processInTransaction(checkoutId));
-        return Boolean.TRUE.equals(result);
+        String claimToken = UUID.randomUUID().toString();
+        LocalDateTime claimedAt = now();
+        Optional<CartCleanupIntent> claimed = requiresNew.execute(
+                status -> intentStore.claim(checkoutId, claimToken, claimedAt, claimedAt.plus(claimLease)));
+        if (claimed == null || claimed.isEmpty()) {
+            Boolean completed = requiresNew.execute(status -> intentStore
+                    .findByCheckoutId(checkoutId)
+                    .map(intent -> CartCleanupIntentStatus.COMPLETED.equals(intent.status()))
+                    .orElse(false));
+            return Boolean.TRUE.equals(completed);
+        }
+        try {
+            withoutTransaction.executeWithoutResult(status -> cartStore.removeMatchingItems(
+                    claimed.get().userId(),
+                    claimed.get().itemSnapshots(),
+                    claimed.get().cartTtl()));
+        } catch (RuntimeException exception) {
+            LocalDateTime failedAt = now();
+            requiresNew.executeWithoutResult(status -> intentStore.failClaim(
+                    checkoutId, claimToken, failedAt, failedAt.plus(RETRY_DELAY), failureMessage(exception)));
+            return false;
+        }
+        LocalDateTime completedAt = now();
+        Boolean completed =
+                requiresNew.execute(status -> intentStore.completeClaim(checkoutId, claimToken, completedAt));
+        return Boolean.TRUE.equals(completed);
     }
 
-    private boolean processInTransaction(Long checkoutId) {
-        CartCleanupIntent intent = intentStore.findByCheckoutId(checkoutId).orElse(null);
-        if (intent == null) {
-            return false;
-        }
-        if (CartCleanupIntentStatus.COMPLETED.equals(intent.status())) {
-            return true;
-        }
-        LocalDateTime now = LocalDateTime.now();
-        try {
-            cartStore.removeItems(intent.userId(), intent.skuIds(), intent.cartTtl());
-            intentStore.save(intent.completed(now));
-            return true;
-        } catch (RuntimeException exception) {
-            intentStore.save(intent.failed(now, RETRY_DELAY, failureMessage(exception)));
-            return false;
-        }
+    private LocalDateTime now() {
+        return LocalDateTime.ofInstant(clock.instant(), clock.getZone());
     }
 
     private static String failureMessage(RuntimeException exception) {

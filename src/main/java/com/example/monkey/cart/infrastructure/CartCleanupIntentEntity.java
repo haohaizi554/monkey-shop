@@ -7,6 +7,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
+import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.LocalDateTime;
@@ -21,8 +22,9 @@ public class CartCleanupIntentEntity extends TenantScopedJpaEntity {
     @Column(nullable = false)
     private Long userId;
 
-    @Column(nullable = false, length = 2048)
-    private String skuIds;
+    @Lob
+    @Column(nullable = false, columnDefinition = "LONGTEXT")
+    private String itemSnapshotsJson;
 
     @Column(nullable = false)
     private long cartTtlSeconds;
@@ -36,6 +38,11 @@ public class CartCleanupIntentEntity extends TenantScopedJpaEntity {
 
     @Column(nullable = false)
     private LocalDateTime nextAttemptAt;
+
+    @Column(length = 64)
+    private String claimToken;
+
+    private LocalDateTime leaseExpiresAt;
 
     @Column(length = 255)
     private String lastError;
@@ -68,12 +75,12 @@ public class CartCleanupIntentEntity extends TenantScopedJpaEntity {
         this.userId = userId;
     }
 
-    public String getSkuIds() {
-        return skuIds;
+    public String getItemSnapshotsJson() {
+        return itemSnapshotsJson;
     }
 
-    public void setSkuIds(String skuIds) {
-        this.skuIds = skuIds;
+    public void setItemSnapshotsJson(String itemSnapshotsJson) {
+        this.itemSnapshotsJson = itemSnapshotsJson;
     }
 
     public long getCartTtlSeconds() {
@@ -106,6 +113,22 @@ public class CartCleanupIntentEntity extends TenantScopedJpaEntity {
 
     public void setNextAttemptAt(LocalDateTime nextAttemptAt) {
         this.nextAttemptAt = nextAttemptAt;
+    }
+
+    public String getClaimToken() {
+        return claimToken;
+    }
+
+    public void setClaimToken(String claimToken) {
+        this.claimToken = claimToken;
+    }
+
+    public LocalDateTime getLeaseExpiresAt() {
+        return leaseExpiresAt;
+    }
+
+    public void setLeaseExpiresAt(LocalDateTime leaseExpiresAt) {
+        this.leaseExpiresAt = leaseExpiresAt;
     }
 
     public String getLastError() {
