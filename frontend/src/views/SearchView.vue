@@ -3,13 +3,22 @@ import { DataAnalysis, Search, Star } from '@element-plus/icons-vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
+import { flattenCategoryTree, getCategoryTree } from '@/api/catalog'
 import * as searchApi from '@/api/search'
+import MascotState from '@/components/mascot/MascotState.vue'
 import ProductCard from '@/components/product/ProductCard.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { searchRouteQuerySchema, useRouteQueryState } from '@/composables/useRouteQueryState'
-import type { HotKeyword, Monkey, SearchPage, SearchProduct, SearchSuggestion } from '@/types'
+import type {
+  CategoryNode,
+  HotKeyword,
+  Monkey,
+  SearchPage,
+  SearchProduct,
+  SearchSuggestion,
+} from '@/types'
 
 interface SearchCardEntry {
   source: SearchProduct
@@ -22,6 +31,7 @@ const { state: query, replaceNow } = useRouteQueryState(searchRouteQuerySchema)
 const resultState = useAsyncState<SearchPage>({ timeoutMs: 20000 })
 const suggestionState = useAsyncState<SearchSuggestion[]>({ timeoutMs: 10000 })
 const hotKeywordState = useAsyncState<HotKeyword[]>({ timeoutMs: 10000 })
+const categoryState = useAsyncState<CategoryNode[]>({ timeoutMs: 10000 })
 const resultHeadingRef = ref<HTMLElement>()
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 let searchRequestVersion = 0
@@ -29,6 +39,12 @@ let searchRequestVersion = 0
 const products = computed(() => resultState.data.value?.content ?? [])
 const suggestions = computed(() => suggestionState.data.value ?? [])
 const hotKeywords = computed(() => hotKeywordState.data.value ?? [])
+const categoryOptions = computed(() =>
+  flattenCategoryTree(categoryState.data.value ?? []).map((category) => ({
+    value: String(category.id),
+    label: category.name,
+  })),
+)
 const total = computed(() => resultState.data.value?.totalElements ?? 0)
 const currentPage = computed(() => query.page + 1)
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / query.size)))
@@ -48,7 +64,7 @@ const activeFilters = computed(() => {
   if (query.category.trim()) {
     filters.push({
       key: 'category',
-      label: `${t('search.categoryPlaceholder')}: ${query.category.trim()}`,
+      label: `${t('search.categoryPlaceholder')}: ${categoryLabel(query.category)}`,
     })
   }
   if (query.attribute.trim()) {
@@ -94,6 +110,16 @@ function sortLabel(sort: typeof query.sort): string {
 function categoryId(category: string): number | undefined {
   const parsed = Number.parseInt(category, 10)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+}
+
+function categoryLabel(category: string): string {
+  return categoryOptions.value.find((option) => option.value === category)?.label ?? category
+}
+
+async function loadCategories() {
+  await categoryState.load(() => getCategoryTree(), {
+    isEmpty: (items) => items.length === 0,
+  })
 }
 
 async function loadHotKeywords() {
@@ -204,7 +230,7 @@ async function onPageChange(page: number) {
 watch(query, scheduleSearch, { deep: true, flush: 'sync' })
 
 onMounted(() => {
-  void Promise.all([loadHotKeywords(), searchProducts()])
+  void Promise.all([loadHotKeywords(), loadCategories(), searchProducts()])
 })
 
 onBeforeUnmount(clearScheduledSearch)
@@ -229,15 +255,22 @@ onBeforeUnmount(clearScheduledSearch)
         clearable
         @update:model-value="resetPage"
       />
-      <el-input
+      <el-select
         id="category-filter"
         v-model="query.category"
         :aria-label="$t('search.categoryPlaceholder')"
         :placeholder="$t('search.categoryPlaceholder')"
-        inputmode="numeric"
+        :loading="categoryState.isLoading.value"
         clearable
-        @update:model-value="resetPage"
-      />
+        @change="resetPage"
+      >
+        <el-option
+          v-for="category in categoryOptions"
+          :key="category.value"
+          :label="category.label"
+          :value="category.value"
+        />
+      </el-select>
       <el-input
         v-model="query.attribute"
         :aria-label="$t('search.attribute')"
@@ -324,8 +357,8 @@ onBeforeUnmount(clearScheduledSearch)
         </template>
 
         <template #empty>
-          <div class="empty-state" role="status">
-            <DataAnalysis class="empty-state-icon" aria-hidden="true" />
+          <div class="empty-state search-empty-state" role="status">
+            <MascotState pose="search" size="md" :alt="$t('search.emptyMascotAlt')" />
             <h2>{{ $t('search.emptyTitle') }}</h2>
             <p>{{ $t('search.emptyDescription') }}</p>
             <button
@@ -467,6 +500,10 @@ onBeforeUnmount(clearScheduledSearch)
   align-content: center;
   color: var(--color-text-muted);
   text-align: center;
+}
+
+.search-empty-state :deep(.mascot-state) {
+  width: min(168px, 54vw);
 }
 
 .pagination-bar {

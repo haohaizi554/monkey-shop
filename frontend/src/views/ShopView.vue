@@ -3,7 +3,7 @@ import { Search } from '@element-plus/icons-vue'
 import { computed, onMounted, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { listMonkeys } from '@/api/catalog'
+import { flattenCategoryTree, getCategoryTree, listMonkeys } from '@/api/catalog'
 import ProductImage from '@/components/ProductImage.vue'
 import ProductCard from '@/components/product/ProductCard.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
@@ -13,7 +13,7 @@ import { useCheckout } from '@/composables/useCheckout'
 import { useNotify } from '@/composables/useNotify'
 import { productListJsonLd } from '@/seo/product-json-ld'
 import { useJsonLd } from '@/seo/useJsonLd'
-import type { Address, Monkey } from '@/types'
+import type { Address, CategoryNode, Monkey } from '@/types'
 import { money } from '@/utils/format'
 
 type NoticeLevel = 'error' | 'success' | 'warning'
@@ -23,6 +23,7 @@ const { t } = useI18n()
 const filters = reactive({ keyword: '', minPrice: '', maxPrice: '', inStockOnly: false })
 const notify = useNotify()
 const catalogState = useAsyncState<Monkey[]>({ timeoutMs: 20000 })
+const categoryState = useAsyncState<CategoryNode[]>({ timeoutMs: 10000 })
 
 function addressLabel(address: Address) {
   return `${address.receiverName} - ${address.phone} - ${address.detailAddress}`
@@ -42,6 +43,12 @@ async function loadMonkeys() {
   })
 }
 
+async function loadCategories() {
+  await categoryState.load(() => getCategoryTree(), {
+    isEmpty: (items) => items.length === 0,
+  })
+}
+
 const {
   openingCheckoutId,
   submittingOrder,
@@ -57,6 +64,7 @@ const {
 } = useCheckout({ afterOrderCreated: loadMonkeys, notify: showNotice })
 
 const monkeysList = computed(() => catalogState.data.value ?? [])
+const categories = computed(() => flattenCategoryTree(categoryState.data.value ?? []))
 const filteredMonkeys = computed(() =>
   monkeysList.value.filter((monkey) => {
     const keyword = filters.keyword.trim().toLowerCase()
@@ -99,13 +107,30 @@ function openProductDetails(productId: number) {
 }
 
 onMounted(() => {
-  void loadMonkeys()
+  void Promise.all([loadMonkeys(), loadCategories()])
 })
 </script>
 
 <template>
   <div class="route-view shop-view">
     <PageHeader :title="$t('shop.title')" :description="$t('shop.subtitle')" />
+
+    <nav v-if="categories.length" class="category-rail" :aria-label="$t('shop.browseCategories')">
+      <div class="category-rail__heading">
+        <strong>{{ $t('shop.browseCategories') }}</strong>
+        <RouterLink to="/search">{{ $t('shop.allCategories') }}</RouterLink>
+      </div>
+      <div class="category-rail__scroller">
+        <RouterLink
+          v-for="category in categories"
+          :key="category.id"
+          class="category-link"
+          :to="{ path: '/search', query: { category: String(category.id) } }"
+        >
+          {{ category.name }}
+        </RouterLink>
+      </div>
+    </nav>
 
     <section class="catalog-toolbar" :aria-label="$t('common.search')">
       <div class="catalog-tools">
@@ -273,6 +298,66 @@ onMounted(() => {
 .catalog-toolbar {
   min-width: 0;
   padding-block: var(--space-2);
+}
+
+.category-rail {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  border-block: 1px solid var(--color-line);
+  padding-block: var(--space-4);
+}
+
+.category-rail__heading {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.category-rail__heading strong {
+  color: var(--color-ink);
+  font-size: var(--text-lg);
+}
+
+.category-rail__heading a {
+  color: var(--color-primary);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.category-rail__scroller {
+  display: flex;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: var(--space-1);
+  scrollbar-width: thin;
+}
+
+.category-link {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-height: 44px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-control);
+  padding-inline: var(--space-4);
+  color: var(--color-ink);
+  background: var(--color-surface);
+  font-weight: 700;
+  transition:
+    border-color var(--motion-fast),
+    background-color var(--motion-fast),
+    color var(--motion-fast);
+}
+
+.category-link:hover,
+.category-link:focus-visible {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
 }
 
 .catalog-tools {

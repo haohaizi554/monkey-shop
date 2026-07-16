@@ -22,7 +22,7 @@ describe('commerce design token contract', () => {
     expect(tokens).toContain('--color-primary-soft: #DDF6F0')
     expect(tokens).toContain('--color-cobalt: #2F61D5')
     expect(tokens).toContain('--color-coral: #C94355')
-    expect(tokens).toContain('--color-honey: #A86100')
+    expect(tokens).toContain('--color-honey: #9F5900')
     expect(tokens).toContain('--color-danger: #B42318')
     expect(tokens).toContain('--radius-control: 6px')
     expect(tokens).toContain('--radius-surface: 8px')

@@ -51,6 +51,55 @@ const searchProduct = {
   score: 0.98,
 }
 
+const categoryTree = [
+  {
+    id: 7,
+    parentId: null,
+    level: 1,
+    code: 'PRIMATES',
+    name: 'Primates',
+    children: [],
+  },
+]
+
+const warehouseStocks = [
+  {
+    skuId: 901,
+    warehouseId: 11,
+    warehouseCode: 'CN-SH-1',
+    province: 'Shanghai',
+    availableQuantity: 9,
+    lockedQuantity: 1,
+    deductedQuantity: 2,
+    inTransitQuantity: 3,
+    safetyStock: 3,
+    totalQuantity: 12,
+    belowSafetyStock: false,
+  },
+]
+
+const membershipDashboard = {
+  profile: {
+    userId: 1,
+    level: 'GOLD',
+    growthValue: 2600,
+    verified: true,
+    version: 1,
+    benefits: ['member-price'],
+  },
+  wallet: {
+    userId: 1,
+    balance: 860,
+    totalEarned: 1200,
+    totalSpent: 340,
+    moneyEquivalent: '8.60',
+    version: 1,
+  },
+  coupons: [],
+  collections: [],
+  browseHistory: [],
+}
+
 function ok(data: unknown) {
   return { code: 'OK', message: 'ok', data, traceId: 'consumer-discovery-test' }
 }
@@ -91,11 +140,75 @@ async function installDiscoveryMocks(page: Page) {
       return
     }
     if (pathname === '/monkeys') {
-      await fulfillJson(route, [catalogProduct])
+      await fulfillJson(route, {
+        content: [catalogProduct],
+        page: Number(new URL(request.url()).searchParams.get('page') ?? 0),
+        size: 100,
+        totalElements: 1,
+        totalPages: 1,
+        first: true,
+        last: true,
+      })
       return
     }
     if (pathname === '/catalog/spus/1') {
       await fulfillJson(route, catalogSpu)
+      return
+    }
+    if (pathname === '/catalog/categories/tree') {
+      await fulfillJson(route, categoryTree)
+      return
+    }
+    if (pathname === '/catalog/spus/1/price') {
+      await fulfillJson(route, {
+        spuId: 1,
+        salePrice: '118.00',
+        strikePrice: '158.00',
+        strategy: 'MEMBER',
+      })
+      return
+    }
+    if (pathname === '/inventory/skus/901/stocks') {
+      await fulfillJson(route, warehouseStocks)
+      return
+    }
+    if (pathname === '/membership/dashboard') {
+      await fulfillJson(route, membershipDashboard)
+      return
+    }
+    if (pathname === '/membership/browse') {
+      await fulfillJson(route, null)
+      return
+    }
+    if (pathname === '/membership/collections' && request.method() === 'POST') {
+      await fulfillJson(route, {
+        id: 31,
+        productId: 1,
+        productName: catalogProduct.name,
+        productImage: catalogProduct.imageUrl,
+        lastPrice: '118.00',
+        priceDropNotified: false,
+        createTime: '2026-07-15T10:00:00+08:00',
+        updateTime: '2026-07-15T10:00:00+08:00',
+      })
+      return
+    }
+    if (pathname === '/marketing/price/quote') {
+      await fulfillJson(route, {
+        originalAmount: '118.00',
+        discountAmount: '8.00',
+        payableAmount: '110.00',
+        appliedCoupons: ['WELCOME'],
+      })
+      return
+    }
+    if (pathname === '/cart/items' && request.method() === 'POST') {
+      await fulfillJson(route, {
+        userId: 1,
+        items: [],
+        selectedQuantity: 0,
+        selectedAmount: '0.00',
+      })
       return
     }
     if (pathname === '/search/products') {
@@ -152,7 +265,15 @@ async function installDiscoveryMocks(page: Page) {
       return
     }
     if (pathname === '/addresses') {
-      await fulfillJson(route, [])
+      await fulfillJson(route, {
+        content: [],
+        page: 0,
+        size: 100,
+        totalElements: 0,
+        totalPages: 0,
+        first: true,
+        last: true,
+      })
       return
     }
     if (pathname === '/auth/captcha/config') {
@@ -195,11 +316,28 @@ test('catalog card keeps geometry when its image fails', async ({ page }) => {
   expect(box?.height).toBeGreaterThan(150)
 })
 
+test('category discovery is API-backed and carries selection into the search URL', async ({
+  page,
+}) => {
+  await page.goto('/shop')
+
+  const categories = page.getByRole('navigation', { name: 'Browse categories' })
+  await expect(categories.getByRole('link', { name: 'Primates' })).toBeVisible()
+  await categories.getByRole('link', { name: 'Primates' }).click()
+
+  await expect(page).toHaveURL(/\/search\?category=7$/)
+  await expect(
+    page.getByRole('combobox', { name: 'Category' }).locator('xpath=../..'),
+  ).toContainText('Primates')
+})
+
 test('search restores filters and page after navigating away and back', async ({ page }) => {
   await page.goto('/search?q=golden&category=7&sort=PRICE_ASC&page=1')
 
   await expect(page.getByLabel('Keyword, product, breed')).toHaveValue('golden')
-  await expect(page.getByLabel('Category')).toHaveValue('7')
+  await expect(
+    page.getByRole('combobox', { name: 'Category' }).locator('xpath=../..'),
+  ).toContainText('Primates')
   await expect(page.locator('.el-pager .is-active')).toHaveText('2')
   await expect(page.locator('.product-card')).toHaveCount(1)
 
@@ -230,6 +368,27 @@ test('search failure stays inline and hides backend copy', async ({ page }) => {
   await expect(page.locator('body')).not.toContainText('Elasticsearch shard exploded')
 })
 
+test('search empty state uses one dedicated search mascot', async ({ page }) => {
+  await page.route('**/api/v1/search/products**', async (route) => {
+    await fulfillJson(route, {
+      content: [],
+      page: 0,
+      size: 12,
+      totalElements: 0,
+      totalPages: 0,
+      first: true,
+      last: true,
+    })
+  })
+
+  await page.goto('/search?q=missing')
+
+  const mascot = page.locator('img.mascot-state[data-pose="search"]')
+  await expect(mascot).toBeVisible()
+  await expect(mascot).toHaveCount(1)
+  await expect(page.locator('.product-card')).toHaveCount(0)
+})
+
 test('recommendations reuse product cards and acknowledge profile updates', async ({ page }) => {
   await page.goto('/recommendations')
 
@@ -253,11 +412,82 @@ test('product detail is mobile-safe and validates a new address inline', async (
   )
   expect(overflow).toBeLessThanOrEqual(1)
 
-  await page.getByRole('button', { name: 'Buy', exact: true }).click()
+  await page.getByRole('button', { name: 'Buy now', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Checkout' })
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(dialog.locator('.el-form-item__error')).toHaveCount(3)
+})
+
+test('product detail connects pricing, inventory, browse, collection, and cart actions', async ({
+  page,
+}) => {
+  let browseCalls = 0
+  let marketingQuoteCalls = 0
+  let collectionCalls = 0
+  let cartPayload: Record<string, unknown> | null = null
+
+  await page.route('**/api/v1/membership/browse', async (route) => {
+    browseCalls += 1
+    await fulfillJson(route, null)
+  })
+  await page.route('**/api/v1/marketing/price/quote', async (route) => {
+    marketingQuoteCalls += 1
+    await fulfillJson(route, {
+      originalAmount: '118.00',
+      discountAmount: '8.00',
+      payableAmount: '110.00',
+      appliedCoupons: ['WELCOME'],
+    })
+  })
+  await page.route('**/api/v1/membership/collections', async (route) => {
+    collectionCalls += 1
+    await fulfillJson(route, {
+      id: 31,
+      productId: 1,
+      productName: catalogProduct.name,
+      productImage: catalogProduct.imageUrl,
+      lastPrice: '118.00',
+      priceDropNotified: false,
+      createTime: '2026-07-15T10:00:00+08:00',
+      updateTime: '2026-07-15T10:00:00+08:00',
+    })
+  })
+  await page.route('**/api/v1/cart/items', async (route) => {
+    cartPayload = route.request().postDataJSON() as Record<string, unknown>
+    await fulfillJson(route, {
+      userId: 1,
+      items: [],
+      selectedQuantity: 0,
+      selectedAmount: '0.00',
+    })
+  })
+
+  await page.goto('/shop/1')
+
+  await expect(page.getByTestId('commerce-price')).toContainText('118.00')
+  await expect(page.getByTestId('inventory-summary')).toContainText('9')
+  await expect.poll(() => browseCalls).toBe(1)
+  await expect.poll(() => marketingQuoteCalls).toBe(1)
+
+  const saveProduct = page.getByRole('button', { name: 'Save product' })
+  await saveProduct.click()
+  await expect.poll(() => collectionCalls).toBe(1)
+  await expect(page.getByRole('button', { name: 'Remove from saved' })).toBeVisible()
+
+  await page.getByRole('spinbutton', { name: 'Quantity' }).fill('2')
+  await page.getByRole('button', { name: 'Add to cart', exact: true }).click()
+  await expect
+    .poll(() => cartPayload)
+    .toEqual({
+      skuId: 901,
+      shopId: 1,
+      quantity: 2,
+      selected: true,
+    })
+  await expect(
+    page.locator('.app-feedback-item').filter({ hasText: 'Added to cart' }),
+  ).toBeVisible()
 })
 
 test('product detail submits a new address only once while save is pending', async ({ page }) => {
@@ -267,7 +497,7 @@ test('product detail submits a new address only once while save is pending', asy
     releaseSave = resolve
   })
 
-  await page.route('**/api/v1/addresses', async (route) => {
+  await page.route('**/api/v1/addresses**', async (route) => {
     if (route.request().method() !== 'POST') {
       await route.fallback()
       return
@@ -284,7 +514,7 @@ test('product detail submits a new address only once while save is pending', asy
   })
 
   await page.goto('/shop/1')
-  await page.getByRole('button', { name: 'Buy', exact: true }).click()
+  await page.getByRole('button', { name: 'Buy now', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Checkout' })
   await dialog.getByLabel('Receiver').fill('Lin')
   await dialog.getByLabel('Phone').fill('13800138000')
@@ -321,27 +551,35 @@ test('quick checkout freezes the selected address while risk assessment is pendi
   })
   let orderAddressId: number | null = null
 
-  await page.route('**/api/v1/addresses', async (route) => {
+  await page.route('**/api/v1/addresses**', async (route) => {
     if (route.request().method() !== 'GET') {
       await route.fallback()
       return
     }
-    await fulfillJson(route, [
-      {
-        id: 1,
-        receiverName: 'Lin',
-        phone: '13800138000',
-        detailAddress: 'First address',
-        isDefault: 1,
-      },
-      {
-        id: 2,
-        receiverName: 'Wu',
-        phone: '13900139000',
-        detailAddress: 'Second address',
-        isDefault: 0,
-      },
-    ])
+    await fulfillJson(route, {
+      content: [
+        {
+          id: 1,
+          receiverName: 'Lin',
+          phone: '13800138000',
+          detailAddress: 'First address',
+          isDefault: 1,
+        },
+        {
+          id: 2,
+          receiverName: 'Wu',
+          phone: '13900139000',
+          detailAddress: 'Second address',
+          isDefault: 0,
+        },
+      ],
+      page: 0,
+      size: 100,
+      totalElements: 2,
+      totalPages: 1,
+      first: true,
+      last: true,
+    })
   })
   await page.route('**/api/v1/risk/assess', async (route) => {
     await riskGate
@@ -353,7 +591,7 @@ test('quick checkout freezes the selected address while risk assessment is pendi
   })
 
   await page.goto('/shop/1')
-  await page.getByRole('button', { name: 'Buy', exact: true }).click()
+  await page.getByRole('button', { name: 'Buy now', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Checkout' })
   await dialog.getByRole('button', { name: 'Place order', exact: true }).click()
 

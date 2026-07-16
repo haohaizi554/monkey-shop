@@ -36,6 +36,10 @@ export function getCategoryTree(): Promise<CategoryNode[]> {
   return request<CategoryNode[]>({ url: '/catalog/categories/tree' })
 }
 
+export function flattenCategoryTree(nodes: CategoryNode[]): CategoryNode[] {
+  return nodes.flatMap((node) => [node, ...flattenCategoryTree(node.children ?? [])])
+}
+
 export function getCatalogSpu(spuId: number): Promise<CatalogSpu> {
   return request<CatalogSpu>({ url: `/catalog/spus/${spuId}` })
 }
