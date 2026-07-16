@@ -1,5 +1,12 @@
-<script setup lang="ts">
-import { CircleCheck, Lock, Refresh, Warning } from '@element-plus/icons-vue'
+﻿<script setup lang="ts">
+import {
+  CircleCheck,
+  CircleClose,
+  Lock,
+  Refresh,
+  Warning,
+  WarningFilled,
+} from '@element-plus/icons-vue'
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { LocationQuery, LocationQueryRaw } from 'vue-router'
@@ -60,10 +67,11 @@ const riskQuerySchema: RouteQuerySchema<RiskQuery> = {
 
 const { t } = useI18n()
 const notify = useNotify()
-const { state: filters } = useRouteQueryState(riskQuerySchema, { debounceMs: 200 })
+const { state: filters, replaceNow } = useRouteQueryState(riskQuerySchema, { debounceMs: 200 })
 const reviewsState = useAsyncState<RiskReviewCase[]>({ preserveData: true })
 const assessmentState = useAsyncState<RiskAssessmentResponse>({ preserveData: true })
 const pendingKeys = ref(new Set<string>())
+const locallyResolvedReviews = ref(new Map<number, RiskReviewCase>())
 const decisionDrawerOpen = ref(false)
 const activeReview = ref<RiskReviewCase | null>(null)
 const decisionError = ref('')
@@ -98,9 +106,6 @@ const assessment = computed(() => assessmentState.data.value)
 const pendingCount = computed(
   () => reviews.value.filter((item) => item.status === 'PENDING').length,
 )
-const reviewMutationPending = computed(
-  () => pendingKeys.value.size > 0 || assessmentState.isLoading.value,
-)
 const blockCount = computed(() => reviews.value.filter((item) => item.status === 'BLOCKED').length)
 const maxScore = computed(() => reviews.value.reduce((max, item) => Math.max(max, item.score), 0))
 const metrics = computed<MetricItem[]>(() => [
@@ -132,6 +137,16 @@ const signalLabels = computed<Record<RiskSignalType, string>>(() => ({
   ACCOUNT_BLOCKED: t('risk.signalAccountBlocked'),
 }))
 
+function pendingKey(id: number, status: RiskReviewResolveRequest['status']): string {
+  return `review:${id}:${status}`
+}
+
+function isCasePending(id: number): boolean {
+  return ['APPROVED', 'REJECTED', 'BLOCKED'].some((status) =>
+    isPending(pendingKey(id, status as RiskReviewResolveRequest['status'])),
+  )
+}
+
 function isPending(key: string): boolean {
   return pendingKeys.value.has(key)
 }
@@ -145,6 +160,12 @@ function setPending(key: string, value: boolean) {
 
 function decisionLabel(decision?: RiskDecision): string {
   return decision ? (decisionLabels.value[decision] ?? t('common.unknown')) : '-'
+}
+
+function statusIcon(status: RiskReviewStatus) {
+  if (status === 'APPROVED') return CircleCheck
+  if (status === 'BLOCKED' || status === 'REJECTED') return CircleClose
+  return WarningFilled
 }
 
 function statusLabel(status: RiskReviewStatus): string {
@@ -169,11 +190,16 @@ function statusType(status: RiskReviewStatus): 'success' | 'warning' | 'danger' 
 }
 
 async function loadReviews() {
-  if (reviewMutationPending.value) return
-  await reviewsState.load(() => riskApi.riskReviews(), {
-    preserveData: true,
-    isEmpty: (rows) => rows.length === 0,
-  })
+  await reviewsState.load(
+    async () => {
+      const rows = await riskApi.riskReviews()
+      return rows.map((row) => locallyResolvedReviews.value.get(row.id) ?? row)
+    },
+    {
+      preserveData: true,
+      isEmpty: (rows) => rows.length === 0,
+    },
+  )
 }
 
 async function assessRisk() {
@@ -185,7 +211,6 @@ async function assessRisk() {
     sellerUserId: assessmentForm.sellerUserId || undefined,
     totpCode: assessmentForm.totpCode.trim() || undefined,
   }
-  reviewsState.cancel()
   const result = await assessmentState.load(() => riskApi.assessRisk(payload), {
     preserveData: true,
   })
@@ -193,7 +218,6 @@ async function assessRisk() {
     notify.success(t('risk.decisionMessage', { decision: decisionLabel(result.decision) }), {
       key: 'risk:assessment',
     })
-    void loadReviews()
   }
 }
 
@@ -209,51 +233,48 @@ function openDecision(item: RiskReviewCase, status: RiskReviewResolveRequest['st
 async function saveDecision() {
   const item = activeReview.value
   if (!item || item.status !== 'PENDING') return
-  const pendingKey = `review:${item.id}`
-  if (isPending(pendingKey)) return
+
+  const status = decisionForm.status
+  const key = pendingKey(item.id, status)
+  if (isCasePending(item.id)) return
   decisionError.value = ''
   if (!decisionForm.resolution.trim()) {
     decisionError.value = t('risk.resolutionRequired')
     return
   }
-  if (decisionForm.status === 'BLOCKED' && !decisionForm.totpCode.trim()) {
+  if (status === 'BLOCKED' && !decisionForm.totpCode.trim()) {
     decisionError.value = t('risk.totpRequiredForBlock')
     return
   }
+  if (status === 'BLOCKED') {
+    const confirmed = await notify.confirm({
+      title: t('risk.blockCaseTitle'),
+      content: t('risk.blockCaseConfirm'),
+      confirmText: t('risk.block'),
+      type: 'warning',
+    })
+    if (!confirmed) return
+  }
 
-  const status = decisionForm.status
   const resolution = decisionForm.resolution.trim()
   const totpCode = status === 'BLOCKED' ? decisionForm.totpCode.trim() : undefined
-  setPending(pendingKey, true)
+  setPending(key, true)
   try {
-    if (status === 'BLOCKED') {
-      const confirmed = await notify.confirm({
-        title: t('risk.blockCaseTitle'),
-        content: t('risk.blockCaseConfirm'),
-        confirmText: t('risk.block'),
-        type: 'warning',
-      })
-      if (!confirmed) return
-    }
-    reviewsState.cancel()
-    const updated = await riskApi.resolveRiskReview(item.id, {
-      status,
-      resolution,
-      totpCode,
-    })
+    const updated = await riskApi.resolveRiskReview(item.id, { status, resolution, totpCode })
+    locallyResolvedReviews.value = new Map(locallyResolvedReviews.value).set(updated.id, updated)
     const index = reviews.value.findIndex((review) => review.id === updated.id)
     if (index >= 0) reviews.value.splice(index, 1, updated)
     if (activeReview.value?.id === updated.id) activeReview.value = updated
     notify.success(t('risk.reviewUpdated', { status: statusLabel(updated.status) }), {
       key: `risk:review:${updated.id}`,
     })
-  } catch (error) {
-    notify.fromApiError(error, 'risk.reviewUpdateFailed')
+  } catch {
+    decisionError.value = t('risk.reviewUpdateFailed')
   } finally {
-    setPending(pendingKey, false)
+    setPending(key, false)
   }
 }
-
+void replaceNow()
 void loadReviews()
 </script>
 
@@ -265,12 +286,7 @@ void loadReviews()
       :description="t('risk.description')"
     >
       <template #actions>
-        <el-button
-          :icon="Refresh"
-          :loading="reviewsState.isLoading.value"
-          :disabled="reviewMutationPending"
-          @click="loadReviews"
-        >
+        <el-button :icon="Refresh" :loading="reviewsState.isLoading.value" @click="loadReviews">
           {{ t('common.refresh') }}
         </el-button>
       </template>
@@ -363,7 +379,8 @@ void loadReviews()
         <h2>{{ t('risk.decisionResult') }}</h2>
         <AsyncStateView
           :status="assessmentState.status.value"
-          :error="assessmentState.error.value"
+          :error="assessmentState.error.value ? 'risk.assessFailed' : undefined"
+          preserve-content-on-error
           @retry="assessRisk"
         >
           <template #idle
@@ -374,16 +391,31 @@ void loadReviews()
               <strong>{{ assessment.score }}</strong>
               <span>{{ t('risk.score') }}</span>
             </div>
-            <el-tag :type="decisionType(assessment.decision)" effect="plain">
-              {{ decisionLabel(assessment.decision) }}
+            <el-tag :type="decisionType(assessment.decision)" effect="plain" class="status-tag">
+              <el-icon aria-hidden="true"
+                ><component :is="assessment.decision === 'BLOCK' ? Lock : CircleCheck"
+              /></el-icon>
+              <span>{{ decisionLabel(assessment.decision) }}</span>
             </el-tag>
             <div class="risk-flags">
               <span>{{ t('risk.automaticActions') }}:</span>
-              <el-tag v-if="assessment.productAutoUnlisted" type="danger" effect="plain">
-                {{ t('risk.productAutoUnlisted') }}
+              <el-tag
+                v-if="assessment.productAutoUnlisted"
+                type="danger"
+                effect="plain"
+                class="status-tag"
+              >
+                <el-icon aria-hidden="true"><WarningFilled /></el-icon>
+                <span>{{ t('risk.productAutoUnlisted') }}</span>
               </el-tag>
-              <el-tag v-if="assessment.userTokensRevoked" type="danger" effect="plain">
-                {{ t('risk.userTokensRevoked') }}
+              <el-tag
+                v-if="assessment.userTokensRevoked"
+                type="danger"
+                effect="plain"
+                class="status-tag"
+              >
+                <el-icon aria-hidden="true"><Lock /></el-icon>
+                <span>{{ t('risk.userTokensRevoked') }}</span>
               </el-tag>
               <span v-if="!assessment.productAutoUnlisted && !assessment.userTokensRevoked">
                 {{ t('risk.noAutomaticActions') }}
@@ -391,6 +423,7 @@ void loadReviews()
             </div>
             <ul class="signal-list">
               <li v-for="signal in assessment.signals" :key="`${signal.type}-${signal.detail}`">
+                <el-icon aria-hidden="true"><WarningFilled /></el-icon>
                 <strong>{{ signalLabel(signal.type) }}</strong>
                 <span>{{ signal.weight }}</span>
                 <small>{{ signal.detail }}</small>
@@ -431,7 +464,8 @@ void loadReviews()
 
       <AsyncStateView
         :status="reviewsState.status.value"
-        :error="reviewsState.error.value"
+        :error="reviewsState.error.value ? 'risk.listLoadFailed' : undefined"
+        preserve-content-on-error
         @retry="loadReviews"
       >
         <DataTableShell
@@ -449,9 +483,10 @@ void loadReviews()
             <el-table-column prop="score" :label="t('risk.score')" width="90" />
             <el-table-column :label="t('risk.status')" width="120">
               <template #default="{ row }">
-                <el-tag :type="statusType(row.status)" effect="plain">{{
-                  statusLabel(row.status)
-                }}</el-tag>
+                <el-tag :type="statusType(row.status)" effect="plain" class="status-tag">
+                  <el-icon aria-hidden="true"><component :is="statusIcon(row.status)" /></el-icon>
+                  <span>{{ statusLabel(row.status) }}</span>
+                </el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="detail" :label="t('risk.detail')" min-width="220" />
@@ -461,7 +496,7 @@ void loadReviews()
                   <el-button
                     size="small"
                     :aria-label="t('risk.approveCase', { id: row.id })"
-                    :disabled="isPending(`review:${row.id}`)"
+                    :disabled="isCasePending(row.id)"
                     @click="openDecision(row, 'APPROVED')"
                   >
                     {{ t('risk.approve') }}
@@ -469,7 +504,7 @@ void loadReviews()
                   <el-button
                     size="small"
                     :aria-label="t('risk.rejectCase', { id: row.id })"
-                    :disabled="isPending(`review:${row.id}`)"
+                    :disabled="isCasePending(row.id)"
                     @click="openDecision(row, 'REJECTED')"
                   >
                     {{ t('risk.reject') }}
@@ -479,7 +514,7 @@ void loadReviews()
                     type="danger"
                     plain
                     :aria-label="t('risk.blockCase', { id: row.id })"
-                    :disabled="isPending(`review:${row.id}`)"
+                    :disabled="isCasePending(row.id)"
                     @click="openDecision(row, 'BLOCKED')"
                   >
                     {{ t('risk.block') }}
@@ -490,7 +525,7 @@ void loadReviews()
                   class="mobile-review-action"
                   size="small"
                   :aria-label="t('risk.reviewAction', { id: row.id })"
-                  :disabled="isPending(`review:${row.id}`)"
+                  :disabled="isCasePending(row.id)"
                   @click="openDecision(row, 'APPROVED')"
                 >
                   {{ t('risk.action') }}
@@ -511,14 +546,17 @@ void loadReviews()
       <div v-if="activeReview" class="decision-drawer">
         <div class="decision-case-summary">
           <strong>{{ signalLabel(activeReview.type) }}</strong>
-          <el-tag :type="statusType(activeReview.status)" effect="plain">
-            {{ statusLabel(activeReview.status) }}
+          <el-tag :type="statusType(activeReview.status)" effect="plain" class="status-tag">
+            <el-icon aria-hidden="true"
+              ><component :is="statusIcon(activeReview.status)"
+            /></el-icon>
+            <span>{{ statusLabel(activeReview.status) }}</span>
           </el-tag>
           <span>{{ t('risk.score') }}: {{ activeReview.score }}</span>
         </div>
         <el-radio-group
           v-model="decisionForm.status"
-          :disabled="activeReview.status !== 'PENDING' || isPending(`review:${activeReview.id}`)"
+          :disabled="activeReview.status !== 'PENDING' || isCasePending(activeReview.id)"
         >
           <el-radio-button value="APPROVED">{{ t('risk.approve') }}</el-radio-button>
           <el-radio-button value="REJECTED">{{ t('risk.reject') }}</el-radio-button>
@@ -531,7 +569,7 @@ void loadReviews()
             type="textarea"
             :rows="4"
             :aria-label="t('risk.resolutionNote')"
-            :disabled="activeReview.status !== 'PENDING' || isPending(`review:${activeReview.id}`)"
+            :disabled="activeReview.status !== 'PENDING' || isCasePending(activeReview.id)"
             @input="decisionError = ''"
           />
         </div>
@@ -541,7 +579,7 @@ void loadReviews()
             v-model="decisionForm.totpCode"
             :aria-label="t('risk.totpCode')"
             autocomplete="one-time-code"
-            :disabled="activeReview.status !== 'PENDING' || isPending(`review:${activeReview.id}`)"
+            :disabled="activeReview.status !== 'PENDING' || isCasePending(activeReview.id)"
             @input="decisionError = ''"
           />
         </div>
@@ -549,8 +587,8 @@ void loadReviews()
         <el-button
           type="primary"
           :icon="decisionForm.status === 'BLOCKED' ? Lock : CircleCheck"
-          :loading="isPending(`review:${activeReview.id}`)"
-          :disabled="activeReview.status !== 'PENDING' || isPending(`review:${activeReview.id}`)"
+          :loading="isCasePending(activeReview.id)"
+          :disabled="activeReview.status !== 'PENDING' || isCasePending(activeReview.id)"
           @click="saveDecision"
         >
           {{ t('risk.saveDecision') }}
@@ -603,7 +641,7 @@ void loadReviews()
 
 .assessment-form {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: var(--space-3);
 }
 
@@ -669,6 +707,12 @@ void loadReviews()
 
 .mobile-review-action {
   display: none;
+}
+
+.status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 
 .decision-case-summary {
