@@ -8,8 +8,16 @@ import type {
   OrderShipmentRequest,
 } from '@/types'
 
-export function myOrders(): Promise<Order[]> {
-  return requestAllPageContent<Order>({ url: '/orders/my' })
+export interface OrderSummary extends Order {
+  checkoutId?: number
+  checkoutSubOrderId?: number
+  shopId?: number
+  originalAmount?: string | number
+  discountAmount?: string | number
+}
+
+export function myOrders(): Promise<OrderSummary[]> {
+  return requestAllPageContent<OrderSummary>({ url: '/orders/my' })
 }
 
 export function allOrders(): Promise<Order[]> {

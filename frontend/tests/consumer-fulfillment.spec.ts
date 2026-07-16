@@ -79,14 +79,24 @@ test('orders localize fulfillment states and confirm a single return request', a
     releaseReturn = resolve
   })
   const orders = [
-    order(101, 'PAYMENT_PENDING', 'Pending monkey'),
+    order(101, 'PENDING_PAYMENT', 'Pending monkey'),
     order(102, 'IN_TRANSIT', 'Travelling monkey'),
     order(103, 'COMPLETED', 'Completed monkey'),
+    order(104, 'PAID', 'Paid monkey'),
+    order(105, 'RETURN_APPROVED', 'Returning monkey'),
   ]
 
   await installFulfillmentMocks(page, async (route, pathname) => {
     if (pathname === '/orders/my') {
-      await fulfillOk(route, orders)
+      await fulfillOk(route, {
+        content: orders,
+        page: 0,
+        size: 100,
+        totalElements: orders.length,
+        totalPages: 1,
+        first: true,
+        last: true,
+      })
       return true
     }
     if (pathname === '/orders/return/apply/103') {
@@ -101,13 +111,24 @@ test('orders localize fulfillment states and confirm a single return request', a
   await page.goto('/orders')
 
   await expect(page.locator('.page-header')).toContainText('Orders')
-  await expect(page.locator('.order-status-timeline')).toHaveCount(3)
+  await expect(page.locator('.order-status-timeline')).toHaveCount(0)
   await expect(page.getByText('Awaiting payment', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('In transit', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('Completed', { exact: true }).first()).toBeVisible()
-  await expect(page.locator('body')).not.toContainText(/PAYMENT_PENDING|IN_TRANSIT|COMPLETED/)
+  await expect(page.locator('body')).not.toContainText(/PENDING_PAYMENT|IN_TRANSIT|COMPLETED/)
+
+  const pendingOrder = page.locator('.order-row').filter({ hasText: 'Pending monkey' })
+  await expect(pendingOrder.getByRole('button', { name: 'Payment', exact: true })).toBeVisible()
+  await expect(pendingOrder.getByRole('button', { name: 'Ship', exact: true })).toHaveCount(0)
+  const paidOrder = page.locator('.order-row').filter({ hasText: 'Paid monkey' })
+  await expect(paidOrder.getByRole('button', { name: 'Ship', exact: true })).toHaveCount(0)
+  const returningOrder = page.locator('.order-row').filter({ hasText: 'Returning monkey' })
+  await expect(returningOrder.getByRole('button', { name: 'Ship return', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Approve return', exact: true })).toHaveCount(0)
 
   const completedOrder = page.locator('.order-row').filter({ hasText: 'Completed monkey' })
+  await completedOrder.getByRole('button', { name: 'View order details ORDER-103' }).click()
+  await expect(completedOrder.locator('.order-status-timeline')).toBeVisible()
   const returnButton = completedOrder.getByRole('button', { name: 'Return', exact: true })
   await returnButton.click()
   await expect(page.getByRole('dialog')).toBeVisible()
@@ -124,6 +145,64 @@ test('orders localize fulfillment states and confirm a single return request', a
 
   await page.getByRole('button', { name: 'Switch language' }).click()
   await expect(page.getByText('\u5f85\u652f\u4ed8', { exact: true }).first()).toBeVisible()
+})
+
+test('order details load shipment batches lazily and receive one batch at a time', async ({
+  page,
+}) => {
+  let shipmentReads = 0
+  let receivedShipmentId = 0
+  const shippedOrder = order(102, 'SHIPPED', 'Travelling monkey')
+  const shipment = {
+    id: 501,
+    orderId: 102,
+    shipmentNo: 'SHIP-501',
+    carrier: 'SF',
+    trackingNo: 'SF-TRACK-501',
+    status: 'SHIPPED',
+    shippedAt: '2026-07-12T10:00:00Z',
+    lines: [{ skuId: 102, productName: 'Travelling monkey', quantity: 1 }],
+  }
+
+  await installFulfillmentMocks(page, async (route, pathname) => {
+    if (pathname === '/orders/my') {
+      await fulfillOk(route, {
+        content: [shippedOrder],
+        page: 0,
+        size: 100,
+        totalElements: 1,
+        totalPages: 1,
+        first: true,
+        last: true,
+      })
+      return true
+    }
+    if (pathname === '/orders/102/shipments') {
+      shipmentReads += 1
+      await fulfillOk(route, [shipment])
+      return true
+    }
+    if (pathname === '/orders/shipments/receive/501') {
+      receivedShipmentId = 501
+      await fulfillOk(route, {
+        ...shipment,
+        status: 'RECEIVED',
+        receivedAt: '2026-07-12T12:00:00Z',
+      })
+      return true
+    }
+    return false
+  })
+
+  await page.goto('/orders')
+  await expect.poll(() => shipmentReads).toBe(0)
+  await page.getByRole('button', { name: 'View order details ORDER-102' }).click()
+  await expect.poll(() => shipmentReads).toBe(1)
+  const shipmentRow = page.locator('.order-shipment').filter({ hasText: 'SF-TRACK-501' })
+  await expect(shipmentRow).toContainText('Travelling monkey')
+  await shipmentRow.getByRole('button', { name: 'Receive shipment', exact: true }).click()
+  await page.getByRole('button', { name: 'OK', exact: true }).click()
+  await expect.poll(() => receivedShipmentId).toBe(501)
 })
 
 test('payment refund locks lookup controls and keeps the failure local', async ({ page }) => {
@@ -465,50 +544,19 @@ test('address parsing freezes its input snapshot until the response is applied',
   await expect(page.getByPlaceholder('Province')).toHaveValue('Zhejiang')
 })
 
-test('a failed shipment retry reuses the same business idempotency key', async ({ page }) => {
-  const keys: string[] = []
-  let calls = 0
-
+test('consumer logistics never exposes shipment creation or webhook simulation', async ({ page }) => {
   await installFulfillmentMocks(page, async (route, pathname) => {
     if (pathname === '/logistics/orders/101') {
       await fulfillOk(route, null)
-      return true
-    }
-    if (pathname === '/logistics/shipments') {
-      calls += 1
-      keys.push((await route.request().allHeaders())['idempotency-key'] ?? '')
-      if (calls === 1) {
-        await route.fulfill({
-          status: 503,
-          contentType: 'application/problem+json',
-          body: JSON.stringify({ title: 'response lost', status: 503 }),
-        })
-      } else {
-        await fulfillOk(route, {
-          id: 21,
-          trackingNo: 'SF-101',
-          orderId: 101,
-          userId: 7,
-          carrier: 'SF',
-          status: 'ORDERED',
-          freightAmount: '12.00',
-          createTime: '2026-07-12T08:30:00Z',
-          events: [],
-        })
-      }
       return true
     }
     return false
   })
 
   await page.goto('/logistics/101')
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    await page.getByRole('button', { name: 'Create shipment', exact: true }).click()
-    await expect.poll(() => calls).toBe(attempt + 1)
-  }
-
-  expect(keys[0]).not.toBe('')
-  expect(keys[1]).toBe(keys[0])
+  await expect(page.getByRole('button', { name: 'Create shipment', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Push webhook', exact: true })).toHaveCount(0)
+  await expect(page.locator('img.mascot-state[data-pose="package"]')).toBeVisible()
 })
 
 test('review upload leaves content editable and review submission is single-flight', async ({
@@ -566,6 +614,7 @@ test('review upload leaves content editable and review submission is single-flig
   await page.goto('/orders/101/review')
 
   await expect(page.locator('.page-header')).toContainText('Review')
+  await expect(page.locator('img.mascot-state[data-pose="clipboard"]')).toBeVisible()
   const content = page.getByLabel('Share the fulfillment and product experience')
   await page.locator('#review-image-upload').setInputFiles({
     name: 'review.png',

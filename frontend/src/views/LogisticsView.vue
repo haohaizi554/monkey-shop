@@ -1,23 +1,18 @@
 <script setup lang="ts">
-import { RefreshRight, Search, Van } from '@element-plus/icons-vue'
+import { Location, RefreshRight, Search, Van } from '@element-plus/icons-vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import * as logisticsApi from '@/api/logistics'
+import MascotState from '@/components/mascot/MascotState.vue'
 import OrderStatusTimeline from '@/components/order/OrderStatusTimeline.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import DataTableShell from '@/components/ui/DataTableShell.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { useNotify } from '@/composables/useNotify'
-import type {
-  FreightQuoteResponse,
-  LogisticsCarrier,
-  LogisticsTracking,
-  TrackingEvent,
-} from '@/types'
+import type { FreightQuoteResponse, LogisticsCarrier, LogisticsTracking } from '@/types'
 import { money } from '@/utils/format'
-import { getIdempotencyIntent } from '@/utils/idempotencyIntent'
 
 const route = useRoute()
 const { locale, t } = useI18n()
@@ -27,20 +22,14 @@ const trackingResource = useAsyncState<LogisticsTracking | null>({ timeoutMs: 20
 const trackingNo = ref('')
 const addressText = ref('')
 const quote = ref<FreightQuoteResponse | null>(null)
-
 const addressParsePending = ref(false)
 const addressParseError = ref('')
 const quotePending = ref(false)
 const quoteError = ref('')
-const shipmentPending = ref(false)
-const shipmentError = ref('')
-const webhookPending = ref(false)
-const webhookError = ref('')
 
 const form = reactive({
   orderId: Number(route.params.orderId ?? route.query.orderId ?? 0),
   carrier: 'SF' as LogisticsCarrier,
-  recipientPhone: '',
   province: '',
   city: '',
   district: '',
@@ -49,17 +38,11 @@ const form = reactive({
   itemCount: 1,
 })
 
-const webhook = reactive({
-  event: 'PICKUP' as TrackingEvent,
-  eventId: '',
-  location: '',
-  remark: '',
-  signature: '',
-})
-
 const tracking = computed(() => trackingResource.data.value)
-const currentTrackingNo = computed(() => tracking.value?.trackingNo || trackingNo.value)
 const isChinese = computed(() => locale.value === 'zh')
+const lookupPending = computed(() =>
+  ['loading', 'updating'].includes(trackingResource.status.value),
+)
 
 function localized(english: string, chinese: string): string {
   return isChinese.value ? chinese : english
@@ -77,17 +60,8 @@ function safeCarrier(carrier: string): string {
     : localized('Delivery carrier', '\u7269\u6d41\u627f\u8fd0\u5546')
 }
 
-async function setTracking(result: LogisticsTracking) {
-  trackingNo.value = result.trackingNo
-  await trackingResource.load(() => Promise.resolve(result), {
-    isEmpty: () => false,
-    preserveData: false,
-    timeoutMs: 0,
-  })
-}
-
 async function loadByOrder() {
-  if (shipmentPending.value) return
+  if (lookupPending.value) return
   if (!form.orderId) {
     trackingResource.reset()
     return
@@ -103,12 +77,11 @@ async function loadByOrder() {
 }
 
 async function loadByTrackingNo() {
-  if (shipmentPending.value || !trackingNo.value.trim()) {
-    return
-  }
+  const normalizedTrackingNo = trackingNo.value.trim()
+  if (lookupPending.value || !normalizedTrackingNo) return
 
   const result = await trackingResource.load(
-    () => logisticsApi.logisticsByTrackingNo(trackingNo.value.trim()),
+    () => logisticsApi.logisticsByTrackingNo(normalizedTrackingNo),
     {
       isEmpty: (value) => value === null,
       preserveData: true,
@@ -121,9 +94,7 @@ async function loadByTrackingNo() {
 
 async function submitAddressParse() {
   const input = addressText.value.trim()
-  if (!input || addressParsePending.value || shipmentPending.value) {
-    return
-  }
+  if (!input || addressParsePending.value) return
 
   addressParsePending.value = true
   addressParseError.value = ''
@@ -143,9 +114,7 @@ async function submitAddressParse() {
 }
 
 async function submitQuote() {
-  if (quotePending.value) {
-    return
-  }
+  if (quotePending.value) return
 
   quotePending.value = true
   quoteError.value = ''
@@ -163,71 +132,6 @@ async function submitQuote() {
   }
 }
 
-async function submitShipment() {
-  if (!form.orderId || shipmentPending.value) {
-    return
-  }
-
-  const payload = {
-    orderId: form.orderId,
-    carrier: form.carrier,
-    recipientPhone: form.recipientPhone || undefined,
-    province: form.province || undefined,
-    city: form.city || undefined,
-    district: form.district || undefined,
-    detail: form.detail || undefined,
-    addressText: addressText.value.trim() || undefined,
-    weightKg: form.weightKg,
-    itemCount: form.itemCount,
-  }
-  shipmentPending.value = true
-  shipmentError.value = ''
-  try {
-    trackingResource.cancel()
-    const intent = getIdempotencyIntent('logistics:shipment:create', payload)
-    const result = await logisticsApi.createShipment(payload, intent.key)
-    intent.complete()
-    await setTracking(result)
-    notify.success(t('logistics.shipmentCreated'), {
-      key: `logistics:${result.trackingNo}:created`,
-    })
-  } catch {
-    shipmentError.value = t('logistics.createFailed')
-  } finally {
-    shipmentPending.value = false
-  }
-}
-
-async function submitWebhook() {
-  const activeTrackingNo = currentTrackingNo.value
-  if (!activeTrackingNo || webhookPending.value) {
-    return
-  }
-
-  webhookPending.value = true
-  webhookError.value = ''
-  try {
-    const result = await logisticsApi.pushWebhook({
-      carrier: form.carrier,
-      trackingNo: activeTrackingNo,
-      eventId: webhook.eventId || `${activeTrackingNo}-${Date.now()}`,
-      event: webhook.event,
-      location: webhook.location || undefined,
-      remark: webhook.remark || undefined,
-      signature: webhook.signature,
-    })
-    webhook.eventId = ''
-    await setTracking(result)
-    notify.success(t('logistics.webhookPushed'), {
-      key: `logistics:${activeTrackingNo}:updated`,
-    })
-  } catch {
-    webhookError.value = t('logistics.webhookFailed')
-  } finally {
-    webhookPending.value = false
-  }
-}
-
 onMounted(() => {
   void loadByOrder()
 })
@@ -235,12 +139,12 @@ onMounted(() => {
 
 <template>
   <div class="route-view logistics-view">
-    <PageHeader :title="$t('nav.logistics')">
+    <PageHeader :title="$t('nav.logistics')" :description="$t('logistics.hint')">
       <template #actions>
         <el-button
           :icon="RefreshRight"
           :loading="trackingResource.status.value === 'updating'"
-          :disabled="shipmentPending || !form.orderId"
+          :disabled="lookupPending || !form.orderId"
           @click="loadByOrder"
         >
           {{ $t('common.refresh') }}
@@ -248,42 +152,51 @@ onMounted(() => {
       </template>
     </PageHeader>
 
-    <section class="logistics-task lookup-task" :aria-label="$t('common.tracking')">
-      <h2>
-        <el-icon aria-hidden="true"><Search /></el-icon>
-        {{ $t('common.tracking') }}
-      </h2>
+    <section class="lookup-task" :aria-label="$t('common.tracking')">
+      <div class="section-heading">
+        <span class="section-heading__icon" aria-hidden="true">
+          <el-icon><Search /></el-icon>
+        </span>
+        <div>
+          <h2>{{ $t('common.tracking') }}</h2>
+          <p>{{ $t('logistics.lookupHint') }}</p>
+        </div>
+      </div>
+
       <div class="lookup-grid">
-        <form class="task-form task-form--inline" @submit.prevent="loadByOrder">
+        <form class="lookup-form" @submit.prevent="loadByOrder">
           <el-input-number
             v-model="form.orderId"
             :min="1"
             controls-position="right"
-            :disabled="shipmentPending"
+            :disabled="lookupPending"
             :aria-label="$t('logistics.orderId')"
             :placeholder="$t('logistics.orderId')"
           />
           <el-button
             type="primary"
             native-type="submit"
-            :disabled="shipmentPending || !form.orderId"
-            :loading="trackingResource.status.value === 'loading'"
+            :icon="Search"
+            :disabled="lookupPending || !form.orderId"
+            :loading="lookupPending"
           >
             {{ $t('common.search') }}
           </el-button>
         </form>
-        <form class="task-form task-form--inline" @submit.prevent="loadByTrackingNo">
+
+        <form class="lookup-form" @submit.prevent="loadByTrackingNo">
           <el-input
             v-model="trackingNo"
-            :disabled="shipmentPending"
+            :disabled="lookupPending"
             :aria-label="$t('logistics.trackingNo')"
             :placeholder="$t('logistics.trackingNoPlaceholder')"
           />
           <el-button
             type="primary"
             native-type="submit"
-            :disabled="shipmentPending || !trackingNo.trim()"
-            :loading="trackingResource.status.value === 'loading'"
+            :icon="Search"
+            :disabled="lookupPending || !trackingNo.trim()"
+            :loading="lookupPending"
           >
             {{ $t('common.search') }}
           </el-button>
@@ -291,222 +204,203 @@ onMounted(() => {
       </div>
     </section>
 
-    <section class="logistics-task address-task" :aria-label="$t('common.parseAddress')">
-      <h2>{{ $t('common.parseAddress') }}</h2>
-      <form class="task-form" @submit.prevent="submitAddressParse">
-        <el-input
-          v-model="addressText"
-          type="textarea"
-          :rows="2"
-          :disabled="addressParsePending || shipmentPending"
-          :aria-label="$t('logistics.fullAddress')"
-          :placeholder="$t('logistics.fullAddress')"
-        />
-        <el-button
-          plain
-          native-type="submit"
-          :loading="addressParsePending"
-          :disabled="addressParsePending || shipmentPending || !addressText.trim()"
-        >
-          {{ $t('common.parseAddress') }}
-        </el-button>
-        <p v-if="addressParseError" class="task-error" role="alert">
-          {{ addressParseError }}
-        </p>
-      </form>
-      <div class="address-grid">
-        <el-input
-          v-model="form.province"
-          :disabled="addressParsePending || shipmentPending"
-          :aria-label="$t('logistics.province')"
-          :placeholder="$t('logistics.province')"
-        />
-        <el-input
-          v-model="form.city"
-          :disabled="addressParsePending || shipmentPending"
-          :aria-label="$t('logistics.city')"
-          :placeholder="$t('logistics.city')"
-        />
-        <el-input
-          v-model="form.district"
-          :disabled="addressParsePending || shipmentPending"
-          :aria-label="$t('logistics.district')"
-          :placeholder="$t('logistics.district')"
-        />
-        <el-input
-          v-model="form.detail"
-          :disabled="addressParsePending || shipmentPending"
-          :aria-label="$t('logistics.detailAddress')"
-          :placeholder="$t('logistics.detailAddress')"
-        />
+    <section class="estimate-workspace" :aria-label="$t('logistics.addressTools')">
+      <div class="address-task">
+        <div class="section-heading section-heading--compact">
+          <span class="section-heading__icon" aria-hidden="true">
+            <el-icon><Location /></el-icon>
+          </span>
+          <div>
+            <h2>{{ $t('common.parseAddress') }}</h2>
+            <p>{{ $t('logistics.addressTools') }}</p>
+          </div>
+        </div>
+
+        <form class="address-form" @submit.prevent="submitAddressParse">
+          <el-input
+            v-model="addressText"
+            type="textarea"
+            :rows="3"
+            :disabled="addressParsePending"
+            :aria-label="$t('logistics.fullAddress')"
+            :placeholder="$t('logistics.fullAddress')"
+          />
+          <el-button
+            plain
+            native-type="submit"
+            :loading="addressParsePending"
+            :disabled="addressParsePending || !addressText.trim()"
+          >
+            {{ $t('common.parseAddress') }}
+          </el-button>
+          <p v-if="addressParseError" class="task-error" role="alert">
+            {{ addressParseError }}
+          </p>
+        </form>
+
+        <div class="address-grid">
+          <el-input
+            v-model="form.province"
+            :disabled="addressParsePending"
+            :aria-label="$t('logistics.province')"
+            :placeholder="$t('logistics.province')"
+          />
+          <el-input
+            v-model="form.city"
+            :disabled="addressParsePending"
+            :aria-label="$t('logistics.city')"
+            :placeholder="$t('logistics.city')"
+          />
+          <el-input
+            v-model="form.district"
+            :disabled="addressParsePending"
+            :aria-label="$t('logistics.district')"
+            :placeholder="$t('logistics.district')"
+          />
+          <el-input
+            v-model="form.detail"
+            :disabled="addressParsePending"
+            :aria-label="$t('logistics.detailAddress')"
+            :placeholder="$t('logistics.detailAddress')"
+          />
+        </div>
+      </div>
+
+      <div class="quote-task">
+        <div class="section-heading section-heading--compact">
+          <span class="section-heading__icon" aria-hidden="true">
+            <el-icon><Van /></el-icon>
+          </span>
+          <div>
+            <h2>{{ $t('logistics.quoteFreight') }}</h2>
+            <p>{{ $t('logistics.addressTools') }}</p>
+          </div>
+        </div>
+
+        <form class="quote-form" @submit.prevent="submitQuote">
+          <el-segmented
+            v-model="form.carrier"
+            :options="[
+              { label: safeCarrier('SF'), value: 'SF' },
+              { label: safeCarrier('ZTO'), value: 'ZTO' },
+              { label: safeCarrier('YTO'), value: 'YTO' },
+            ]"
+            :aria-label="$t('logistics.carrier')"
+            :disabled="quotePending"
+          />
+          <div class="quote-measures">
+            <el-input-number
+              v-model="form.weightKg"
+              :min="0.01"
+              :step="0.01"
+              :precision="2"
+              controls-position="right"
+              :disabled="quotePending"
+              :aria-label="$t('logistics.weight')"
+              :placeholder="$t('logistics.weight')"
+            />
+            <el-input-number
+              v-model="form.itemCount"
+              :min="1"
+              controls-position="right"
+              :disabled="quotePending"
+              :aria-label="$t('logistics.itemCount')"
+              :placeholder="$t('logistics.itemCount')"
+            />
+          </div>
+          <el-button
+            plain
+            native-type="submit"
+            :loading="quotePending"
+            :disabled="quotePending"
+          >
+            {{ $t('common.quote') }}
+          </el-button>
+          <p v-if="quoteError" class="task-error" role="alert">{{ quoteError }}</p>
+        </form>
+
+        <dl v-if="quote" class="logistics-summary">
+          <div>
+            <dt>{{ $t('logistics.carrier') }}</dt>
+            <dd>{{ safeCarrier(quote.carrier) }}</dd>
+          </div>
+          <div>
+            <dt>{{ $t('logistics.freight') }}</dt>
+            <dd>{{ money(quote.amount) }}</dd>
+          </div>
+          <div>
+            <dt>{{ $t('logistics.weight') }}</dt>
+            <dd>{{ quote.weightKg }} kg</dd>
+          </div>
+          <div>
+            <dt>ETA</dt>
+            <dd>{{ quote.etaHours }} h</dd>
+          </div>
+        </dl>
       </div>
     </section>
 
-    <section class="logistics-task quote-task" :aria-label="$t('logistics.quoteFreight')">
-      <h2>{{ $t('logistics.quoteFreight') }}</h2>
-      <form class="task-form quote-form" @submit.prevent="submitQuote">
-        <el-segmented
-          v-model="form.carrier"
-          :options="[
-            { label: safeCarrier('SF'), value: 'SF' },
-            { label: safeCarrier('ZTO'), value: 'ZTO' },
-            { label: safeCarrier('YTO'), value: 'YTO' },
-          ]"
-          :aria-label="$t('logistics.carrier')"
-          :disabled="shipmentPending"
-        />
-        <el-input-number
-          v-model="form.weightKg"
-          :min="0.01"
-          :step="0.01"
-          :precision="2"
-          controls-position="right"
-          :disabled="shipmentPending"
-          :aria-label="$t('logistics.weight')"
-          :placeholder="$t('logistics.weight')"
-        />
-        <el-input-number
-          v-model="form.itemCount"
-          :min="1"
-          controls-position="right"
-          :disabled="shipmentPending"
-          :aria-label="$t('logistics.itemCount')"
-          :placeholder="$t('logistics.itemCount')"
-        />
-        <el-button
-          plain
-          native-type="submit"
-          :loading="quotePending"
-          :disabled="quotePending || shipmentPending"
-        >
-          {{ $t('common.quote') }}
-        </el-button>
-        <p v-if="quoteError" class="task-error" role="alert">{{ quoteError }}</p>
-      </form>
-      <dl v-if="quote" class="logistics-summary">
-        <div>
-          <dt>{{ $t('logistics.carrier') }}</dt>
-          <dd>{{ safeCarrier(quote.carrier) }}</dd>
-        </div>
-        <div>
-          <dt>{{ $t('logistics.freight') }}</dt>
-          <dd>{{ money(quote.amount) }}</dd>
-        </div>
-        <div>
-          <dt>{{ $t('logistics.weight') }}</dt>
-          <dd>{{ quote.weightKg }} kg</dd>
-        </div>
-        <div>
-          <dt>ETA</dt>
-          <dd>{{ quote.etaHours }} h</dd>
-        </div>
-      </dl>
-    </section>
-
-    <section class="logistics-task shipment-task" :aria-label="$t('logistics.createShipment')">
-      <h2>
-        <el-icon aria-hidden="true"><Van /></el-icon>
-        {{ $t('logistics.createShipment') }}
-      </h2>
-      <form class="task-form shipment-form" @submit.prevent="submitShipment">
-        <el-input
-          v-model="form.recipientPhone"
-          autocomplete="off"
-          inputmode="tel"
-          :disabled="shipmentPending"
-          :aria-label="$t('logistics.recipientPhone')"
-          :placeholder="$t('logistics.recipientPhone')"
-        />
-        <p v-if="shipmentError" class="task-error" role="alert">{{ shipmentError }}</p>
-        <el-button
-          type="primary"
-          native-type="submit"
-          :loading="shipmentPending"
-          :disabled="shipmentPending || !form.orderId"
-        >
-          {{ $t('common.createShipment') }}
-        </el-button>
-      </form>
-    </section>
-
-    <AsyncStateView
-      :status="trackingResource.status.value"
-      :error="trackingResource.error.value"
-      :empty-title="$t('logistics.noTracking')"
-      @retry="loadByOrder"
-    >
-      <template #idle>
-        <section class="tracking-empty" role="status">
-          <el-icon aria-hidden="true"><Van /></el-icon>
-          <span>{{ $t('logistics.noTracking') }}</span>
-        </section>
-      </template>
-
-      <template #error>
-        <section class="tracking-empty" role="alert">
-          <span>{{ $t('logistics.loadFailed') }}</span>
-          <el-button :icon="RefreshRight" @click="loadByOrder">
-            {{ $t('common.retry') }}
-          </el-button>
-        </section>
-      </template>
-
-      <DataTableShell v-if="tracking" :aria-label="$t('common.tracking')">
-        <section class="logistics-task tracking-task">
-          <header class="tracking-heading">
+    <section class="tracking-result" :aria-label="$t('logistics.trackingDetails')">
+      <AsyncStateView
+        :status="trackingResource.status.value"
+        :error="trackingResource.error.value"
+        :empty-title="$t('logistics.noTracking')"
+        @retry="loadByOrder"
+      >
+        <template #idle>
+          <div class="tracking-empty" role="status">
+            <MascotState pose="package" size="md" :alt="$t('logistics.emptyMascotAlt')" />
             <div>
-              <h2>{{ tracking.trackingNo }}</h2>
-              <p>{{ safeCarrier(tracking.carrier) }}</p>
+              <h2>{{ $t('logistics.noTracking') }}</h2>
+              <p>{{ $t('logistics.emptyHint') }}</p>
             </div>
-            <strong>{{ money(tracking.freightAmount) }}</strong>
-          </header>
-          <p class="tracking-address">
-            {{ [tracking.province, tracking.city, tracking.district].filter(Boolean).join(' · ') }}
-          </p>
-          <OrderStatusTimeline
-            :current-status="tracking.status"
-            :timestamps="{
-              created: tracking.createTime,
-              shipped: tracking.pickedUpAt,
-              delivered: tracking.signedAt,
-            }"
-            :logistics-events="tracking.events"
-          />
-        </section>
-      </DataTableShell>
-    </AsyncStateView>
+          </div>
+        </template>
 
-    <section class="logistics-task webhook-task" :aria-label="$t('common.pushWebhook')">
-      <h2>{{ $t('common.pushWebhook') }}</h2>
-      <form class="task-form webhook-form" @submit.prevent="submitWebhook">
-        <el-segmented
-          v-model="webhook.event"
-          :options="[
-            { label: $t('logistics.eventPickup'), value: 'PICKUP' },
-            { label: $t('logistics.eventTransit'), value: 'TRANSIT' },
-            { label: $t('logistics.eventDispatch'), value: 'DISPATCH' },
-            { label: $t('logistics.eventSign'), value: 'SIGN' },
-          ]"
-          :aria-label="$t('logistics.event')"
-        />
-        <el-input v-model="webhook.eventId" :placeholder="$t('logistics.eventId')" />
-        <el-input v-model="webhook.location" :placeholder="$t('logistics.location')" />
-        <el-input v-model="webhook.remark" :placeholder="$t('logistics.remark')" />
-        <el-input
-          v-model="webhook.signature"
-          :placeholder="$t('logistics.signature')"
-          show-password
-        />
-        <p v-if="webhookError" class="task-error" role="alert">{{ webhookError }}</p>
-        <el-button
-          type="warning"
-          native-type="submit"
-          :loading="webhookPending"
-          :disabled="webhookPending || !currentTrackingNo"
-        >
-          {{ $t('common.pushWebhook') }}
-        </el-button>
-      </form>
+        <template #empty>
+          <div class="tracking-empty" role="status">
+            <MascotState pose="package" size="md" :alt="$t('logistics.emptyMascotAlt')" />
+            <div>
+              <h2>{{ $t('logistics.noTracking') }}</h2>
+              <p>{{ $t('logistics.emptyHint') }}</p>
+            </div>
+          </div>
+        </template>
+
+        <template #error>
+          <div class="tracking-load-error" role="alert">
+            <span>{{ $t('logistics.loadFailed') }}</span>
+            <el-button :icon="RefreshRight" @click="loadByOrder">
+              {{ $t('common.retry') }}
+            </el-button>
+          </div>
+        </template>
+
+        <DataTableShell v-if="tracking" :aria-label="$t('common.tracking')">
+          <article class="tracking-task">
+            <header class="tracking-heading">
+              <div>
+                <span>{{ safeCarrier(tracking.carrier) }}</span>
+                <h2>{{ tracking.trackingNo }}</h2>
+              </div>
+              <strong>{{ money(tracking.freightAmount) }}</strong>
+            </header>
+            <p class="tracking-address">
+              <el-icon aria-hidden="true"><Location /></el-icon>
+              {{ [tracking.province, tracking.city, tracking.district].filter(Boolean).join(' / ') }}
+            </p>
+            <OrderStatusTimeline
+              :current-status="tracking.status"
+              :timestamps="{
+                created: tracking.createTime,
+                shipped: tracking.pickedUpAt,
+                delivered: tracking.signedAt,
+              }"
+              :logistics-events="tracking.events"
+            />
+          </article>
+        </DataTableShell>
+      </AsyncStateView>
     </section>
   </div>
 </template>
@@ -514,128 +408,249 @@ onMounted(() => {
 <style scoped>
 .logistics-view {
   display: grid;
-  gap: 18px;
+  gap: var(--space-5);
 }
 
-.logistics-task {
-  border-top: 1px solid var(--el-border-color-lighter);
+.lookup-task,
+.estimate-workspace,
+.tracking-result {
+  border-top: 1px solid var(--color-line);
+  padding-top: var(--space-5);
+}
+
+.lookup-task,
+.address-task,
+.quote-task,
+.tracking-task {
   display: grid;
-  gap: 14px;
-  padding-top: 18px;
+  gap: var(--space-4);
 }
 
-.logistics-task h2 {
-  align-items: center;
+.section-heading {
   display: flex;
-  font-size: 1rem;
-  gap: 8px;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.section-heading__icon {
+  display: inline-grid;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-control);
+  color: var(--color-brand);
+}
+
+.section-heading h2,
+.section-heading p,
+.tracking-empty h2,
+.tracking-empty p,
+.tracking-heading h2,
+.tracking-address {
   margin: 0;
 }
 
-.lookup-grid,
-.address-grid,
-.task-form,
-.logistics-summary {
-  display: grid;
-  gap: 12px;
+.section-heading h2 {
+  font-size: var(--text-base);
+}
+
+.section-heading p,
+.tracking-empty p,
+.tracking-heading span,
+.tracking-address {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.section-heading p {
+  margin-top: var(--space-1);
 }
 
 .lookup-grid {
+  display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
 }
 
-.task-form {
+.lookup-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+}
+
+.lookup-form :deep(.el-input-number) {
+  width: 100%;
+}
+
+.estimate-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(340px, 0.75fr);
+  gap: var(--space-6);
+}
+
+.quote-task {
+  padding-left: var(--space-6);
+  border-left: 1px solid var(--color-line);
+}
+
+.address-form,
+.quote-form,
+.address-grid,
+.quote-measures,
+.logistics-summary {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.address-form {
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-}
-
-.task-form--inline {
-  grid-template-columns: minmax(180px, 1fr) auto;
 }
 
 .address-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.task-form > .el-button {
-  justify-self: start;
+.quote-measures {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.quote-measures :deep(.el-input-number) {
+  width: 100%;
+}
+
+.address-form > .el-button,
+.quote-form > .el-button {
   min-height: 40px;
+  justify-self: start;
 }
 
 .task-error {
-  color: var(--el-color-danger);
-  font-size: 13px;
   grid-column: 1 / -1;
   margin: 0;
+  color: var(--color-danger);
+  font-size: var(--text-sm);
 }
 
 .logistics-summary {
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 0;
 }
 
 .logistics-summary div {
-  border-left: 2px solid var(--el-border-color);
-  display: grid;
-  gap: 4px;
-  padding-left: 10px;
+  min-width: 0;
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--color-line);
 }
 
-.logistics-summary dt,
-.tracking-heading p,
-.tracking-address {
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
+.logistics-summary dt {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
 }
 
-.logistics-summary dd,
-.tracking-heading p,
-.tracking-address {
-  margin: 0;
+.logistics-summary dd {
+  margin: var(--space-1) 0 0;
+  overflow-wrap: anywhere;
+  font-weight: 700;
 }
 
-.tracking-heading {
-  align-items: start;
-  display: flex;
-  gap: 12px;
-  justify-content: space-between;
-}
-
-.tracking-heading p {
-  margin-top: 4px;
+.tracking-result {
+  min-height: 300px;
 }
 
 .tracking-empty {
+  display: grid;
+  grid-template-columns: minmax(128px, 192px) minmax(0, 340px);
   align-items: center;
-  color: var(--el-text-color-secondary);
+  justify-content: center;
+  gap: var(--space-5);
+  min-height: 300px;
+}
+
+.tracking-empty > div {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.tracking-empty h2 {
+  font-size: var(--text-lg);
+}
+
+.tracking-load-error {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+  padding: var(--space-5) 0;
+}
+
+.tracking-heading {
   display: flex;
-  gap: 12px;
-  min-height: 80px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
 }
 
-@media (max-width: 820px) {
-  .lookup-grid,
-  .address-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.tracking-heading h2 {
+  margin-top: var(--space-1);
+  overflow-wrap: anywhere;
+  font-size: var(--text-xl);
 }
 
-@media (max-width: 560px) {
-  .lookup-grid,
-  .address-grid,
-  .task-form,
-  .task-form--inline {
+.tracking-heading strong {
+  font-size: var(--text-lg);
+}
+
+.tracking-address {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+@media (max-width: 920px) {
+  .estimate-workspace {
     grid-template-columns: 1fr;
   }
 
-  .task-form > *,
-  .task-form > .el-button {
-    justify-self: stretch;
+  .quote-task {
+    padding-top: var(--space-5);
+    padding-left: 0;
+    border-top: 1px solid var(--color-line);
+    border-left: 0;
+  }
+}
+
+@media (max-width: 680px) {
+  .lookup-grid,
+  .address-grid,
+  .quote-measures,
+  .logistics-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .lookup-form,
+  .address-form {
+    grid-template-columns: 1fr;
+  }
+
+  .lookup-form > *,
+  .address-form > *,
+  .address-form > .el-button,
+  .quote-form > .el-button {
     width: 100%;
   }
 
-  .task-form > .el-button {
+  .lookup-form > .el-button,
+  .address-form > .el-button,
+  .quote-form > .el-button {
     min-height: 44px;
+  }
+
+  .tracking-empty {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
   }
 }
 </style>
