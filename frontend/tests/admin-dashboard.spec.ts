@@ -111,8 +111,50 @@ test('dashboard sleeps while hidden and preserves metrics during one resume refr
   await expect(page.getByText('144', { exact: true })).toBeVisible()
   expect(requests).toBe(2)
 
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.screenshot({ path: 'output/task6-dashboard-desktop.png' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.screenshot({ path: 'output/task6-dashboard-mobile.png' })
   await expect(page.locator('html')).not.toHaveJSProperty('scrollWidth', 0)
   expect(
     await page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth + 1),
   ).toBe(true)
+})
+
+test('dashboard resume stays dormant while hidden, manual refresh remains available, and one timer resumes', async ({
+  page,
+}) => {
+  let requests = 0
+  await page.clock.install()
+  await installDashboardMocks(page, {
+    onDashboardRequest: () => {
+      requests += 1
+    },
+    resumeResponseGate: Promise.resolve(),
+  })
+  await page.goto('/dashboard')
+  await expect(page.getByText('128', { exact: true })).toBeVisible()
+  expect(requests).toBe(1)
+
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await page.getByRole('button', { name: 'Pause polling' }).click()
+  await page.getByRole('button', { name: 'Resume polling' }).click()
+  await page.clock.fastForward(15000)
+  expect(requests).toBe(1)
+
+  await page.locator('.page-header').getByRole('button', { name: 'Refresh now' }).click()
+  await expect.poll(() => requests).toBe(2)
+
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await expect.poll(() => requests).toBe(3)
+  await page.clock.fastForward(5000)
+  await expect.poll(() => requests).toBe(4)
+  await page.clock.fastForward(5000)
+  await expect.poll(() => requests).toBe(5)
 })

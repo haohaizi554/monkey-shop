@@ -20,26 +20,18 @@ const profileState = useAsyncState<UserProfileTag>()
 const productState = useAsyncState<ProductProfile>()
 const visibility = usePageVisibility()
 const polling = ref(true)
-const productId = ref(1)
+const productId = ref<number | null>(1)
+const productInputError = ref(false)
 const loadedProductId = ref<number>()
 const dashboardLastSuccessAt = ref<Date>()
 const profileLastSuccessAt = ref<Date>()
 const productLastSuccessAt = ref<Date>()
+let dashboardRequestInFlight = false
 
 const dashboard = computed(() => dashboardState.data.value)
 const myProfile = computed(() => profileState.data.value)
 const productProfile = computed(() => productState.data.value)
 const funnel = computed(() => dashboard.value?.funnel ?? [])
-const generatedAt = computed(() => {
-  if (!dashboard.value?.generatedAt) {
-    return '-'
-  }
-  return new Intl.DateTimeFormat(locale.value, {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).format(new Date(dashboard.value.generatedAt))
-})
 const metrics = computed<MetricItem[]>(() => [
   {
     key: 'page-views',
@@ -77,8 +69,8 @@ const eventLabels = computed<Record<TrackingEventType, string>>(() => ({
   UI_ERROR: t('dashboard.eventUiError'),
 }))
 
-function eventLabel(eventType: TrackingEventType): string {
-  return eventLabels.value[eventType] ?? humanize(eventType)
+function eventLabel(eventType: string): string {
+  return eventLabels.value[eventType as TrackingEventType] ?? t('common.unknown')
 }
 
 function formatSuccessfulRefresh(value?: Date): string {
@@ -89,49 +81,62 @@ function formatSuccessfulRefresh(value?: Date): string {
   }).format(value)
 }
 
-function humanize(value: string): string {
-  const normalized = value
-    .replace(/[_:-]+/g, ' ')
-    .trim()
-    .toLowerCase()
-  return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : value
+function sourceLabel(value: string): string {
+  return value === 'web' ? t('dashboard.webSource') : t('common.unknown')
 }
 
 function normalizeProfileText(text?: string): string {
   if (!text) {
     return t('dashboard.noProfileSignal')
   }
-  let normalized = text
-  for (const eventType of Object.keys(eventLabels.value) as TrackingEventType[]) {
-    normalized = normalized.replaceAll(eventType, eventLabel(eventType))
-  }
-  return normalized
-    .replaceAll('last=', `${t('dashboard.latestEvent')}: `)
-    .replaceAll('previous=', `${t('dashboard.previousEvent')}: `)
-    .replaceAll('page=', `${t('dashboard.page')}: `)
-    .replaceAll('source=web', `${t('dashboard.source')}: ${t('dashboard.webSource')}`)
-    .replaceAll('source:web', `${t('dashboard.source')}: ${t('dashboard.webSource')}`)
-    .replaceAll(',', ' · ')
+  const labels = text
+    .split(',')
+    .map((part) => {
+      const [key, ...values] = part.split('=')
+      const value = values.join('=').trim()
+      if (key === 'last') return `${t('dashboard.latestEvent')}: ${eventLabel(value)}`
+      if (key === 'previous') return `${t('dashboard.previousEvent')}: ${eventLabel(value)}`
+      if (key === 'page') return `${t('dashboard.page')}: ${value || t('common.unknown')}`
+      if (key === 'source') return `${t('dashboard.source')}: ${sourceLabel(value)}`
+      return t('common.unknown')
+    })
+    .filter(Boolean)
+
+  return labels.length > 0 ? labels.join(' \u00b7 ') : t('common.unknown')
 }
 
 function tagLabel(tag: string): string {
   const [prefix, rawValue = ''] = tag.split(':', 2)
   if (prefix === 'event') {
-    const eventType = rawValue.toUpperCase() as TrackingEventType
-    return `${t('dashboard.latestEvent')}: ${eventLabels.value[eventType] ?? humanize(rawValue)}`
+    return `${t('dashboard.latestEvent')}: ${eventLabel(rawValue.toUpperCase())}`
   }
   if (prefix === 'page') {
-    return `${t('dashboard.page')}: ${rawValue || '-'}`
+    return `${t('dashboard.page')}: ${rawValue || t('common.unknown')}`
   }
   if (prefix === 'source') {
-    return `${t('dashboard.source')}: ${rawValue === 'web' ? t('dashboard.webSource') : humanize(rawValue)}`
+    return `${t('dashboard.source')}: ${sourceLabel(rawValue)}`
   }
-  return humanize(tag)
+  return tag === 'popular' ? t('dashboard.tagPopular') : t('common.unknown')
 }
 
-async function loadDashboard() {
-  const result = await dashboardState.load(() => trackingDashboard(5), { preserveData: true })
-  if (result) dashboardLastSuccessAt.value = new Date()
+function productIdValue(value: unknown): number | null {
+  const parsed = typeof value === 'number' ? value : Number(value)
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
+}
+
+async function loadDashboard(): Promise<RealtimeDashboard | null> {
+  if (dashboardRequestInFlight) {
+    return null
+  }
+
+  dashboardRequestInFlight = true
+  try {
+    const result = await dashboardState.load(() => trackingDashboard(5), { preserveData: true })
+    if (result) dashboardLastSuccessAt.value = new Date()
+    return result
+  } finally {
+    dashboardRequestInFlight = false
+  }
 }
 
 async function loadProfile() {
@@ -140,15 +145,38 @@ async function loadProfile() {
 }
 
 async function loadProductProfile() {
-  const requestedProductId = productId.value
+  const requestedProductId = productIdValue(productId.value)
+  if (requestedProductId === null) {
+    productInputError.value = true
+    loadedProductId.value = undefined
+    productLastSuccessAt.value = undefined
+    productState.reset()
+    return
+  }
+
+  productInputError.value = false
   const isCurrentProduct = loadedProductId.value === requestedProductId
   if (!isCurrentProduct) productLastSuccessAt.value = undefined
   const result = await productState.load(() => trackingProductProfile(requestedProductId), {
     preserveData: isCurrentProduct,
   })
-  if (result) {
+  if (result && requestedProductId === productIdValue(productId.value)) {
     loadedProductId.value = requestedProductId
     productLastSuccessAt.value = new Date()
+  }
+}
+
+async function pollDashboard(): Promise<void> {
+  await loadDashboard()
+}
+
+function handleProductIdChange(value: number | undefined) {
+  productId.value = value ?? null
+  productInputError.value = productIdValue(productId.value) === null
+  if (productInputError.value) {
+    loadedProductId.value = undefined
+    productLastSuccessAt.value = undefined
+    productState.reset()
   }
 }
 
@@ -158,14 +186,19 @@ function togglePolling() {
     visibility.stop()
     return
   }
-  void loadDashboard()
-  visibility.start(loadDashboard, 5000)
+
+  visibility.start(pollDashboard, 5000)
+  if (visibility.isVisible.value) {
+    void loadDashboard()
+  }
 }
 
-onMounted(async () => {
-  await Promise.all([loadDashboard(), loadProfile(), loadProductProfile()])
-  if (polling.value) {
-    visibility.start(loadDashboard, 5000)
+onMounted(() => {
+  void loadProfile()
+  void loadProductProfile()
+  visibility.start(pollDashboard, 5000)
+  if (visibility.isVisible.value) {
+    void loadDashboard()
   }
 })
 </script>
@@ -191,7 +224,7 @@ onMounted(async () => {
           :aria-label="t('dashboard.refreshNow')"
           @click="loadDashboard"
         >
-          {{ t('dashboard.lastUpdated', { time: generatedAt }) }}
+          {{ t('dashboard.refreshNow') }}
         </el-button>
       </template>
     </PageHeader>
@@ -204,7 +237,7 @@ onMounted(async () => {
     >
       <p
         v-if="dashboardLastSuccessAt"
-        class="data-freshness"
+        class="data-freshness" data-testid="dashboard-last-success"
         :class="{ 'is-stale': dashboardState.status.value === 'error' }"
       >
         {{
@@ -287,26 +320,29 @@ onMounted(async () => {
       </section>
 
       <section class="dashboard-section profile-section" :aria-labelledby="'product-profile-title'">
-        <div class="section-heading product-profile-heading">
+        <div class="section-heading">
           <h2 id="product-profile-title">{{ t('dashboard.productProfile') }}</h2>
-          <div class="product-profile-control">
-            <span>{{ t('dashboard.productId') }}</span>
-            <el-input-number
-              v-model="productId"
-              :min="1"
-              size="small"
-              :aria-label="t('dashboard.productId')"
-              @change="loadProductProfile"
-            />
-            <el-button
-              text
-              :icon="Refresh"
-              :loading="productState.isLoading.value"
-              :aria-label="t('dashboard.refreshNow')"
-              @click="loadProductProfile"
-            />
-          </div>
         </div>
+        <div class="product-profile-control">
+          <span>{{ t('dashboard.productId') }}</span>
+          <el-input-number
+            v-model="productId"
+            :step="1"
+            size="small"
+            :aria-label="t('dashboard.productId')"
+            @change="handleProductIdChange"
+          />
+          <el-button
+            text
+            :icon="Refresh"
+            :loading="productState.isLoading.value"
+            :aria-label="t('dashboard.refreshNow')"
+            @click="loadProductProfile"
+          />
+        </div>
+        <p v-if="productInputError" class="product-input-error" role="alert">
+          {{ t('dashboard.productIdRequired') }}
+        </p>
         <time
           v-if="productLastSuccessAt"
           class="data-freshness"
@@ -336,7 +372,7 @@ onMounted(async () => {
           </p>
           <div class="tag-row">
             <el-tag v-for="tag in productProfile?.tagVector ?? []" :key="tag">
-              {{ humanize(tag) }}
+              {{ tagLabel(tag) }}
             </el-tag>
           </div>
         </AsyncStateView>
@@ -359,6 +395,10 @@ onMounted(async () => {
 }
 
 .data-freshness {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
   margin: 0;
   color: var(--color-text-muted);
   font-size: var(--text-sm);
@@ -417,6 +457,12 @@ onMounted(async () => {
   gap: var(--space-2);
 }
 
+.product-input-error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+}
+
 .tag-row {
   display: flex;
   flex-wrap: wrap;
@@ -440,7 +486,6 @@ onMounted(async () => {
 
 @media (max-width: 600px) {
   .section-heading,
-  .product-profile-heading,
   .product-profile-control {
     align-items: stretch;
     flex-direction: column;

@@ -189,6 +189,7 @@ test('user and product profiles preserve stale content and expose independent re
   await useEnglishAdmin(page)
   let userRequests = 0
   let productRequests = 0
+  let dashboardRequests = 0
 
   await page.route('**/api/v1/**', async (route) => {
     const pathname = new URL(route.request().url()).pathname.replace('/api/v1', '')
@@ -197,6 +198,7 @@ test('user and product profiles preserve stale content and expose independent re
       return
     }
     if (pathname === '/tracking/dashboard') {
+      dashboardRequests += 1
       await fulfill(route, {
         pageViews: 128,
         uniqueVisitors: 42,
@@ -248,6 +250,9 @@ test('user and product profiles preserve stale content and expose independent re
   const productSection = page.getByRole('region', { name: 'Product profile' })
   await expect(userSection).toContainText('Page view')
   await expect(productSection).toContainText('12')
+  await expect(page.getByText('128', { exact: true })).toBeVisible()
+  expect(dashboardRequests).toBe(1)
+  await page.getByRole('button', { name: 'Pause polling' }).click()
 
   await userSection.getByRole('button', { name: 'Refresh now' }).click()
   await productSection.getByRole('button', { name: 'Refresh now' }).click()
@@ -256,6 +261,8 @@ test('user and product profiles preserve stale content and expose independent re
   await expect(productSection.getByRole('alert')).toContainText('The request failed')
   await expect(userSection).toContainText('Page view')
   await expect(productSection).toContainText('12')
+  await expect(page.getByText('128', { exact: true })).toBeVisible()
+  expect(dashboardRequests).toBe(1)
   await expect(userSection.getByTestId('user-profile-last-success')).toContainText('Updated')
   await expect(productSection.getByTestId('product-profile-last-success')).toContainText('Updated')
 
@@ -265,4 +272,300 @@ test('user and product profiles preserve stale content and expose independent re
   await expect(productSection).toContainText('24')
   await expect(userSection.getByRole('alert')).toHaveCount(0)
   await expect(productSection.getByRole('alert')).toHaveCount(0)
+})
+
+test('dashboard keeps valid metrics through an error and exposes a localized retry recovery', async ({
+  page,
+}) => {
+  await useEnglishAdmin(page)
+  let dashboardRequests = 0
+
+  await page.route('**/api/v1/**', async (route) => {
+    const pathname = new URL(route.request().url()).pathname.replace('/api/v1', '')
+    if (pathname === '/users/me') {
+      await fulfill(route, { isLogin: true, identity: 'ADMIN', username: 'admin' })
+      return
+    }
+    if (pathname === '/tracking/dashboard') {
+      dashboardRequests += 1
+      if (dashboardRequests === 2) {
+        await fail(route)
+        return
+      }
+      await fulfill(route, {
+        pageViews: dashboardRequests === 1 ? 128 : 144,
+        uniqueVisitors: 42,
+        orderCount: 9,
+        paymentAmount: '8200.00',
+        funnel: [{ eventType: 'SEARCH', count: 30, conversionRate: '1' }],
+        generatedAt: '2026-07-12T08:00:00',
+        refreshIntervalSeconds: 5,
+      })
+      return
+    }
+    if (pathname === '/tracking/profile/me') {
+      await fulfill(route, {
+        userId: 1,
+        profileSummary: 'last=PAGE_VIEW',
+        behaviorTags: [],
+        interestTags: [],
+        lastEventAt: '2026-07-12T08:00:00',
+        version: 1,
+      })
+      return
+    }
+    if (pathname === '/tracking/products/1') {
+      await fulfill(route, {
+        productId: 1,
+        tagVector: [],
+        salesCount: 12,
+        reviewScore: '4.8',
+        lastEventAt: '2026-07-12T08:00:00',
+        version: 1,
+      })
+      return
+    }
+    await fulfill(route, [])
+  })
+
+  await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByText('128', { exact: true })).toBeVisible()
+  await page.locator('.page-header').getByRole('button', { name: 'Refresh now' }).click()
+  await expect(page.getByRole('alert')).toContainText('The request failed')
+  await expect(page.getByText('128', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('dashboard-last-success')).toContainText('Updated')
+  await page.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(page.getByText('144', { exact: true })).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+})
+
+test('profile labels use known localizations and safe fallbacks for unknown tracking tokens', async ({
+  page,
+}) => {
+  await useEnglishAdmin(page)
+
+  await page.route('**/api/v1/**', async (route) => {
+    const pathname = new URL(route.request().url()).pathname.replace('/api/v1', '')
+    if (pathname === '/users/me') {
+      await fulfill(route, { isLogin: true, identity: 'ADMIN', username: 'admin' })
+      return
+    }
+    if (pathname === '/tracking/dashboard') {
+      await fulfill(route, {
+        pageViews: 128,
+        uniqueVisitors: 42,
+        orderCount: 9,
+        paymentAmount: '8200.00',
+        funnel: [
+          { eventType: 'SEARCH', count: 30, conversionRate: '1' },
+          { eventType: 'INTERNAL_EVENT_TOKEN', count: 1, conversionRate: '0.1' },
+        ],
+        generatedAt: '2026-07-12T08:00:00',
+        refreshIntervalSeconds: 5,
+      })
+      return
+    }
+    if (pathname === '/tracking/profile/me') {
+      await fulfill(route, {
+        userId: 1,
+        profileSummary:
+          'last=INTERNAL_EVENT_TOKEN,previous=SEARCH,page=/dashboard,source=web',
+        behaviorTags: ['event:INTERNAL_EVENT_TOKEN', 'page:/dashboard'],
+        interestTags: ['source:internal_system', 'INTERNAL_PROFILE_TOKEN'],
+        lastEventAt: '2026-07-12T08:00:00',
+        version: 1,
+      })
+      return
+    }
+    if (pathname === '/tracking/products/1') {
+      await fulfill(route, {
+        productId: 1,
+        tagVector: ['popular', 'INTERNAL_PRODUCT_TOKEN'],
+        salesCount: 12,
+        reviewScore: '4.8',
+        lastEventAt: '2026-07-12T08:00:00',
+        version: 1,
+      })
+      return
+    }
+    await fulfill(route, [])
+  })
+
+  await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+  const userSection = page.getByRole('region', { name: 'User profile' })
+  const productSection = page.getByRole('region', { name: 'Product profile' })
+  await expect(page.locator('.el-table').getByText('Search', { exact: true })).toBeVisible()
+  await expect(userSection).toContainText('Latest event: Unknown')
+  await expect(userSection).toContainText('Previous event: Search')
+  await expect(userSection).toContainText('Page: /dashboard')
+  await expect(userSection).toContainText('Source: Web')
+  await expect(userSection.locator('.tag-row')).toContainText('Unknown')
+  await expect(productSection.locator('.tag-row')).toContainText('Unknown')
+  await expect(productSection).toContainText('Popular')
+  for (const rawToken of [
+    'INTERNAL_EVENT_TOKEN',
+    'INTERNAL_PROFILE_TOKEN',
+    'INTERNAL_PRODUCT_TOKEN',
+    'internal_system',
+  ]) {
+    await expect(page.locator('body')).not.toContainText(rawToken)
+  }
+})
+test('product ID validation blocks invalid requests and clears after a valid selection', async ({ page }) => {
+  await useEnglishAdmin(page)
+  let productRequests = 0
+
+  await page.route('**/api/v1/**', async (route) => {
+    const pathname = new URL(route.request().url()).pathname.replace('/api/v1', '')
+    if (pathname === '/users/me') {
+      await fulfill(route, { isLogin: true, identity: 'ADMIN', username: 'admin' })
+      return
+    }
+    if (pathname === '/tracking/dashboard') {
+      await fulfill(route, {
+        pageViews: 128,
+        uniqueVisitors: 42,
+        orderCount: 9,
+        paymentAmount: '8200.00',
+        funnel: [],
+        generatedAt: '2026-07-12T08:00:00',
+        refreshIntervalSeconds: 5,
+      })
+      return
+    }
+    if (pathname === '/tracking/profile/me') {
+      await fulfill(route, {
+        userId: 1,
+        profileSummary: 'last=PAGE_VIEW',
+        behaviorTags: [],
+        interestTags: [],
+        lastEventAt: '2026-07-12T08:00:00',
+        version: 1,
+      })
+      return
+    }
+    if (pathname.match(/^\/tracking\/products\/\d+$/)) {
+      productRequests += 1
+      const productId = Number(pathname.split('/').at(-1))
+      await fulfill(route, {
+        productId,
+        tagVector: [],
+        salesCount: productId === 2 ? 20 : 12,
+        reviewScore: '4.8',
+        lastEventAt: '2026-07-12T08:00:00',
+        version: productRequests,
+      })
+      return
+    }
+    await fulfill(route, [])
+  })
+
+  await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+  const productSection = page.getByRole('region', { name: 'Product profile' })
+  const productId = productSection.getByLabel('Product ID')
+  await expect(productSection).toContainText('12')
+  expect(productRequests).toBe(1)
+
+  for (const invalidId of ['0', '-1', '']) {
+    await productId.fill(invalidId)
+    await productId.press('Tab')
+    await expect(productSection.getByRole('alert')).toContainText('Enter a positive product ID')
+    await productSection.getByRole('button', { name: 'Refresh now' }).click()
+    expect(productRequests).toBe(1)
+  }
+
+  await productId.fill('2')
+  await productId.press('Tab')
+  await expect(productSection.getByRole('alert')).toHaveCount(0)
+  await productSection.getByRole('button', { name: 'Refresh now' }).click()
+  await expect.poll(() => productRequests).toBe(2)
+  await expect(productSection).toContainText('20')
+})
+
+test('product profile keeps the newest product response and does not clear dashboard or user data', async ({
+  page,
+}) => {
+  await useEnglishAdmin(page)
+  let dashboardRequests = 0
+  let profileRequests = 0
+  let resolveProductTwo!: () => void
+  const productTwo = new Promise<void>((resolve) => {
+    resolveProductTwo = resolve
+  })
+
+  await page.route('**/api/v1/**', async (route) => {
+    const pathname = new URL(route.request().url()).pathname.replace('/api/v1', '')
+    if (pathname === '/users/me') {
+      await fulfill(route, { isLogin: true, identity: 'ADMIN', username: 'admin' })
+      return
+    }
+    if (pathname === '/tracking/dashboard') {
+      dashboardRequests += 1
+      await fulfill(route, {
+        pageViews: 128,
+        uniqueVisitors: 42,
+        orderCount: 9,
+        paymentAmount: '8200.00',
+        funnel: [],
+        generatedAt: '2026-07-12T08:00:00',
+        refreshIntervalSeconds: 5,
+      })
+      return
+    }
+    if (pathname === '/tracking/profile/me') {
+      profileRequests += 1
+      await fulfill(route, {
+        userId: 1,
+        profileSummary: profileRequests === 1 ? 'last=PAGE_VIEW' : 'last=SEARCH',
+        behaviorTags: [],
+        interestTags: [],
+        lastEventAt: '2026-07-12T08:00:00',
+        version: profileRequests,
+      })
+      return
+    }
+    if (pathname.match(/^\/tracking\/products\/\d+$/)) {
+      const productId = Number(pathname.split('/').at(-1))
+      if (productId === 2) {
+        await productTwo
+      }
+      await fulfill(route, {
+        productId,
+        tagVector: [],
+        salesCount: productId === 3 ? 30 : productId === 2 ? 20 : 12,
+        reviewScore: '4.8',
+        lastEventAt: '2026-07-12T08:00:00',
+        version: productId,
+      })
+      return
+    }
+    await fulfill(route, [])
+  })
+
+  await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+  const userSection = page.getByRole('region', { name: 'User profile' })
+  const productSection = page.getByRole('region', { name: 'Product profile' })
+  const productId = productSection.getByLabel('Product ID')
+  await expect(productSection).toContainText('12')
+  expect(dashboardRequests).toBe(1)
+  await page.getByRole('button', { name: 'Pause polling' }).click()
+
+  await userSection.getByRole('button', { name: 'Refresh now' }).click()
+  await expect(userSection).toContainText('Search')
+  expect(profileRequests).toBe(2)
+  expect(dashboardRequests).toBe(1)
+
+  await productId.fill('2')
+  await productId.press('Tab')
+  await productSection.getByRole('button', { name: 'Refresh now' }).click()
+  await expect(productSection).not.toContainText('12')
+
+  await productId.fill('3')
+  await productId.press('Tab')
+  await productSection.getByRole('button', { name: 'Refresh now' }).click()
+  await expect(productSection).toContainText('30')
+  resolveProductTwo()
+  await expect(productSection).toContainText('30')
+  expect(dashboardRequests).toBe(1)
+  await expect(userSection).toContainText('Search')
 })
