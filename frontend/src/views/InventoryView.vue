@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { CircleCheck, Refresh, Search, WarningFilled } from '@element-plus/icons-vue'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { LocationQuery, LocationQueryRaw } from 'vue-router'
 import {
@@ -65,12 +65,16 @@ const mutationSkuByKey = new Map<string, number>()
 let stockLoadTimer: ReturnType<typeof setTimeout> | undefined
 
 const stocks = computed(() => stocksState.data.value ?? [])
+const appliedRegion = ref('')
 const normalizedRegion = computed(() => query.region.trim().toLocaleLowerCase())
+const displayedRegion = computed(() =>
+  stocksState.status.value === 'updating' ? appliedRegion.value : normalizedRegion.value,
+)
 const filteredStocks = computed(() => {
-  if (!normalizedRegion.value) return stocks.value
+  if (!displayedRegion.value) return stocks.value
   return stocks.value.filter((stock) => {
     const haystack = `${stock.province ?? ''} ${stock.warehouseCode ?? ''}`.toLocaleLowerCase()
-    return haystack.includes(normalizedRegion.value)
+    return haystack.includes(displayedRegion.value)
   })
 })
 const totalAvailable = computed(() =>
@@ -79,7 +83,6 @@ const totalAvailable = computed(() =>
 const totalLocked = computed(() =>
   filteredStocks.value.reduce((sum, stock) => sum + stock.lockedQuantity, 0),
 )
-const inventoryMutationPending = computed(() => pendingKeys.value.size > 0)
 const currentStockMutationPending = computed(() => {
   const skuId = query.skuId
   return (
@@ -159,17 +162,17 @@ function patchReservation(nextReservation: InventoryReservation) {
   if (query.skuId === nextReservation.skuId) patchStock(nextReservation.stock)
 }
 
+function discrepancyKey(row: InventoryDiscrepancy): string {
+  return `${row.skuId}:${row.warehouseId}`
+}
+
 function mergeDiscrepancies(
   previous: InventoryDiscrepancy[],
   next: InventoryDiscrepancy[],
 ): InventoryDiscrepancy[] {
-  const nextKeys = new Set(next.map((row) => `${row.skuId}:${row.warehouseId}`))
-  const merged = previous.filter((row) => nextKeys.has(`${row.skuId}:${row.warehouseId}`))
+  const merged = [...previous]
   for (const row of next) {
-    const key = `${row.skuId}:${row.warehouseId}`
-    const index = merged.findIndex(
-      (candidate) => `${candidate.skuId}:${candidate.warehouseId}` === key,
-    )
+    const index = merged.findIndex((candidate) => discrepancyKey(candidate) === discrepancyKey(row))
     if (index >= 0) merged.splice(index, 1, row)
     else merged.push(row)
   }
@@ -179,14 +182,17 @@ function mergeDiscrepancies(
 async function loadStocks() {
   if (currentStockMutationPending.value) return
   if (!query.skuId) {
+    appliedRegion.value = ''
     stocksState.reset()
     return
   }
   const skuId = query.skuId
-  await stocksState.load(() => inventoryStocks(skuId), {
+  const requestedRegion = normalizedRegion.value
+  const loaded = await stocksState.load(() => inventoryStocks(skuId), {
     preserveData: true,
     isEmpty: (rows) => rows.length === 0,
   })
+  if (loaded !== null) appliedRegion.value = requestedRegion
 }
 
 function scheduleStockLoad() {
@@ -254,12 +260,15 @@ async function releaseReservation(reservation: InventoryReservation) {
 }
 
 async function runReconciliation() {
-  if (inventoryMutationPending.value) return
+  if (reconciliationState.isLoading.value) return
   const previous = reconciliation.value?.discrepancies ?? []
-  await reconciliationState.load(async () => {
-    const next = await reconcileInventory()
-    return { ...next, discrepancies: mergeDiscrepancies(previous, next.discrepancies) }
-  })
+  await reconciliationState.load(
+    async () => {
+      const next = await reconcileInventory()
+      return { ...next, discrepancies: mergeDiscrepancies(previous, next.discrepancies) }
+    },
+    { isEmpty: (result) => result.discrepancies.length === 0 },
+  )
 }
 
 watch(
@@ -267,6 +276,10 @@ watch(
   () => scheduleStockLoad(),
   { immediate: true },
 )
+
+onMounted(() => {
+  void replaceNow().catch(() => undefined)
+})
 
 onBeforeUnmount(() => {
   if (stockLoadTimer) clearTimeout(stockLoadTimer)
@@ -317,7 +330,7 @@ onBeforeUnmount(() => {
         <el-button
           :icon="Refresh"
           :loading="reconciliationState.isLoading.value"
-          :disabled="inventoryMutationPending"
+          :disabled="reconciliationState.isLoading.value"
           @click="runReconciliation"
         >
           {{ t('inventory.reconcile') }}
@@ -369,7 +382,7 @@ onBeforeUnmount(() => {
                   {{
                     row.belowSafetyStock ? t('inventory.safetyLow') : t('inventory.safetyHealthy')
                   }}
-                  · {{ row.safetyStock }}
+                  {{ t('inventory.safetyThreshold', { value: row.safetyStock }) }}
                 </span>
               </template>
             </el-table-column>
@@ -444,34 +457,44 @@ onBeforeUnmount(() => {
       </DataTableShell>
     </section>
 
-    <section v-if="reconciliation" class="inventory-section" :aria-labelledby="'discrepancy-title'">
+    <section class="inventory-section" :aria-labelledby="'discrepancy-title'">
       <h2 id="discrepancy-title">{{ t('inventory.discrepancies') }}</h2>
-      <DataTableShell
-        :empty="discrepancies.length === 0"
-        :aria-label="t('inventory.discrepancies')"
+      <AsyncStateView
+        :status="reconciliationState.status.value"
+        :error="reconciliationState.error.value"
+        :empty-title="t('inventory.noDiscrepancies')"
+        @retry="runReconciliation"
       >
-        <template #empty>{{ t('inventory.noDiscrepancies') }}</template>
-        <el-table :data="discrepancies" row-key="warehouseId" size="small">
-          <el-table-column prop="skuId" label="SKU" width="100" />
-          <el-table-column prop="warehouseId" :label="t('inventory.warehouse')" width="120" />
-          <el-table-column prop="actualLocked" :label="t('inventory.actualLocked')" width="120" />
-          <el-table-column
-            prop="expectedLocked"
-            :label="t('inventory.expectedLocked')"
-            width="130"
-          />
-          <el-table-column
-            prop="actualDeducted"
-            :label="t('inventory.actualDeducted')"
-            width="130"
-          />
-          <el-table-column
-            prop="expectedDeducted"
-            :label="t('inventory.expectedDeducted')"
-            width="140"
-          />
-        </el-table>
-      </DataTableShell>
+        <template #idle>
+          <p class="section-hint">{{ t('inventory.reconciliationHint') }}</p>
+        </template>
+        <DataTableShell
+          :empty="discrepancies.length === 0"
+          :aria-label="t('inventory.discrepancies')"
+        >
+          <template #empty>{{ t('inventory.noDiscrepancies') }}</template>
+          <el-table :data="discrepancies" :row-key="discrepancyKey" size="small">
+            <el-table-column prop="skuId" :label="t('inventory.skuId')" width="100" />
+            <el-table-column prop="warehouseId" :label="t('inventory.warehouse')" width="120" />
+            <el-table-column prop="actualLocked" :label="t('inventory.actualLocked')" width="120" />
+            <el-table-column
+              prop="expectedLocked"
+              :label="t('inventory.expectedLocked')"
+              width="130"
+            />
+            <el-table-column
+              prop="actualDeducted"
+              :label="t('inventory.actualDeducted')"
+              width="130"
+            />
+            <el-table-column
+              prop="expectedDeducted"
+              :label="t('inventory.expectedDeducted')"
+              width="140"
+            />
+          </el-table>
+        </DataTableShell>
+      </AsyncStateView>
     </section>
   </div>
 </template>
@@ -541,6 +564,10 @@ onBeforeUnmount(() => {
 
 .safety-state[data-low='true'] {
   color: var(--color-warning);
+}
+
+.inventory-section :deep(.data-table-shell__scroller > .el-table) {
+  min-width: 760px;
 }
 
 @media (max-width: 600px) {
