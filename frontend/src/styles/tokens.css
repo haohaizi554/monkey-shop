@@ -37,6 +37,13 @@
   --color-auth-visual: #182230;
   --color-shadow-ink: #182230;
   --color-overlay: rgb(23 32 51 / 0.42);
+  --color-admin-chrome: #17221D;
+  --color-admin-chrome-raised: #223129;
+  --color-admin-chrome-text: #F3F7F4;
+  --color-admin-chrome-muted: #AAB9B0;
+  --color-admin-chrome-line: #34473D;
+  --color-admin-chrome-accent: #F2C36F;
+  --color-admin-chrome-accent-soft: #3B3221;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -156,6 +163,13 @@ html.dark {
   --color-danger-soft: #492522;
   --color-auth-visual: #111513;
   --color-overlay: rgb(0 0 0 / 0.58);
+  --color-admin-chrome: #090D0B;
+  --color-admin-chrome-raised: #141B17;
+  --color-admin-chrome-text: #F1F5F2;
+  --color-admin-chrome-muted: #A7B1AB;
+  --color-admin-chrome-line: #2B3931;
+  --color-admin-chrome-accent: #E9B76C;
+  --color-admin-chrome-accent-soft: #332818;
   --shadow-surface: 0 1px 2px rgb(0 0 0 / 0.24), 0 8px 22px rgb(0 0 0 / 0.2);
   --shadow-card: var(--shadow-surface);
   --shadow-overlay: 0 18px 48px rgb(0 0 0 / 0.38);

@@ -38,7 +38,7 @@ const groups = computed(() => [
     label: t('nav.adminOps'),
     links: [
       { to: '/dashboard', label: t('nav.dashboard'), icon: DataAnalysis },
-      { to: '/risk', label: t('nav.risk'), icon: Warning },
+      { to: '/risk', label: t('nav.riskReview'), icon: Warning },
       { to: '/tenants', label: t('nav.tenants'), icon: OfficeBuilding },
     ] satisfies AdminLink[],
   },
@@ -111,7 +111,10 @@ useEventListener(window, 'keydown', onKeydown)
   >
     <RouterLink class="admin-brand" to="/admin" :aria-label="$t('nav.admin')">
       <span class="brand-mark" aria-hidden="true"><Goods /></span>
-      <span>MonkeyShop</span>
+      <span class="admin-brand__copy">
+        <strong>MonkeyShop</strong>
+        <small>{{ $t('nav.operationsWorkspace') }}</small>
+      </span>
     </RouterLink>
     <nav :aria-label="$t('nav.adminNavigation')">
       <section v-for="group in groups" :key="group.label" class="admin-nav-group">

@@ -1665,3 +1665,104 @@ html.dark .el-message--success {
     border-top: 1px solid var(--color-line);
   }
 }
+
+/* Admin workspace surfaces remain dense, bounded, and token-backed. */
+.app-shell[data-area='admin'] .page-header {
+  align-items: flex-start;
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--color-line-strong);
+}
+
+.app-shell[data-area='admin'] .page-header h1 {
+  font-size: var(--text-2xl);
+}
+
+.app-shell[data-area='admin'] .page-header__description {
+  max-width: 780px;
+  font-size: var(--text-sm);
+}
+
+.app-shell[data-area='admin'] .admin-page-toolbar {
+  padding: var(--space-3) var(--space-4);
+  border-block: 1px solid var(--color-line);
+  border-left: 3px solid var(--color-brand);
+  background: var(--color-surface-subtle);
+  box-shadow: none;
+}
+
+.app-shell[data-area='admin'] .metric-strip {
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-surface);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-surface);
+}
+
+.app-shell[data-area='admin'] .metric-strip__item {
+  border-top: 3px solid var(--color-line-strong);
+  background: var(--color-surface-raised);
+}
+
+.app-shell[data-area='admin'] .metric-strip__item[data-tone='info'] {
+  border-top-color: var(--color-info);
+}
+
+.app-shell[data-area='admin'] .metric-strip__item[data-tone='success'] {
+  border-top-color: var(--color-success);
+}
+
+.app-shell[data-area='admin'] .metric-strip__item[data-tone='warning'] {
+  border-top-color: var(--color-warning);
+}
+
+.app-shell[data-area='admin'] .metric-strip__item[data-tone='danger'] {
+  border-top-color: var(--color-danger);
+}
+
+.app-shell[data-area='admin'] .metric-strip__item strong {
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+}
+
+.app-shell[data-area='admin'] .data-table-shell {
+  border-color: var(--color-line-strong);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-surface);
+}
+
+.app-shell[data-area='admin'] .data-table-shell__toolbar,
+.app-shell[data-area='admin'] .data-table-shell__footer {
+  background: var(--color-surface-subtle);
+}
+
+.app-shell[data-area='admin'] .data-table-shell .el-table th.el-table__cell {
+  background: var(--color-surface-subtle);
+  color: var(--color-text);
+  font-size: var(--text-xs);
+  font-weight: 750;
+}
+
+.app-shell[data-area='admin'] .data-table-shell .el-table td.el-table__cell {
+  background: var(--color-surface-raised);
+}
+
+.app-shell[data-area='admin'] .data-table-shell .el-table__body tr:hover > td.el-table__cell {
+  background: var(--color-brand-soft);
+}
+
+@media (max-width: 760px) {
+  .app-shell[data-area='admin'] .page-header {
+    gap: var(--space-3);
+  }
+
+  .app-shell[data-area='admin'] .admin-page-toolbar {
+    margin-inline: calc(var(--space-3) * -1);
+    padding-inline: var(--space-3);
+    border-left: 0;
+  }
+}
+
+.app-shell[data-area='admin'] .admin-page-toolbar .field-control > span {
+  color: var(--color-text);
+  font-weight: 650;
+}

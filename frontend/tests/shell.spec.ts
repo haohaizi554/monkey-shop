@@ -119,6 +119,26 @@ test('admin routes replace consumer chrome with sidebar and topbar', async ({ pa
   await expect(page.getByRole('navigation', { name: 'Primary' })).toHaveCount(0)
 })
 
+test('admin shell owns one content heading and searchable workspace navigation', async ({
+  page,
+}) => {
+  await installShellMocks(page, { isLogin: true, identity: 'ADMIN', username: 'admin' })
+  await page.goto('/admin')
+
+  await expect(page.locator('h1')).toHaveCount(1)
+  await expect(page.locator('.admin-topbar h1')).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Search workspace', exact: true }).click()
+  const commandDialog = page.getByRole('dialog', { name: 'Go to workspace' })
+  await expect(commandDialog).toBeVisible()
+  await commandDialog.getByRole('searchbox', { name: 'Search workspace' }).fill('risk')
+  await expect(commandDialog.getByRole('link', { name: 'Risk review', exact: true })).toBeVisible()
+  await commandDialog.getByRole('link', { name: 'Risk review', exact: true }).click()
+
+  await expect(page).toHaveURL(/\/risk$/)
+  await expect(commandDialog).toBeHidden()
+})
+
 test('consumer mobile routes expose bottom navigation', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await installShellMocks(page, { isLogin: true, identity: 'USER', username: 'member' })

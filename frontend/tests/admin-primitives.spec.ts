@@ -48,6 +48,9 @@ test('admin toolbar and metrics remain dense and bounded at 390px', async ({ pag
     const search = document.querySelector<HTMLElement>('.admin-page-toolbar__search .el-input')
     const action = document.querySelector<HTMLElement>('.page-header__actions button')
     const metric = document.querySelector<HTMLElement>('.metric-strip__item strong')
+    const metricStrip = document.querySelector<HTMLElement>('.metric-strip')
+    const sidebar = document.querySelector<HTMLElement>('.admin-sidebar')
+    const canvas = document.querySelector<HTMLElement>('.app-shell')
     return {
       pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       toolbarShadow: toolbar ? getComputedStyle(toolbar).boxShadow : '',
@@ -55,6 +58,10 @@ test('admin toolbar and metrics remain dense and bounded at 390px', async ({ pag
       toolbarWidth: toolbar?.getBoundingClientRect().width ?? 0,
       actionHeight: action?.getBoundingClientRect().height ?? 0,
       metricNumerals: metric ? getComputedStyle(metric).fontVariantNumeric : '',
+      metricRadius: metricStrip ? Number.parseFloat(getComputedStyle(metricStrip).borderRadius) : 0,
+      metricBackground: metricStrip ? getComputedStyle(metricStrip).backgroundColor : '',
+      sidebarBackground: sidebar ? getComputedStyle(sidebar).backgroundColor : '',
+      canvasBackground: canvas ? getComputedStyle(canvas).backgroundColor : '',
       realAdminMounted: Boolean(document.querySelector('.admin-page')),
     }
   })
@@ -65,4 +72,8 @@ test('admin toolbar and metrics remain dense and bounded at 390px', async ({ pag
   expect(geometry.searchWidth).toBeLessThanOrEqual(geometry.toolbarWidth)
   expect(Math.round(geometry.actionHeight)).toBeGreaterThanOrEqual(44)
   expect(geometry.metricNumerals).toContain('tabular-nums')
+  expect(geometry.metricRadius).toBeGreaterThan(0)
+  expect(geometry.metricRadius).toBeLessThanOrEqual(8)
+  expect(geometry.metricBackground).not.toBe('rgba(0, 0, 0, 0)')
+  expect(geometry.sidebarBackground).not.toBe(geometry.canvasBackground)
 })
