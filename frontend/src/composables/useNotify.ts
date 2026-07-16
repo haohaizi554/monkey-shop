@@ -1,4 +1,5 @@
 import { ElMessageBox } from 'element-plus'
+import 'element-plus/theme-chalk/el-message-box.css'
 import { reactive, readonly } from 'vue'
 import { ApiError } from '@/api/http'
 import { i18n } from '@/locales'
