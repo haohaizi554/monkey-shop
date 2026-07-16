@@ -427,10 +427,9 @@ test('a failed refund retry reuses the same business idempotency key', async ({ 
   await refundForm.getByRole('spinbutton').fill('20')
   for (let attempt = 0; attempt < 2; attempt += 1) {
     await refundForm.getByRole('button', { name: 'Refund', exact: true }).click()
-    await page
-      .locator('.el-message-box:visible')
-      .getByRole('button', { name: 'OK', exact: true })
-      .click()
+    const confirmation = page.locator('.el-message-box:visible').last()
+    await confirmation.getByRole('button', { name: 'OK', exact: true }).click()
+    await expect(confirmation).toBeHidden()
     await expect.poll(() => calls).toBe(attempt + 1)
     if (attempt === 0) {
       await expect(refundForm.getByRole('button', { name: 'Refund', exact: true })).toBeEnabled()

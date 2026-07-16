@@ -17,25 +17,40 @@ test.beforeEach(async ({ page }) => {
       }),
     })
   })
-  await page.route('**/api/v1/monkeys', async (route) => {
+  await page.route(/\/api\/v1\/monkeys(?:\?.*)?$/, async (route) => {
     expectTraceHeader(route)
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
         code: 'OK',
         message: 'ok',
-        data: [
-          {
-            id: 1,
-            name: 'Golden Snub-nosed',
-            breed: 'Rhinopithecus roxellana',
-            price: '128.00',
-            description: 'Healthy and ready for browsing.',
-            imageUrl: '/images/default_product.jpg',
-            stock: 3,
-          },
-        ],
+        data: {
+          content: [
+            {
+              id: 1,
+              name: 'Golden Snub-nosed',
+              breed: 'Rhinopithecus roxellana',
+              price: '128.00',
+              description: 'Healthy and ready for browsing.',
+              imageUrl: '/images/default_product.jpg',
+              stock: 3,
+            },
+          ],
+          page: 0,
+          size: 100,
+          totalElements: 1,
+          totalPages: 1,
+          first: true,
+          last: true,
+        },
       }),
+    })
+  })
+  await page.route('**/api/v1/catalog/categories/tree', async (route) => {
+    expectTraceHeader(route)
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 'OK', message: 'ok', data: [] }),
     })
   })
   await page.route('**/api/v1/tracking/events', async (route) => {
@@ -72,6 +87,22 @@ test.beforeEach(async ({ page }) => {
       }),
     })
   })
+  await page.route('**/api/v1/catalog/spus/1/price**', async (route) => {
+    expectTraceHeader(route)
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        code: 'OK',
+        message: 'ok',
+        data: {
+          spuId: 1,
+          salePrice: '118.00',
+          strikePrice: '168.00',
+          strategy: 'ANONYMOUS',
+        },
+      }),
+    })
+  })
   await page.route('**/images/default_product.jpg', async (route) => {
     await route.fulfill({
       contentType: 'image/svg+xml',
@@ -100,14 +131,14 @@ test('app shell toggles language and dark theme', async ({ page }) => {
   await expect(
     page
       .getByRole('navigation', { name: '\u4e3b\u5bfc\u822a' })
-      .getByRole('link', { name: '商城', exact: true }),
+      .getByRole('link', { name: '发现', exact: true }),
   ).toBeVisible()
 
   await page.getByRole('button', { name: '切换语言', exact: true }).click()
   await expect(
     page
       .getByRole('navigation', { name: 'Primary' })
-      .getByRole('link', { name: 'Shop', exact: true }),
+      .getByRole('link', { name: 'Discover', exact: true }),
   ).toBeVisible()
   await expect
     .poll(async () => page.evaluate(() => localStorage.getItem('monkeyshop-locale')))
