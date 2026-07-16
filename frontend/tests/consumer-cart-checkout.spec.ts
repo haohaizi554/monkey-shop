@@ -28,6 +28,31 @@ const cart = {
   selectedAmount: '128.00',
 }
 
+const addressPage = {
+  content: [
+    {
+      id: 1,
+      receiverName: 'Avery Chen',
+      phone: '13800000001',
+      detailAddress: 'No. 18 West Lake Road, Hangzhou',
+      isDefault: 1,
+    },
+    {
+      id: 2,
+      receiverName: 'Jordan Lee',
+      phone: '13800000002',
+      detailAddress: 'No. 66 Huaihai Road, Shanghai',
+      isDefault: 0,
+    },
+  ],
+  page: 0,
+  size: 100,
+  totalElements: 2,
+  totalPages: 1,
+  first: true,
+  last: true,
+}
+
 const checkoutPreview = {
   id: 1,
   checkoutNo: 'CO-PREVIEW-001',
@@ -45,6 +70,8 @@ const checkoutPreview = {
       shopId: 11,
       orderNo: 'SO-PREVIEW-001',
       originalAmount: '128.00',
+      storeDiscountAmount: '3.00',
+      platformDiscountAmount: '5.00',
       discountAmount: '8.00',
       payableAmount: '120.00',
       status: 'RESERVED',
@@ -78,10 +105,17 @@ const checkoutOk = {
     originalAmount: '128.00',
     discountAmount: '0.00',
     payableAmount: '128.00',
-    status: 'RESERVED',
+    status: 'CHECKED_OUT',
     province: 'CN-ZJ',
     createdAt: '2026-07-12T00:00:00+08:00',
-    subOrders: [],
+    subOrders: [
+      {
+        ...checkoutPreview.subOrders[0],
+        status: 'CHECKED_OUT',
+        formalOrderId: 501,
+      },
+    ],
+    orderIds: [501],
   },
 }
 
@@ -108,6 +142,8 @@ async function installConsumerMocks(page: Page) {
       }
     } else if (pathname === '/cart' && request.method() === 'GET') {
       data = cart
+    } else if (pathname === '/addresses' && request.method() === 'GET') {
+      data = addressPage
     } else if (pathname === '/tracking/events') {
       data = { id: 1, eventType: 'PAGE_VIEW' }
     }
@@ -312,7 +348,7 @@ test('checkout sends one request while submit is pending', async ({ page }) => {
   })
 
   await page.goto('/checkout')
-  await page.getByPlaceholder('Address ID').fill('1')
+  await expect(page.getByRole('radio', { name: /Avery Chen/ })).toBeChecked()
   const submit = page.getByRole('button', { name: 'Submit', exact: true })
   const widthBefore = (await submit.boundingBox())?.width ?? 0
 
@@ -327,7 +363,191 @@ test('checkout sends one request while submit is pending', async ({ page }) => {
   expect(idempotencyKey).not.toBe('')
 
   releaseCheckout()
-  await expect(page).toHaveURL(/\/orders$/)
+  await expect(page).toHaveURL(/\/payment\/501/)
+})
+
+test('multi-shop checkout carries every persisted order into the payment queue', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/cart/checkout', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...checkoutOk,
+        data: {
+          ...checkoutOk.data,
+          orderIds: [501, 502],
+          subOrders: [
+            ...checkoutOk.data.subOrders,
+            {
+              ...checkoutOk.data.subOrders[0],
+              id: 22,
+              shopId: 22,
+              orderNo: 'SO-UI-002',
+              formalOrderId: 502,
+            },
+          ],
+        },
+      }),
+    })
+  })
+
+  await page.goto('/checkout')
+  await expect(page.getByRole('radio', { name: /Avery Chen/ })).toBeChecked()
+  await page.getByRole('button', { name: 'Submit', exact: true }).click()
+
+  await expect(page).toHaveURL(/\/payment\/501\?orderIds=501(?:%2C|,)502/)
+  await expect(page.getByRole('button', { name: 'Order ID 501' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await page.getByRole('button', { name: 'Order ID 502' }).click()
+  await expect(page).toHaveURL(/\/payment\/502\?orderIds=501(?:%2C|,)502/)
+})
+
+test('checkout renders real address choices and separates discount allocations', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/cart/checkout/preview', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(ok(checkoutPreview)),
+    })
+  })
+
+  await page.goto('/checkout')
+  const defaultAddress = page.getByRole('radio', { name: /Avery Chen/ })
+  await expect(defaultAddress).toBeChecked()
+  await expect(page.locator('.address-option').filter({ hasText: 'Avery Chen' })).toContainText(
+    'No. 18 West Lake Road',
+  )
+  await page.getByPlaceholder('Province').fill('CN-ZJ')
+  await page.getByRole('button', { name: 'Preview', exact: true }).click()
+
+  const suborder = page.locator('.suborder-section').filter({ hasText: 'Curious Capuchin' })
+  await expect(suborder.getByText('Store discount')).toBeVisible()
+  await expect(suborder.getByText('3.00', { exact: true })).toBeVisible()
+  await expect(suborder.getByText('Platform discount')).toBeVisible()
+  await expect(suborder.getByText('5.00', { exact: true })).toBeVisible()
+  await expect(page.locator('.checkout-summary')).toContainText('Freight')
+})
+
+test('empty cart uses the cart mascot instead of a generic text placeholder', async ({ page }) => {
+  await page.route('**/api/v1/cart', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        ok({ userId: 7, items: [], selectedQuantity: 0, selectedAmount: '0.00' }),
+      ),
+    })
+  })
+
+  await page.goto('/cart')
+  await expect(page.locator('img.mascot-state[data-pose="cart"]')).toBeVisible()
+})
+
+test('pending payment stays pending with an explicit status query action', async ({ page }) => {
+  await page.route('**/api/v1/payments/orders/501', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        ok({
+          id: 81,
+          paymentNo: 'PAY-501',
+          orderId: 501,
+          userId: 7,
+          method: 'WECHAT',
+          amount: '120.00',
+          paidAmount: '0.00',
+          refundedAmount: '0.00',
+          status: 'PENDING',
+          createTime: '2026-07-12T00:00:00+08:00',
+        }),
+      ),
+    })
+  })
+
+  await page.goto('/payment/501')
+  await expect(page.locator('img.mascot-state[data-pose="hourglass"]')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Check status' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Submit payment', exact: true })).toBeHidden()
+  await expect(page.locator('img.mascot-state[data-pose="celebrate"]')).toHaveCount(0)
+  await expect(page.locator('body')).not.toContainText('Payment successful')
+})
+
+test('payment creation returning pending never emits a success state', async ({ page }) => {
+  await page.route('**/api/v1/payments/orders/601', async (route) => {
+    await route.fulfill({
+      status: 404,
+      contentType: 'application/problem+json',
+      body: JSON.stringify({ title: 'Payment not found', status: 404 }),
+    })
+  })
+  await page.route('**/api/v1/payments/pay', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        ok({
+          id: 91,
+          paymentNo: 'PAY-601',
+          orderId: 601,
+          userId: 7,
+          method: 'WECHAT',
+          amount: '88.00',
+          paidAmount: '0.00',
+          refundedAmount: '0.00',
+          status: 'PENDING',
+          createTime: '2026-07-12T00:00:00+08:00',
+        }),
+      ),
+    })
+  })
+
+  await page.goto('/payment/601')
+  await page.getByRole('button', { name: 'Submit payment', exact: true }).click()
+
+  await expect(page.locator('img.mascot-state[data-pose="hourglass"]')).toBeVisible()
+  await expect(page.locator('.app-feedback-item')).toContainText('Payment request submitted')
+  await expect(page.locator('img.mascot-state[data-pose="celebrate"]')).toHaveCount(0)
+  await expect(page.locator('.app-feedback-item--success')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Submit payment', exact: true })).toBeHidden()
+})
+
+test('payment celebrates only after a status query confirms paid', async ({ page }) => {
+  let queryCount = 0
+  await page.route('**/api/v1/payments/orders/501', async (route) => {
+    queryCount += 1
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        ok({
+          id: 81,
+          paymentNo: 'PAY-501',
+          orderId: 501,
+          userId: 7,
+          method: 'WECHAT',
+          amount: '120.00',
+          paidAmount: queryCount > 1 ? '120.00' : '0.00',
+          refundedAmount: '0.00',
+          status: queryCount > 1 ? 'PAID' : 'PENDING',
+          paidAt: queryCount > 1 ? '2026-07-12T00:02:00+08:00' : undefined,
+          createTime: '2026-07-12T00:00:00+08:00',
+        }),
+      ),
+    })
+  })
+
+  await page.goto('/payment/501')
+  await expect(page.locator('img.mascot-state[data-pose="hourglass"]')).toBeVisible()
+  await page.getByRole('button', { name: 'Check status' }).click()
+  await expect(page.locator('img.mascot-state[data-pose="celebrate"]')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Payment successful' })).toBeVisible()
 })
 
 test('mobile cart uses labeled line items and keeps its summary above navigation', async ({
@@ -382,10 +602,10 @@ test('mobile checkout preserves its form and preview after a sanitized submit fa
   })
 
   await page.goto('/checkout')
-  const address = page.getByPlaceholder('Address ID')
+  const address = page.getByRole('radio', { name: /Avery Chen/ })
   const province = page.getByPlaceholder('Province')
   const coupons = page.getByPlaceholder('Coupons: PLATFORM-20,SHOP-10')
-  await address.fill('1')
+  await expect(address).toBeChecked()
   await province.fill('CN-ZJ')
   await coupons.fill('SAVE-8')
   await page.getByRole('button', { name: 'Preview', exact: true }).click()
@@ -396,18 +616,19 @@ test('mobile checkout preserves its form and preview after a sanitized submit fa
   await page.getByRole('button', { name: 'Submit', exact: true }).click()
 
   await expect(page.locator('.app-feedback-item')).toContainText('Unable to submit checkout')
-  await expect(address).toHaveValue('1')
+  await expect(address).toBeChecked()
   await expect(province).toHaveValue('CN-ZJ')
   await expect(coupons).toHaveValue('SAVE-8')
   await expect(mobileLine).toBeVisible()
   const summary = page.locator('.checkout-summary')
   const navigation = page.locator('.consumer-bottom-nav')
   await expect(summary).toHaveCSS('position', 'fixed')
+  await expect(navigation).toBeHidden()
   await expect
     .poll(async () => {
       const summaryBox = await summary.boundingBox()
-      const navigationBox = await navigation.boundingBox()
-      return (summaryBox?.y ?? 0) + (summaryBox?.height ?? 0) - (navigationBox?.y ?? 0)
+      const viewportHeight = page.viewportSize()?.height ?? 0
+      return Math.abs((summaryBox?.y ?? 0) + (summaryBox?.height ?? 0) - viewportHeight)
     })
     .toBeLessThanOrEqual(1)
   await expect(page.locator('body')).not.toContainText('RAW_CHECKOUT_ENGINE_FAILURE')

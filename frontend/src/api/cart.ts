@@ -4,9 +4,21 @@ import type {
   CartAddItemRequest,
   CartCheckout,
   CartCheckoutRequest,
+  CartSubOrder,
   CartSelectItemRequest,
   CartUpdateItemRequest,
 } from '@/types'
+
+export interface CartCheckoutSubOrderResult extends CartSubOrder {
+  storeDiscountAmount: string | number
+  platformDiscountAmount: string | number
+  formalOrderId?: number
+}
+
+export interface CartCheckoutResult extends Omit<CartCheckout, 'subOrders'> {
+  subOrders: CartCheckoutSubOrderResult[]
+  orderIds: number[]
+}
 
 export function getCart(): Promise<Cart> {
   return request<Cart>({ url: '/cart' })
@@ -43,8 +55,8 @@ export function removeCartItem(skuId: number): Promise<Cart> {
   })
 }
 
-export function previewCartCheckout(requestBody: CartCheckoutRequest): Promise<CartCheckout> {
-  return request<CartCheckout>({
+export function previewCartCheckout(requestBody: CartCheckoutRequest): Promise<CartCheckoutResult> {
+  return request<CartCheckoutResult>({
     url: '/cart/checkout/preview',
     method: 'POST',
     data: requestBody,
@@ -54,8 +66,8 @@ export function previewCartCheckout(requestBody: CartCheckoutRequest): Promise<C
 export function checkoutCart(
   requestBody: CartCheckoutRequest,
   idempotencyKey: string,
-): Promise<CartCheckout> {
-  return request<CartCheckout>({
+): Promise<CartCheckoutResult> {
+  return request<CartCheckoutResult>({
     url: '/cart/checkout',
     method: 'POST',
     headers: {

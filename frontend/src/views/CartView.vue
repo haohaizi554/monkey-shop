@@ -3,6 +3,7 @@ import { Delete, Refresh, ShoppingCart } from '@element-plus/icons-vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { addCartItem, getCart, removeCartItem, selectCartItem, updateCartItem } from '@/api/cart'
+import MascotState from '@/components/mascot/MascotState.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import DataTableShell from '@/components/ui/DataTableShell.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -284,8 +285,12 @@ onMounted(loadCart)
 
         <template #empty>
           <div class="cart-empty">
+            <MascotState pose="cart" size="md" :alt="$t('cart.emptyMascotAlt')" />
             <strong>{{ $t('common.cartEmpty') }}</strong>
             <span>{{ $t('cart.emptyHint') }}</span>
+            <RouterLink class="cart-empty__action" to="/shop">
+              {{ $t('common.backToShop') }}
+            </RouterLink>
           </div>
         </template>
 
@@ -508,6 +513,21 @@ onMounted(loadCart)
   font-size: var(--text-base);
 }
 
+.cart-empty__action {
+  min-height: 40px;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--color-brand);
+  color: var(--color-text-inverse);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.cart-empty__action:focus-visible {
+  outline: var(--focus-width) solid var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
 @media (max-width: 720px) {
   .cart-layout {
     padding-bottom: 128px;
@@ -516,7 +536,7 @@ onMounted(loadCart)
   .cart-summary {
     position: fixed;
     right: 0;
-    bottom: calc(60px + env(safe-area-inset-bottom));
+    bottom: calc(var(--consumer-bottom-nav-height) + env(safe-area-inset-bottom));
     left: 0;
     z-index: 30;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(112px, 1fr);

@@ -18,6 +18,31 @@ const cart = {
   selectedAmount: '128.00',
 }
 
+const addressPage = {
+  content: [
+    {
+      id: 1,
+      receiverName: 'Avery Chen',
+      phone: '13800000001',
+      detailAddress: 'No. 18 West Lake Road, Hangzhou',
+      isDefault: 1,
+    },
+    {
+      id: 2,
+      receiverName: 'Jordan Lee',
+      phone: '13800000002',
+      detailAddress: 'No. 66 Huaihai Road, Shanghai',
+      isDefault: 0,
+    },
+  ],
+  page: 0,
+  size: 100,
+  totalElements: 2,
+  totalPages: 1,
+  first: true,
+  last: true,
+}
+
 function checkout(addressId: number, payableAmount: string) {
   return {
     id: addressId,
@@ -31,6 +56,7 @@ function checkout(addressId: number, payableAmount: string) {
     province: addressId === 1 ? 'CN-ZJ' : 'CN-SH',
     createdAt: '2026-07-12T00:00:00+08:00',
     subOrders: [],
+    orderIds: [900 + addressId],
   }
 }
 
@@ -58,6 +84,8 @@ async function installMocks(page: Page) {
       }
     } else if (pathname === '/cart' && request.method() === 'GET') {
       data = cart
+    } else if (pathname === '/addresses' && request.method() === 'GET') {
+      data = addressPage
     } else if (pathname === '/tracking/events') {
       data = { id: 1, eventType: 'PAGE_VIEW' }
     }
@@ -92,7 +120,7 @@ test('binds a preview to the normalized input snapshot and invalidates it on cha
   })
 
   await page.goto('/checkout')
-  await page.getByPlaceholder('Address ID').fill('1')
+  await expect(page.getByRole('radio', { name: /Avery Chen/ })).toBeChecked()
   await page.getByPlaceholder('Province').fill('CN-ZJ')
   await page.getByPlaceholder('Coupons: PLATFORM-20,SHOP-10').fill(' SAVE-8, SHOP-2 ')
   await page.getByRole('button', { name: 'Preview', exact: true }).click()
@@ -135,7 +163,7 @@ test('prevents checkout submission while the current preview is pending', async 
   })
 
   await page.goto('/checkout')
-  await page.getByPlaceholder('Address ID').fill('1')
+  await expect(page.getByRole('radio', { name: /Avery Chen/ })).toBeChecked()
   const previewRequest = page.waitForRequest('**/api/v1/cart/checkout/preview')
   await page.getByRole('button', { name: 'Preview', exact: true }).click()
   await previewRequest
@@ -175,14 +203,14 @@ test('ignores an older preview response that arrives after a newer snapshot', as
   })
 
   await page.goto('/checkout')
-  const address = page.getByPlaceholder('Address ID')
+  const firstAddress = page.getByRole('radio', { name: /Avery Chen/ })
   const preview = page.getByRole('button', { name: 'Preview', exact: true })
-  await address.fill('1')
+  await expect(firstAddress).toBeChecked()
   await preview.click()
   await expect.poll(() => previewCalls).toBe(1)
 
   try {
-    await address.fill('2')
+    await page.locator('.address-option').filter({ hasText: 'Jordan Lee' }).click()
     await expect(preview).toBeEnabled()
     await preview.click()
     await expect.poll(() => previewCalls).toBe(2)
@@ -224,13 +252,12 @@ test('does not let a stale preview overwrite a checkout using newer inputs', asy
   })
 
   await page.goto('/checkout')
-  const address = page.getByPlaceholder('Address ID')
-  await address.fill('1')
+  await expect(page.getByRole('radio', { name: /Avery Chen/ })).toBeChecked()
   const previewRequest = page.waitForRequest('**/api/v1/cart/checkout/preview')
   await page.getByRole('button', { name: 'Preview', exact: true }).click()
   await previewRequest
 
-  await address.fill('2')
+  await page.locator('.address-option').filter({ hasText: 'Jordan Lee' }).click()
   const checkoutRequest = page.waitForRequest('**/api/v1/cart/checkout')
   await page.getByRole('button', { name: 'Submit', exact: true }).click()
   await checkoutRequest
@@ -244,7 +271,7 @@ test('does not let a stale preview overwrite a checkout using newer inputs', asy
     releaseCheckout()
   }
 
-  await expect(page).toHaveURL(/\/orders$/)
+  await expect(page).toHaveURL(/\/payment\/902/)
 })
 
 test('reuses the cart checkout intent after failure and completes it after success', async ({
@@ -269,20 +296,20 @@ test('reuses the cart checkout intent after failure and completes it after succe
   })
 
   await page.goto('/checkout')
-  await page.getByPlaceholder('Address ID').fill('1')
+  await expect(page.getByRole('radio', { name: /Avery Chen/ })).toBeChecked()
   const submit = page.getByRole('button', { name: 'Submit', exact: true })
   await submit.click()
   await expect.poll(() => idempotencyKeys).toHaveLength(1)
   await expect(page.locator('.app-feedback-item')).toBeVisible()
 
   await submit.click()
-  await expect(page).toHaveURL(/\/orders$/)
+  await expect(page).toHaveURL(/\/payment\/901/)
   expect(idempotencyKeys[0]).not.toBe('')
   expect(idempotencyKeys[1]).toBe(idempotencyKeys[0])
 
   await page.goto('/checkout')
-  await page.getByPlaceholder('Address ID').fill('1')
+  await expect(page.getByRole('radio', { name: /Avery Chen/ })).toBeChecked()
   await page.getByRole('button', { name: 'Submit', exact: true }).click()
-  await expect(page).toHaveURL(/\/orders$/)
+  await expect(page).toHaveURL(/\/payment\/901/)
   expect(idempotencyKeys[2]).not.toBe(idempotencyKeys[1])
 })

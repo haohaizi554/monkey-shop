@@ -1,27 +1,37 @@
 <script setup lang="ts">
-import { Check, Refresh, Tickets } from '@element-plus/icons-vue'
+import { Check, Location, Plus, Refresh, Tickets } from '@element-plus/icons-vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { checkoutCart, getCart, previewCartCheckout } from '@/api/cart'
+import { checkoutCart, getCart, previewCartCheckout, type CartCheckoutResult } from '@/api/cart'
+import { addresses as fetchAddresses } from '@/api/user'
+import MascotState from '@/components/mascot/MascotState.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import DataTableShell from '@/components/ui/DataTableShell.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import type { AsyncStatus } from '@/composables/useAsyncState'
+import {
+  checkoutDiscountTotals,
+  checkoutOrderIds,
+  normalizeCartCheckoutIntent,
+} from '@/composables/useCheckout'
 import { useNotify } from '@/composables/useNotify'
-import type { Cart, CartCheckout, CartCheckoutRequest } from '@/types'
+import type { Address, Cart, CartCheckoutRequest } from '@/types'
 import { getIdempotencyIntent } from '@/utils/idempotencyIntent'
 
 const router = useRouter()
 const { t } = useI18n()
 const notify = useNotify()
 const cart = ref<Cart | null>(null)
-const preview = ref<CartCheckout | null>(null)
+const preview = ref<CartCheckoutResult | null>(null)
+const addresses = ref<Address[]>([])
 const addressId = ref<number | null>(null)
 const province = ref('')
 const couponText = ref('')
 const cartStatus = ref<AsyncStatus>('idle')
 const cartError = ref<string | null>(null)
+const addressStatus = ref<AsyncStatus>('idle')
+const addressError = ref<string | null>(null)
 const previewStatus = ref<AsyncStatus>('idle')
 const previewError = ref<string | null>(null)
 const submitting = ref(false)
@@ -38,36 +48,57 @@ interface CheckoutInputSnapshot {
 function captureInputSnapshot(): CheckoutInputSnapshot {
   return {
     addressId: addressId.value,
-    province: province.value.trim(),
-    couponCodes: couponText.value
-      .split(',')
-      .map((value) => value.trim())
-      .filter(Boolean),
+    province: province.value,
+    couponCodes: couponText.value.split(','),
   }
 }
 
-function snapshotKey(snapshot: CheckoutInputSnapshot): string {
-  return JSON.stringify([snapshot.addressId, snapshot.province, snapshot.couponCodes])
-}
-
-function requestBody(snapshot: CheckoutInputSnapshot): CartCheckoutRequest | null {
+function normalizedBody(snapshot: CheckoutInputSnapshot): CartCheckoutRequest | null {
   if (!snapshot.addressId) {
     notify.warning(t('checkout.selectAddressFirst'), { key: 'checkout:address-required' })
     return null
   }
-  return {
+  return normalizeCartCheckoutIntent({
     addressId: snapshot.addressId,
-    province: snapshot.province || undefined,
+    province: snapshot.province,
     couponCodes: snapshot.couponCodes,
-  }
+  })
+}
+
+function snapshotKey(snapshot: CheckoutInputSnapshot): string {
+  return JSON.stringify(
+    normalizeCartCheckoutIntent({
+      addressId: snapshot.addressId ?? 0,
+      province: snapshot.province,
+      couponCodes: snapshot.couponCodes,
+    }),
+  )
 }
 
 const currentPreview = computed(() => {
   const currentKey = snapshotKey(captureInputSnapshot())
   return previewSnapshotKey.value === currentKey ? preview.value : null
 })
-
 const previewPending = computed(() => activePreviewRequestId.value !== null)
+const selectedAddress = computed(
+  () => addresses.value.find((address) => address.id === addressId.value) ?? null,
+)
+const discountTotals = computed(() => checkoutDiscountTotals(currentPreview.value?.subOrders ?? []))
+const storeDiscount = computed(() => amount(discountTotals.value.store))
+const platformDiscount = computed(() => amount(discountTotals.value.platform))
+
+function amount(value: string | number | undefined): string {
+  const numeric = Number(value ?? 0)
+  return Number.isFinite(numeric) ? numeric.toFixed(2) : '0.00'
+}
+
+function maskedPhone(value: string): string {
+  const trimmed = value.trim()
+  if (trimmed.length < 7) {
+    return trimmed
+  }
+  return `${trimmed.slice(0, 3)}****${trimmed.slice(-4)}`
+}
 
 function invalidatePreview() {
   preview.value = null
@@ -97,12 +128,35 @@ async function loadCart() {
   }
 }
 
+async function loadAddresses() {
+  const hadAddresses = addresses.value.length > 0
+  addressStatus.value = hadAddresses ? 'updating' : 'loading'
+  addressError.value = null
+  try {
+    const result = await fetchAddresses()
+    addresses.value = result
+    if (!result.some((address) => address.id === addressId.value)) {
+      addressId.value =
+        result.find((address) => address.isDefault === 1)?.id ?? result[0]?.id ?? null
+    }
+    addressStatus.value = result.length > 0 ? 'success' : 'empty'
+  } catch (error) {
+    if (hadAddresses) {
+      addressStatus.value = 'success'
+      notify.fromApiError(error, 'checkout.loadAddressesFailed')
+    } else {
+      addressStatus.value = 'error'
+      addressError.value = 'checkout.loadAddressesFailed'
+    }
+  }
+}
+
 async function runPreview() {
   if (previewPending.value || submitting.value) {
     return
   }
   const snapshot = captureInputSnapshot()
-  const body = requestBody(snapshot)
+  const body = normalizedBody(snapshot)
   if (!body) {
     return
   }
@@ -151,7 +205,7 @@ async function submitCheckout() {
     return
   }
   const snapshot = captureInputSnapshot()
-  const body = requestBody(snapshot)
+  const body = normalizedBody(snapshot)
   if (!body) {
     return
   }
@@ -161,13 +215,20 @@ async function submitCheckout() {
   activePreviewRequestId.value = null
   try {
     const intent = getIdempotencyIntent('cart:checkout', body)
-    preview.value = await checkoutCart(body, intent.key)
-    intent.complete()
+    const result = await checkoutCart(body, intent.key)
+    const orderIds = checkoutOrderIds(result)
+    if (orderIds.length === 0) {
+      throw new Error('Checkout response did not contain persisted order ids')
+    }
+    preview.value = result
     previewSnapshotKey.value = submittedSnapshotKey
     previewStatus.value = 'success'
-    await loadCart()
+    intent.complete()
     notify.success(t('checkout.submitSuccess'), { key: 'checkout:submitted' })
-    await router.push('/orders')
+    await router.push({
+      path: `/payment/${orderIds[0]}`,
+      query: orderIds.length > 1 ? { orderIds: orderIds.join(',') } : undefined,
+    })
   } catch (error) {
     notify.fromApiError(error, 'checkout.submitFailed')
   } finally {
@@ -175,7 +236,9 @@ async function submitCheckout() {
   }
 }
 
-onMounted(loadCart)
+onMounted(() => {
+  void Promise.all([loadCart(), loadAddresses()])
+})
 </script>
 
 <template>
@@ -183,184 +246,288 @@ onMounted(loadCart)
     <section class="checkout-layout">
       <PageHeader :title="t('shop.checkout')" :description="t('checkout.hint')" />
 
+      <ol class="checkout-progress" :aria-label="$t('checkout.progress')">
+        <li class="is-current"><span>1</span>{{ $t('checkout.deliveryStep') }}</li>
+        <li><span>2</span>{{ $t('checkout.reviewStep') }}</li>
+        <li><span>3</span>{{ $t('checkout.paymentStep') }}</li>
+      </ol>
+
       <AsyncStateView :status="cartStatus" :error="cartError" @retry="loadCart">
         <template #empty>
-          <div class="checkout-empty">
-            <el-icon aria-hidden="true"><Tickets /></el-icon>
+          <div class="checkout-empty checkout-empty--cart">
+            <MascotState pose="cart" size="md" :alt="$t('cart.emptyMascotAlt')" />
             <strong>{{ $t('common.cartEmpty') }}</strong>
             <p>{{ $t('cart.emptyHint') }}</p>
+            <RouterLink class="checkout-empty__action" to="/shop">
+              {{ $t('common.backToShop') }}
+            </RouterLink>
           </div>
         </template>
 
-        <section class="checkout-form-section" :aria-label="$t('common.selectAddress')">
-          <h2>{{ $t('common.selectAddress') }}</h2>
-          <div class="checkout-toolbar">
-            <div class="checkout-field">
-              <span>{{ $t('common.selectAddress') }}</span>
-              <el-input-number
-                v-model="addressId"
-                :aria-label="$t('common.selectAddress')"
-                :min="1"
-                controls-position="right"
-                :placeholder="$t('checkout.addressIdPlaceholder')"
-              />
-            </div>
-            <div class="checkout-field">
-              <span>{{ $t('checkout.provincePlaceholder') }}</span>
-              <el-input
-                v-model="province"
-                :aria-label="$t('checkout.provincePlaceholder')"
-                :placeholder="$t('checkout.provincePlaceholder')"
-              />
-            </div>
-            <div class="checkout-field checkout-field--coupon">
-              <span>{{ $t('checkout.discount') }}</span>
-              <el-input
-                v-model="couponText"
-                :aria-label="$t('checkout.discount')"
-                :placeholder="$t('checkout.couponPlaceholder')"
-              />
-            </div>
-            <el-button
-              class="checkout-preview-button"
-              :icon="Refresh"
-              :loading="previewStatus === 'loading' || previewStatus === 'updating'"
-              :disabled="submitting"
-              @click="runPreview"
-            >
-              {{ $t('checkout.preview') }}
-            </el-button>
-          </div>
-        </section>
+        <div class="checkout-workspace">
+          <section class="checkout-form-section" :aria-label="$t('common.selectAddress')">
+            <header class="section-heading">
+              <div>
+                <span class="section-kicker">01</span>
+                <h2>{{ $t('common.selectAddress') }}</h2>
+              </div>
+              <RouterLink class="section-link" to="/profile">
+                <el-icon aria-hidden="true"><Plus /></el-icon>
+                {{ $t('checkout.manageAddresses') }}
+              </RouterLink>
+            </header>
 
-        <section class="checkout-preview-section" :aria-label="$t('checkout.stockReservation')">
-          <h2>{{ $t('checkout.stockReservation') }}</h2>
-          <AsyncStateView :status="previewStatus" :error="previewError" @retry="runPreview">
-            <template #idle>
-              <div class="checkout-empty">
+            <AsyncStateView
+              :status="addressStatus"
+              mode="grid"
+              :error="addressError"
+              @retry="loadAddresses"
+            >
+              <template #empty>
+                <div class="checkout-empty">
+                  <MascotState pose="clipboard" size="sm" :alt="$t('checkout.addressMascotAlt')" />
+                  <strong>{{ $t('checkout.noAddresses') }}</strong>
+                  <p>{{ $t('common.noAddressesHint') }}</p>
+                  <RouterLink class="checkout-empty__action" to="/profile">
+                    {{ $t('common.addAddress') }}
+                  </RouterLink>
+                </div>
+              </template>
+
+              <el-radio-group v-model="addressId" class="address-grid">
+                <el-radio
+                  v-for="address in addresses"
+                  :key="address.id"
+                  class="address-option"
+                  :value="address.id"
+                >
+                  <span class="address-option__content">
+                    <span class="address-option__heading">
+                      <strong>{{ address.receiverName }}</strong>
+                      <el-tag v-if="address.isDefault === 1" type="success" size="small">
+                        {{ $t('checkout.defaultAddress') }}
+                      </el-tag>
+                    </span>
+                    <span>{{ maskedPhone(address.phone) }}</span>
+                    <span class="address-option__detail">
+                      <el-icon aria-hidden="true"><Location /></el-icon>
+                      {{ address.detailAddress }}
+                    </span>
+                  </span>
+                </el-radio>
+              </el-radio-group>
+            </AsyncStateView>
+          </section>
+
+          <section class="checkout-form-section" :aria-label="$t('checkout.orderOptions')">
+            <header class="section-heading">
+              <div>
+                <span class="section-kicker">02</span>
+                <h2>{{ $t('checkout.orderOptions') }}</h2>
+              </div>
+              <span v-if="selectedAddress" class="selected-address-note">
+                {{ selectedAddress.receiverName }}
+              </span>
+            </header>
+
+            <div class="checkout-toolbar">
+              <div class="checkout-field">
+                <span id="checkout-province-label">{{ $t('checkout.provincePlaceholder') }}</span>
+                <el-input
+                  id="checkout-province"
+                  v-model="province"
+                  aria-labelledby="checkout-province-label"
+                  :placeholder="$t('checkout.provincePlaceholder')"
+                />
+              </div>
+              <div class="checkout-field checkout-field--coupon">
+                <span id="checkout-coupons-label">{{ $t('checkout.couponCodes') }}</span>
+                <el-input
+                  id="checkout-coupons"
+                  v-model="couponText"
+                  aria-labelledby="checkout-coupons-label"
+                  :placeholder="$t('checkout.couponPlaceholder')"
+                />
+              </div>
+              <el-button
+                class="checkout-preview-button"
+                :icon="Refresh"
+                :loading="previewStatus === 'loading' || previewStatus === 'updating'"
+                :disabled="submitting || addressStatus !== 'success'"
+                @click="runPreview"
+              >
+                {{ $t('checkout.preview') }}
+              </el-button>
+            </div>
+          </section>
+
+          <section class="checkout-preview-section" :aria-label="$t('checkout.stockReservation')">
+            <header class="section-heading">
+              <div>
+                <span class="section-kicker">03</span>
+                <h2>{{ $t('checkout.reviewStep') }}</h2>
+              </div>
+            </header>
+
+            <AsyncStateView :status="previewStatus" :error="previewError" @retry="runPreview">
+              <template #idle>
+                <div class="checkout-empty checkout-empty--preview">
+                  <el-icon aria-hidden="true"><Tickets /></el-icon>
+                  <p>{{ $t('checkout.emptyHint') }}</p>
+                </div>
+              </template>
+
+              <div v-if="currentPreview?.subOrders.length" class="suborder-list">
+                <section
+                  v-for="subOrder in currentPreview.subOrders"
+                  :key="subOrder.id"
+                  class="suborder-section"
+                >
+                  <div class="suborder-head">
+                    <div>
+                      <span>{{ $t('checkout.shop') }} {{ subOrder.shopId }}</span>
+                      <small>{{ subOrder.orderNo }}</small>
+                    </div>
+                    <strong>{{ amount(subOrder.payableAmount) }}</strong>
+                  </div>
+
+                  <dl class="suborder-allocations">
+                    <div>
+                      <dt>{{ $t('checkout.originalAmount') }}</dt>
+                      <dd>{{ amount(subOrder.originalAmount) }}</dd>
+                    </div>
+                    <div>
+                      <dt>{{ $t('checkout.storeDiscount') }}</dt>
+                      <dd>{{ amount(subOrder.storeDiscountAmount) }}</dd>
+                    </div>
+                    <div>
+                      <dt>{{ $t('checkout.platformDiscount') }}</dt>
+                      <dd>{{ amount(subOrder.platformDiscountAmount) }}</dd>
+                    </div>
+                    <div>
+                      <dt>{{ $t('checkout.payable') }}</dt>
+                      <dd>{{ amount(subOrder.payableAmount) }}</dd>
+                    </div>
+                  </dl>
+
+                  <DataTableShell :aria-label="`${t('checkout.shop')} ${subOrder.shopId}`">
+                    <el-table :data="subOrder.lines" class="checkout-table">
+                      <el-table-column
+                        prop="productName"
+                        :label="$t('checkout.product')"
+                        min-width="180"
+                      />
+                      <el-table-column prop="skuId" label="SKU" min-width="100" />
+                      <el-table-column
+                        prop="quantity"
+                        :label="$t('checkout.quantity')"
+                        min-width="80"
+                      />
+                      <el-table-column
+                        prop="originalAmount"
+                        :label="$t('checkout.originalAmount')"
+                        min-width="110"
+                      />
+                      <el-table-column
+                        prop="discountAmount"
+                        :label="$t('checkout.discount')"
+                        min-width="110"
+                      />
+                      <el-table-column
+                        prop="payableAmount"
+                        :label="$t('checkout.payable')"
+                        min-width="110"
+                      />
+                      <el-table-column :label="$t('checkout.stockReservation')" min-width="180">
+                        <template #default="{ row }">
+                          <el-tag :type="row.warehouseId ? 'success' : 'info'" disable-transitions>
+                            {{ row.warehouseId ? row.reservationKey : $t('checkout.previewing') }}
+                          </el-tag>
+                        </template>
+                      </el-table-column>
+                    </el-table>
+
+                    <div class="checkout-mobile-lines">
+                      <article
+                        v-for="row in subOrder.lines"
+                        :key="row.id"
+                        class="checkout-mobile-line"
+                      >
+                        <strong>{{ row.productName }}</strong>
+                        <dl>
+                          <div>
+                            <dt>SKU</dt>
+                            <dd>{{ row.skuId }}</dd>
+                          </div>
+                          <div>
+                            <dt>{{ $t('checkout.quantity') }}</dt>
+                            <dd>{{ row.quantity }}</dd>
+                          </div>
+                          <div>
+                            <dt>{{ $t('checkout.originalAmount') }}</dt>
+                            <dd>{{ row.originalAmount }}</dd>
+                          </div>
+                          <div>
+                            <dt>{{ $t('checkout.discount') }}</dt>
+                            <dd>{{ row.discountAmount }}</dd>
+                          </div>
+                          <div>
+                            <dt>{{ $t('checkout.payable') }}</dt>
+                            <dd>{{ row.payableAmount }}</dd>
+                          </div>
+                          <div>
+                            <dt>{{ $t('checkout.stockReservation') }}</dt>
+                            <dd>
+                              {{ row.warehouseId ? row.reservationKey : $t('checkout.previewing') }}
+                            </dd>
+                          </div>
+                        </dl>
+                      </article>
+                    </div>
+                  </DataTableShell>
+                </section>
+              </div>
+
+              <div v-else class="checkout-empty checkout-empty--preview">
                 <el-icon aria-hidden="true"><Tickets /></el-icon>
                 <p>{{ $t('checkout.emptyHint') }}</p>
               </div>
-            </template>
-
-            <div v-if="currentPreview?.subOrders.length" class="suborder-list">
-              <section
-                v-for="subOrder in currentPreview.subOrders"
-                :key="subOrder.id"
-                class="suborder-section"
-              >
-                <div class="suborder-head">
-                  <span>{{ $t('checkout.shop') }} {{ subOrder.shopId }}</span>
-                  <strong>{{ subOrder.payableAmount }}</strong>
-                </div>
-                <DataTableShell :aria-label="`${t('checkout.shop')} ${subOrder.shopId}`">
-                  <el-table :data="subOrder.lines" class="checkout-table">
-                    <el-table-column
-                      prop="productName"
-                      :label="$t('checkout.product')"
-                      min-width="180"
-                    />
-                    <el-table-column prop="skuId" label="SKU" min-width="100" />
-                    <el-table-column
-                      prop="quantity"
-                      :label="$t('checkout.quantity')"
-                      min-width="80"
-                    />
-                    <el-table-column
-                      prop="originalAmount"
-                      :label="$t('checkout.originalAmount')"
-                      min-width="110"
-                    />
-                    <el-table-column
-                      prop="discountAmount"
-                      :label="$t('checkout.discount')"
-                      min-width="110"
-                    />
-                    <el-table-column
-                      prop="payableAmount"
-                      :label="$t('checkout.payable')"
-                      min-width="110"
-                    />
-                    <el-table-column :label="$t('checkout.stockReservation')" min-width="180">
-                      <template #default="{ row }">
-                        <el-tag :type="row.warehouseId ? 'success' : 'info'" disable-transitions>
-                          {{ row.warehouseId ? row.reservationKey : $t('checkout.previewing') }}
-                        </el-tag>
-                      </template>
-                    </el-table-column>
-                  </el-table>
-
-                  <div class="checkout-mobile-lines">
-                    <article
-                      v-for="row in subOrder.lines"
-                      :key="row.id"
-                      class="checkout-mobile-line"
-                    >
-                      <strong>{{ row.productName }}</strong>
-                      <dl>
-                        <div>
-                          <dt>SKU</dt>
-                          <dd>{{ row.skuId }}</dd>
-                        </div>
-                        <div>
-                          <dt>{{ $t('checkout.quantity') }}</dt>
-                          <dd>{{ row.quantity }}</dd>
-                        </div>
-                        <div>
-                          <dt>{{ $t('checkout.originalAmount') }}</dt>
-                          <dd>{{ row.originalAmount }}</dd>
-                        </div>
-                        <div>
-                          <dt>{{ $t('checkout.discount') }}</dt>
-                          <dd>{{ row.discountAmount }}</dd>
-                        </div>
-                        <div>
-                          <dt>{{ $t('checkout.payable') }}</dt>
-                          <dd>{{ row.payableAmount }}</dd>
-                        </div>
-                        <div>
-                          <dt>{{ $t('checkout.stockReservation') }}</dt>
-                          <dd>
-                            {{ row.warehouseId ? row.reservationKey : $t('checkout.previewing') }}
-                          </dd>
-                        </div>
-                      </dl>
-                    </article>
-                  </div>
-                </DataTableShell>
-              </section>
-            </div>
-
-            <div v-else class="checkout-empty">
-              <el-icon aria-hidden="true"><Tickets /></el-icon>
-              <p>{{ $t('checkout.emptyHint') }}</p>
-            </div>
-          </AsyncStateView>
-        </section>
+            </AsyncStateView>
+          </section>
+        </div>
 
         <div class="checkout-summary">
-          <div class="checkout-summary__metric">
+          <div class="checkout-summary__metric checkout-summary__metric--optional">
             <span>{{ $t('checkout.selectedItems') }}</span>
             <strong>{{ cart?.selectedQuantity ?? 0 }}</strong>
           </div>
-          <div class="checkout-summary__metric">
+          <div class="checkout-summary__metric checkout-summary__metric--optional">
             <span>{{ $t('checkout.originalAmount') }}</span>
-            <strong>{{ currentPreview?.originalAmount ?? cart?.selectedAmount ?? '0.00' }}</strong>
+            <strong>{{ amount(currentPreview?.originalAmount ?? cart?.selectedAmount) }}</strong>
           </div>
           <div class="checkout-summary__metric">
-            <span>{{ $t('checkout.discount') }}</span>
-            <strong>{{ currentPreview?.discountAmount ?? '0.00' }}</strong>
+            <span>{{ $t('checkout.storeDiscount') }}</span>
+            <strong>{{ storeDiscount }}</strong>
           </div>
           <div class="checkout-summary__metric">
+            <span>{{ $t('checkout.platformDiscount') }}</span>
+            <strong>{{ platformDiscount }}</strong>
+          </div>
+          <div class="checkout-summary__metric">
+            <span>{{ $t('checkout.freight') }}</span>
+            <strong>--</strong>
+            <small>{{ $t('checkout.freightPending') }}</small>
+          </div>
+          <div class="checkout-summary__metric checkout-summary__metric--payable">
             <span>{{ $t('checkout.payable') }}</span>
-            <strong>{{ currentPreview?.payableAmount ?? cart?.selectedAmount ?? '0.00' }}</strong>
+            <strong>{{ amount(currentPreview?.payableAmount ?? cart?.selectedAmount) }}</strong>
           </div>
           <el-button
             class="checkout-submit"
             type="primary"
             :icon="Check"
             :loading="submitting"
-            :disabled="submitting || previewPending"
+            :disabled="submitting || previewPending || !addressId || addressStatus !== 'success'"
             @click="submitCheckout"
           >
             {{ $t('checkout.submit') }}
@@ -372,27 +539,201 @@ onMounted(loadCart)
 </template>
 
 <style scoped>
-.checkout-layout {
+.checkout-layout,
+.checkout-workspace {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-5);
   min-width: 0;
+}
+
+.checkout-progress {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0 0 var(--space-4);
+  border-bottom: 1px solid var(--color-line);
+  list-style: none;
+}
+
+.checkout-progress li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+
+.checkout-progress li::after {
+  width: 100%;
+  height: 1px;
+  margin-left: var(--space-2);
+  background: var(--color-line);
+  content: '';
+}
+
+.checkout-progress li:last-child::after {
+  display: none;
+}
+
+.checkout-progress span {
+  display: grid;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-circle);
+}
+
+.checkout-progress .is-current {
+  color: var(--color-brand);
+}
+
+.checkout-progress .is-current span {
+  border-color: var(--color-brand);
+  background: var(--color-brand);
+  color: var(--color-text-inverse);
 }
 
 .checkout-form-section,
 .checkout-preview-section {
   display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+  padding-top: var(--space-2);
+}
+
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.section-heading > div {
+  display: flex;
+  align-items: center;
   gap: var(--space-3);
   min-width: 0;
 }
 
-.checkout-form-section h2,
-.checkout-preview-section h2 {
+.section-heading h2 {
+  margin: 0;
   font-size: var(--text-lg);
+}
+
+.section-kicker {
+  color: var(--color-brand);
+  font-size: var(--text-xs);
+  font-weight: 800;
+}
+
+.section-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 38px;
+  color: var(--color-brand);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.section-link:focus-visible {
+  border-radius: var(--radius-control);
+  outline: var(--focus-width) solid var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.selected-address-note {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.address-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.address-option.el-radio {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  height: auto;
+  min-height: 124px;
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-surface);
+  background: var(--color-surface);
+  white-space: normal;
+  transition:
+    border-color var(--motion-fast),
+    background var(--motion-fast),
+    box-shadow var(--motion-fast);
+}
+
+.address-option.el-radio:hover {
+  border-color: var(--color-brand);
+}
+
+.address-option.el-radio.is-checked {
+  border-color: var(--color-brand);
+  background: var(--color-brand-soft);
+  box-shadow: inset 3px 0 0 var(--color-brand);
+}
+
+.address-option :deep(.el-radio__input) {
+  margin-top: 3px;
+}
+
+.address-option :deep(.el-radio__label) {
+  width: 100%;
+  min-width: 0;
+  padding-left: var(--space-3);
+  color: var(--color-text);
+  white-space: normal;
+}
+
+.address-option__content {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.address-option__heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.address-option__detail {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  line-height: var(--leading-normal);
+}
+
+.address-option.el-radio.is-checked .address-option__detail {
+  color: var(--color-text);
+}
+
+.address-option__detail .el-icon {
+  flex: 0 0 auto;
+  margin-top: 3px;
 }
 
 .checkout-toolbar {
   display: grid;
-  grid-template-columns: minmax(150px, 180px) minmax(160px, 220px) minmax(220px, 1fr) auto;
+  grid-template-columns: minmax(180px, 240px) minmax(260px, 1fr) auto;
   gap: var(--space-3);
   align-items: end;
 }
@@ -405,58 +746,22 @@ onMounted(loadCart)
   font-size: var(--text-sm);
 }
 
-.checkout-field .el-input-number {
-  width: 100%;
-}
-
 .checkout-preview-button {
-  min-width: 112px;
+  min-width: 126px;
   min-height: 40px;
-}
-
-.checkout-summary {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(130px, 1fr)) minmax(140px, auto);
-  gap: var(--space-3);
-  align-items: stretch;
-}
-
-.checkout-summary__metric {
-  min-width: 0;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-surface);
-  padding: var(--space-3);
-  background: var(--color-surface);
-}
-
-.checkout-summary span {
-  display: block;
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-}
-
-.checkout-summary strong {
-  display: block;
-  margin-top: var(--space-1);
-  overflow-wrap: anywhere;
-  font-size: var(--text-xl);
-}
-
-.checkout-submit {
-  width: 100%;
-  min-width: 140px;
-  min-height: 48px;
 }
 
 .suborder-list {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-6);
 }
 
 .suborder-section {
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-3);
   min-width: 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-line);
 }
 
 .suborder-head {
@@ -464,7 +769,53 @@ onMounted(loadCart)
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  font-weight: 700;
+}
+
+.suborder-head > div {
+  display: grid;
+  gap: var(--space-1);
+  font-weight: 750;
+}
+
+.suborder-head small {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.suborder-head > strong {
+  color: var(--color-brand);
+  font-size: var(--text-xl);
+}
+
+.suborder-allocations {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3) 0;
+  border-top: 1px dashed var(--color-line);
+  border-bottom: 1px dashed var(--color-line);
+}
+
+.suborder-allocations div {
+  min-width: 0;
+  padding: 0 var(--space-3);
+  border-right: 1px solid var(--color-line);
+}
+
+.suborder-allocations div:last-child {
+  border-right: 0;
+}
+
+.suborder-allocations dt {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.suborder-allocations dd {
+  margin: var(--space-1) 0 0;
+  overflow-wrap: anywhere;
+  font-weight: 750;
 }
 
 .checkout-table {
@@ -480,20 +831,100 @@ onMounted(loadCart)
   display: grid;
   justify-items: center;
   gap: var(--space-2);
-  min-height: 160px;
+  min-height: 180px;
   align-content: center;
   padding: var(--space-5);
   color: var(--color-text-muted);
   text-align: center;
 }
 
-.checkout-empty .el-icon {
+.checkout-empty--cart {
+  min-height: 420px;
+}
+
+.checkout-empty--preview {
+  min-height: 150px;
+}
+
+.checkout-empty--preview .el-icon {
   width: 36px;
   height: 36px;
 }
 
 .checkout-empty strong {
   color: var(--color-text);
+}
+
+.checkout-empty p {
+  max-width: 520px;
+  margin: 0;
+}
+
+.checkout-empty__action {
+  display: inline-grid;
+  min-height: 40px;
+  place-items: center;
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--color-brand);
+  color: var(--color-text-inverse);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.checkout-summary {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(100px, 1fr)) minmax(150px, auto);
+  gap: 0;
+  align-items: stretch;
+  margin: 0;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-surface);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-surface);
+}
+
+.checkout-summary__metric {
+  min-width: 0;
+  padding: var(--space-3);
+  border-right: 1px solid var(--color-line);
+}
+
+.checkout-summary span,
+.checkout-summary small {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.checkout-summary strong {
+  display: block;
+  margin-top: var(--space-1);
+  overflow-wrap: anywhere;
+  font-size: var(--text-lg);
+}
+
+.checkout-summary__metric--payable strong {
+  color: var(--color-brand);
+}
+
+.checkout-submit {
+  width: 100%;
+  min-width: 150px;
+  min-height: 52px;
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+}
+
+@media (max-width: 1100px) {
+  .checkout-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .checkout-submit {
+    grid-column: 1 / -1;
+    border-radius: 0 0 var(--radius-control) var(--radius-control);
+  }
 }
 
 @media (max-width: 840px) {
@@ -509,32 +940,76 @@ onMounted(loadCart)
 
 @media (max-width: 720px) {
   .checkout-layout {
-    padding-bottom: 208px;
+    padding-bottom: 176px;
+  }
+
+  .checkout-progress li {
+    align-items: flex-start;
+    font-size: var(--text-xs);
+  }
+
+  .checkout-progress li::after {
+    display: none;
+  }
+
+  .section-heading {
+    align-items: flex-start;
+  }
+
+  .address-grid,
+  .suborder-allocations {
+    grid-template-columns: 1fr;
+  }
+
+  .address-option.el-radio {
+    min-height: 112px;
+  }
+
+  .suborder-allocations div {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-1) var(--space-2);
+    border-right: 0;
+  }
+
+  .suborder-allocations dd {
+    margin: 0;
   }
 
   .checkout-summary {
     position: fixed;
     right: 0;
-    bottom: calc(60px + env(safe-area-inset-bottom));
+    bottom: env(safe-area-inset-bottom);
     left: 0;
     z-index: 30;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0;
-    padding: var(--space-2) var(--space-3);
+    border: 0;
     border-top: 1px solid var(--color-line);
+    border-radius: 0;
+    padding: var(--space-2) var(--space-3);
     background: var(--color-surface);
     box-shadow: var(--shadow-overlay);
   }
 
   .checkout-summary__metric {
-    border: 0;
-    border-radius: 0;
+    border-right: 0;
     padding: var(--space-1) var(--space-2);
   }
 
-  .checkout-summary span {
+  .checkout-summary__metric--optional {
+    display: none;
+  }
+
+  .checkout-summary span,
+  .checkout-summary small {
     overflow-wrap: anywhere;
     font-size: var(--text-xs);
+  }
+
+  .checkout-summary small {
+    display: none;
   }
 
   .checkout-summary strong {
@@ -546,6 +1021,7 @@ onMounted(loadCart)
     min-width: 0;
     min-height: 44px;
     margin-top: var(--space-2);
+    border-radius: var(--radius-control);
   }
 
   .checkout-table {

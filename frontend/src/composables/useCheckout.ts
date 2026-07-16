@@ -7,7 +7,7 @@ import { assessRisk } from '@/api/risk'
 import { addAddress, addresses as fetchAddresses } from '@/api/user'
 import { useNotify } from '@/composables/useNotify'
 import { useAuthStore } from '@/stores/auth'
-import type { Address, AddressRequest, Monkey, RiskDecision } from '@/types'
+import type { Address, AddressRequest, CartCheckoutRequest, Monkey, RiskDecision } from '@/types'
 import { getIdempotencyIntent } from '@/utils/idempotencyIntent'
 
 type NoticeLevel = 'error' | 'success' | 'warning'
@@ -24,6 +24,57 @@ class CheckoutRiskError extends Error {
     super('checkout-risk-blocked')
     this.decision = decision
   }
+}
+
+interface CheckoutDiscountAllocation {
+  storeDiscountAmount?: string | number
+  platformDiscountAmount?: string | number
+}
+
+interface CheckoutOrderReference {
+  orderIds?: Array<number | null | undefined>
+  subOrders?: Array<{ formalOrderId?: number | null }>
+}
+
+export function normalizeCartCheckoutIntent(input: CartCheckoutRequest): CartCheckoutRequest {
+  const province = input.province?.trim()
+  return {
+    addressId: input.addressId,
+    ...(province ? { province } : {}),
+    couponCodes: input.couponCodes.map((code) => code.trim()).filter(Boolean),
+  }
+}
+
+export function checkoutDiscountTotals(subOrders: CheckoutDiscountAllocation[]): {
+  store: number
+  platform: number
+} {
+  const toCents = (value: string | number | undefined) => {
+    const numeric = Number(value ?? 0)
+    return Number.isFinite(numeric) ? Math.round(numeric * 100) : 0
+  }
+  const totals = subOrders.reduce(
+    (sum, order) => ({
+      store: sum.store + toCents(order.storeDiscountAmount),
+      platform: sum.platform + toCents(order.platformDiscountAmount),
+    }),
+    { store: 0, platform: 0 },
+  )
+  return { store: totals.store / 100, platform: totals.platform / 100 }
+}
+
+export function checkoutOrderIds(checkout: CheckoutOrderReference): number[] {
+  const candidates = checkout.orderIds?.length
+    ? checkout.orderIds
+    : (checkout.subOrders ?? []).map((order) => order.formalOrderId)
+  return Array.from(
+    new Set(
+      candidates.filter(
+        (value): value is number =>
+          typeof value === 'number' && Number.isSafeInteger(value) && value > 0,
+      ),
+    ),
+  )
 }
 
 export function useCheckout(options: CheckoutOptions = {}) {

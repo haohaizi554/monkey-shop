@@ -126,7 +126,7 @@ test('orders localize fulfillment states and confirm a single return request', a
   await expect(page.getByText('\u5f85\u652f\u4ed8', { exact: true }).first()).toBeVisible()
 })
 
-test('payment serializes refund with creation and keeps the failure local', async ({ page }) => {
+test('payment refund locks lookup controls and keeps the failure local', async ({ page }) => {
   let refundCalls = 0
   let releaseRefund!: () => void
   const refundGate = new Promise<void>((resolve) => {
@@ -179,8 +179,8 @@ test('payment serializes refund with creation and keeps the failure local', asyn
 
   await expect.poll(() => refundCalls).toBe(1)
   await expect(refundButton).toBeDisabled()
-  await expect(page.getByRole('button', { name: 'Submit payment', exact: true })).toBeDisabled()
-  await expect(page.getByLabel('TOTP code')).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Submit payment', exact: true })).toBeHidden()
+  await expect(page.getByLabel('TOTP code')).toBeHidden()
   await expect(page.getByLabel('Order ID')).toBeDisabled()
   await expect(refundForm.getByRole('spinbutton')).toBeDisabled()
   await expect(refundForm.getByLabel('Refund reason')).toBeDisabled()
@@ -189,7 +189,7 @@ test('payment serializes refund with creation and keeps the failure local', asyn
 
   releaseRefund()
   await expect(refundForm.locator('.task-error')).toContainText('Unable to submit refund')
-  await expect(page.getByRole('button', { name: 'Submit payment', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Submit payment', exact: true })).toBeHidden()
   await expect(page.locator('body')).not.toContainText('ledger exploded')
 })
 
@@ -211,15 +211,20 @@ test('payment creation freezes refund and lookup controls until it settles', asy
     status: 'PAID',
     createTime: '2026-07-12T08:05:00Z',
   }
+  let paymentCreated = false
 
   await installFulfillmentMocks(page, async (route, pathname) => {
     if (pathname === '/payments/orders/101') {
-      await fulfillOk(route, payment)
+      await fulfillOk(
+        route,
+        paymentCreated ? payment : { ...payment, status: 'FAILED', paidAmount: '0.00' },
+      )
       return true
     }
     if (pathname === '/payments/pay') {
       createCalls += 1
       await createGate
+      paymentCreated = true
       await fulfillOk(route, { ...payment, paymentNo: 'PAY-NEW' })
       return true
     }
@@ -228,19 +233,18 @@ test('payment creation freezes refund and lookup controls until it settles', asy
 
   await page.goto('/payment/101')
   const refundForm = page.locator('.refund-task')
-  await refundForm.getByRole('spinbutton').fill('20')
+  await expect(refundForm).toHaveCount(0)
   await page.getByRole('button', { name: 'Submit payment', exact: true }).click()
   await expect.poll(() => createCalls).toBe(1)
 
   await expect(page.getByLabel('Order ID')).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Search', exact: true })).toBeDisabled()
   await expect(page.getByLabel('TOTP code')).toBeDisabled()
-  await expect(refundForm.getByRole('spinbutton')).toBeDisabled()
-  await expect(refundForm.getByLabel('Refund reason')).toBeDisabled()
-  await expect(refundForm.getByRole('button', { name: 'Refund', exact: true })).toBeDisabled()
+  await expect(refundForm).toHaveCount(0)
 
   releaseCreate()
-  await expect(page.getByRole('button', { name: 'Submit payment', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Submit payment', exact: true })).toBeHidden()
+  await expect(refundForm).toBeVisible()
   await expect(refundForm.getByRole('spinbutton')).toBeEnabled()
 })
 
