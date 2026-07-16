@@ -1,4 +1,4 @@
-﻿import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 function ok(data: unknown) {
   return { code: 'OK', message: 'ok', data, traceId: 'risk-test' }
@@ -311,9 +311,150 @@ test('risk review renders without page overflow at desktop and mobile workbench 
 
   await page.setViewportSize({ width: 390, height: 844 })
   await page.reload()
-  await expect(page.getByRole('button', { name: 'Review case 101' })).toBeVisible()
+  const manualReview = page.getByRole('heading', { name: 'Manual review', exact: true })
+  await expect(manualReview).toBeVisible()
+  expect((await manualReview.boundingBox())?.y).toBeLessThan(844)
+  await page.getByRole('button', { name: 'Review case 101' }).click()
+  const drawer = page.locator('.el-drawer')
+  await drawer.getByText('Reject', { exact: true }).click()
+  const resolution = drawer.getByRole('textbox', { name: 'Resolution note' })
+  const save = drawer.getByRole('button', { name: 'Save decision' })
+  await expect(resolution).toBeVisible()
+  await expect(save).toBeVisible()
+  expect((await resolution.boundingBox())?.y).toBeLessThan(844)
+  expect((await save.boundingBox())?.y).toBeLessThan(844)
+  await resolution.fill('mobile review')
+  await save.click()
+  await expect(page.locator('tbody').getByText('Rejected', { exact: true }).first()).toBeVisible()
   expect(
     await page.locator('html').evaluate((element) => element.scrollWidth <= element.clientWidth),
   ).toBeTruthy()
   await page.screenshot({ path: 'output/risk-mobile.png', fullPage: true })
+})
+
+test('risk ignores a stale refresh after a decision, then accepts a later authority refresh', async ({
+  page,
+}) => {
+  let reviewLoads = 0
+  let releaseRefresh!: () => void
+  const refreshGate = new Promise<void>((resolve) => {
+    releaseRefresh = resolve
+  })
+  let decisionCalls = 0
+  let releaseDecision!: () => void
+  const decisionGate = new Promise<void>((resolve) => {
+    releaseDecision = resolve
+  })
+
+  await installRiskMocks(page)
+  await page.route('**/api/v1/risk/reviews', async (route) => {
+    reviewLoads += 1
+    if (reviewLoads === 2) await refreshGate
+    const status = reviewLoads >= 3 ? 'REJECTED' : 'PENDING'
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(ok([{ id: 101, userId: 7, type: 'PRICE_ANOMALY', score: 88, status, detail: 'price changed quickly', createdAt: '2026-07-12T08:00:00' }])),
+    })
+  })
+  await page.route('**/api/v1/risk/reviews/101/resolve', async (route) => {
+    decisionCalls += 1
+    await decisionGate
+    const body = route.request().postDataJSON() as { status: string; resolution: string }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(ok({ id: 101, userId: 7, type: 'PRICE_ANOMALY', score: 88, status: body.status, detail: 'price changed quickly', resolution: body.resolution, createdAt: '2026-07-12T08:00:00' })),
+    })
+  })
+
+  await page.goto('/risk')
+  await page.getByRole('button', { name: 'Approve case 101' }).click()
+  const drawer = page.locator('.el-drawer')
+  await drawer.getByRole('textbox', { name: 'Resolution note' }).fill('verified')
+  await drawer.getByRole('button', { name: 'Save decision' }).click()
+  await expect.poll(() => decisionCalls).toBe(1)
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await expect.poll(() => reviewLoads).toBe(2)
+  releaseDecision()
+  await expect(page.locator('tbody').getByText('Approved', { exact: true })).toBeVisible()
+  releaseRefresh()
+  await page.waitForTimeout(100)
+  await expect(page.locator('tbody').getByText('Approved', { exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await expect.poll(() => reviewLoads).toBe(3)
+  await expect(page.locator('tbody').getByText('Rejected', { exact: true }).first()).toBeVisible()
+})
+
+test('risk BLOCK confirmation locks duplicate saves, cancels cleanly, and can be retried', async ({ page }) => {
+  let resolveCalls = 0
+  await installRiskMocks(page)
+  await page.route('**/api/v1/risk/reviews/101/resolve', async (route) => {
+    resolveCalls += 1
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ok({ id: 101, userId: 7, type: 'PRICE_ANOMALY', score: 88, status: 'BLOCKED', detail: 'price changed quickly', resolution: 'blocked', createdAt: '2026-07-12T08:00:00' })) })
+  })
+
+  await page.goto('/risk')
+  await page.getByRole('button', { name: 'Block case 101' }).click()
+  const drawer = page.locator('.el-drawer')
+  await drawer.getByRole('textbox', { name: 'Resolution note' }).fill('confirmed abuse')
+  await drawer.getByRole('textbox', { name: 'TOTP', exact: true }).fill('654321')
+  const save = drawer.getByRole('button', { name: 'Save decision' })
+  await save.click()
+  await expect(save).toBeDisabled()
+  await expect(page.getByRole('dialog', { name: 'Block risk case' })).toHaveCount(1)
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect.poll(() => resolveCalls).toBe(0)
+  await expect(save).toBeEnabled()
+
+  await save.click()
+  await page.getByRole('button', { name: 'Block', exact: true }).click()
+  await expect.poll(() => resolveCalls).toBe(1)
+  await expect(page.locator('tbody').getByText('Blocked', { exact: true })).toBeVisible()
+})
+
+test('risk rejects with a verified payload and retries another case after a local failure', async ({ page }) => {
+  let retryCalls = 0
+  const bodies: Array<{ status: string; resolution: string }> = []
+  await installRiskMocks(page)
+  await page.route('**/api/v1/risk/reviews', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ok([
+      { id: 101, userId: 7, type: 'PRICE_ANOMALY', score: 88, status: 'PENDING', detail: 'price changed quickly', createdAt: '2026-07-12T08:00:00' },
+      { id: 103, userId: 9, type: 'SELF_BUY', score: 66, status: 'PENDING', detail: 'manual review needed', createdAt: '2026-07-12T08:00:00' },
+    ])) })
+  })
+  await page.route('**/api/v1/risk/reviews/101/resolve', async (route) => {
+    const body = route.request().postDataJSON() as { status: string; resolution: string }
+    bodies.push(body)
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ok({ id: 101, userId: 7, type: 'PRICE_ANOMALY', score: 88, status: body.status, detail: 'price changed quickly', resolution: body.resolution, createdAt: '2026-07-12T08:00:00' })) })
+  })
+  await page.route('**/api/v1/risk/reviews/103/resolve', async (route) => {
+    retryCalls += 1
+    if (retryCalls === 1) {
+      await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ code: 'FAILED', message: 'backend failure' }) })
+      return
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ok({ id: 103, userId: 9, type: 'SELF_BUY', score: 66, status: 'APPROVED', detail: 'manual review needed', resolution: 'verified', createdAt: '2026-07-12T08:00:00' })) })
+  })
+
+  await page.goto('/risk')
+  await page.getByRole('button', { name: 'Reject case 101' }).click()
+  const drawer = page.locator('.el-drawer')
+  await drawer.getByRole('textbox', { name: 'Resolution note' }).fill('rejected manually')
+  await drawer.getByRole('button', { name: 'Save decision' }).click()
+  await expect(page.locator('tbody').getByText('Rejected', { exact: true }).first()).toBeVisible()
+  expect(bodies).toEqual([{ status: 'REJECTED', resolution: 'rejected manually' }])
+  await page.keyboard.press('Escape')
+
+  await page.getByRole('button', { name: 'Approve case 103' }).click()
+  await drawer.getByRole('textbox', { name: 'Resolution note' }).fill('retry note')
+  await drawer.getByRole('button', { name: 'Save decision' }).click()
+  await expect(drawer.getByRole('alert')).toBeVisible()
+  await expect(drawer).not.toContainText('backend failure')
+  await expect(drawer.getByRole('textbox', { name: 'Resolution note' })).toHaveValue('retry note')
+  await drawer.getByRole('button', { name: 'Save decision' }).click()
+  await expect(page.locator('tbody').getByText('Approved', { exact: true })).toBeVisible()
+  await expect(drawer.getByRole('alert')).toHaveCount(0)
 })

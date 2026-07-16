@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import {
   CircleCheck,
   CircleClose,
@@ -71,7 +71,6 @@ const { state: filters, replaceNow } = useRouteQueryState(riskQuerySchema, { deb
 const reviewsState = useAsyncState<RiskReviewCase[]>({ preserveData: true })
 const assessmentState = useAsyncState<RiskAssessmentResponse>({ preserveData: true })
 const pendingKeys = ref(new Set<string>())
-const locallyResolvedReviews = ref(new Map<number, RiskReviewCase>())
 const decisionDrawerOpen = ref(false)
 const activeReview = ref<RiskReviewCase | null>(null)
 const decisionError = ref('')
@@ -190,18 +189,11 @@ function statusType(status: RiskReviewStatus): 'success' | 'warning' | 'danger' 
 }
 
 async function loadReviews() {
-  await reviewsState.load(
-    async () => {
-      const rows = await riskApi.riskReviews()
-      return rows.map((row) => locallyResolvedReviews.value.get(row.id) ?? row)
-    },
-    {
-      preserveData: true,
-      isEmpty: (rows) => rows.length === 0,
-    },
-  )
+  await reviewsState.load(() => riskApi.riskReviews(), {
+    preserveData: true,
+    isEmpty: (rows) => rows.length === 0,
+  })
 }
-
 async function assessRisk() {
   if (assessmentState.isLoading.value) return
   const payload = {
@@ -246,22 +238,22 @@ async function saveDecision() {
     decisionError.value = t('risk.totpRequiredForBlock')
     return
   }
-  if (status === 'BLOCKED') {
-    const confirmed = await notify.confirm({
-      title: t('risk.blockCaseTitle'),
-      content: t('risk.blockCaseConfirm'),
-      confirmText: t('risk.block'),
-      type: 'warning',
-    })
-    if (!confirmed) return
-  }
 
   const resolution = decisionForm.resolution.trim()
   const totpCode = status === 'BLOCKED' ? decisionForm.totpCode.trim() : undefined
   setPending(key, true)
   try {
+    if (status === 'BLOCKED') {
+      const confirmed = await notify.confirm({
+        title: t('risk.blockCaseTitle'),
+        content: t('risk.blockCaseConfirm'),
+        confirmText: t('risk.block'),
+        type: 'warning',
+      })
+      if (!confirmed) return
+    }
     const updated = await riskApi.resolveRiskReview(item.id, { status, resolution, totpCode })
-    locallyResolvedReviews.value = new Map(locallyResolvedReviews.value).set(updated.id, updated)
+    reviewsState.cancel()
     const index = reviews.value.findIndex((review) => review.id === updated.id)
     if (index >= 0) reviews.value.splice(index, 1, updated)
     if (activeReview.value?.id === updated.id) activeReview.value = updated
@@ -274,7 +266,7 @@ async function saveDecision() {
     setPending(key, false)
   }
 }
-void replaceNow()
+void replaceNow().catch(() => undefined)
 void loadReviews()
 </script>
 
@@ -743,8 +735,45 @@ void loadReviews()
   }
 }
 
+@media (max-width: 720px) {
+  .risk-page {
+    gap: var(--space-2);
+  }
+
+  .assessment-band {
+    gap: var(--space-1);
+  }
+
+  .assessment-tool,
+  .assessment-result {
+    gap: var(--space-1);
+    padding-block: 0;
+  }
+
+  .assessment-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-1);
+  }
+
+  .assessment-form :deep(.el-input),
+  .assessment-form :deep(.el-button) {
+    grid-column: 1 / -1;
+  }
+
+  .assessment-form :deep(.el-input__wrapper),
+  .assessment-form :deep(.el-input-number) {
+    min-height: 28px;
+  }
+
+  .assessment-result:has(.async-state-view[data-status='idle']) {
+    display: none;
+  }
+
+  .review-section {
+    margin-top: -2px;
+  }
+}
 @media (max-width: 760px) {
-  .assessment-form,
   .signal-list li {
     grid-template-columns: 1fr;
   }

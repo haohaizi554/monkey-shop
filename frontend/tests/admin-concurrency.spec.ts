@@ -240,7 +240,7 @@ test('inventory rejects a same-SKU refresh started after a reservation begins', 
   expect(stockLoads).toBe(1)
 })
 
-test('risk rejects a review refresh started after a decision write begins', async ({ page }) => {
+test('risk refresh stays available during a decision write and final patch wins', async ({ page }) => {
   let reviewLoads = 0
   let decisionCalls = 0
   let releaseDecision!: () => void
@@ -275,14 +275,15 @@ test('risk rejects a review refresh started after a decision write begins', asyn
   await expect.poll(() => decisionCalls).toBe(1)
 
   const refresh = page.getByRole('button', { name: 'Refresh', exact: true })
-  await expect(refresh).toBeDisabled()
-  await refresh.evaluate((element) => {
-    element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  })
+  await expect(refresh).toBeEnabled()
+  await page.keyboard.press('Escape')
+  await refresh.click()
+  await expect.poll(() => reviewLoads).toBe(2)
 
   releaseDecision()
   await expect(page.locator('tbody').getByText('Approved', { exact: true })).toBeVisible()
-  expect(reviewLoads).toBe(1)
+  await expect(page.locator('tbody').getByText('Pending', { exact: true })).toHaveCount(0)
+  expect(reviewLoads).toBe(2)
 })
 
 test('risk decisions use one case lock even when another decision is selected', async ({
