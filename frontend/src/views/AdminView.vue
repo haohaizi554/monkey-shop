@@ -107,7 +107,6 @@ const metrics = computed<MetricItem[]>(() => [
   { key: 'returns', label: t('common.returnRate'), value: stats.value?.returnRate ?? '0%' },
 ])
 const productDirty = computed(() => serializeProductForm() !== productSnapshot)
-const adminMutationPending = computed(() => pendingKeys.value.size > 0)
 function isPending(key: string): boolean {
   return pendingKeys.value.has(key)
 }
@@ -132,12 +131,10 @@ function serializeProductForm(): string {
 }
 
 async function loadStats() {
-  if (adminMutationPending.value) return
   await statsState.load(() => fetchStats(), { preserveData: true })
 }
 
 async function loadProducts() {
-  if (adminMutationPending.value) return
   await productsState.load(() => listMonkeys(), {
     preserveData: true,
     isEmpty: (rows) => rows.length === 0,
@@ -145,7 +142,6 @@ async function loadProducts() {
 }
 
 async function loadOrders() {
-  if (adminMutationPending.value) return
   await ordersState.load(() => ordersApi.allOrders(), {
     preserveData: true,
     isEmpty: (rows) => rows.length === 0,
@@ -153,7 +149,6 @@ async function loadOrders() {
 }
 
 function refreshAdmin() {
-  if (adminMutationPending.value) return
   void Promise.allSettled([loadStats(), loadProducts(), loadOrders()])
 }
 
@@ -386,7 +381,6 @@ refreshAdmin()
             productsState.isLoading.value ||
             ordersState.isLoading.value
           "
-          :disabled="adminMutationPending"
           @click="refreshAdmin"
         >
           {{ t('common.refresh') }}
@@ -579,7 +573,7 @@ refreshAdmin()
       <AsyncStateView
         :status="traceState.status.value"
         :error="traceState.error.value"
-        :empty-title="t('common.noTraceData')"
+        :empty-title="t('admin.noAuditEvents')"
         @retry="loadTrace"
       >
         <template #idle
@@ -594,7 +588,10 @@ refreshAdmin()
           >
             <h3>{{ auditEventLabel(event.eventType) }}</h3>
             <p>{{ event.description }}</p>
-            <code v-if="event.userId">user {{ event.userId }}</code>
+            <p v-if="event.userId || event.traceId" class="trace-event-meta">
+              <code v-if="event.userId">user {{ event.userId }}</code>
+              <code v-if="event.traceId">trace {{ event.traceId }}</code>
+            </p>
           </el-timeline-item>
         </el-timeline>
       </AsyncStateView>
@@ -726,6 +723,13 @@ refreshAdmin()
 
 .trace-timeline h3 {
   font-size: var(--text-sm);
+}
+
+.trace-event-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
 }
 
 .trace-timeline code {

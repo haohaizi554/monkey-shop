@@ -4,6 +4,18 @@ function ok(data: unknown) {
   return { code: 'OK', message: 'ok', data, traceId: 'admin-operations-test' }
 }
 
+function pageResult<T>(content: T[]) {
+  return {
+    content,
+    page: 0,
+    size: 100,
+    totalElements: content.length,
+    totalPages: 1,
+    first: true,
+    last: true,
+  }
+}
+
 const products = [
   { id: 1, name: 'Golden Monkey', breed: 'Golden', price: '128.00', imageUrl: '', stock: 8 },
   { id: 2, name: 'Capuchin', breed: 'Capuchin', price: '98.00', imageUrl: '', stock: 12 },
@@ -66,9 +78,9 @@ async function installAdminMocks(page: Page) {
         seriesVisit: [],
       }
     } else if (pathname === '/monkeys' && request.method() === 'GET') {
-      data = products
+      data = pageResult(products)
     } else if (pathname === '/orders/all') {
-      data = orders
+      data = pageResult(orders)
     } else if (pathname === '/monkeys/1' && request.method() === 'DELETE') {
       await new Promise((resolve) => setTimeout(resolve, 450))
       data = null
@@ -105,6 +117,7 @@ test('admin product mutation is row-scoped while trace and URL order search stay
   await page.getByRole('button', { name: 'OK', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Delete Golden Monkey' })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Delete Capuchin' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled()
 
   await page.getByRole('textbox', { name: 'Trace ID' }).fill('trace-123')
   await page.getByRole('button', { name: 'Search trace' }).click()
@@ -127,11 +140,11 @@ test('retrying return confirmation after a completed refund does not refund twic
   const returnOrder = { ...orders[0], status: 'RETURN_SHIPPING' }
 
   await installAdminMocks(page)
-  await page.route('**/api/v1/orders/all', async (route) => {
+  await page.route('**/api/v1/orders/all**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(ok([returnOrder])),
+      body: JSON.stringify(ok(pageResult([returnOrder]))),
     })
   })
   await page.route('**/api/v1/payments/admin/orders/11', async (route) => {
@@ -259,7 +272,7 @@ test('a late catalog refresh cannot restore a product deleted while it was pendi
   })
 
   await installAdminMocks(page)
-  await page.route('**/api/v1/monkeys', async (route) => {
+  await page.route('**/api/v1/monkeys**', async (route) => {
     if (route.request().method() !== 'GET') {
       await route.fallback()
       return
@@ -271,7 +284,7 @@ test('a late catalog refresh cannot restore a product deleted while it was pendi
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(ok(products)),
+      body: JSON.stringify(ok(pageResult(products))),
     })
   })
 
@@ -287,4 +300,182 @@ test('a late catalog refresh cannot restore a product deleted while it was pendi
   releaseRefresh()
   await page.waitForTimeout(100)
   await expect(catalog.getByText('Golden Monkey', { exact: true })).toHaveCount(0)
+})
+
+test('admin product dialog validates, uploads an image, confirms unsaved edits, and recovers after a failed delete', async ({
+  page,
+}) => {
+  let createCalls = 0
+  await installAdminMocks(page)
+  await page.route('**/api/v1/uploads', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(ok({ path: '/uploads/river-monkey.webp', cropped: false })),
+    })
+  })
+  await page.route('**/api/v1/monkeys/add', async (route) => {
+    createCalls += 1
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        ok({
+          id: 3,
+          name: 'River Monkey',
+          breed: 'Tamarin',
+          price: '88.00',
+          imageUrl: '/uploads/river-monkey.webp',
+          stock: 4,
+        }),
+      ),
+    })
+  })
+  await page.route('**/api/v1/monkeys/update', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        ok({
+          id: 3,
+          name: 'River Monkey Updated',
+          breed: 'Tamarin',
+          price: '88.00',
+          imageUrl: '/uploads/river-monkey.webp',
+          stock: 4,
+        }),
+      ),
+    })
+  })
+  await page.route('**/api/v1/monkeys/2', async (route) => {
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/problem+json',
+      body: JSON.stringify({ title: 'catalog unavailable', status: 503 }),
+    })
+  })
+
+  await page.goto('/admin')
+  await page.getByRole('button', { name: 'Create product' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Create product' })
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(dialog).toContainText('Product name is required')
+  expect(createCalls).toBe(0)
+
+  await dialog.getByLabel('Name').fill('River Monkey')
+  await dialog.getByLabel('Breed').fill('Tamarin')
+  await dialog.getByLabel('Price').fill('88')
+  await dialog.getByLabel('Stock').fill('4')
+  await dialog.locator('#product-image-input').setInputFiles({
+    name: 'river-monkey.webp',
+    mimeType: 'image/webp',
+    buffer: Buffer.from('mock-image'),
+  })
+  await expect(dialog.getByRole('img', { name: 'River Monkey' })).toHaveAttribute(
+    'src',
+    '/uploads/river-monkey.webp',
+  )
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Discard product changes?' })).toBeVisible()
+  await page.getByRole('button', { name: 'OK', exact: true }).click()
+  await expect(dialog).toBeHidden()
+
+  await page.getByRole('button', { name: 'Create product' }).click()
+  await dialog.getByLabel('Name').fill('River Monkey')
+  await dialog.getByLabel('Breed').fill('Tamarin')
+  await dialog.getByLabel('Price').fill('88')
+  await dialog.getByLabel('Stock').fill('4')
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await expect(page.getByText('River Monkey', { exact: true })).toBeVisible()
+  expect(createCalls).toBe(1)
+
+  const deleteCapuchin = page.getByRole('button', { name: 'Delete Capuchin' })
+  await deleteCapuchin.click()
+  await page.getByRole('button', { name: 'OK', exact: true }).click()
+  await expect(
+    page.locator('.app-feedback-item').filter({ hasText: 'Unable to delete product' }),
+  ).toContainText('Unable to delete product')
+  await expect(deleteCapuchin).toBeEnabled()
+  await expect(page.getByText('Capuchin', { exact: true }).first()).toBeVisible()
+})
+
+test('admin order actions stay legal and audit lookup has empty, error, and timeline states', async ({
+  page,
+}) => {
+  await installAdminMocks(page)
+  await page.route('**/api/v1/orders/all**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        ok(
+          pageResult([
+            { ...orders[0], status: 'PAID' },
+            { ...orders[1], status: 'COMPLETED' },
+          ]),
+        ),
+      ),
+    })
+  })
+  await page.route('**/api/v1/stats/audit-trace**', async (route) => {
+    const traceId = new URL(route.request().url()).searchParams.get('traceId')
+    if (traceId === 'missing') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(ok([])),
+      })
+      return
+    }
+    if (traceId === 'broken') {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/problem+json',
+        body: JSON.stringify({ title: 'audit unavailable', status: 503 }),
+      })
+      return
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        ok([
+          {
+            id: 'evt-1',
+            eventType: 'ORDER_CREATED',
+            userId: '7',
+            description: 'Order created',
+            createdAt: '2026-07-12T08:00:00',
+            traceId,
+          },
+        ]),
+      ),
+    })
+  })
+
+  await page.goto('/admin')
+  const orderTable = page.locator('.order-table')
+  await expect(orderTable.getByRole('button', { name: 'Ship', exact: true })).toHaveCount(1)
+  await expect(orderTable.getByText('ORDER-BETA', { exact: true })).toBeVisible()
+
+  const traceInput = page.getByRole('textbox', { name: 'Trace ID' })
+  const searchTrace = page.getByRole('button', { name: 'Search trace' })
+  await traceInput.fill('missing')
+  await searchTrace.click()
+  await expect(page.locator('.async-state-view__empty')).toContainText('No audit events found')
+
+  await traceInput.fill('broken')
+  await searchTrace.click()
+  await expect(page.locator('.async-state-view__error')).toContainText(
+    'The request failed. Please try again later.',
+  )
+
+  await traceInput.fill('trace-9')
+  await searchTrace.click()
+  await expect(page.getByRole('heading', { name: 'Order created' })).toBeVisible()
+  await expect(page.locator('.trace-timeline')).toContainText('trace trace-9')
+  await expect(page.locator('.trace-timeline code').filter({ hasText: 'user 7' })).toContainText(
+    'user 7',
+  )
 })
