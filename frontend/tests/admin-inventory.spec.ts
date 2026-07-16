@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 function ok(data: unknown) {
   return { code: 'OK', message: 'ok', data, traceId: 'inventory-test' }
@@ -37,7 +37,20 @@ function discrepancy(skuId: number, warehouseId: number, actualLocked: number) {
   }
 }
 
-async function installInventoryMocks(page: Page) {
+interface InventoryMocks {
+  stockRequests: (skuId: number) => number
+  stockRequestTotal: () => number
+}
+
+async function expectTableRow(row: Locator, values: string[]) {
+  const cellTexts = await row.locator('td .cell').allTextContents()
+  expect(cellTexts.map((value) => value.replace(/\s+/g, ''))).toEqual(
+    values.map((value) => value.replace(/\s+/g, '')),
+  )
+}
+
+async function installInventoryMocks(page: Page): Promise<InventoryMocks> {
+  const stockRequestCounts = new Map<number, number>()
   let reconciliationRuns = 0
 
   await page.addInitScript(() => {
@@ -51,18 +64,29 @@ async function installInventoryMocks(page: Page) {
     let status = 200
     if (pathname === '/users/me') {
       data = { isLogin: true, identity: 'ADMIN', username: 'admin' }
-    } else if (pathname === '/inventory/skus/7/stocks') {
-      data = [stock(12), stock(6, 2, 'WEST-1', 'West')]
-    } else if (pathname === '/inventory/skus/8/stocks') {
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      data = [stock(18, 3, 'NORTH-1', 'North', 8)]
-    } else if (pathname === '/inventory/skus/9/stocks') {
-      data = []
-    } else if (pathname === '/inventory/skus/10/stocks') {
-      status = 500
-      data = { code: 'INVENTORY_DOWN', message: 'Inventory service unavailable' }
+    } else if (/^\/inventory\/skus\/\d+\/stocks$/.test(pathname)) {
+      const skuId = Number(pathname.split('/')[3])
+      const count = (stockRequestCounts.get(skuId) ?? 0) + 1
+      stockRequestCounts.set(skuId, count)
+      if (skuId === 7 && count === 1) {
+        data = [stock(12), stock(6, 2, 'WEST-1', 'West')]
+      } else if (skuId === 7) {
+        await new Promise((resolve) => setTimeout(resolve, 650))
+        data = [stock(4, 1, 'EAST-STALE', 'East'), stock(5, 2, 'WEST-STALE', 'West')]
+      } else if (skuId === 8) {
+        await new Promise((resolve) => setTimeout(resolve, 700))
+        data = [stock(18, 3, 'NORTH-STALE', 'North', 8)]
+      } else if (skuId === 9) {
+        data = []
+      } else if (skuId === 10) {
+        status = 500
+        data = { code: 'INVENTORY_DOWN', message: 'Inventory service unavailable' }
+      }
     } else if (pathname === '/inventory/reservations' && request.method() === 'POST') {
       const body = request.postDataJSON() as { reservationKey: string }
+      if (body.reservationKey === 'interleave') {
+        await new Promise((resolve) => setTimeout(resolve, 250))
+      }
       data = {
         reservationKey: body.reservationKey,
         skuId: 7,
@@ -92,10 +116,14 @@ async function installInventoryMocks(page: Page) {
               balanced: false,
               discrepancies: [discrepancy(7, 1, 1), discrepancy(8, 1, 2)],
             }
-          : {
-              balanced: false,
-              discrepancies: [discrepancy(7, 1, 4)],
-            }
+          : reconciliationRuns === 2
+            ? {
+                balanced: false,
+                discrepancies: [discrepancy(7, 1, 4)],
+              }
+            : reconciliationRuns === 3
+              ? { balanced: true, discrepancies: [] }
+              : { balanced: false, discrepancies: [] }
     } else if (pathname === '/tracking/events') {
       data = { id: 1, eventType: 'PAGE_VIEW' }
     }
@@ -105,10 +133,18 @@ async function installInventoryMocks(page: Page) {
       body: JSON.stringify(status === 200 ? ok(data) : data),
     })
   })
+
+  return {
+    stockRequests: (skuId) => stockRequestCounts.get(skuId) ?? 0,
+    stockRequestTotal: () =>
+      [...stockRequestCounts.values()].reduce((total, count) => total + count, 0),
+  }
 }
 
-test('inventory persists and canonicalizes its URL-backed query', async ({ page }) => {
-  await installInventoryMocks(page)
+test('inventory persists and canonicalizes its URL-backed query without loading an invalid SKU', async ({
+  page,
+}) => {
+  const mocks = await installInventoryMocks(page)
   await page.goto('/inventory?skuId=7&region=East')
   await expect(page.getByRole('spinbutton', { name: 'SKU id' })).toHaveValue('7')
   await expect(page.getByRole('textbox', { name: 'Region' })).toHaveValue('East')
@@ -124,10 +160,14 @@ test('inventory persists and canonicalizes its URL-backed query', async ({ page 
   await expect.poll(() => new URL(page.url()).searchParams.get('skuId')).toBe('8')
   await expect.poll(() => new URL(page.url()).searchParams.get('region')).toBe('North')
 
+  await expect(page.getByText('NORTH-STALE')).toBeVisible()
+  const requestsBeforeInvalidSku = mocks.stockRequestTotal()
   await page.goto('/inventory?skuId=not-a-number&region=%20East%20')
   await expect(page.getByRole('spinbutton', { name: 'SKU id' })).toHaveValue('')
   await expect.poll(() => new URL(page.url()).searchParams.get('skuId')).toBeNull()
   await expect.poll(() => new URL(page.url()).searchParams.get('region')).toBe('East')
+  await page.waitForTimeout(350)
+  expect(mocks.stockRequestTotal()).toBe(requestsBeforeInvalidSku)
 })
 
 test('inventory preserves the current table while a query updates', async ({ page }) => {
@@ -139,10 +179,62 @@ test('inventory preserves the current table while a query updates', async ({ pag
   await page.getByRole('textbox', { name: 'Region' }).fill('North')
   await expect(page.locator('.async-state-view[data-status="updating"]')).toBeVisible()
   await expect(page.getByText('EAST-1')).toBeVisible()
-  await expect(page.getByText('NORTH-1')).toBeVisible()
+  await expect(page.getByText('NORTH-STALE')).toBeVisible()
 })
 
-test('inventory scopes reservation locking to the active row without locking queries or reconciliation', async ({
+test('an older SKU response cannot replace the later query or its applied region', async ({
+  page,
+}) => {
+  await installInventoryMocks(page)
+  await page.goto('/inventory?skuId=7&region=East')
+  await expect(page.getByText('EAST-1')).toBeVisible()
+
+  await page.getByRole('spinbutton', { name: 'SKU id' }).fill('8')
+  await page.getByRole('textbox', { name: 'Region' }).fill('North')
+  await expect(page.locator('.async-state-view[data-status="updating"]')).toBeVisible()
+  await page.getByRole('spinbutton', { name: 'SKU id' }).fill('7')
+  await page.getByRole('textbox', { name: 'Region' }).fill('East')
+
+  await expect(page.getByText('EAST-STALE')).toBeVisible()
+  await page.waitForTimeout(800)
+  await expect(page.getByText('NORTH-STALE')).toHaveCount(0)
+  await expect(page.getByRole('textbox', { name: 'Region' })).toHaveValue('East')
+})
+
+test('inventory allows a search during reservation and cancels the stale stock response before its row patch', async ({
+  page,
+}) => {
+  const mocks = await installInventoryMocks(page)
+  await page.goto('/inventory?skuId=7&region=East')
+  await expect(page.getByText('EAST-1')).toBeVisible()
+
+  const keyInput = page.getByRole('textbox', { name: 'Reservation key' })
+  await keyInput.fill('interleave')
+  await page.getByRole('button', { name: 'Reserve', exact: true }).click()
+  const search = page.getByRole('button', { name: 'Search', exact: true })
+  await expect(search).toBeEnabled()
+  const stockRequestsBeforeSearch = mocks.stockRequests(7)
+  await search.click()
+  await expect.poll(() => mocks.stockRequests(7)).toBeGreaterThan(stockRequestsBeforeSearch)
+  await expect(page.getByText('interleave', { exact: true })).toBeVisible()
+  await page.waitForTimeout(800)
+
+  const stockRows = page.locator(
+    '.data-table-shell__scroller[aria-label="Warehouse stock"] tbody tr',
+  )
+  await expectTableRow(stockRows.nth(0), [
+    'EAST-1',
+    'East',
+    '10',
+    '10',
+    '0',
+    '20',
+    'Above safety stockSafety threshold: 3',
+  ])
+  await expect(page.getByText('EAST-STALE')).toHaveCount(0)
+})
+
+test('inventory scopes reservation locking and patches each reservation row independently', async ({
   page,
 }) => {
   await installInventoryMocks(page)
@@ -162,23 +254,63 @@ test('inventory scopes reservation locking to the active row without locking que
   await expect(page.getByRole('button', { name: 'Release reserve-two' })).toBeEnabled()
   await expect(page.getByRole('spinbutton', { name: 'SKU id' })).toBeEnabled()
   await expect(page.getByRole('button', { name: 'Reconcile', exact: true })).toBeEnabled()
+
   await expect(page.getByText('Released', { exact: true })).toBeVisible()
+  const reservationRows = page.locator(
+    '.data-table-shell__scroller[aria-label="Reservations"] tbody tr',
+  )
+  await expectTableRow(reservationRows.nth(0), [
+    'reserve-two',
+    '1',
+    'Reserved',
+    '2026-07-12T09:00:00',
+    'Release',
+  ])
+  await expectTableRow(reservationRows.nth(1), [
+    'reserve-one',
+    '1',
+    'Released',
+    '2026-07-12T09:00:00',
+    'Release',
+  ])
 })
 
-test('inventory patches reconciliation rows by sku and warehouse without dropping unrelated rows', async ({
+test('inventory applies reconciliation as a full snapshot with stable composite row keys', async ({
   page,
 }) => {
   await installInventoryMocks(page)
   await page.goto('/inventory?skuId=7')
 
   await page.getByRole('button', { name: 'Reconcile', exact: true }).click()
-  const discrepancies = page.locator('.data-table-shell__scroller[aria-label="Discrepancies"]')
-  await expect(discrepancies).toContainText('1')
-  await expect(discrepancies).toContainText('2')
+  const discrepancyRows = page.locator(
+    '.data-table-shell__scroller[aria-label="Discrepancies"] tbody tr',
+  )
+  await expect(discrepancyRows).toHaveCount(2)
+  await expectTableRow(discrepancyRows.nth(0), ['7', '1', '1', '3', '0', '0'])
+  await expectTableRow(discrepancyRows.nth(1), ['8', '1', '2', '3', '0', '0'])
 
   await page.getByRole('button', { name: 'Reconcile', exact: true }).click()
-  await expect(discrepancies).toContainText('4')
-  await expect(discrepancies).toContainText('2')
+  await expect(discrepancyRows).toHaveCount(1)
+  await expectTableRow(discrepancyRows.nth(0), ['7', '1', '4', '3', '0', '0'])
+})
+
+test('inventory distinguishes a balanced empty reconciliation from an unbalanced empty reconciliation', async ({
+  page,
+}) => {
+  await installInventoryMocks(page)
+  await page.goto('/inventory?skuId=7')
+
+  const reconcile = page.getByRole('button', { name: 'Reconcile', exact: true })
+  await reconcile.click()
+  await reconcile.click()
+  await reconcile.click()
+  await expect(page.getByText('No inventory discrepancies')).toBeVisible()
+  await expect(page.getByText('Balanced', { exact: true })).toBeVisible()
+
+  await reconcile.click()
+  await expect(page.getByText('No inventory discrepancies')).toBeVisible()
+  await expect(page.getByText('Discrepancy', { exact: true })).toBeVisible()
+  await expect(page.getByText('Balanced', { exact: true })).toHaveCount(0)
 })
 
 test('inventory makes state branches exclusive and safety stock accessible without color alone', async ({
@@ -206,24 +338,43 @@ test('inventory makes state branches exclusive and safety stock accessible witho
   await expect(page.locator('body')).not.toContainText(String.fromCharCode(0x8def))
   await expect(page.locator('body')).not.toContainText(String.fromCharCode(0x95b3))
 })
-test('inventory keeps the page contained while tables scroll on mobile', async ({ page }) => {
+
+test('inventory keeps the page contained while all rendered tables scroll on mobile', async ({
+  page,
+}) => {
   await installInventoryMocks(page)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/inventory?skuId=7&region=East')
   await expect(page.getByText('EAST-1')).toBeVisible()
+  await page.getByRole('textbox', { name: 'Reservation key' }).fill('mobile-row')
+  await page.getByRole('button', { name: 'Reserve', exact: true }).click()
+  await expect(page.getByText('mobile-row', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Reconcile', exact: true }).click()
+  await expect(
+    page.locator('.data-table-shell__scroller[aria-label="Discrepancies"]'),
+  ).toBeVisible()
   await page.screenshot({ path: 'output/task-3-inventory-desktop.png', fullPage: true })
 
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.reload()
-  await expect(page.getByText('EAST-1')).toBeVisible()
   const layout = await page.evaluate(() => {
-    const tables = Array.from(document.querySelectorAll<HTMLElement>('.data-table-shell__scroller'))
-    return {
-      pageOverflows: document.documentElement.scrollWidth > window.innerWidth,
-      tableScrolls: tables.some((table) => table.scrollWidth > table.clientWidth),
-    }
+    const labels = ['Warehouse stock', 'Reservations', 'Discrepancies']
+    const tables = labels.map((label) => {
+      const table = document.querySelector<HTMLElement>(
+        `.data-table-shell__scroller[aria-label="${label}"]`,
+      )
+      return {
+        label,
+        exists: table !== null,
+        scrolls: table ? table.scrollWidth > table.clientWidth : false,
+      }
+    })
+    return { pageOverflows: document.documentElement.scrollWidth > window.innerWidth, tables }
   })
   expect(layout.pageOverflows).toBe(false)
-  expect(layout.tableScrolls).toBe(true)
+  expect(layout.tables).toEqual([
+    { label: 'Warehouse stock', exists: true, scrolls: true },
+    { label: 'Reservations', exists: true, scrolls: true },
+    { label: 'Discrepancies', exists: true, scrolls: true },
+  ])
   await page.screenshot({ path: 'output/task-3-inventory-mobile.png', fullPage: true })
 })

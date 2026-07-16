@@ -61,7 +61,6 @@ const reservationKey = ref('')
 const reserveQuantity = ref(1)
 const reservationError = ref('')
 const pendingKeys = ref(new Set<string>())
-const mutationSkuByKey = new Map<string, number>()
 let stockLoadTimer: ReturnType<typeof setTimeout> | undefined
 
 const stocks = computed(() => stocksState.data.value ?? [])
@@ -83,13 +82,7 @@ const totalAvailable = computed(() =>
 const totalLocked = computed(() =>
   filteredStocks.value.reduce((sum, stock) => sum + stock.lockedQuantity, 0),
 )
-const currentStockMutationPending = computed(() => {
-  const skuId = query.skuId
-  return (
-    skuId !== null &&
-    [...pendingKeys.value].some((pendingKey) => mutationSkuByKey.get(pendingKey) === skuId)
-  )
-})
+
 const reconciliation = computed(() => reconciliationState.data.value)
 const discrepancies = computed(() => reconciliation.value?.discrepancies ?? [])
 const metrics = computed<MetricItem[]>(() => [
@@ -134,9 +127,7 @@ function isPending(key: string): boolean {
   return pendingKeys.value.has(key)
 }
 
-function setPending(key: string, value: boolean, skuId?: number) {
-  if (value && skuId !== undefined) mutationSkuByKey.set(key, skuId)
-  else if (!value) mutationSkuByKey.delete(key)
+function setPending(key: string, value: boolean) {
   const next = new Set(pendingKeys.value)
   if (value) next.add(key)
   else next.delete(key)
@@ -170,7 +161,8 @@ function mergeDiscrepancies(
   previous: InventoryDiscrepancy[],
   next: InventoryDiscrepancy[],
 ): InventoryDiscrepancy[] {
-  const merged = [...previous]
+  const nextKeys = new Set(next.map(discrepancyKey))
+  const merged = previous.filter((row) => nextKeys.has(discrepancyKey(row)))
   for (const row of next) {
     const index = merged.findIndex((candidate) => discrepancyKey(candidate) === discrepancyKey(row))
     if (index >= 0) merged.splice(index, 1, row)
@@ -180,7 +172,6 @@ function mergeDiscrepancies(
 }
 
 async function loadStocks() {
-  if (currentStockMutationPending.value) return
   if (!query.skuId) {
     appliedRegion.value = ''
     stocksState.reset()
@@ -204,7 +195,6 @@ function scheduleStockLoad() {
 }
 
 async function searchStocks() {
-  if (currentStockMutationPending.value) return
   if (stockLoadTimer) {
     clearTimeout(stockLoadTimer)
     stockLoadTimer = undefined
@@ -223,16 +213,15 @@ async function reserveCurrentSku() {
   }
   const pendingKey = `reserve:${keyValue}`
   if (isPending(pendingKey)) return
-  setPending(pendingKey, true, skuId)
+  setPending(pendingKey, true)
   try {
-    stocksState.cancel()
-    reconciliationState.cancel()
     const reservation = await reserveInventory({
       skuId,
       province: query.region.trim() || undefined,
       quantity: reserveQuantity.value,
       reservationKey: keyValue,
     })
+    if (query.skuId === reservation.skuId) stocksState.cancel()
     patchReservation(reservation)
     reservationKey.value = ''
     notify.success(t('inventory.reserved'), { key: 'inventory:reserve:success' })
@@ -246,11 +235,11 @@ async function reserveCurrentSku() {
 async function releaseReservation(reservation: InventoryReservation) {
   const pendingKey = `release:${reservation.reservationKey}`
   if (isPending(pendingKey) || reservation.status !== 'RESERVED') return
-  setPending(pendingKey, true, reservation.skuId)
+  setPending(pendingKey, true)
   try {
-    if (query.skuId === reservation.skuId) stocksState.cancel()
-    reconciliationState.cancel()
-    patchReservation(await releaseInventory(reservation.reservationKey))
+    const releasedReservation = await releaseInventory(reservation.reservationKey)
+    if (query.skuId === releasedReservation.skuId) stocksState.cancel()
+    patchReservation(releasedReservation)
     notify.success(t('inventory.released'), { key: 'inventory:release:success' })
   } catch (error) {
     notify.fromApiError(error, 'inventory.releaseFailed')
@@ -322,7 +311,6 @@ onBeforeUnmount(() => {
           type="primary"
           :icon="Search"
           :loading="stocksState.isLoading.value"
-          :disabled="currentStockMutationPending"
           @click="searchStocks"
         >
           {{ t('common.search') }}
