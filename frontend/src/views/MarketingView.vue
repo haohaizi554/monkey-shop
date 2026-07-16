@@ -265,7 +265,6 @@ async function runJoinGroup() {
             <span>{{ t('marketing.couponId') }}</span
             ><el-input-number
               v-model="couponId"
-              :min="1"
               controls-position="right"
               :aria-label="t('marketing.couponId')"
             />
@@ -288,7 +287,6 @@ async function runJoinGroup() {
             <span>{{ t('marketing.orderId') }}</span
             ><el-input-number
               v-model="couponOrderId"
-              :min="1"
               controls-position="right"
               :aria-label="t('marketing.orderId')"
             />
@@ -333,7 +331,6 @@ async function runJoinGroup() {
                 <span>{{ t('marketing.orderAmount') }}</span
                 ><el-input-number
                   v-model="quoteAmount"
-                  :min="1"
                   controls-position="right"
                   :aria-label="t('marketing.orderAmount')"
                 />
@@ -398,7 +395,6 @@ async function runJoinGroup() {
             <span>{{ t('marketing.activityId') }}</span
             ><el-input-number
               v-model="seckillActivityId"
-              :min="1"
               controls-position="right"
               :aria-label="t('marketing.activityId')"
             />
@@ -407,7 +403,6 @@ async function runJoinGroup() {
             <span>{{ t('marketing.quantity') }}</span
             ><el-input-number
               v-model="seckillQuantity"
-              :min="1"
               controls-position="right"
               :aria-label="t('marketing.quantity')"
             />
@@ -445,7 +440,6 @@ async function runJoinGroup() {
             <span>{{ t('marketing.activityId') }}</span
             ><el-input-number
               v-model="groupActivityId"
-              :min="1"
               controls-position="right"
               :aria-label="t('marketing.activityId')"
             />
@@ -454,7 +448,6 @@ async function runJoinGroup() {
             <span>{{ t('marketing.teamId') }}</span
             ><el-input-number
               v-model="groupTeamId"
-              :min="1"
               controls-position="right"
               :aria-label="t('marketing.teamId')"
             />
