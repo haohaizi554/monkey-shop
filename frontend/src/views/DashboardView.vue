@@ -26,7 +26,8 @@ const loadedProductId = ref<number>()
 const dashboardLastSuccessAt = ref<Date>()
 const profileLastSuccessAt = ref<Date>()
 const productLastSuccessAt = ref<Date>()
-let dashboardRequestInFlight = false
+let dashboardRefreshRequested = false
+let dashboardRefreshLoop: Promise<void> | undefined
 
 const dashboard = computed(() => dashboardState.data.value)
 const myProfile = computed(() => profileState.data.value)
@@ -85,6 +86,21 @@ function sourceLabel(value: string): string {
   return value === 'web' ? t('dashboard.webSource') : t('common.unknown')
 }
 
+function pageLabel(value: string): string {
+  if (value.includes('INTERNAL_PAGE_TOKEN') || value.startsWith('/internal/')) return t('common.unknown')
+  if (value === '/dashboard') return t('dashboard.pageDashboard')
+  if (value === '/shop') return t('dashboard.pageShop')
+  if (value === '/search') return t('dashboard.pageSearch')
+  if (value === '/orders') return t('dashboard.pageOrders')
+  if (value === '/cart') return t('dashboard.pageCart')
+  if (value === '/checkout') return t('dashboard.pageCheckout')
+  if (value === '/profile') return t('dashboard.pageProfile')
+  if (value === '/membership') return t('dashboard.pageMembership')
+  if (value === '/recommendations') return t('dashboard.pageRecommendations')
+  if (/^\/shop\/[^/]+$/.test(value)) return t('dashboard.pageProduct')
+  return t('common.unknown')
+}
+
 function normalizeProfileText(text?: string): string {
   if (!text) {
     return t('dashboard.noProfileSignal')
@@ -96,7 +112,7 @@ function normalizeProfileText(text?: string): string {
       const value = values.join('=').trim()
       if (key === 'last') return `${t('dashboard.latestEvent')}: ${eventLabel(value)}`
       if (key === 'previous') return `${t('dashboard.previousEvent')}: ${eventLabel(value)}`
-      if (key === 'page') return `${t('dashboard.page')}: ${value || t('common.unknown')}`
+      if (key === 'page') return `${t('dashboard.page')}: ${pageLabel(value)}`
       if (key === 'source') return `${t('dashboard.source')}: ${sourceLabel(value)}`
       return t('common.unknown')
     })
@@ -111,7 +127,7 @@ function tagLabel(tag: string): string {
     return `${t('dashboard.latestEvent')}: ${eventLabel(rawValue.toUpperCase())}`
   }
   if (prefix === 'page') {
-    return `${t('dashboard.page')}: ${rawValue || t('common.unknown')}`
+    return `${t('dashboard.page')}: ${pageLabel(rawValue)}`
   }
   if (prefix === 'source') {
     return `${t('dashboard.source')}: ${sourceLabel(rawValue)}`
@@ -124,18 +140,23 @@ function productIdValue(value: unknown): number | null {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
 }
 
-async function loadDashboard(): Promise<RealtimeDashboard | null> {
-  if (dashboardRequestInFlight) {
-    return null
+function loadDashboard(): Promise<void> {
+  dashboardRefreshRequested = true
+  if (!dashboardRefreshLoop) {
+    dashboardRefreshLoop = runDashboardRefreshLoop()
   }
+  return dashboardRefreshLoop
+}
 
-  dashboardRequestInFlight = true
+async function runDashboardRefreshLoop(): Promise<void> {
   try {
-    const result = await dashboardState.load(() => trackingDashboard(5), { preserveData: true })
-    if (result) dashboardLastSuccessAt.value = new Date()
-    return result
+    while (dashboardRefreshRequested) {
+      dashboardRefreshRequested = false
+      const result = await dashboardState.load(() => trackingDashboard(5), { preserveData: true })
+      if (result) dashboardLastSuccessAt.value = new Date()
+    }
   } finally {
-    dashboardRequestInFlight = false
+    dashboardRefreshLoop = undefined
   }
 }
 
@@ -166,10 +187,6 @@ async function loadProductProfile() {
   }
 }
 
-async function pollDashboard(): Promise<void> {
-  await loadDashboard()
-}
-
 function handleProductIdChange(value: number | undefined) {
   productId.value = value ?? null
   productInputError.value = productIdValue(productId.value) === null
@@ -187,7 +204,7 @@ function togglePolling() {
     return
   }
 
-  visibility.start(pollDashboard, 5000)
+  visibility.start(loadDashboard, 5000)
   if (visibility.isVisible.value) {
     void loadDashboard()
   }
@@ -196,7 +213,7 @@ function togglePolling() {
 onMounted(() => {
   void loadProfile()
   void loadProductProfile()
-  visibility.start(pollDashboard, 5000)
+  visibility.start(loadDashboard, 5000)
   if (visibility.isVisible.value) {
     void loadDashboard()
   }

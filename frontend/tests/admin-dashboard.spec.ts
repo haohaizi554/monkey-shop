@@ -7,6 +7,7 @@ function ok(data: unknown) {
 interface DashboardMockOptions {
   onDashboardRequest: () => void
   resumeResponseGate: Promise<void>
+  dashboardResponseGate?: (requestNumber: number) => Promise<void>
 }
 
 function deferred() {
@@ -33,7 +34,9 @@ async function installDashboardMocks(page: Page, options: DashboardMockOptions) 
       dashboardRequest += 1
       const requestNumber = dashboardRequest
       options.onDashboardRequest()
-      if (dashboardRequest > 1) {
+      if (options.dashboardResponseGate) {
+        await options.dashboardResponseGate(requestNumber)
+      } else if (dashboardRequest > 1) {
         await options.resumeResponseGate
       }
       data = {
@@ -157,4 +160,44 @@ test('dashboard resume stays dormant while hidden, manual refresh remains availa
   await expect.poll(() => requests).toBe(4)
   await page.clock.fastForward(5000)
   await expect.poll(() => requests).toBe(5)
+})
+
+test('dashboard coalesces repeated in-flight resumes into one immediate follow-up', async ({
+  page,
+}) => {
+  let requests = 0
+  let activeRequests = 0
+  let maximumActiveRequests = 0
+  const initialResponse = deferred()
+  await page.clock.install()
+  await installDashboardMocks(page, {
+    onDashboardRequest: () => {
+      requests += 1
+      activeRequests += 1
+      maximumActiveRequests = Math.max(maximumActiveRequests, activeRequests)
+    },
+    resumeResponseGate: Promise.resolve(),
+    dashboardResponseGate: async (requestNumber) => {
+      if (requestNumber === 1) {
+        await initialResponse.promise
+      }
+      activeRequests -= 1
+    },
+  })
+
+  await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+  await expect.poll(() => requests).toBe(1)
+  expect(activeRequests).toBe(1)
+
+  await page.getByRole('button', { name: 'Pause polling' }).click()
+  await page.getByRole('button', { name: 'Resume polling' }).click()
+  await page.getByRole('button', { name: 'Pause polling' }).click()
+  await page.getByRole('button', { name: 'Resume polling' }).click()
+  expect(requests).toBe(1)
+  expect(activeRequests).toBe(1)
+  expect(maximumActiveRequests).toBe(1)
+
+  initialResponse.resolve()
+  await expect.poll(() => requests).toBe(2)
+  expect(maximumActiveRequests).toBe(1)
 })

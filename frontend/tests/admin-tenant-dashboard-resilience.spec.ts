@@ -371,7 +371,13 @@ test('profile labels use known localizations and safe fallbacks for unknown trac
         profileSummary:
           'last=INTERNAL_EVENT_TOKEN,previous=SEARCH,page=/dashboard,source=web',
         behaviorTags: ['event:INTERNAL_EVENT_TOKEN', 'page:/dashboard'],
-        interestTags: ['source:internal_system', 'INTERNAL_PROFILE_TOKEN'],
+        interestTags: [
+          'source:internal_system',
+          'INTERNAL_PROFILE_TOKEN',
+          'page:/shop/42',
+          'page:INTERNAL_PAGE_TOKEN',
+          'page:/internal/operations',
+        ],
         lastEventAt: '2026-07-12T08:00:00',
         version: 1,
       })
@@ -397,8 +403,9 @@ test('profile labels use known localizations and safe fallbacks for unknown trac
   await expect(page.locator('.el-table').getByText('Search', { exact: true })).toBeVisible()
   await expect(userSection).toContainText('Latest event: Unknown')
   await expect(userSection).toContainText('Previous event: Search')
-  await expect(userSection).toContainText('Page: /dashboard')
+  await expect(userSection).toContainText('Page: Dashboard')
   await expect(userSection).toContainText('Source: Web')
+  await expect(userSection.locator('.tag-row')).toContainText('Page: Product')
   await expect(userSection.locator('.tag-row')).toContainText('Unknown')
   await expect(productSection.locator('.tag-row')).toContainText('Unknown')
   await expect(productSection).toContainText('Popular')
@@ -406,6 +413,8 @@ test('profile labels use known localizations and safe fallbacks for unknown trac
     'INTERNAL_EVENT_TOKEN',
     'INTERNAL_PROFILE_TOKEN',
     'INTERNAL_PRODUCT_TOKEN',
+    'INTERNAL_PAGE_TOKEN',
+    '/internal/operations',
     'internal_system',
   ]) {
     await expect(page.locator('body')).not.toContainText(rawToken)
