@@ -331,22 +331,6 @@ test('admin product dialog validates, uploads an image, confirms unsaved edits, 
       ),
     })
   })
-  await page.route('**/api/v1/monkeys/update', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(
-        ok({
-          id: 3,
-          name: 'River Monkey Updated',
-          breed: 'Tamarin',
-          price: '88.00',
-          imageUrl: '/uploads/river-monkey.webp',
-          stock: 4,
-        }),
-      ),
-    })
-  })
   await page.route('**/api/v1/monkeys/2', async (route) => {
     await route.fulfill({
       status: 503,
@@ -400,6 +384,112 @@ test('admin product dialog validates, uploads an image, confirms unsaved edits, 
   await expect(page.getByText('Capuchin', { exact: true }).first()).toBeVisible()
 })
 
+test('admin edits an existing product once and updates only that product row', async ({ page }) => {
+  let updateCalls = 0
+  let releaseUpdate!: () => void
+  const updateGate = new Promise<void>((resolve) => {
+    releaseUpdate = resolve
+  })
+  const updatePayloads: unknown[] = []
+
+  await installAdminMocks(page)
+  await page.route('**/api/v1/monkeys/update', async (route) => {
+    updateCalls += 1
+    updatePayloads.push(route.request().postDataJSON())
+    await updateGate
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        ok({
+          ...products[0],
+          name: 'Golden Monkey Revised',
+          stock: 11,
+        }),
+      ),
+    })
+  })
+
+  await page.goto('/admin')
+  await page.getByRole('button', { name: 'Edit Golden Monkey' }).first().click()
+  const dialog = page.getByRole('dialog', { name: 'Edit product' })
+  await dialog.getByLabel('Name').fill('Golden Monkey Revised')
+  await dialog.getByLabel('Stock').fill('11')
+  const save = dialog.getByRole('button', { name: 'Save', exact: true })
+  await save.click()
+
+  await expect(save).toBeDisabled()
+  await expect.poll(() => updateCalls).toBe(1)
+  expect(updatePayloads).toEqual([
+    expect.objectContaining({
+      id: 1,
+      name: 'Golden Monkey Revised',
+      stock: 11,
+    }),
+  ])
+  await expect(page.getByText('Capuchin', { exact: true }).first()).toBeVisible()
+
+  releaseUpdate()
+  await expect(dialog).toBeHidden()
+  await expect(page.getByText('Golden Monkey Revised', { exact: true }).first()).toBeVisible()
+  await expect(
+    page.locator('.product-table').getByText('Golden Monkey', { exact: true }),
+  ).toHaveCount(0)
+  await expect(page.getByText('Capuchin', { exact: true }).first()).toBeVisible()
+})
+
+test('admin ship action keeps pending scoped to its order and refreshes legal actions', async ({
+  page,
+}) => {
+  let releaseShip!: () => void
+  const shipGate = new Promise<void>((resolve) => {
+    releaseShip = resolve
+  })
+  let shipCalls = 0
+  const operationalOrders = [
+    { ...orders[0], status: 'PAID' },
+    { ...orders[1], status: 'PAID' },
+    { ...orders[1], id: 13, orderNo: 'ORDER-COMPLETE', status: 'COMPLETED' },
+  ]
+
+  await installAdminMocks(page)
+  await page.route('**/api/v1/orders/all**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(ok(pageResult(operationalOrders))),
+    })
+  })
+  await page.route('**/api/v1/orders/ship/11', async (route) => {
+    shipCalls += 1
+    await shipGate
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(ok({ ...operationalOrders[0], status: 'SHIPPED' })),
+    })
+  })
+
+  await page.goto('/admin')
+  const shipActions = page
+    .locator('.order-table')
+    .getByRole('button', { name: 'Ship', exact: true })
+  await expect(shipActions).toHaveCount(2)
+  await shipActions.first().click()
+
+  await expect(shipActions.first()).toBeDisabled()
+  await expect(shipActions.nth(1)).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled()
+  await page.getByRole('textbox', { name: 'Trace ID' }).fill('ship-trace')
+  await page.getByRole('button', { name: 'Search trace' }).click()
+  await expect(page.getByRole('heading', { name: 'Order created' })).toBeVisible()
+  expect(shipCalls).toBe(1)
+
+  releaseShip()
+  await expect(page.getByText('Shipped', { exact: true })).toBeVisible()
+  await expect(shipActions).toHaveCount(1)
+  await expect(page.getByText('ORDER-COMPLETE', { exact: true })).toBeVisible()
+})
 test('admin order actions stay legal and audit lookup has empty, error, and timeline states', async ({
   page,
 }) => {
