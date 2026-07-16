@@ -1,64 +1,48 @@
 <script setup lang="ts">
-import { Check, Refresh, Star, Tickets } from '@element-plus/icons-vue'
-import { computed, onMounted, reactive } from 'vue'
+import { Check, RefreshRight, Star, Tickets } from '@element-plus/icons-vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as membershipApi from '@/api/membership'
+import MascotState from '@/components/mascot/MascotState.vue'
+import ProductImage from '@/components/ProductImage.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import DataTableShell from '@/components/ui/DataTableShell.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { useNotify } from '@/composables/useNotify'
-import { useAuthStore } from '@/stores/auth'
-import type { MembershipDashboard, MembershipLevel } from '@/types'
-import { couponStatusLabel, dateTime, membershipLevelLabel } from '@/utils/format'
+import type { MembershipDashboard, MembershipLevel, PointsLedgerEntry } from '@/types'
+import { couponStatusLabel, dateTime, membershipLevelLabel, money } from '@/utils/format'
+import { getIdempotencyIntent } from '@/utils/idempotencyIntent'
 
-type MembershipMutation =
-  | 'checkIn'
-  | 'verifyIdentity'
-  | 'earnPoints'
-  | 'redeemPoints'
-  | 'changeLevel'
-  | 'addCollection'
-  | 'recordBrowse'
-  | 'scanPriceDrops'
+type MembershipMutation = 'checkIn' | 'verifyIdentity' | 'redeemPoints' | 'addCollection'
 
-const auth = useAuthStore()
 const notify = useNotify()
 const { t } = useI18n()
-const {
-  data: dashboard,
-  status,
-  error,
-  load,
-} = useAsyncState<MembershipDashboard>({ timeoutMs: 20000 })
+const dashboardResource = useAsyncState<MembershipDashboard>({ timeoutMs: 20000 })
 const levels: MembershipLevel[] = ['BASIC', 'SILVER', 'GOLD', 'DIAMOND']
 const identityForm = reactive({ realName: '', idCardNo: '' })
-const earnForm = reactive({ amount: 199, orderId: undefined as number | undefined })
 const redeemForm = reactive({ points: 100 })
-const levelForm = reactive({ level: 'SILVER' as MembershipLevel, reason: 'manual', totpCode: '' })
-const collectionForm = reactive({ productId: 1, targetPrice: 99 })
-const browseForm = reactive({ productId: 1 })
+const collectionForm = reactive({
+  productId: undefined as number | undefined,
+  targetPrice: undefined as number | undefined,
+})
+const recentLedger = ref<PointsLedgerEntry | null>(null)
 const pending = reactive<Record<MembershipMutation, boolean>>({
   checkIn: false,
   verifyIdentity: false,
-  earnPoints: false,
   redeemPoints: false,
-  changeLevel: false,
   addCollection: false,
-  recordBrowse: false,
-  scanPriceDrops: false,
 })
 const removingCollectionIds = reactive(new Set<number>())
 
+const dashboard = dashboardResource.data
 const profile = computed(() => dashboard.value?.profile)
 const wallet = computed(() => dashboard.value?.wallet)
 const coupons = computed(() => dashboard.value?.coupons ?? [])
 const collections = computed(() => dashboard.value?.collections ?? [])
 const browseHistory = computed(() => dashboard.value?.browseHistory ?? [])
 const identitySummary = computed(() => {
-  if (!profile.value?.verified) {
-    return t('membership.notVerified')
-  }
+  if (!profile.value?.verified) return t('membership.notVerified')
   const maskedValues = [profile.value.maskedRealName, profile.value.maskedIdCardNo].filter(Boolean)
   return maskedValues.length ? maskedValues.join(' / ') : t('membership.verified')
 })
@@ -67,13 +51,28 @@ const progress = computed(() => {
   const current = profile.value?.level ?? 'BASIC'
   const index = levels.indexOf(current)
   const next = levels[index + 1]
-  if (!next) {
-    return 100
-  }
+  if (!next) return 100
   const floor = levelMin(current)
   const ceiling = levelMin(next)
   return Math.max(0, Math.min(100, Math.round(((value - floor) / (ceiling - floor)) * 100)))
 })
+const nextLevel = computed(() => {
+  const current = profile.value?.level ?? 'BASIC'
+  return levels[levels.indexOf(current) + 1]
+})
+const canVerify = computed(
+  () => Boolean(identityForm.realName.trim() && identityForm.idCardNo.trim()),
+)
+const canRedeem = computed(() => {
+  const points = redeemForm.points
+  return points > 0 && points <= (wallet.value?.balance ?? 0)
+})
+const canAddCollection = computed(
+  () =>
+    Number.isFinite(collectionForm.productId) &&
+    Number(collectionForm.productId) > 0 &&
+    (collectionForm.targetPrice === undefined || collectionForm.targetPrice >= 0),
+)
 
 function levelMin(level: MembershipLevel): number {
   return { BASIC: 0, SILVER: 1000, GOLD: 5000, DIAMOND: 20000 }[level]
@@ -83,14 +82,21 @@ function levelLabel(level: MembershipLevel | string): string {
   return membershipLevelLabel(level)
 }
 
+function couponTone(status: string): 'success' | 'info' | 'warning' | 'danger' {
+  if (status === 'CLAIMED') return 'success'
+  if (status === 'USED') return 'info'
+  if (status === 'RETURNED') return 'warning'
+  return 'danger'
+}
+
 async function loadDashboard() {
-  await load(() => membershipApi.membershipDashboard())
+  await dashboardResource.load(() => membershipApi.membershipDashboard(), {
+    preserveData: true,
+  })
 }
 
 async function runMutation(key: MembershipMutation, mutation: () => Promise<void>) {
-  if (pending[key]) {
-    return
-  }
+  if (pending[key]) return
   pending[key] = true
   try {
     await mutation()
@@ -103,55 +109,49 @@ async function runMutation(key: MembershipMutation, mutation: () => Promise<void
 
 async function checkIn() {
   await runMutation('checkIn', async () => {
-    const result = await membershipApi.checkIn()
-    notify.success(t('membership.checkedIn', { points: result.rewardPoints }))
+    const intent = getIdempotencyIntent('membership:check-in', { action: 'daily-check-in' })
+    const result = await membershipApi.checkIn(intent.key)
+    intent.complete()
+    notify.success(t('membership.checkedIn', { points: result.rewardPoints }), {
+      key: 'membership:check-in:success',
+    })
     await loadDashboard()
   })
 }
 
 async function verifyIdentity() {
+  if (!canVerify.value) return
   await runMutation('verifyIdentity', async () => {
-    dashboard.value = await membershipApi.verifyIdentity(identityForm)
+    dashboard.value = await membershipApi.verifyIdentity({ ...identityForm })
     Object.assign(identityForm, { realName: '', idCardNo: '' })
-    notify.success(t('membership.verified'))
-  })
-}
-
-async function earnPoints() {
-  await runMutation('earnPoints', async () => {
-    await membershipApi.earnPoints({
-      amount: earnForm.amount,
-      orderId: earnForm.orderId,
-      referenceKey: earnForm.orderId ? `order:${earnForm.orderId}` : 'manual-purchase',
-    })
-    notify.success(t('membership.earned'))
-    await loadDashboard()
+    notify.success(t('membership.verified'), { key: 'membership:identity:verified' })
   })
 }
 
 async function redeemPoints() {
+  if (!canRedeem.value) return
   await runMutation('redeemPoints', async () => {
-    await membershipApi.redeemPoints({
+    const payload = {
       points: redeemForm.points,
       referenceKey: 'wallet-redemption',
-    })
-    notify.success(t('membership.redeemed'))
+    }
+    const intent = getIdempotencyIntent('membership:points:redeem', payload)
+    recentLedger.value = await membershipApi.redeemPoints(payload, intent.key)
+    intent.complete()
+    notify.success(t('membership.redeemed'), { key: 'membership:points:redeemed' })
     await loadDashboard()
   })
 }
 
-async function changeLevel() {
-  await runMutation('changeLevel', async () => {
-    dashboard.value = await membershipApi.changeLevel(levelForm)
-    levelForm.totpCode = ''
-    notify.success(t('membership.levelUpdated'))
-  })
-}
-
 async function addCollection() {
+  if (!canAddCollection.value || collectionForm.productId === undefined) return
   await runMutation('addCollection', async () => {
-    await membershipApi.addCollection(collectionForm)
-    notify.success(t('membership.collectionAdded'))
+    await membershipApi.addCollection({
+      productId: collectionForm.productId as number,
+      targetPrice: collectionForm.targetPrice,
+    })
+    notify.success(t('membership.collectionAdded'), { key: 'membership:collection:added' })
+    Object.assign(collectionForm, { productId: undefined, targetPrice: undefined })
     await loadDashboard()
   })
 }
@@ -162,38 +162,18 @@ async function removeCollection(productId: number) {
     content: t('membership.removeConfirm'),
     type: 'warning',
   })
-  if (!confirmed || removingCollectionIds.has(productId)) {
-    return
-  }
+  if (!confirmed || removingCollectionIds.has(productId)) return
 
   removingCollectionIds.add(productId)
   try {
     await membershipApi.removeCollection(productId)
-    notify.success(t('common.updated'))
+    notify.success(t('common.updated'), { key: `membership:collection:${productId}:removed` })
     await loadDashboard()
   } catch (caught) {
     notify.fromApiError(caught, 'membership.actionFailed')
   } finally {
     removingCollectionIds.delete(productId)
   }
-}
-
-async function recordBrowse() {
-  await runMutation('recordBrowse', async () => {
-    await membershipApi.recordBrowse(browseForm)
-    notify.success(t('membership.browseRecorded'))
-    await loadDashboard()
-  })
-}
-
-async function scanPriceDrops() {
-  await runMutation('scanPriceDrops', async () => {
-    const result = await membershipApi.scanPriceDrops()
-    notify.success(
-      t('membership.scanResult', { scanned: result.scanned, reminders: result.reminders }),
-    )
-    await loadDashboard()
-  })
 }
 
 onMounted(() => {
@@ -203,62 +183,118 @@ onMounted(() => {
 
 <template>
   <div class="route-view membership-page">
-    <PageHeader :title="$t('membership.center')" :eyebrow="levelLabel(profile?.level || 'BASIC')" />
+    <PageHeader
+      :title="$t('membership.center')"
+      :eyebrow="levelLabel(profile?.level || 'BASIC')"
+      :description="$t('membership.description')"
+    >
+      <template #actions>
+        <el-button
+          :icon="RefreshRight"
+          :loading="dashboardResource.status.value === 'updating'"
+          @click="loadDashboard"
+        >
+          {{ $t('common.refresh') }}
+        </el-button>
+        <el-button
+          type="primary"
+          :icon="Check"
+          :loading="pending.checkIn"
+          :disabled="pending.checkIn"
+          @click="checkIn"
+        >
+          {{ $t('membership.checkIn') }}
+        </el-button>
+      </template>
+    </PageHeader>
 
-    <AsyncStateView :status="status" :error="error" @retry="loadDashboard">
-      <section class="account-summary" :aria-label="$t('membership.center')">
-        <div class="account-summary__level">
-          <span>{{ $t('membership.growthValue') }}</span>
-          <strong>{{ levelLabel(profile?.level || 'BASIC') }}</strong>
+    <AsyncStateView
+      :status="dashboardResource.status.value"
+      :error="dashboardResource.error.value"
+      @retry="loadDashboard"
+    >
+      <section class="member-hero" :aria-label="$t('membership.center')">
+        <div class="member-hero__mascot">
+          <MascotState
+            pose="celebrate"
+            size="sm"
+            eager
+            :alt="$t('membership.heroMascotAlt')"
+          />
+        </div>
+
+        <div class="member-progress">
+          <div class="member-progress__title">
+            <span>{{ $t('membership.currentLevel') }}</span>
+            <strong>{{ levelLabel(profile?.level || 'BASIC') }}</strong>
+          </div>
           <el-progress
             :percentage="progress"
             :stroke-width="8"
+            :show-text="false"
             :aria-label="$t('membership.growthValue')"
           />
+          <p>
+            {{
+              nextLevel
+                ? $t('membership.nextLevelHint', {
+                    level: levelLabel(nextLevel),
+                    value: levelMin(nextLevel),
+                  })
+                : $t('membership.highestLevel')
+            }}
+          </p>
         </div>
-        <dl class="account-summary__metrics">
+
+        <dl class="membership-metrics">
           <div>
             <dt>{{ $t('membership.pointsBalance') }}</dt>
             <dd>
-              {{ wallet?.balance ?? 0 }}
-              <small>{{
-                $t('membership.moneyEquivalent', { amount: wallet?.moneyEquivalent ?? 0 })
-              }}</small>
+              <strong>{{ wallet?.balance ?? 0 }}</strong>
+              <small>{{ $t('membership.moneyEquivalent', { amount: wallet?.moneyEquivalent ?? 0 }) }}</small>
             </dd>
           </div>
           <div>
-            <dt>{{ $t('membership.totalEarned') }}</dt>
+            <dt>{{ $t('membership.couponAccount') }}</dt>
             <dd>
-              {{ wallet?.totalEarned ?? 0 }}
-              <small>{{ $t('membership.totalSpent', { spent: wallet?.totalSpent ?? 0 }) }}</small>
+              <strong>{{ coupons.length }}</strong>
+              <small>{{ $t('membership.availableBenefits') }}</small>
+            </dd>
+          </div>
+          <div>
+            <dt>{{ $t('membership.priceWatch') }}</dt>
+            <dd>
+              <strong>{{ collections.length }}</strong>
+              <small>{{ $t('membership.activeWatches') }}</small>
             </dd>
           </div>
         </dl>
+
+        <div v-if="profile?.benefits?.length" class="benefit-list">
+          <span v-for="benefit in profile.benefits" :key="benefit">
+            <el-icon aria-hidden="true"><Star /></el-icon>
+            {{ benefit }}
+          </span>
+        </div>
       </section>
 
-      <section class="task-section" data-membership-section="identity">
-        <div class="task-heading">
+      <section class="membership-section" data-membership-section="identity">
+        <header class="section-heading">
           <div>
             <h2>{{ $t('membership.identityStatus') }}</h2>
             <p>{{ identitySummary }}</p>
           </div>
-          <el-button
-            type="primary"
-            :icon="Check"
-            :loading="pending.checkIn"
-            :disabled="pending.checkIn"
-            @click="checkIn"
-          >
-            {{ $t('membership.checkIn') }}
-          </el-button>
-        </div>
+          <el-tag :type="profile?.verified ? 'success' : 'warning'" disable-transitions>
+            {{ profile?.verified ? $t('membership.verified') : $t('membership.notVerified') }}
+          </el-tag>
+        </header>
 
-        <div class="compact-form identity-form">
+        <form v-if="!profile?.verified" class="identity-form" @submit.prevent="verifyIdentity">
           <el-input
             v-model="identityForm.realName"
             :aria-label="$t('membership.realName')"
             :placeholder="$t('membership.realName')"
-            autocomplete="off"
+            autocomplete="name"
           />
           <el-input
             v-model="identityForm.idCardNo"
@@ -269,211 +305,186 @@ onMounted(() => {
           />
           <el-button
             type="primary"
+            native-type="button"
             :loading="pending.verifyIdentity"
-            :disabled="pending.verifyIdentity"
+            :disabled="pending.verifyIdentity || !canVerify"
             @click="verifyIdentity"
           >
             {{ $t('membership.verify') }}
           </el-button>
-        </div>
-
-        <div v-if="auth.isAdmin" class="admin-tools">
-          <h3>{{ $t('membership.levelAdjust') }}</h3>
-          <div class="compact-form level-form">
-            <el-select v-model="levelForm.level" :aria-label="$t('membership.levelAdjust')">
-              <el-option
-                v-for="level in levels"
-                :key="level"
-                :label="levelLabel(level)"
-                :value="level"
-              />
-            </el-select>
-            <el-input v-model="levelForm.reason" :placeholder="$t('membership.adjustReason')" />
-            <el-input
-              v-model="levelForm.totpCode"
-              :placeholder="$t('membership.adminTotp')"
-              type="password"
-              autocomplete="one-time-code"
-            />
-            <el-button
-              :icon="Star"
-              :loading="pending.changeLevel"
-              :disabled="pending.changeLevel"
-              @click="changeLevel"
-            >
-              {{ $t('membership.adjust') }}
-            </el-button>
-          </div>
-        </div>
+        </form>
       </section>
 
-      <section class="task-section" data-membership-section="points">
-        <div class="task-heading">
-          <h2>{{ $t('membership.pointsAccount') }}</h2>
-        </div>
-        <div class="points-actions">
-          <div v-if="auth.isAdmin" class="compact-form points-form">
-            <el-input-number
-              v-model="earnForm.amount"
-              :aria-label="$t('membership.totalEarned')"
-              :min="1"
-              :step="10"
-            />
-            <el-input-number
-              v-model="earnForm.orderId"
-              :aria-label="$t('membership.orderId')"
-              :min="1"
-              :placeholder="$t('membership.orderId')"
-            />
-            <el-button
-              :icon="Tickets"
-              :loading="pending.earnPoints"
-              :disabled="pending.earnPoints"
-              @click="earnPoints"
-            >
-              {{ $t('membership.earn') }}
-            </el-button>
+      <section class="membership-section" data-membership-section="points">
+        <header class="section-heading">
+          <div>
+            <h2>{{ $t('membership.pointsAccount') }}</h2>
+            <p>{{ $t('membership.pointsHint') }}</p>
           </div>
-          <div class="compact-form redeem-form">
-            <el-input-number
-              v-model="redeemForm.points"
-              :aria-label="$t('membership.pointsBalance')"
-              :min="1"
-              :step="100"
-            />
-            <el-button
-              type="warning"
-              :loading="pending.redeemPoints"
-              :disabled="pending.redeemPoints"
-              @click="redeemPoints"
-            >
-              {{ $t('membership.redeem') }}
-            </el-button>
-          </div>
-        </div>
-      </section>
+          <span class="points-earned">
+            {{ $t('membership.totalEarned') }} {{ wallet?.totalEarned ?? 0 }} /
+            {{ $t('membership.totalSpent', { spent: wallet?.totalSpent ?? 0 }) }}
+          </span>
+        </header>
 
-      <section class="task-section" data-membership-section="price-watch">
-        <div class="task-heading">
-          <h2>{{ $t('membership.priceWatch') }}</h2>
+        <form class="redeem-form" @submit.prevent="redeemPoints">
+          <el-input-number
+            v-model="redeemForm.points"
+            :aria-label="$t('membership.pointsToRedeem')"
+            :min="1"
+            :max="Math.max(1, wallet?.balance ?? 1)"
+            :step="100"
+            controls-position="right"
+          />
           <el-button
-            v-if="auth.isAdmin"
-            :icon="Refresh"
-            :loading="pending.scanPriceDrops"
-            :disabled="pending.scanPriceDrops"
-            @click="scanPriceDrops"
+            type="primary"
+            native-type="button"
+            :icon="Tickets"
+            :loading="pending.redeemPoints"
+            :disabled="pending.redeemPoints || !canRedeem"
+            @click="redeemPoints"
           >
-            {{ $t('membership.scanPriceDrops') }}
+            {{ $t('membership.redeem') }}
           </el-button>
-        </div>
-        <div class="compact-form collection-form">
+        </form>
+
+        <dl v-if="recentLedger" class="recent-ledger" aria-live="polite">
+          <div>
+            <dt>{{ $t('membership.latestActivity') }}</dt>
+            <dd>{{ recentLedger.points }}</dd>
+          </div>
+          <div>
+            <dt>{{ $t('membership.moneyEquivalentLabel') }}</dt>
+            <dd>{{ money(recentLedger.moneyEquivalent) }}</dd>
+          </div>
+          <div>
+            <dt>{{ $t('membership.activityTime') }}</dt>
+            <dd>{{ dateTime(recentLedger.createdAt) }}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="membership-section" data-membership-section="price-watch">
+        <header class="section-heading">
+          <div>
+            <h2>{{ $t('membership.priceWatch') }}</h2>
+            <p>{{ $t('membership.priceWatchHint') }}</p>
+          </div>
+        </header>
+
+        <form class="collection-form" @submit.prevent="addCollection">
           <el-input-number
             v-model="collectionForm.productId"
             :aria-label="$t('common.product')"
+            :placeholder="$t('membership.productIdPlaceholder')"
             :min="1"
+            controls-position="right"
           />
           <el-input-number
             v-model="collectionForm.targetPrice"
             :aria-label="$t('membership.targetPrice')"
+            :placeholder="$t('membership.targetPrice')"
             :min="0"
             :step="10"
+            :precision="2"
+            controls-position="right"
           />
           <el-button
             type="primary"
+            native-type="button"
             :loading="pending.addCollection"
-            :disabled="pending.addCollection"
+            :disabled="pending.addCollection || !canAddCollection"
             @click="addCollection"
           >
-            {{ $t('common.save') }}
+            {{ $t('membership.addPriceWatch') }}
           </el-button>
-        </div>
+        </form>
 
         <DataTableShell :aria-label="$t('membership.priceWatch')" :empty="collections.length === 0">
-          <template #empty>{{ $t('common.noData') }}</template>
-          <el-table :data="collections" class="data-table">
-            <el-table-column prop="productName" :label="$t('common.product')" min-width="180" />
-            <el-table-column prop="lastPrice" :label="$t('membership.lastPrice')" width="140" />
-            <el-table-column prop="targetPrice" :label="$t('membership.targetPrice')" width="140" />
-            <el-table-column :label="$t('membership.notified')" width="120">
-              <template #default="{ row }">
-                {{
-                  row.priceDropNotified ? $t('membership.notifiedYes') : $t('membership.notifiedNo')
-                }}
-              </template>
-            </el-table-column>
-            <el-table-column width="120">
-              <template #default="{ row }">
-                <el-button
-                  type="danger"
-                  plain
-                  :loading="removingCollectionIds.has(row.productId)"
-                  :disabled="removingCollectionIds.has(row.productId)"
-                  @click="removeCollection(row.productId)"
-                >
-                  {{ $t('common.delete') }}
-                </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </DataTableShell>
-      </section>
+          <template #empty>
+            <div class="collection-empty">
+              <MascotState pose="shoppingBag" size="sm" :alt="$t('membership.emptyWatchMascotAlt')" />
+              <p>{{ $t('membership.emptyWatch') }}</p>
+            </div>
+          </template>
 
-      <section class="task-section" data-membership-section="coupons">
-        <div class="task-heading">
-          <h2>{{ $t('membership.couponAccount') }}</h2>
-        </div>
-        <DataTableShell :aria-label="$t('membership.couponAccount')" :empty="coupons.length === 0">
-          <template #empty>{{ $t('common.noData') }}</template>
-          <el-table :data="coupons" class="data-table">
-            <el-table-column
-              prop="couponCode"
-              :label="$t('membership.couponCode')"
-              min-width="180"
-            />
-            <el-table-column :label="$t('common.status')" width="140">
-              <template #default="{ row }">
-                <el-tag disable-transitions>{{ couponStatusLabel(row.status) }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column :label="$t('membership.claimedAt')" width="220">
-              <template #default="{ row }">{{ dateTime(row.claimedAt) }}</template>
-            </el-table-column>
-          </el-table>
-        </DataTableShell>
-      </section>
-
-      <section class="task-section" data-membership-section="history">
-        <div class="task-heading">
-          <h2>{{ $t('membership.browseHistory') }}</h2>
-          <div class="history-action">
-            <el-input-number
-              v-model="browseForm.productId"
-              :aria-label="$t('common.product')"
-              :min="1"
-            />
-            <el-button
-              :loading="pending.recordBrowse"
-              :disabled="pending.recordBrowse"
-              @click="recordBrowse"
-            >
-              {{ $t('membership.record') }}
-            </el-button>
+          <div class="collection-list">
+            <article v-for="item in collections" :key="item.productId" class="collection-row">
+              <ProductImage :src="item.productImage" :alt="item.productName" />
+              <div class="collection-row__main">
+                <strong>{{ item.productName }}</strong>
+                <span>{{ $t('membership.lastPrice') }} {{ money(item.lastPrice) }}</span>
+              </div>
+              <div class="collection-row__target">
+                <span>{{ $t('membership.targetPrice') }}</span>
+                <strong>{{ item.targetPrice === undefined ? '-' : money(item.targetPrice) }}</strong>
+              </div>
+              <el-tag :type="item.priceDropNotified ? 'success' : 'info'" disable-transitions>
+                {{ item.priceDropNotified ? $t('membership.notifiedYes') : $t('membership.notifiedNo') }}
+              </el-tag>
+              <el-button
+                type="danger"
+                plain
+                :loading="removingCollectionIds.has(item.productId)"
+                :disabled="removingCollectionIds.has(item.productId)"
+                @click="removeCollection(item.productId)"
+              >
+                {{ $t('common.delete') }}
+              </el-button>
+            </article>
           </div>
-        </div>
-        <DataTableShell
-          :aria-label="$t('membership.browseHistory')"
-          :empty="browseHistory.length === 0"
-        >
-          <template #empty>{{ $t('common.noData') }}</template>
-          <el-table :data="browseHistory" class="data-table">
-            <el-table-column prop="productName" :label="$t('common.product')" min-width="180" />
-            <el-table-column :label="$t('membership.viewedAt')" width="220">
-              <template #default="{ row }">{{ dateTime(row.viewedAt) }}</template>
-            </el-table-column>
-            <el-table-column :label="$t('membership.expiresAt')" width="220">
-              <template #default="{ row }">{{ dateTime(row.expiresAt) }}</template>
-            </el-table-column>
-          </el-table>
+        </DataTableShell>
+      </section>
+
+      <section class="membership-section" data-membership-section="coupons">
+        <header class="section-heading">
+          <div>
+            <h2>{{ $t('membership.couponAccount') }}</h2>
+            <p>{{ $t('membership.couponHint') }}</p>
+          </div>
+        </header>
+
+        <DataTableShell :aria-label="$t('membership.couponAccount')" :empty="coupons.length === 0">
+          <template #empty>{{ $t('membership.noCoupons') }}</template>
+          <div class="coupon-list">
+            <article v-for="coupon in coupons" :key="coupon.id" class="coupon-row">
+              <div>
+                <span>{{ $t('membership.couponCode') }}</span>
+                <strong>{{ coupon.couponCode }}</strong>
+              </div>
+              <el-tag :type="couponTone(coupon.status)" disable-transitions>
+                {{ couponStatusLabel(coupon.status) }}
+              </el-tag>
+              <time :datetime="coupon.claimedAt">{{ dateTime(coupon.claimedAt) }}</time>
+            </article>
+          </div>
+        </DataTableShell>
+      </section>
+
+      <section class="membership-section" data-membership-section="history">
+        <header class="section-heading">
+          <div>
+            <h2>{{ $t('membership.browseHistory') }}</h2>
+            <p>{{ $t('membership.historyHint') }}</p>
+          </div>
+        </header>
+
+        <DataTableShell :aria-label="$t('membership.browseHistory')" :empty="browseHistory.length === 0">
+          <template #empty>{{ $t('membership.noHistory') }}</template>
+          <div class="history-list">
+            <article v-for="item in browseHistory" :key="`${item.productId}:${item.viewedAt}`" class="history-row">
+              <ProductImage :src="item.productImage" :alt="item.productName" />
+              <strong>{{ item.productName }}</strong>
+              <div>
+                <span>{{ $t('membership.viewedAt') }}</span>
+                <time :datetime="item.viewedAt">{{ dateTime(item.viewedAt) }}</time>
+              </div>
+              <div>
+                <span>{{ $t('membership.expiresAt') }}</span>
+                <time :datetime="item.expiresAt">{{ dateTime(item.expiresAt) }}</time>
+              </div>
+            </article>
+          </div>
         </DataTableShell>
       </section>
     </AsyncStateView>
@@ -481,175 +492,408 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.membership-page {
+.membership-page,
+.membership-page :deep(.async-state-view__content),
+.member-hero,
+.member-progress,
+.membership-section,
+.section-heading > div,
+.collection-list,
+.coupon-list,
+.history-list {
   display: grid;
-  gap: 0;
 }
 
-.account-summary {
-  display: grid;
-  grid-template-columns: minmax(220px, 0.8fr) minmax(320px, 1.2fr);
-  gap: 24px;
+.membership-page,
+.membership-page :deep(.async-state-view__content) {
+  gap: var(--space-5);
+}
+
+.member-hero {
+  grid-template-columns: 128px minmax(220px, 0.8fr) minmax(0, 1.4fr);
+  gap: var(--space-5);
   align-items: center;
-  padding: 18px 20px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-surface);
+  padding: var(--space-5) var(--space-6);
+  border-block: 1px solid var(--color-line);
+  background: var(--color-brand-soft);
+}
+
+.member-hero__mascot {
+  display: grid;
+  align-self: stretch;
+  place-items: end center;
+  min-width: 0;
+}
+
+.member-hero__mascot :deep(.mascot-state) {
+  filter: drop-shadow(
+    0 8px 12px color-mix(in srgb, var(--color-text) 14%, transparent)
+  );
+}
+
+.member-progress {
+  gap: var(--space-3);
+}
+
+.member-progress__title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.member-progress__title span,
+.member-progress p,
+.membership-metrics dt,
+.membership-metrics small,
+.section-heading p,
+.points-earned,
+.collection-row span,
+.coupon-row span,
+.coupon-row time,
+.history-row span,
+.history-row time {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.member-progress__title strong {
+  color: var(--color-brand-strong);
+  font-size: var(--text-2xl);
+  font-weight: 800;
+}
+
+.member-hero .member-progress__title span,
+.member-hero .member-progress p,
+.member-hero .membership-metrics dt,
+.member-hero .membership-metrics small {
+  color: var(--color-text);
+}
+
+.member-progress p,
+.section-heading h2,
+.section-heading p,
+.collection-empty p {
+  margin: 0;
+}
+
+.membership-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+}
+
+.membership-metrics div {
+  min-width: 0;
+  padding-inline: var(--space-4);
+  border-left: 1px solid var(--color-line-strong);
+}
+
+.membership-metrics dd {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-1) 0;
+  overflow-wrap: anywhere;
+}
+
+.membership-metrics dd strong {
+  font-size: var(--text-2xl);
+  font-weight: 800;
+}
+
+.benefit-list {
+  display: flex;
+  grid-column: 2 / -1;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.benefit-list span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-control);
   background: var(--color-surface);
-}
-
-.account-summary__level {
-  display: grid;
-  gap: 8px;
-}
-
-.account-summary__level span,
-.account-summary__metrics dt,
-.account-summary__metrics small,
-.task-heading p {
-  color: var(--text-muted);
-}
-
-.account-summary__level strong {
-  font-size: 1.35rem;
-}
-
-.account-summary__metrics {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  margin: 0;
-}
-
-.account-summary__metrics div {
-  display: grid;
-  gap: 4px;
-}
-
-.account-summary__metrics dd {
-  display: grid;
-  gap: 4px;
-  margin: 0;
-  font-size: 1.5rem;
+  color: var(--color-text);
+  font-size: var(--text-xs);
   font-weight: 700;
 }
 
-.account-summary__metrics dd small {
-  font-size: var(--text-sm);
-  font-weight: 400;
+.membership-section {
+  gap: var(--space-4);
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--color-line);
 }
 
-.task-section {
-  display: grid;
-  gap: 16px;
-  padding: 24px 0;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.task-section:last-child {
+.membership-section:last-child {
   border-bottom: 0;
 }
 
-.task-heading {
+.section-heading {
   display: flex;
-  gap: 16px;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: var(--space-4);
 }
 
-.task-heading h2,
-.task-heading p,
-.admin-tools h3 {
-  margin: 0;
+.section-heading > div {
+  gap: var(--space-1);
 }
 
-.task-heading h2 {
-  font-size: 1.1rem;
+.section-heading h2 {
+  font-size: var(--text-lg);
 }
 
-.task-heading p {
-  margin-top: 4px;
-}
-
-.compact-form,
-.points-actions {
+.identity-form,
+.redeem-form,
+.collection-form {
   display: grid;
-  gap: 12px;
+  align-items: start;
+  gap: var(--space-3);
 }
 
 .identity-form {
-  grid-template-columns: minmax(160px, 1fr) minmax(220px, 1.4fr) auto;
-}
-
-.level-form {
-  grid-template-columns: 180px minmax(180px, 1fr) minmax(180px, 1fr) auto;
-}
-
-.points-actions {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.points-form {
-  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  grid-template-columns: minmax(160px, 0.8fr) minmax(220px, 1.2fr) auto;
 }
 
 .redeem-form {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.collection-form {
-  grid-template-columns: repeat(2, minmax(0, 220px)) auto;
+  grid-template-columns: minmax(180px, 280px) auto;
   justify-content: start;
 }
 
-.admin-tools {
-  display: grid;
-  gap: 12px;
-  padding-top: 16px;
-  border-top: 1px solid var(--color-border);
+.collection-form {
+  grid-template-columns: minmax(180px, 240px) minmax(180px, 240px) max-content;
 }
 
-.history-action {
-  display: flex;
-  gap: 10px;
-  align-items: center;
+.identity-form > .el-button,
+.redeem-form > .el-button,
+.collection-form > .el-button {
+  min-height: 40px;
+  min-width: 160px;
+  justify-self: start;
 }
 
-.data-table {
+.identity-form :deep(.el-input-number),
+.redeem-form :deep(.el-input-number),
+.collection-form :deep(.el-input-number) {
   width: 100%;
 }
 
-@media (max-width: 900px) {
-  .account-summary,
-  .points-actions {
-    grid-template-columns: minmax(0, 1fr);
+.recent-ledger {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  padding: var(--space-3) 0;
+  border-block: 1px solid var(--color-line);
+}
+
+.recent-ledger div {
+  padding-inline: var(--space-4);
+  border-right: 1px solid var(--color-line);
+}
+
+.recent-ledger div:first-child {
+  padding-left: 0;
+}
+
+.recent-ledger div:last-child {
+  border-right: 0;
+}
+
+.recent-ledger dt {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.recent-ledger dd {
+  margin: var(--space-1) 0 0;
+  font-weight: 750;
+}
+
+.collection-empty {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+}
+
+.collection-row,
+.coupon-row,
+.history-row {
+  display: grid;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.collection-row:last-child,
+.coupon-row:last-child,
+.history-row:last-child {
+  border-bottom: 0;
+}
+
+.collection-row {
+  grid-template-columns: 64px minmax(180px, 1fr) minmax(120px, 0.5fr) auto auto;
+}
+
+.collection-row :deep(.product-image),
+.history-row :deep(.product-image) {
+  width: 64px;
+  height: 64px;
+  aspect-ratio: 1;
+}
+
+.collection-row__main,
+.collection-row__target,
+.coupon-row > div,
+.history-row > div {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.collection-row__target {
+  justify-items: end;
+}
+
+.coupon-row {
+  grid-template-columns: minmax(0, 1fr) auto minmax(160px, auto);
+}
+
+.history-row {
+  grid-template-columns: 64px minmax(180px, 1fr) minmax(160px, auto) minmax(160px, auto);
+}
+
+@media (max-width: 920px) {
+  .member-hero {
+    grid-template-columns: 112px minmax(0, 1fr);
+  }
+
+  .membership-metrics,
+  .benefit-list {
+    grid-column: 1 / -1;
+  }
+
+  .membership-metrics div:first-child {
+    border-left: 0;
+    padding-left: 0;
   }
 
   .identity-form,
-  .level-form {
+  .collection-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .identity-form > .el-button,
+  .collection-form > .el-button {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .collection-row,
+  .history-row {
+    grid-template-columns: 64px minmax(0, 1fr) auto;
+  }
+
+  .collection-row__target,
+  .history-row > div {
+    justify-items: start;
+  }
+
+  .collection-row > .el-tag,
+  .collection-row > .el-button,
+  .history-row > div {
+    grid-column: 2 / -1;
   }
 }
 
 @media (max-width: 640px) {
-  .account-summary__metrics,
+  .member-hero {
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: var(--space-3);
+    padding: var(--space-4);
+  }
+
+  .member-hero__mascot :deep(.mascot-state) {
+    --mascot-size: 88px;
+  }
+
+  .membership-metrics,
   .identity-form,
-  .level-form,
-  .points-form,
   .redeem-form,
-  .collection-form {
-    grid-template-columns: minmax(0, 1fr);
+  .collection-form,
+  .recent-ledger {
+    grid-template-columns: 1fr;
   }
 
-  .task-heading,
-  .history-action {
-    align-items: stretch;
-    flex-direction: column;
+  .membership-metrics div {
+    padding: var(--space-3) 0;
+    border-top: 1px solid var(--color-line);
+    border-left: 0;
   }
 
-  .task-heading :deep(.el-button),
-  .history-action :deep(.el-button),
-  .compact-form :deep(.el-button) {
+  .benefit-list {
+    grid-column: 1 / -1;
+  }
+
+  .section-heading {
+    display: grid;
+  }
+
+  .identity-form > .el-button,
+  .redeem-form > .el-button,
+  .collection-form > .el-button {
+    grid-column: auto;
+    width: 100%;
     min-height: 44px;
+  }
+
+  .recent-ledger div,
+  .recent-ledger div:first-child {
+    padding: var(--space-2) 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-line);
+  }
+
+  .recent-ledger div:last-child {
+    border-bottom: 0;
+  }
+
+  .collection-row,
+  .history-row {
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  .coupon-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-3);
+  }
+
+  .collection-row :deep(.product-image),
+  .history-row :deep(.product-image) {
+    width: 56px;
+    height: 56px;
+  }
+
+  .collection-row__target,
+  .collection-row > .el-tag,
+  .collection-row > .el-button,
+  .coupon-row > time,
+  .history-row > div {
+    grid-column: 1 / -1;
+    justify-items: start;
+  }
+
+  .collection-row > .el-button {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .coupon-row > .el-tag {
+    justify-self: end;
   }
 }
 </style>

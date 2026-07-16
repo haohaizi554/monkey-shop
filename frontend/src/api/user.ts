@@ -43,3 +43,7 @@ export async function updatePassword(payload: {
 }): Promise<void> {
   await request<void>({ url: '/users/update-password', method: 'POST', data: payload })
 }
+
+export async function forgetMe(): Promise<void> {
+  await request<void>({ url: '/users/forget-me', method: 'POST' })
+}

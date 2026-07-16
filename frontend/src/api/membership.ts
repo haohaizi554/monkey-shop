@@ -25,26 +25,35 @@ export function verifyIdentity(payload: RealNameVerifyRequest): Promise<Membersh
   })
 }
 
-export function checkIn(): Promise<CheckInResponse> {
+export function checkIn(idempotencyKey: string): Promise<CheckInResponse> {
   return request<CheckInResponse>({
     url: '/membership/check-in',
     method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
   })
 }
 
-export function earnPoints(payload: PointsEarnRequest): Promise<PointsLedgerEntry> {
+export function earnPoints(
+  payload: PointsEarnRequest,
+  idempotencyKey: string,
+): Promise<PointsLedgerEntry> {
   return request<PointsLedgerEntry>({
     url: '/membership/points/earn',
     method: 'POST',
     data: payload,
+    headers: { 'Idempotency-Key': idempotencyKey },
   })
 }
 
-export function redeemPoints(payload: PointsRedeemRequest): Promise<PointsLedgerEntry> {
+export function redeemPoints(
+  payload: PointsRedeemRequest,
+  idempotencyKey: string,
+): Promise<PointsLedgerEntry> {
   return request<PointsLedgerEntry>({
     url: '/membership/points/redeem',
     method: 'POST',
     data: payload,
+    headers: { 'Idempotency-Key': idempotencyKey },
   })
 }
 

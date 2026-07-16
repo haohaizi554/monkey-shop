@@ -63,17 +63,25 @@ async function installStorefrontMocks(page: Page) {
     if (pathname === '/users/me') {
       data = { isLogin: false }
     } else if (pathname === '/monkeys') {
-      data = [
-        {
-          id: 1,
-          name: 'Golden Monkey',
-          breed: 'Golden',
-          price: '128.00',
-          description: 'A calm companion.',
-          imageUrl: '/images/default_product.jpg',
-          stock: 8,
-        },
-      ]
+      data = {
+        content: [
+          {
+            id: 1,
+            name: 'Golden Monkey',
+            breed: 'Golden',
+            price: '128.00',
+            description: 'A calm companion.',
+            imageUrl: '/images/default_product.jpg',
+            stock: 8,
+          },
+        ],
+        page: 0,
+        size: 100,
+        totalElements: 1,
+        totalPages: 1,
+        first: true,
+        last: true,
+      }
     } else if (pathname === '/tracking/events') {
       data = { id: 1, eventType: 'PAGE_VIEW' }
     }

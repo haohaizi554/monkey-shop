@@ -67,7 +67,10 @@ interface AccountMockOptions {
   passwordChangeRequired?: boolean
   checkInGate?: Promise<void>
   failRedeem?: boolean
+  emptyCollections?: boolean
   onAddressUpdate?: () => void
+  onForgetMe?: () => void
+  redeemKeys?: string[]
 }
 
 async function fulfillJson(route: Route, data: unknown, status = 200) {
@@ -134,7 +137,18 @@ async function installAccountMocks(page: Page, options: AccountMockOptions = {})
       return
     }
     if (pathname === '/addresses' && method === 'GET') {
-      await fulfillJson(route, ok(addresses))
+      await fulfillJson(
+        route,
+        ok({
+          content: addresses,
+          page: 0,
+          size: 100,
+          totalElements: addresses.length,
+          totalPages: 1,
+          first: true,
+          last: true,
+        }),
+      )
       return
     }
     if (pathname === '/addresses' && method === 'POST') {
@@ -155,7 +169,11 @@ async function installAccountMocks(page: Page, options: AccountMockOptions = {})
       return
     }
     if (pathname === '/membership/dashboard') {
-      await fulfillJson(route, ok(membershipDashboard()))
+      const dashboard = membershipDashboard()
+      await fulfillJson(
+        route,
+        ok(options.emptyCollections ? { ...dashboard, collections: [] } : dashboard),
+      )
       return
     }
     if (pathname === '/membership/check-in') {
@@ -172,11 +190,32 @@ async function installAccountMocks(page: Page, options: AccountMockOptions = {})
       return
     }
     if (pathname === '/membership/points/redeem' && options.failRedeem) {
+      options.redeemKeys?.push((await request.allHeaders())['idempotency-key'] ?? '')
       await fulfillJson(
         route,
         { title: rawBackendError, detail: rawBackendError, status: 500, traceId: 'raw-secret' },
         500,
       )
+      return
+    }
+    if (pathname === '/membership/points/redeem') {
+      options.redeemKeys?.push((await request.allHeaders())['idempotency-key'] ?? '')
+      await fulfillJson(
+        route,
+        ok({
+          id: 11,
+          type: 'REDEEM',
+          points: -100,
+          moneyEquivalent: '1.00',
+          referenceKey: 'wallet-redemption',
+          createdAt: '2026-07-12T09:00:00Z',
+        }),
+      )
+      return
+    }
+    if (pathname === '/users/forget-me') {
+      options.onForgetMe?.()
+      await fulfillJson(route, ok(null))
       return
     }
     if (pathname === '/membership/identity' || pathname === '/membership/level') {
@@ -217,6 +256,7 @@ test('membership groups account tasks, masks identity data, and isolates pending
 
   await expect(page.getByRole('heading', { name: 'Membership center', level: 1 })).toBeVisible()
   await expect(page.locator('.async-state-view[data-status="success"]')).toBeVisible()
+  await expect(page.locator('img.mascot-state[data-pose="celebrate"]')).toBeVisible()
   const sectionOrder = await page
     .locator('[data-membership-section]')
     .evaluateAll((sections) =>
@@ -224,6 +264,10 @@ test('membership groups account tasks, masks identity data, and isolates pending
     )
   expect(sectionOrder).toEqual(['identity', 'points', 'price-watch', 'coupons', 'history'])
   await expect(page.locator('.data-table-shell')).toHaveCount(3)
+  await expect(page.getByRole('button', { name: 'Earn', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Adjust', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Scan price drops', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Record', exact: true })).toHaveCount(0)
 
   const body = page.locator('body')
   await expect(body).toContainText('A***')
@@ -244,15 +288,32 @@ test('membership groups account tasks, masks identity data, and isolates pending
 test('membership mutations use safe app feedback instead of raw backend errors', async ({
   page,
 }) => {
-  await installAccountMocks(page, { failRedeem: true })
+  const redeemKeys: string[] = []
+  await installAccountMocks(page, { failRedeem: true, redeemKeys })
   await page.goto('/membership')
 
   await page.getByRole('button', { name: 'Redeem' }).click()
 
+  await expect.poll(() => redeemKeys.length).toBe(1)
   await expect(page.locator('.app-feedback-item')).toContainText(
     'Operation failed, please try again',
   )
   await expect(page.locator('body')).not.toContainText(rawBackendError)
+
+  await page.getByRole('button', { name: 'Redeem' }).click()
+  await expect.poll(() => redeemKeys.length).toBe(2)
+  expect(redeemKeys[0]).not.toBe('')
+  expect(redeemKeys[1]).toBe(redeemKeys[0])
+})
+
+test('empty price watch uses the shopping bag mascot without exposing admin controls', async ({
+  page,
+}) => {
+  await installAccountMocks(page, { emptyCollections: true })
+  await page.goto('/membership')
+
+  await expect(page.locator('img.mascot-state[data-pose="shoppingBag"]')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Scan price drops', exact: true })).toHaveCount(0)
 })
 
 test('required password updates use a blocking alert with a direct focus action', async ({
@@ -266,6 +327,7 @@ test('required password updates use a blocking alert with a direct focus action'
   await profileRequested
 
   await expect(page.getByRole('heading', { name: 'Profile', level: 1 })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Security' })).toHaveAttribute('aria-selected', 'true')
   const alert = page.locator('.el-alert[role="alert"]')
   await expect(alert).toContainText('Update your password before continuing')
   await alert.getByRole('button', { name: 'Complete password update' }).click()
@@ -277,7 +339,14 @@ test('required password updates use a blocking alert with a direct focus action'
     .evaluateAll((sections) =>
       sections.map((section) => section.getAttribute('data-account-section')),
     )
-  expect(sectionOrder).toEqual(['overview', 'required-password', 'avatar', 'password'])
+  expect(sectionOrder).toEqual([
+    'overview',
+    'required-password',
+    'identity',
+    'addresses',
+    'security',
+    'privacy',
+  ])
 })
 
 test('profile masks address data and validates the edit dialog before restoring focus', async ({
@@ -292,9 +361,10 @@ test('profile masks address data and validates the edit dialog before restoring 
   await page.goto('/profile')
 
   await expect(page.locator('.async-state-view[data-status="success"]')).toBeVisible()
-  await expect(page.locator('.data-table-shell')).toHaveCount(1)
   await expect(page.locator('body')).not.toContainText(rawRealName)
   await expect(page.locator('body')).not.toContainText(rawPhone)
+
+  await page.getByRole('tab', { name: 'Addresses' }).click()
 
   const editButton = page.getByRole('button', { name: 'Edit' }).first()
   await editButton.click()
@@ -316,4 +386,52 @@ test('profile masks address data and validates the edit dialog before restoring 
   await expect(dialog).toBeHidden()
   expect(addressUpdates).toBe(1)
   await expect(editButton).toBeFocused()
+})
+
+test('profile confirms route changes when an address edit has unsaved changes', async ({ page }) => {
+  await installAccountMocks(page)
+  await page.goto('/profile')
+  await page.getByRole('tab', { name: 'Addresses' }).click()
+
+  const receiver = page.getByLabel('Receiver').first()
+  await receiver.fill('Unsaved receiver')
+
+  await page.getByRole('link', { name: 'Membership', exact: true }).click()
+  const discardDialog = page.getByRole('dialog', { name: 'Discard unsaved changes?' })
+  await expect(discardDialog).toBeVisible()
+  await discardDialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(page).toHaveURL(/\/profile$/)
+  await expect(receiver).toHaveValue('Unsaved receiver')
+
+  await page.getByRole('link', { name: 'Membership', exact: true }).click()
+  await page
+    .getByRole('dialog', { name: 'Discard unsaved changes?' })
+    .getByRole('button', { name: 'OK', exact: true })
+    .click()
+  await expect(page).toHaveURL(/\/membership$/)
+})
+
+test('privacy erasure requires typed confirmation before calling forget me', async ({ page }) => {
+  let forgetCalls = 0
+  await installAccountMocks(page, {
+    onForgetMe: () => {
+      forgetCalls += 1
+    },
+  })
+  await page.goto('/profile')
+  await page.getByRole('tab', { name: 'Privacy' }).click()
+
+  await expect(page.locator('img.mascot-state[data-pose="shield"]')).toBeVisible()
+  await expect(page.getByText('This action cannot be undone.', { exact: false })).toBeVisible()
+  await page.getByRole('button', { name: 'Forget me', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Forget this account?' })
+  const confirm = dialog.getByRole('button', { name: 'Forget my data', exact: true })
+  await expect(confirm).toBeDisabled()
+  expect(forgetCalls).toBe(0)
+
+  await dialog.getByLabel('Type FORGET to confirm').fill('FORGET')
+  await expect(confirm).toBeEnabled()
+  await confirm.click()
+  await expect.poll(() => forgetCalls).toBe(1)
+  await expect(page).toHaveURL(/\/login$/)
 })

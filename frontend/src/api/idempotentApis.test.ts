@@ -7,6 +7,7 @@ vi.mock('@/api/http', () => ({
 }))
 
 import { createOrder, createShipment as createOrderShipment } from '@/api/orders'
+import { checkIn, earnPoints, redeemPoints } from '@/api/membership'
 import {
   adminPaymentForOrder,
   adminRefundPayment,
@@ -58,6 +59,21 @@ describe('business API idempotency keys', () => {
     )
     expect(requestMock).toHaveBeenLastCalledWith(
       expect.objectContaining({ headers: { 'Idempotency-Key': 'logistics-shipment-key' } }),
+    )
+
+    await checkIn('membership-check-in-key')
+    expect(requestMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ headers: { 'Idempotency-Key': 'membership-check-in-key' } }),
+    )
+
+    await earnPoints({ amount: 100 }, 'membership-earn-key')
+    expect(requestMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ headers: { 'Idempotency-Key': 'membership-earn-key' } }),
+    )
+
+    await redeemPoints({ points: 100 }, 'membership-redeem-key')
+    expect(requestMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ headers: { 'Idempotency-Key': 'membership-redeem-key' } }),
     )
   })
 

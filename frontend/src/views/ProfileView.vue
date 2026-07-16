@@ -1,46 +1,54 @@
 <script setup lang="ts">
 import { Check, Edit, Lock, Location, Refresh, Upload } from '@element-plus/icons-vue'
 import type { FormInstance, FormRules } from 'element-plus'
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
 import { captchaConfig as loadCaptchaConfig, captchaUrl } from '@/api/auth'
 import { uploadImage } from '@/api/catalog'
 import * as userApi from '@/api/user'
 import HumanVerification from '@/components/HumanVerification.vue'
+import MascotState from '@/components/mascot/MascotState.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
-import DataTableShell from '@/components/ui/DataTableShell.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { useNotify } from '@/composables/useNotify'
 import { useAuthStore } from '@/stores/auth'
 import type { Address, CaptchaConfig, UserProfile } from '@/types'
 
+type ProfileTab = 'identity' | 'addresses' | 'security' | 'privacy'
+
 interface AccountData {
   profile: UserProfile
   addresses: Address[]
 }
 
+const FORGET_PHRASE = 'FORGET'
 const defaultAvatar = '/images/default_avatar.jpg'
+const activeTab = ref<ProfileTab>('identity')
 const userCaptchaUrl = ref(captchaUrl('user'))
 const captchaConfig = ref<CaptchaConfig>({ provider: 'local', siteKey: '' })
-const turnstileEnabled = computed(() => captchaConfig.value.provider === 'turnstile')
 const addressForm = reactive({ receiverName: '', phone: '', detailAddress: '' })
 const passwordForm = reactive({ oldPassword: '', phone: '', newPassword: '', captcha: '' })
 const editForm = reactive({ receiverName: '', phone: '', detailAddress: '' })
+const forgetConfirmation = ref('')
 const addressFormRef = ref<FormInstance>()
 const passwordFormRef = ref<FormInstance>()
 const editFormRef = ref<FormInstance>()
 const currentPasswordInput = ref<{ focus: () => void }>()
 const passwordFormError = ref('')
 const editDialogOpen = ref(false)
+const forgetDialogOpen = ref(false)
 const editingAddressId = ref<number | null>(null)
 const editTrigger = ref<HTMLElement | null>(null)
+const editSnapshot = ref('')
+const allowRouteLeave = ref(false)
 const pending = reactive({
   avatar: false,
   password: false,
   addressCreate: false,
   addressEdit: false,
+  forget: false,
 })
 const deletingAddressIds = reactive(new Set<number>())
 const defaultAddressIds = reactive(new Set<number>())
@@ -48,10 +56,12 @@ const { t } = useI18n()
 const router = useRouter()
 const auth = useAuthStore()
 const notify = useNotify()
-const { data: account, status, error, load } = useAsyncState<AccountData>({ timeoutMs: 20000 })
+const accountResource = useAsyncState<AccountData>({ timeoutMs: 20000 })
 
+const account = accountResource.data
 const profile = computed<UserProfile>(() => account.value?.profile ?? {})
 const addresses = computed<Address[]>(() => account.value?.addresses ?? [])
+const turnstileEnabled = computed(() => captchaConfig.value.provider === 'turnstile')
 const addressRules = computed<FormRules>(() => ({
   receiverName: [{ required: true, message: t('common.receiverRequired'), trigger: 'blur' }],
   phone: [
@@ -72,17 +82,15 @@ const passwordRules = computed<FormRules>(() => ({
   ],
 }))
 const phoneLabel = computed(() => {
-  if (profile.value.maskedPhone === 'not bound') {
-    return t('auth.phoneNotBound')
-  }
-  return profile.value.maskedPhone
+  if (profile.value.maskedPhone === 'not bound') return t('auth.phoneNotBound')
+  return profile.value.maskedPhone || t('auth.phoneNotBound')
 })
 const profileMeta = computed(() => {
   const identityLabel =
     profile.value.identity === 'ADMIN'
       ? t('nav.admin')
       : profile.value.identity === 'USER'
-        ? t('nav.profile')
+        ? t('profile.memberAccount')
         : profile.value.identity
   const meta = [identityLabel, phoneLabel.value].filter(Boolean)
   return meta.length ? meta.join(' / ') : t('profile.accountPending')
@@ -92,23 +100,45 @@ const passwordButtonLabel = computed(() =>
     ? t('auth.completePasswordUpdate')
     : t('auth.updatePassword'),
 )
+const editDirty = computed(
+  () => editDialogOpen.value && serializeAddressForm(editForm) !== editSnapshot.value,
+)
+const addressCreateDirty = computed(() =>
+  Object.values(addressForm).some((value) => value.trim().length > 0),
+)
+const passwordDirty = computed(() =>
+  Object.values(passwordForm).some((value) => value.trim().length > 0),
+)
+const privacyDirty = computed(
+  () => forgetDialogOpen.value && forgetConfirmation.value.trim().length > 0,
+)
+const profileDirty = computed(
+  () => editDirty.value || addressCreateDirty.value || passwordDirty.value || privacyDirty.value,
+)
+const canForget = computed(() => forgetConfirmation.value === FORGET_PHRASE)
+
+function serializeAddressForm(value: {
+  receiverName: string
+  phone: string
+  detailAddress: string
+}): string {
+  return JSON.stringify({
+    receiverName: value.receiverName.trim(),
+    phone: value.phone.trim(),
+    detailAddress: value.detailAddress.trim(),
+  })
+}
 
 function maskName(value: string): string {
   const characters = Array.from(value.trim())
-  if (characters.length === 0) {
-    return ''
-  }
-  if (characters.length === 1) {
-    return '*'
-  }
+  if (characters.length === 0) return ''
+  if (characters.length === 1) return '*'
   return `${characters[0]}${'*'.repeat(Math.min(3, characters.length - 1))}`
 }
 
 function maskPhone(value: string): string {
   const normalized = value.trim()
-  if (normalized.length <= 7) {
-    return '*'.repeat(Math.max(1, normalized.length))
-  }
+  if (normalized.length <= 7) return '*'.repeat(Math.max(1, normalized.length))
   return `${normalized.slice(0, 3)}${'*'.repeat(Math.max(4, normalized.length - 7))}${normalized.slice(-4)}`
 }
 
@@ -121,9 +151,7 @@ function onAvatarError(event: Event) {
 }
 
 async function validateForm(form: FormInstance | undefined): Promise<boolean> {
-  if (!form) {
-    return false
-  }
+  if (!form) return false
   return form.validate().then(
     () => true,
     () => false,
@@ -131,17 +159,19 @@ async function validateForm(form: FormInstance | undefined): Promise<boolean> {
 }
 
 async function loadAccount() {
-  await load(async () => {
-    const nextProfile = await userApi.profile()
-    const nextAddresses = nextProfile.passwordChangeRequired ? [] : await userApi.addresses()
-    return { profile: nextProfile, addresses: nextAddresses }
-  })
+  await accountResource.load(
+    async () => {
+      const nextProfile = await userApi.profile()
+      const nextAddresses = nextProfile.passwordChangeRequired ? [] : await userApi.addresses()
+      if (nextProfile.passwordChangeRequired) activeTab.value = 'security'
+      return { profile: nextProfile, addresses: nextAddresses }
+    },
+    { preserveData: true },
+  )
 }
 
 async function refreshAddresses() {
-  if (!account.value) {
-    return
-  }
+  if (!account.value) return
   const nextAddresses = await userApi.addresses()
   account.value = { ...account.value, addresses: nextAddresses }
 }
@@ -149,15 +179,13 @@ async function refreshAddresses() {
 async function changeAvatar(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
-  if (!file || pending.avatar || profile.value.passwordChangeRequired) {
-    return
-  }
+  if (!file || pending.avatar || profile.value.passwordChangeRequired) return
 
   pending.avatar = true
   try {
     const uploaded = await uploadImage(file, 'avatar')
     await userApi.updateAvatar(uploaded.path)
-    notify.success(t('auth.avatarUpdated'))
+    notify.success(t('auth.avatarUpdated'), { key: 'profile:avatar:updated' })
     await loadAccount()
   } catch (caught) {
     notify.fromApiError(caught, 'common.unableToUploadImage')
@@ -169,9 +197,12 @@ async function changeAvatar(event: Event) {
 
 function openEditDialog(address: Address, event: Event) {
   editingAddressId.value = address.id
-  editForm.receiverName = address.receiverName
-  editForm.phone = address.phone
-  editForm.detailAddress = address.detailAddress
+  Object.assign(editForm, {
+    receiverName: address.receiverName,
+    phone: address.phone,
+    detailAddress: address.detailAddress,
+  })
+  editSnapshot.value = serializeAddressForm(editForm)
   editTrigger.value = event.currentTarget as HTMLElement
   editDialogOpen.value = true
   void nextTick(() => editFormRef.value?.clearValidate())
@@ -182,12 +213,29 @@ function handleEditDialogClosed() {
   const fallback = editTrigger.value
   editingAddressId.value = null
   editTrigger.value = null
+  editSnapshot.value = ''
   editFormRef.value?.clearValidate()
   void nextTick(() => {
     const selector = addressId === null ? '' : `[data-address-edit="${addressId}"]`
     const target = selector ? document.querySelector<HTMLElement>(selector) : null
     ;(target ?? fallback)?.focus()
   })
+}
+
+async function confirmDiscardChanges(): Promise<boolean> {
+  return notify.confirm({
+    title: t('profile.unsavedTitle'),
+    content: t('profile.unsavedContent'),
+    confirmText: t('common.ok'),
+  })
+}
+
+async function beforeEditDialogClose(done: () => void) {
+  if (!editDirty.value || (await confirmDiscardChanges())) done()
+}
+
+async function closeEditDialog() {
+  if (!editDirty.value || (await confirmDiscardChanges())) editDialogOpen.value = false
 }
 
 async function submitEditAddress() {
@@ -203,7 +251,8 @@ async function submitEditAddress() {
   try {
     await userApi.updateAddress(editingAddressId.value, { ...editForm })
     await refreshAddresses()
-    notify.success(t('common.updated'))
+    editSnapshot.value = serializeAddressForm(editForm)
+    notify.success(t('common.updated'), { key: `profile:address:${editingAddressId.value}:updated` })
     editDialogOpen.value = false
   } catch (caught) {
     notify.fromApiError(caught, 'common.operationFailed')
@@ -213,15 +262,13 @@ async function submitEditAddress() {
 }
 
 async function saveAddress() {
-  if (pending.addressCreate || !(await validateForm(addressFormRef.value))) {
-    return
-  }
+  if (pending.addressCreate || !(await validateForm(addressFormRef.value))) return
 
   pending.addressCreate = true
   try {
     await userApi.addAddress({ ...addressForm })
     await refreshAddresses()
-    notify.success(t('common.updated'))
+    notify.success(t('common.updated'), { key: 'profile:address:created' })
     Object.assign(addressForm, { receiverName: '', phone: '', detailAddress: '' })
     addressFormRef.value?.clearValidate()
   } catch (caught) {
@@ -237,15 +284,13 @@ async function removeAddress(id: number) {
     content: t('auth.deleteAddressConfirm'),
     type: 'warning',
   })
-  if (!confirmed || deletingAddressIds.has(id)) {
-    return
-  }
+  if (!confirmed || deletingAddressIds.has(id)) return
 
   deletingAddressIds.add(id)
   try {
     await userApi.deleteAddress(id)
     await refreshAddresses()
-    notify.success(t('common.updated'))
+    notify.success(t('common.updated'), { key: `profile:address:${id}:deleted` })
   } catch (caught) {
     notify.fromApiError(caught, 'common.operationFailed')
   } finally {
@@ -254,15 +299,13 @@ async function removeAddress(id: number) {
 }
 
 async function setDefaultAddress(id: number, enabled: boolean) {
-  if (!enabled || defaultAddressIds.has(id)) {
-    return
-  }
+  if (!enabled || defaultAddressIds.has(id)) return
 
   defaultAddressIds.add(id)
   try {
     await userApi.setDefaultAddress(id)
     await refreshAddresses()
-    notify.success(t('common.updated'))
+    notify.success(t('common.updated'), { key: `profile:address:${id}:default` })
   } catch (caught) {
     notify.fromApiError(caught, 'common.operationFailed')
   } finally {
@@ -271,14 +314,13 @@ async function setDefaultAddress(id: number, enabled: boolean) {
 }
 
 function focusPasswordForm() {
+  activeTab.value = 'security'
   void nextTick(() => currentPasswordInput.value?.focus())
 }
 
 async function changePassword() {
   passwordFormError.value = ''
-  if (pending.password || !(await validateForm(passwordFormRef.value))) {
-    return
-  }
+  if (pending.password || !(await validateForm(passwordFormRef.value))) return
   if (!passwordForm.captcha.trim()) {
     passwordFormError.value = t('auth.captchaRequired')
     return
@@ -287,7 +329,7 @@ async function changePassword() {
   pending.password = true
   try {
     await userApi.updatePassword({ ...passwordForm })
-    notify.success(t('auth.passwordChanged'))
+    notify.success(t('auth.passwordChanged'), { key: 'profile:password:changed' })
     Object.assign(passwordForm, { oldPassword: '', phone: '', newPassword: '', captcha: '' })
     userCaptchaUrl.value = captchaUrl('user')
     auth.clearLocalSession()
@@ -301,8 +343,52 @@ async function changePassword() {
   }
 }
 
+function openForgetDialog() {
+  forgetConfirmation.value = ''
+  forgetDialogOpen.value = true
+}
+
+function handleForgetDialogClosed() {
+  if (!pending.forget) forgetConfirmation.value = ''
+}
+
+async function forgetMe() {
+  if (!canForget.value || pending.forget) return
+
+  pending.forget = true
+  try {
+    await userApi.forgetMe()
+    allowRouteLeave.value = true
+    forgetConfirmation.value = ''
+    forgetDialogOpen.value = false
+    notify.success(t('profile.forgotten'), { key: 'profile:privacy:forgotten' })
+    try {
+      await auth.logout()
+    } catch {
+      auth.clearLocalSession()
+      await router.replace('/login')
+    }
+  } catch (caught) {
+    notify.fromApiError(caught, 'profile.forgetFailed')
+  } finally {
+    pending.forget = false
+  }
+}
+
+function handleBeforeUnload(event: BeforeUnloadEvent) {
+  if (!profileDirty.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+onBeforeRouteLeave(async (to) => {
+  if (allowRouteLeave.value || to.path === '/login' || !profileDirty.value) return true
+  return confirmDiscardChanges()
+})
+
 onMounted(() => {
   void loadAccount()
+  window.addEventListener('beforeunload', handleBeforeUnload)
   loadCaptchaConfig()
     .then((config) => {
       captchaConfig.value = config
@@ -310,6 +396,10 @@ onMounted(() => {
     .catch(() => {
       captchaConfig.value = { provider: 'local', siteKey: '' }
     })
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
 })
 </script>
 
@@ -322,7 +412,11 @@ onMounted(() => {
       :description="profileMeta"
     />
 
-    <AsyncStateView :status="status" :error="error" @retry="loadAccount">
+    <AsyncStateView
+      :status="accountResource.status.value"
+      :error="accountResource.error.value"
+      @retry="loadAccount"
+    >
       <section
         v-if="profile.passwordChangeRequired"
         class="required-password"
@@ -344,225 +438,246 @@ onMounted(() => {
         </el-alert>
       </section>
 
-      <section class="task-section account-task" data-account-section="avatar">
-        <div class="account-details">
-          <img
-            :src="profile.avatar || defaultAvatar"
-            :alt="$t('auth.avatar')"
-            @error="onAvatarError"
-          />
-          <div>
-            <h2>{{ profile.username || $t('nav.profile') }}</h2>
-            <p>{{ profileMeta }}</p>
-          </div>
-        </div>
-        <div class="account-actions">
-          <label
-            class="file-picker"
-            :class="{ 'is-disabled': pending.avatar || profile.passwordChangeRequired }"
-            for="profile-avatar-input"
-            :aria-disabled="pending.avatar || profile.passwordChangeRequired"
-          >
-            <el-icon><Upload /></el-icon>
-            <span>{{ pending.avatar ? $t('common.loading') : $t('common.upload') }}</span>
-            <input
-              id="profile-avatar-input"
-              type="file"
-              accept="image/png,image/jpeg"
-              :disabled="pending.avatar || profile.passwordChangeRequired"
-              @change="changeAvatar"
-            />
-          </label>
-          <RouterLink
-            v-if="!profile.passwordChangeRequired"
-            class="secondary-button"
-            to="/membership"
-          >
-            {{ $t('nav.membership') }}
-          </RouterLink>
-        </div>
-      </section>
-
-      <section ref="passwordSection" class="task-section" data-account-section="password">
-        <h2 class="section-heading">
-          <el-icon><Lock /></el-icon>
-          <span>{{ $t('common.security') }}</span>
-        </h2>
-        <el-form
-          ref="passwordFormRef"
-          :model="passwordForm"
-          :rules="passwordRules"
-          label-position="top"
-          class="inline-form password-form"
-          @submit.prevent="changePassword"
-        >
-          <el-form-item :label="$t('auth.oldPassword')" prop="oldPassword">
-            <el-input
-              ref="currentPasswordInput"
-              v-model="passwordForm.oldPassword"
-              :placeholder="$t('auth.oldPassword')"
-              type="password"
-              autocomplete="current-password"
-              show-password
-            />
-          </el-form-item>
-          <el-form-item :label="$t('auth.phone')" prop="phone">
-            <el-input
-              v-model="passwordForm.phone"
-              :placeholder="$t('auth.phone')"
-              autocomplete="tel"
-            />
-          </el-form-item>
-          <el-form-item :label="$t('auth.newPassword')" prop="newPassword">
-            <el-input
-              v-model="passwordForm.newPassword"
-              :placeholder="$t('auth.newPassword')"
-              type="password"
-              autocomplete="new-password"
-              show-password
-            />
-          </el-form-item>
-          <HumanVerification
-            v-if="turnstileEnabled"
-            v-model="passwordForm.captcha"
-            action="change-password"
-            :site-key="captchaConfig.siteKey"
-          />
-          <el-form-item v-else :label="$t('auth.captcha')" class="captcha-field">
-            <div class="captcha-row">
-              <el-input v-model="passwordForm.captcha" :placeholder="$t('auth.captcha')" />
-              <button
-                class="captcha-image-button"
-                type="button"
-                :aria-label="$t('common.refreshCaptcha')"
-                @click="userCaptchaUrl = captchaUrl('user')"
-              >
-                <img :src="userCaptchaUrl" :alt="$t('auth.captchaImageAlt')" />
-              </button>
-              <el-button
-                :icon="Refresh"
-                circle
-                native-type="button"
-                :aria-label="$t('common.refreshCaptcha')"
-                @click="userCaptchaUrl = captchaUrl('user')"
+      <el-tabs v-model="activeTab" class="profile-tabs">
+        <el-tab-pane :label="$t('profile.tabs.identity')" name="identity" :disabled="profile.passwordChangeRequired">
+          <section class="profile-section identity-section" data-account-section="identity">
+            <div class="identity-summary">
+              <img
+                :src="profile.avatar || defaultAvatar"
+                :alt="$t('auth.avatar')"
+                @error="onAvatarError"
               />
+              <div>
+                <span>{{ $t('profile.memberAccount') }}</span>
+                <h2>{{ profile.username || $t('nav.profile') }}</h2>
+                <p>{{ profileMeta }}</p>
+              </div>
             </div>
-          </el-form-item>
-          <p v-if="passwordFormError" class="form-error" role="alert">
-            {{ passwordFormError }}
-          </p>
-          <el-button
-            class="password-submit"
-            type="primary"
-            native-type="submit"
-            :icon="Lock"
-            :loading="pending.password"
-            :disabled="pending.password"
-          >
-            {{ passwordButtonLabel }}
-          </el-button>
-        </el-form>
-      </section>
 
-      <section
-        v-if="!profile.passwordChangeRequired"
-        class="task-section"
-        data-account-section="addresses"
-      >
-        <h2 class="section-heading">
-          <el-icon><Location /></el-icon>
-          <span>{{ $t('common.address') }}</span>
-        </h2>
-        <el-form
-          ref="addressFormRef"
-          :model="addressForm"
-          :rules="addressRules"
-          label-position="top"
-          class="inline-form address-form"
-          @submit.prevent="saveAddress"
-        >
-          <el-form-item :label="$t('common.receiver')" prop="receiverName">
-            <el-input
-              v-model="addressForm.receiverName"
-              :placeholder="$t('common.receiver')"
-              autocomplete="name"
-            />
-          </el-form-item>
-          <el-form-item :label="$t('auth.phone')" prop="phone">
-            <el-input
-              v-model="addressForm.phone"
-              :placeholder="$t('auth.phone')"
-              autocomplete="tel"
-            />
-          </el-form-item>
-          <el-form-item :label="$t('common.address')" prop="detailAddress">
-            <el-input
-              v-model="addressForm.detailAddress"
-              :placeholder="$t('common.address')"
-              autocomplete="street-address"
-            />
-          </el-form-item>
-          <el-button
-            type="primary"
-            native-type="submit"
-            :icon="Check"
-            :loading="pending.addressCreate"
-            :disabled="pending.addressCreate"
-          >
-            {{ $t('common.save') }}
-          </el-button>
-        </el-form>
-
-        <DataTableShell
-          :aria-label="$t('common.address')"
-          :empty="addresses.length === 0"
-          :busy="defaultAddressIds.size > 0 || deletingAddressIds.size > 0"
-        >
-          <template #empty>{{ $t('profile.noAddresses') }}</template>
-          <el-table :data="addresses" class="data-table" row-key="id">
-            <el-table-column :label="$t('common.receiver')" min-width="140">
-              <template #default="{ row }">{{ maskName(row.receiverName) }}</template>
-            </el-table-column>
-            <el-table-column :label="$t('auth.phone')" min-width="160">
-              <template #default="{ row }">{{ maskPhone(row.phone) }}</template>
-            </el-table-column>
-            <el-table-column prop="detailAddress" :label="$t('common.address')" min-width="220" />
-            <el-table-column :label="$t('common.default')" width="120">
-              <template #default="{ row }">
-                <el-switch
-                  :model-value="row.isDefault === 1"
-                  :aria-label="`${$t('common.default')} ${maskName(row.receiverName)}`"
-                  :loading="defaultAddressIds.has(row.id)"
-                  :disabled="defaultAddressIds.has(row.id)"
-                  @update:model-value="(value: boolean) => setDefaultAddress(row.id, value)"
+            <div class="identity-actions">
+              <label
+                class="file-picker"
+                :class="{ 'is-disabled': pending.avatar || profile.passwordChangeRequired }"
+                for="profile-avatar-input"
+                :aria-disabled="pending.avatar || profile.passwordChangeRequired"
+              >
+                <el-icon aria-hidden="true"><Upload /></el-icon>
+                <span>{{ pending.avatar ? $t('common.loading') : $t('profile.changeAvatar') }}</span>
+                <input
+                  id="profile-avatar-input"
+                  type="file"
+                  accept="image/png,image/jpeg"
+                  :disabled="pending.avatar || profile.passwordChangeRequired"
+                  @change="changeAvatar"
                 />
-              </template>
-            </el-table-column>
-            <el-table-column :label="$t('common.edit')" width="220" fixed="right">
-              <template #default="{ row }">
-                <el-button
-                  plain
-                  :icon="Edit"
-                  :data-address-edit="row.id"
-                  :disabled="deletingAddressIds.has(row.id)"
-                  @click="openEditDialog(row, $event)"
-                >
-                  {{ $t('common.edit') }}
+              </label>
+              <RouterLink class="secondary-button" to="/membership">
+                {{ $t('profile.openMembership') }}
+              </RouterLink>
+            </div>
+          </section>
+        </el-tab-pane>
+
+        <el-tab-pane :label="$t('profile.tabs.addresses')" name="addresses" :disabled="profile.passwordChangeRequired">
+          <section class="profile-section" data-account-section="addresses">
+            <header class="section-heading">
+              <div>
+                <h2>
+                  <el-icon aria-hidden="true"><Location /></el-icon>
+                  {{ $t('profile.savedAddresses') }}
+                </h2>
+                <p>{{ $t('profile.addressesHint') }}</p>
+              </div>
+              <span>{{ $t('profile.addressCount', { count: addresses.length }) }}</span>
+            </header>
+
+            <el-form
+              ref="addressFormRef"
+              :model="addressForm"
+              :rules="addressRules"
+              label-position="top"
+              class="address-form"
+              @submit.prevent="saveAddress"
+            >
+              <el-form-item :label="$t('common.receiver')" prop="receiverName">
+                <el-input v-model="addressForm.receiverName" autocomplete="name" />
+              </el-form-item>
+              <el-form-item :label="$t('auth.phone')" prop="phone">
+                <el-input v-model="addressForm.phone" autocomplete="tel" />
+              </el-form-item>
+              <el-form-item :label="$t('common.address')" prop="detailAddress">
+                <el-input v-model="addressForm.detailAddress" autocomplete="street-address" />
+              </el-form-item>
+              <el-button
+                type="primary"
+                native-type="submit"
+                :icon="Check"
+                :loading="pending.addressCreate"
+                :disabled="pending.addressCreate"
+              >
+                {{ $t('profile.addAddress') }}
+              </el-button>
+            </el-form>
+
+            <div v-if="addresses.length" class="address-list">
+              <article v-for="address in addresses" :key="address.id" class="address-item">
+                <div class="address-item__identity">
+                  <strong>{{ maskName(address.receiverName) }}</strong>
+                  <span>{{ maskPhone(address.phone) }}</span>
+                </div>
+                <p>{{ address.detailAddress }}</p>
+                <div class="address-item__default">
+                  <span>{{ $t('common.default') }}</span>
+                  <el-switch
+                    :model-value="address.isDefault === 1"
+                    :aria-label="`${$t('common.default')} ${maskName(address.receiverName)}`"
+                    :loading="defaultAddressIds.has(address.id)"
+                    :disabled="defaultAddressIds.has(address.id)"
+                    @update:model-value="(value: boolean) => setDefaultAddress(address.id, value)"
+                  />
+                </div>
+                <div class="address-item__actions">
+                  <el-button
+                    plain
+                    :icon="Edit"
+                    :data-address-edit="address.id"
+                    :disabled="deletingAddressIds.has(address.id)"
+                    @click="openEditDialog(address, $event)"
+                  >
+                    {{ $t('common.edit') }}
+                  </el-button>
+                  <el-button
+                    type="danger"
+                    plain
+                    :loading="deletingAddressIds.has(address.id)"
+                    :disabled="deletingAddressIds.has(address.id)"
+                    @click="removeAddress(address.id)"
+                  >
+                    {{ $t('common.delete') }}
+                  </el-button>
+                </div>
+              </article>
+            </div>
+            <p v-else class="address-empty" role="status">{{ $t('profile.noAddresses') }}</p>
+          </section>
+        </el-tab-pane>
+
+        <el-tab-pane :label="$t('profile.tabs.security')" name="security">
+          <section class="profile-section" data-account-section="security">
+            <header class="section-heading">
+              <div>
+                <h2>
+                  <el-icon aria-hidden="true"><Lock /></el-icon>
+                  {{ $t('profile.passwordSecurity') }}
+                </h2>
+                <p>{{ $t('profile.securityHint') }}</p>
+              </div>
+            </header>
+
+            <el-form
+              ref="passwordFormRef"
+              :model="passwordForm"
+              :rules="passwordRules"
+              label-position="top"
+              class="password-form"
+              @submit.prevent="changePassword"
+            >
+              <el-form-item :label="$t('auth.oldPassword')" prop="oldPassword">
+                <el-input
+                  ref="currentPasswordInput"
+                  v-model="passwordForm.oldPassword"
+                  type="password"
+                  autocomplete="current-password"
+                  show-password
+                />
+              </el-form-item>
+              <el-form-item :label="$t('auth.phone')" prop="phone">
+                <el-input v-model="passwordForm.phone" autocomplete="tel" />
+              </el-form-item>
+              <el-form-item :label="$t('auth.newPassword')" prop="newPassword">
+                <el-input
+                  v-model="passwordForm.newPassword"
+                  type="password"
+                  autocomplete="new-password"
+                  show-password
+                />
+              </el-form-item>
+              <HumanVerification
+                v-if="turnstileEnabled"
+                v-model="passwordForm.captcha"
+                action="change-password"
+                :site-key="captchaConfig.siteKey"
+              />
+              <el-form-item v-else :label="$t('auth.captcha')" class="captcha-field">
+                <div class="captcha-row">
+                  <el-input v-model="passwordForm.captcha" :placeholder="$t('auth.captcha')" />
+                  <button
+                    class="captcha-image-button"
+                    type="button"
+                    :aria-label="$t('common.refreshCaptcha')"
+                    @click="userCaptchaUrl = captchaUrl('user')"
+                  >
+                    <img :src="userCaptchaUrl" :alt="$t('auth.captchaImageAlt')" />
+                  </button>
+                  <el-button
+                    :icon="Refresh"
+                    circle
+                    native-type="button"
+                    :aria-label="$t('common.refreshCaptcha')"
+                    @click="userCaptchaUrl = captchaUrl('user')"
+                  />
+                </div>
+              </el-form-item>
+              <p v-if="passwordFormError" class="form-error" role="alert">
+                {{ passwordFormError }}
+              </p>
+              <el-button
+                class="password-submit"
+                type="primary"
+                native-type="submit"
+                :icon="Lock"
+                :loading="pending.password"
+                :disabled="pending.password"
+              >
+                {{ passwordButtonLabel }}
+              </el-button>
+            </el-form>
+          </section>
+        </el-tab-pane>
+
+        <el-tab-pane :label="$t('profile.tabs.privacy')" name="privacy" :disabled="profile.passwordChangeRequired">
+          <section class="profile-section privacy-section" data-account-section="privacy">
+            <header class="section-heading">
+              <div>
+                <h2>{{ $t('profile.privacyTitle') }}</h2>
+                <p>{{ $t('profile.privacyHint') }}</p>
+              </div>
+            </header>
+
+            <div class="privacy-layout">
+              <div class="privacy-visual">
+                <MascotState
+                  pose="shield"
+                  size="sm"
+                  :alt="$t('profile.privacyMascotAlt')"
+                />
+              </div>
+              <div class="privacy-impact">
+                <strong>{{ $t('profile.irreversibleTitle') }}</strong>
+                <p>{{ $t('profile.irreversibleHint') }}</p>
+                <ul>
+                  <li>{{ $t('profile.forgetProfileImpact') }}</li>
+                  <li>{{ $t('profile.forgetAddressImpact') }}</li>
+                  <li>{{ $t('profile.forgetOrderImpact') }}</li>
+                </ul>
+                <el-button type="danger" plain @click="openForgetDialog">
+                  {{ $t('profile.forgetMe') }}
                 </el-button>
-                <el-button
-                  type="danger"
-                  plain
-                  :loading="deletingAddressIds.has(row.id)"
-                  :disabled="deletingAddressIds.has(row.id)"
-                  @click="removeAddress(row.id)"
-                >
-                  {{ $t('common.delete') }}
-                </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </DataTableShell>
-      </section>
+              </div>
+            </div>
+          </section>
+        </el-tab-pane>
+      </el-tabs>
     </AsyncStateView>
 
     <el-dialog
@@ -573,6 +688,7 @@ onMounted(() => {
       :show-close="!pending.addressEdit"
       :close-on-click-modal="!pending.addressEdit"
       :close-on-press-escape="!pending.addressEdit"
+      :before-close="beforeEditDialogClose"
       @closed="handleEditDialogClosed"
     >
       <el-form ref="editFormRef" :model="editForm" :rules="addressRules" label-position="top">
@@ -592,7 +708,7 @@ onMounted(() => {
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button :disabled="pending.addressEdit" @click="editDialogOpen = false">
+        <el-button :disabled="pending.addressEdit" @click="closeEditDialog">
           {{ $t('common.cancel') }}
         </el-button>
         <el-button
@@ -605,92 +721,168 @@ onMounted(() => {
         </el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="forgetDialogOpen"
+      :title="$t('profile.forgetDialogTitle')"
+      width="min(520px, calc(100vw - 32px))"
+      :show-close="!pending.forget"
+      :close-on-click-modal="!pending.forget"
+      :close-on-press-escape="!pending.forget"
+      @closed="handleForgetDialogClosed"
+    >
+      <div class="forget-dialog-content">
+        <p>{{ $t('profile.forgetDialogHint', { phrase: FORGET_PHRASE }) }}</p>
+        <el-input
+          v-model="forgetConfirmation"
+          :aria-label="$t('profile.forgetInputLabel', { phrase: FORGET_PHRASE })"
+          :placeholder="FORGET_PHRASE"
+          autocomplete="off"
+          :disabled="pending.forget"
+        />
+      </div>
+      <template #footer>
+        <el-button :disabled="pending.forget" @click="forgetDialogOpen = false">
+          {{ $t('common.cancel') }}
+        </el-button>
+        <el-button
+          type="danger"
+          :loading="pending.forget"
+          :disabled="pending.forget || !canForget"
+          @click="forgetMe"
+        >
+          {{ $t('profile.forgetConfirm') }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
-.profile-page {
+.profile-page,
+.profile-page :deep(.async-state-view__content),
+.profile-section,
+.section-heading > div,
+.identity-summary > div,
+.address-list,
+.address-item__identity,
+.privacy-layout,
+.privacy-visual,
+.privacy-impact,
+.forget-dialog-content {
   display: grid;
-  gap: 0;
 }
 
+.profile-page,
 .profile-page :deep(.async-state-view__content) {
-  display: grid;
+  gap: var(--space-5);
 }
 
 .required-password {
-  padding: 4px 0 20px;
+  padding-top: var(--space-1);
 }
 
 .required-alert__content {
   display: flex;
-  gap: 16px;
   align-items: center;
   justify-content: space-between;
-  margin-top: 8px;
+  gap: var(--space-4);
+  margin-top: var(--space-2);
 }
 
-.required-alert__content p {
+.required-alert__content p,
+.section-heading h2,
+.section-heading p,
+.identity-summary h2,
+.identity-summary p,
+.address-item p,
+.privacy-impact p,
+.forget-dialog-content p {
   margin: 0;
 }
 
-.task-section {
-  display: grid;
-  gap: 18px;
-  padding: 24px 0;
-  border-bottom: 1px solid var(--color-border);
+.profile-tabs {
+  border-top: 1px solid var(--color-line);
+  padding-top: var(--space-3);
 }
 
-.task-section:last-child {
-  border-bottom: 0;
+.profile-tabs :deep(.el-tabs__header) {
+  margin-bottom: var(--space-5);
 }
 
-.account-task {
+.profile-tabs :deep(.el-tabs__item) {
+  min-height: 44px;
+}
+
+.profile-section {
+  gap: var(--space-5);
+  min-width: 0;
+  padding-bottom: var(--space-5);
+}
+
+.identity-section {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
 }
 
-.account-details,
-.account-actions,
-.section-heading,
-.captcha-row {
+.identity-summary {
   display: flex;
-  gap: 14px;
   align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
 }
 
-.account-details img {
-  width: 88px;
-  height: 88px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-surface);
+.identity-summary img {
+  width: 96px;
+  height: 96px;
+  border: 1px solid var(--color-line);
+  border: 3px solid var(--color-surface);
+  border-radius: var(--radius-circle);
+  box-shadow: 0 0 0 1px var(--color-line-strong), var(--shadow-surface);
   object-fit: cover;
 }
 
-.account-details h2,
-.account-details p,
-.section-heading {
-  margin: 0;
+.identity-summary > div {
+  gap: var(--space-1);
+  min-width: 0;
 }
 
-.account-details p {
-  margin-top: 4px;
-  color: var(--text-muted);
+.identity-summary span,
+.identity-summary p,
+.section-heading p,
+.section-heading > span,
+.address-item__identity span,
+.address-item__default span,
+.privacy-impact p,
+.privacy-impact li,
+.forget-dialog-content p {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
 }
 
-.section-heading {
-  font-size: 1.1rem;
+.identity-summary h2 {
+  overflow-wrap: anywhere;
+  font-size: var(--text-xl);
+}
+
+.identity-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
 }
 
 .file-picker {
   display: inline-flex;
-  gap: 8px;
   align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
   min-height: 40px;
-  padding: 0 14px;
-  border: 1px solid var(--color-border);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-control);
   cursor: pointer;
+  font-weight: 700;
 }
 
 .file-picker.is-disabled {
@@ -698,30 +890,111 @@ onMounted(() => {
   opacity: 0.55;
 }
 
+.file-picker:focus-within {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
 .file-picker input {
   position: absolute;
   width: 1px;
   height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
+  opacity: 0;
 }
 
-.inline-form {
+.section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.section-heading > div {
+  gap: var(--space-1);
+}
+
+.section-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-lg);
+}
+
+.address-form,
+.password-form {
   display: grid;
-  gap: 14px;
   align-items: end;
+  gap: var(--space-3);
+}
+
+.address-form {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--color-line);
 }
 
 .password-form {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.address-form {
-  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+.address-form :deep(.el-form-item),
+.password-form :deep(.el-form-item) {
+  margin-bottom: 0;
 }
 
-.inline-form :deep(.el-form-item) {
-  margin-bottom: 0;
+.address-form > .el-button,
+.password-submit {
+  min-height: 40px;
+}
+
+.address-list {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 520px));
+  gap: var(--space-3);
+}
+
+.address-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-line);
+  border-top: 3px solid var(--color-brand);
+  border-radius: var(--radius-surface);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-surface);
+}
+
+.address-item__identity {
+  gap: var(--space-1);
+}
+
+.address-item p {
+  grid-column: 1 / -1;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+
+.address-item__default,
+.address-item__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.address-item__actions {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-line);
+}
+
+.address-empty {
+  min-height: 160px;
+  margin: 0;
+  align-content: center;
+  color: var(--color-text-muted);
+  text-align: center;
 }
 
 .captcha-field,
@@ -730,6 +1003,9 @@ onMounted(() => {
 }
 
 .captcha-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   width: 100%;
 }
 
@@ -742,7 +1018,7 @@ onMounted(() => {
   height: 40px;
   padding: 0;
   overflow: hidden;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-line);
   border-radius: var(--radius-control);
   background: var(--color-surface);
   cursor: pointer;
@@ -758,51 +1034,145 @@ onMounted(() => {
 .form-error {
   margin: 0;
   color: var(--color-danger);
-  font-size: 0.875rem;
+  font-size: var(--text-sm);
 }
 
 .password-submit {
   width: fit-content;
 }
 
-.data-table {
-  width: 100%;
+.privacy-section {
+  max-width: 920px;
+}
+
+.privacy-layout {
+  grid-template-columns: 176px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-5) var(--space-6);
+  border-block: 1px solid var(--color-line);
+  background: var(--color-brand-soft);
+}
+
+.privacy-visual {
+  place-items: center;
+  min-width: 0;
+  border-right: 1px solid var(--color-line-strong);
+}
+
+.privacy-visual :deep(.mascot-state) {
+  filter: drop-shadow(
+    0 8px 12px color-mix(in srgb, var(--color-text) 14%, transparent)
+  );
+}
+
+.privacy-impact {
+  gap: var(--space-3);
+}
+
+.privacy-layout .privacy-impact p,
+.privacy-layout .privacy-impact li {
+  color: var(--color-text);
+}
+
+.privacy-impact ul {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding-left: var(--space-5);
+}
+
+.privacy-impact .el-button {
+  justify-self: start;
+  min-height: 40px;
+}
+
+.forget-dialog-content {
+  gap: var(--space-4);
 }
 
 @media (max-width: 900px) {
-  .password-form,
-  .address-form {
+  .identity-section,
+  .address-form,
+  .password-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .identity-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
+  .address-form > .el-button,
+  .captcha-field,
+  .form-error {
+    grid-column: 1 / -1;
+  }
+
+  .privacy-layout {
+    grid-template-columns: 128px minmax(0, 1fr);
+    padding-inline: var(--space-5);
   }
 }
 
 @media (max-width: 640px) {
   .required-alert__content,
-  .account-task,
-  .account-actions {
+  .identity-summary,
+  .section-heading {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .account-task,
+  .profile-tabs :deep(.el-tabs__nav-wrap) {
+    overflow-x: auto;
+  }
+
+  .profile-tabs :deep(.el-tabs__nav) {
+    float: none;
+    min-width: max-content;
+  }
+
+  .identity-section,
+  .address-form,
   .password-form,
-  .address-form {
-    grid-template-columns: minmax(0, 1fr);
+  .privacy-layout {
+    grid-template-columns: 1fr;
   }
 
-  .account-actions {
-    display: flex;
+  .privacy-layout {
+    gap: var(--space-3);
+    padding: var(--space-4);
   }
 
-  .file-picker,
-  .account-actions .secondary-button,
-  .inline-form :deep(.el-button),
-  .required-alert__content :deep(.el-button) {
-    min-height: 44px;
+  .privacy-visual {
+    justify-items: start;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-line-strong);
   }
 
+  .privacy-visual :deep(.mascot-state) {
+    --mascot-size: 104px;
+  }
+
+  .identity-summary img {
+    width: 80px;
+    height: 80px;
+  }
+
+  .identity-actions,
+  .address-item__actions,
   .captcha-row {
     flex-wrap: wrap;
+  }
+
+  .identity-actions > *,
+  .identity-actions .secondary-button,
+  .address-form > .el-button,
+  .address-item__actions > *,
+  .password-submit,
+  .required-alert__content :deep(.el-button) {
+    width: 100%;
+    min-height: 44px;
   }
 }
 </style>
