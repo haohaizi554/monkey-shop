@@ -239,7 +239,7 @@
   padding: 0 clamp(var(--space-4), 2.4vw, 28px);
 }
 
-.admin-topbar__menu {
+.admin-topbar > .admin-topbar__menu {
   display: none;
 }
 
@@ -305,7 +305,7 @@
     grid-template-columns: 40px minmax(0, 1fr) auto;
   }
 
-  .admin-topbar__menu {
+  .admin-topbar > .admin-topbar__menu {
     display: inline-flex;
   }
 
