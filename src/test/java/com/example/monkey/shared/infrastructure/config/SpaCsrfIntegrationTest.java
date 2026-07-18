@@ -10,6 +10,7 @@ import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.ApiRateLimitApplicationService;
 import com.example.monkey.shared.application.security.ApiRateLimitResult;
 import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.application.tenant.PermissiveTenantAccessTestConfiguration;
 import com.example.monkey.shared.interfaces.security.ApiRateLimitFilter;
 import com.example.monkey.shared.interfaces.web.VisitInterceptor;
 import com.example.monkey.user.domain.UserAccountStore;
@@ -30,7 +31,12 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 @WebMvcTest(controllers = SecurityConfigTest.TestApiController.class)
-@Import({SecurityConfig.class, ApiRateLimitFilter.class, SecurityConfigTest.TestApiController.class})
+@Import({
+    SecurityConfig.class,
+    ApiRateLimitFilter.class,
+    SecurityConfigTest.TestApiController.class,
+    PermissiveTenantAccessTestConfiguration.class
+})
 @TestPropertySource(properties = "app.security.csp.upgrade-insecure-requests=false")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
 @MockitoBean(

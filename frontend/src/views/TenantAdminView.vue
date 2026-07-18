@@ -172,9 +172,11 @@ const billStatusLabels = computed<Record<BillStatus, string>>(() => ({
   SUSPENDED: t('tenant.billStatusSuspended'),
 }))
 const exportStatusLabels = computed<Record<ExportStatus, string>>(() => ({
-  REQUESTED: t('tenant.exportStatusRequested'),
-  COMPLETED: t('tenant.exportStatusCompleted'),
+  QUEUED: t('tenant.exportStatusQueued'),
+  RUNNING: t('tenant.exportStatusRunning'),
+  SUCCEEDED: t('tenant.exportStatusSucceeded'),
   FAILED: t('tenant.exportStatusFailed'),
+  UNAVAILABLE: t('tenant.exportStatusUnavailable'),
 }))
 const exportTypeLabels = computed<Record<ExportType, string>>(() => ({
   FULL: t('tenant.exportFull'),
@@ -308,6 +310,14 @@ function exportTypeLabel(type: ExportType): string {
   return exportTypeLabels.value[type] ?? t('common.unknown')
 }
 
+function exportAvailabilityLabel(job: TenantExportJob): string {
+  if (job.status === 'SUCCEEDED' && job.artifactAvailable) return t('tenant.exportReady')
+  if (job.status === 'FAILED') return t('tenant.exportFailedInline')
+  if (job.status === 'UNAVAILABLE') return t('tenant.exportProviderUnavailable')
+  if (job.status === 'QUEUED' || job.status === 'RUNNING') return t('tenant.exportPending')
+  return t('tenant.exportUnavailable')
+}
+
 function tenantStatusType(status: TenantStatus): 'success' | 'warning' | 'danger' | 'info' {
   if (status === 'ACTIVE') return 'success'
   if (status === 'TRIAL' || status === 'DOWNGRADED') return 'warning'
@@ -316,16 +326,17 @@ function tenantStatusType(status: TenantStatus): 'success' | 'warning' | 'danger
 }
 
 function statusIcon(status: string): Component {
-  if (status === 'ACTIVE' || status === 'COMPLETED' || status === 'RECONCILED') {
+  if (status === 'ACTIVE' || status === 'SUCCEEDED' || status === 'COMPLETED' || status === 'RECONCILED') {
     return CircleCheck
   }
-  if (status === 'TRIAL' || status === 'REQUESTED' || status === 'GENERATED') {
+  if (status === 'TRIAL' || status === 'QUEUED' || status === 'RUNNING' || status === 'GENERATED') {
     return Clock
   }
   if (
     status === 'EXPIRED' ||
     status === 'SUSPENDED' ||
     status === 'FAILED' ||
+    status === 'UNAVAILABLE' ||
     status === 'DOWNGRADED'
   ) {
     return WarningFilled
@@ -628,7 +639,11 @@ async function requestExport() {
     if (selectedTenantId.value === tenantId) {
       await commitResourceRow(exportState, job, (row) => row.id === job.id)
     }
-    notify.success(t('tenant.exportSubmitted'), { key: 'tenant:export:success' })
+    if (job.status === 'FAILED' || job.status === 'UNAVAILABLE') {
+      notify.warning(exportAvailabilityLabel(job), { key: 'tenant:export:unavailable' })
+    } else {
+      notify.success(t('tenant.exportSubmitted'), { key: 'tenant:export:success' })
+    }
   } catch (error) {
     notify.fromApiError(error, 'tenant.exportSubmitFailed')
   } finally {
@@ -979,7 +994,12 @@ onMounted(loadTenantList)
                   </div>
                   <DataTableShell :empty="exports.length === 0" :aria-label="t('tenant.export')">
                     <template #empty>{{ t('tenant.noExports') }}</template>
-                    <el-table :data="exports" row-key="id" size="small">
+                    <el-table
+                      :data="exports"
+                      row-key="id"
+                      size="small"
+                      :scrollbar-tabindex="0"
+                    >
                       <el-table-column :label="t('tenant.type')" width="120">
                         <template #default="{ row }">{{
                           exportTypeLabel(row.exportType)
@@ -997,11 +1017,7 @@ onMounted(loadTenantList)
                       </el-table-column>
                       <el-table-column :label="t('tenant.archiveAvailability')" min-width="170">
                         <template #default="{ row }">
-                          {{
-                            row.status === 'COMPLETED' && row.encryptedArchivePath
-                              ? t('tenant.exportReady')
-                              : t('tenant.exportUnavailable')
-                          }}
+                          {{ exportAvailabilityLabel(row) }}
                         </template>
                       </el-table-column>
                       <el-table-column

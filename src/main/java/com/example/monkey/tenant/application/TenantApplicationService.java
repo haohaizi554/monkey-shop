@@ -23,6 +23,7 @@ import com.example.monkey.tenant.domain.TenantBill;
 import com.example.monkey.tenant.domain.TenantConfig;
 import com.example.monkey.tenant.domain.TenantDashboard;
 import com.example.monkey.tenant.domain.TenantDataExportJob;
+import com.example.monkey.tenant.domain.TenantExportProvider;
 import com.example.monkey.tenant.domain.TenantExportStatus;
 import com.example.monkey.tenant.domain.TenantPlan;
 import com.example.monkey.tenant.domain.TenantStatus;
@@ -32,6 +33,10 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.List;
+import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,15 +44,22 @@ import org.springframework.transaction.annotation.Transactional;
 public class TenantApplicationService {
 
     private static final int DEFAULT_RENEW_MONTHS = 12;
+    private static final Logger LOGGER = LoggerFactory.getLogger(TenantApplicationService.class);
 
     private final TenantStore tenantStore;
     private final IdGenerator idGenerator;
     private final AuditService auditService;
+    private final TenantExportProvider tenantExportProvider;
 
-    public TenantApplicationService(TenantStore tenantStore, IdGenerator idGenerator, AuditService auditService) {
+    public TenantApplicationService(
+            TenantStore tenantStore,
+            IdGenerator idGenerator,
+            AuditService auditService,
+            TenantExportProvider tenantExportProvider) {
         this.tenantStore = tenantStore;
         this.idGenerator = idGenerator;
         this.auditService = auditService;
+        this.tenantExportProvider = tenantExportProvider;
     }
 
     @WithSpan("tenant.create")
@@ -186,27 +198,40 @@ public class TenantApplicationService {
     }
 
     @WithSpan("tenant.export-request")
-    @Transactional
     public TenantExportJobDto requestExport(SessionUser operator, Long tenantId, TenantExportRequestDto request) {
         requireTenant(tenantId);
         Long operatorId = AuthenticatedPrincipals.requireUserId(operator);
-        TenantDataExportJob saved = tenantStore.saveExportJob(new TenantDataExportJob(
-                idGenerator.nextId(),
+        Long jobId = idGenerator.nextId();
+        String exportType = request == null ? "FULL" : request.exportType();
+        String auditTraceId = TraceIds.currentOrCreate();
+        TenantDataExportJob queued = tenantStore.saveExportJob(new TenantDataExportJob(
+                jobId,
                 tenantId,
-                request == null ? "FULL" : request.exportType(),
-                TenantExportStatus.REQUESTED,
+                exportType,
+                TenantExportStatus.QUEUED,
+                null,
                 null,
                 operatorId,
                 LocalDateTime.now(),
                 null,
-                TraceIds.currentOrCreate(),
+                auditTraceId,
                 null,
                 0L));
+        TenantExportProvider.ExportResult providerResult =
+                providerResult(() -> tenantExportProvider.submit(exportRequest(queued)), jobId);
+        TenantDataExportJob saved = queued;
+        if (providerResult != null) {
+            try {
+                saved = tenantStore.saveExportJob(queued.apply(providerResult, LocalDateTime.now()));
+            } catch (OptimisticLockingFailureException exception) {
+                saved = tenantStore.findExportJob(tenantId, jobId).orElse(queued);
+            }
+        }
         audit(
                 AuditService.TENANT_EXPORT_REQUESTED,
                 operator,
                 "tenant-export:" + saved.id(),
-                "tenantId=" + tenantId + ",type=" + saved.exportType());
+                "tenantId=" + tenantId + ",type=" + saved.exportType() + ",status=" + saved.status());
         return TenantDtoAssembler.toExport(saved);
     }
 
@@ -220,23 +245,52 @@ public class TenantApplicationService {
     }
 
     @WithSpan("tenant.export-complete-pending")
-    @Transactional
     public int completePendingExports() {
         List<TenantDataExportJob> jobs = tenantStore.findPendingExportJobs(20);
         for (TenantDataExportJob job : jobs) {
-            String archivePath = "encrypted://tenant/" + job.tenantId() + "/exports/" + job.id() + ".zip.tink";
-            TenantDataExportJob completed =
-                    tenantStore.saveExportJob(job.complete(archivePath, TraceIds.currentOrCreate()));
-            auditService.record(
-                    AuditService.TENANT_EXPORT_COMPLETED,
-                    AuditService.OUTCOME_SUCCESS,
-                    completed.requestedBy(),
-                    null,
-                    "tenant-export:" + completed.id(),
-                    null,
-                    "tenantId=" + completed.tenantId() + ",archive=" + completed.encryptedArchivePath());
+            Supplier<TenantExportProvider.ExportResult> operation = job.providerJobId() == null
+                    ? () -> tenantExportProvider.submit(exportRequest(job))
+                    : () -> tenantExportProvider.refresh(job);
+            TenantExportProvider.ExportResult providerResult = providerResult(operation, job.id());
+            if (providerResult == null) {
+                continue;
+            }
+            try {
+                TenantDataExportJob updated = tenantStore.saveExportJob(job.apply(providerResult, LocalDateTime.now()));
+                if (updated.status() == TenantExportStatus.SUCCEEDED) {
+                    auditService.record(
+                            AuditService.TENANT_EXPORT_COMPLETED,
+                            AuditService.OUTCOME_SUCCESS,
+                            updated.requestedBy(),
+                            null,
+                            "tenant-export:" + updated.id(),
+                            null,
+                            "tenantId=" + updated.tenantId() + ",artifactAvailable=true");
+                }
+            } catch (RuntimeException exception) {
+                LOGGER.warn("Tenant export job {} could not apply its provider result; it remains retryable", job.id());
+            }
         }
         return jobs.size();
+    }
+
+    private static TenantExportProvider.ExportRequest exportRequest(TenantDataExportJob job) {
+        return new TenantExportProvider.ExportRequest(
+                job.id(), job.tenantId(), job.exportType(), job.requestedBy(), job.auditTraceId());
+    }
+
+    private static TenantExportProvider.ExportResult providerResult(
+            Supplier<TenantExportProvider.ExportResult> operation, Long jobId) {
+        try {
+            TenantExportProvider.ExportResult result = operation.get();
+            if (result == null) {
+                LOGGER.warn("Tenant export provider returned no result for job {}; it remains retryable", jobId);
+            }
+            return result;
+        } catch (RuntimeException exception) {
+            LOGGER.warn("Tenant export provider call failed for job {}; it remains retryable", jobId);
+            return null;
+        }
     }
 
     private Tenant requireTenant(Long tenantId) {

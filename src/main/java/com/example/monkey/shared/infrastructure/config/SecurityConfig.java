@@ -2,6 +2,7 @@ package com.example.monkey.shared.infrastructure.config;
 
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.application.tenant.TenantAccessGateway;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.interfaces.dto.Result;
 import com.example.monkey.shared.interfaces.security.ApiRateLimitFilter;
@@ -139,6 +140,7 @@ public class SecurityConfig {
             JwtAuthenticationFilter jwtAuthenticationFilter,
             ApiRateLimitFilter apiRateLimitFilter,
             SessionTokenTransport tokenTransport,
+            TenantAccessGateway tenantAccessGateway,
             AuditService auditService,
             ObjectMapper objectMapper,
             @Value("${app.security.csp.upgrade-insecure-requests:true}") boolean cspUpgradeInsecureRequests)
@@ -147,7 +149,8 @@ public class SecurityConfig {
                         .csrfTokenRequestHandler(new SpaCsrfTokenRequestHandler())
                         .ignoringRequestMatchers(SecurityConfig::isCsrfIgnoredPublicPost))
                 .addFilterBefore(jwtAuthenticationFilter, LogoutFilter.class)
-                .addFilterAfter(new TenantContextFilter(), JwtAuthenticationFilter.class)
+                .addFilterAfter(
+                        new TenantContextFilter(tenantAccessGateway, objectMapper), JwtAuthenticationFilter.class)
                 .addFilterAfter(new UserMdcFilter(), JwtAuthenticationFilter.class)
                 .addFilterAfter(apiRateLimitFilter, UserMdcFilter.class)
                 .addFilterAfter(new PasswordChangeRequiredFilter(objectMapper), JwtAuthenticationFilter.class)

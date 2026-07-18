@@ -16,6 +16,7 @@ import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.ApiRateLimitApplicationService;
 import com.example.monkey.shared.application.security.ApiRateLimitResult;
 import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.application.tenant.PermissiveTenantAccessTestConfiguration;
 import com.example.monkey.shared.infrastructure.config.SecurityConfig;
 import com.example.monkey.shared.interfaces.web.VisitInterceptor;
 import com.example.monkey.user.domain.UserAccountStore;
@@ -33,7 +34,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 @WebMvcTest(controllers = PaymentAdminController.class)
-@Import(SecurityConfig.class)
+@Import({SecurityConfig.class, PermissiveTenantAccessTestConfiguration.class})
 @MockitoBean(
         types = {
             PaymentApplicationService.class,

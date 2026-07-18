@@ -11,6 +11,7 @@ import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.ApiRateLimitApplicationService;
 import com.example.monkey.shared.application.security.ApiRateLimitResult;
 import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.application.tenant.PermissiveTenantAccessTestConfiguration;
 import com.example.monkey.shared.domain.security.TrustedProxyPolicy;
 import com.example.monkey.shared.infrastructure.config.SecurityConfig;
 import com.example.monkey.shared.interfaces.security.ApiRateLimitFilter;
@@ -37,7 +38,12 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @WebMvcTest(controllers = SecurityFilterChainMatrixTest.MatrixController.class)
-@Import({SecurityConfig.class, ApiRateLimitFilter.class, SecurityFilterChainMatrixTest.MatrixController.class})
+@Import({
+    SecurityConfig.class,
+    ApiRateLimitFilter.class,
+    SecurityFilterChainMatrixTest.MatrixController.class,
+    PermissiveTenantAccessTestConfiguration.class
+})
 @TestPropertySource(properties = "app.security.csp.upgrade-insecure-requests=false")
 @MockitoBean(
         types = {

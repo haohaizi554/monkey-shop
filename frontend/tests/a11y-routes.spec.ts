@@ -386,10 +386,50 @@ const apiFixtures: Record<string, unknown> = {
       id: 31,
       tenantId: 1,
       exportType: 'FULL',
-      status: 'COMPLETED',
-      encryptedArchivePath: 'archive.enc',
+      status: 'SUCCEEDED',
+      artifactAvailable: true,
       requestedBy: 1,
       requestedAt: '2026-07-12T08:00:00Z',
+      version: 1,
+    },
+    {
+      id: 32,
+      tenantId: 1,
+      exportType: 'ORDERS',
+      status: 'QUEUED',
+      artifactAvailable: false,
+      requestedBy: 1,
+      requestedAt: '2026-07-12T08:01:00Z',
+      version: 1,
+    },
+    {
+      id: 33,
+      tenantId: 1,
+      exportType: 'USERS',
+      status: 'RUNNING',
+      artifactAvailable: false,
+      requestedBy: 1,
+      requestedAt: '2026-07-12T08:02:00Z',
+      version: 1,
+    },
+    {
+      id: 34,
+      tenantId: 1,
+      exportType: 'FULL',
+      status: 'FAILED',
+      artifactAvailable: false,
+      requestedBy: 1,
+      requestedAt: '2026-07-12T08:03:00Z',
+      version: 1,
+    },
+    {
+      id: 35,
+      tenantId: 1,
+      exportType: 'FULL',
+      status: 'UNAVAILABLE',
+      artifactAvailable: false,
+      requestedBy: 1,
+      requestedAt: '2026-07-12T08:04:00Z',
       version: 1,
     },
   ],
@@ -599,6 +639,23 @@ for (const routeCase of adminRoutes) {
     expect(unhandled).toEqual([])
   })
 }
+
+test('tenant export state table passes Axe with all five provider states visible', async ({ page }) => {
+  const unhandled = await installApiMocks(page, 'admin')
+  await settleRoute(
+    page,
+    adminRoutes.find((item) => item.name === 'tenant administration')!,
+  )
+  await page.getByRole('tab', { name: 'Export' }).click()
+  const exportPanel = page.getByRole('tabpanel', { name: 'Export' })
+  await expect(exportPanel.getByText('Queued', { exact: true })).toBeVisible()
+  await expect(exportPanel.getByText('Running', { exact: true })).toBeVisible()
+  await expect(exportPanel.getByText('Succeeded', { exact: true })).toBeVisible()
+  await expect(exportPanel.getByText('Failed', { exact: true })).toBeVisible()
+  await expect(exportPanel.getByText('Unavailable', { exact: true })).toBeVisible()
+  await expectNoAxeViolations(page)
+  expect(unhandled).toEqual([])
+})
 
 test('consumer confirmation dialog passes Axe', async ({ page }) => {
   const unhandled = await installApiMocks(page, 'user')

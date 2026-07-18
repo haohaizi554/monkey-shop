@@ -22,6 +22,7 @@ import com.example.monkey.shared.application.storage.UploadFileContent;
 import com.example.monkey.shared.application.storage.dto.PresignedGetUrlResponseDto;
 import com.example.monkey.shared.application.storage.dto.PresignedUploadResponseDto;
 import com.example.monkey.shared.application.storage.dto.UploadResponseDto;
+import com.example.monkey.shared.application.tenant.PermissiveTenantAccessTestConfiguration;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.infrastructure.config.SecurityConfig;
@@ -42,7 +43,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 @WebMvcTest(controllers = UploadController.class)
-@Import(SecurityConfig.class)
+@Import({SecurityConfig.class, PermissiveTenantAccessTestConfiguration.class})
 @MockitoBean(
         types = {
             FileService.class,

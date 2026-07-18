@@ -31,6 +31,8 @@ public interface TenantStore {
 
     TenantDataExportJob saveExportJob(TenantDataExportJob exportJob);
 
+    Optional<TenantDataExportJob> findExportJob(Long tenantId, Long jobId);
+
     List<TenantDataExportJob> findExportJobs(Long tenantId);
 
     List<TenantDataExportJob> findPendingExportJobs(int limit);

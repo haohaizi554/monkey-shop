@@ -961,7 +961,7 @@ export type TenantStatus = 'TRIAL' | 'ACTIVE' | 'EXPIRED' | 'DOWNGRADED' | 'SUSP
 export type TenantPlan = 'STARTER' | 'GROWTH' | 'ENTERPRISE'
 export type TenantConfigType = 'PAYMENT' | 'LOGISTICS' | 'MARKETING' | 'ROLLOUT'
 export type TenantBillStatus = 'GENERATED' | 'RECONCILED' | 'SUSPENDED'
-export type TenantExportStatus = 'REQUESTED' | 'COMPLETED' | 'FAILED'
+export type TenantExportStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'UNAVAILABLE'
 
 export interface Tenant {
   id: number
@@ -1044,12 +1044,11 @@ export interface TenantExportJob {
   tenantId: number
   exportType: string
   status: TenantExportStatus
-  encryptedArchivePath?: string
+  artifactAvailable: boolean
   requestedBy: number
   requestedAt: string
   completedAt?: string
   auditTraceId?: string
-  errorMessage?: string
   version: number
 }
 

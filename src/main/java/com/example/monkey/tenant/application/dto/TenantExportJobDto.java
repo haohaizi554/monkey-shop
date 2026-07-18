@@ -8,10 +8,9 @@ public record TenantExportJobDto(
         Long tenantId,
         String exportType,
         TenantExportStatus status,
-        String encryptedArchivePath,
+        boolean artifactAvailable,
         Long requestedBy,
         LocalDateTime requestedAt,
         LocalDateTime completedAt,
         String auditTraceId,
-        String errorMessage,
         long version) {}

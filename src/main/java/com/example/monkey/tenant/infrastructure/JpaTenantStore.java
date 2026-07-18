@@ -1,5 +1,6 @@
 package com.example.monkey.tenant.infrastructure;
 
+import com.example.monkey.shared.application.tenant.TenantAccessGateway;
 import com.example.monkey.shared.domain.id.IdGenerator;
 import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
 import com.example.monkey.tenant.domain.Tenant;
@@ -13,18 +14,21 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 @Component
 @ConditionalOnProperty(name = "app.tenant.store", havingValue = "jpa", matchIfMissing = true)
-public class JpaTenantStore implements TenantStore {
+public class JpaTenantStore implements TenantStore, TenantAccessGateway {
 
     private static final TypeReference<Map<String, String>> SETTINGS_TYPE = new TypeReference<>() {};
 
@@ -64,6 +68,21 @@ public class JpaTenantStore implements TenantStore {
     @Override
     public Optional<Tenant> findTenant(Long tenantId) {
         return tenantRepository.findById(tenantId).map(this::toDomain);
+    }
+
+    @Override
+    public boolean isServiceableTenant(Long tenantId) {
+        if (tenantId == null || tenantId <= 0) {
+            return false;
+        }
+        return tenantRepository
+                .findById(tenantId)
+                .filter(entity -> entity.getStatus() == TenantStatus.TRIAL
+                        || entity.getStatus() == TenantStatus.ACTIVE
+                        || entity.getStatus() == TenantStatus.DOWNGRADED)
+                .filter(entity ->
+                        entity.getExpiresAt() != null && entity.getExpiresAt().isAfter(LocalDateTime.now()))
+                .isPresent();
     }
 
     @Override
@@ -158,21 +177,29 @@ public class JpaTenantStore implements TenantStore {
     }
 
     @Override
+    @Transactional
     public TenantDataExportJob saveExportJob(TenantDataExportJob exportJob) {
-        TenantDataExportJobEntity entity =
-                exportJobRepository.findById(exportJob.id()).orElseGet(TenantDataExportJobEntity::new);
+        Optional<TenantDataExportJobEntity> existing = exportJobRepository.findById(exportJob.id());
+        TenantDataExportJobEntity entity = existing.orElseGet(TenantDataExportJobEntity::new);
+        requireCurrentExportVersion(exportJob, existing);
         entity.setId(exportJob.id());
         entity.setTenantId(exportJob.tenantId());
         entity.setExportType(exportJob.exportType());
         entity.setStatus(exportJob.status());
-        entity.setEncryptedArchivePath(exportJob.encryptedArchivePath());
+        entity.setProviderJobId(exportJob.providerJobId());
+        entity.setArtifactUri(exportJob.artifactUri());
         entity.setRequestedBy(exportJob.requestedBy());
         entity.setRequestedAt(exportJob.requestedAt());
         entity.setCompletedAt(exportJob.completedAt());
         entity.setAuditTraceId(exportJob.auditTraceId());
         entity.setErrorMessage(exportJob.errorMessage());
-        entity.setVersion(entity.getVersion() == null ? exportJob.version() : entity.getVersion());
-        return toDomain(exportJobRepository.save(entity));
+        return toDomain(exportJobRepository.saveAndFlush(entity));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<TenantDataExportJob> findExportJob(Long tenantId, Long jobId) {
+        return exportJobRepository.findByIdAndTenantId(jobId, tenantId).map(this::toDomain);
     }
 
     @Override
@@ -185,7 +212,9 @@ public class JpaTenantStore implements TenantStore {
     @Override
     public List<TenantDataExportJob> findPendingExportJobs(int limit) {
         return exportJobRepository
-                .findByStatusOrderByRequestedAtAsc(TenantExportStatus.REQUESTED, PageRequest.of(0, Math.max(1, limit)))
+                .findByStatusInOrderByRequestedAtAsc(
+                        List.of(TenantExportStatus.QUEUED, TenantExportStatus.RUNNING),
+                        PageRequest.of(0, Math.max(1, limit)))
                 .stream()
                 .map(this::toDomain)
                 .toList();
@@ -256,13 +285,32 @@ public class JpaTenantStore implements TenantStore {
                 entity.getTenantId(),
                 entity.getExportType(),
                 entity.getStatus(),
-                entity.getEncryptedArchivePath(),
+                entity.getProviderJobId(),
+                entity.getArtifactUri(),
                 entity.getRequestedBy(),
                 entity.getRequestedAt(),
                 entity.getCompletedAt(),
                 entity.getAuditTraceId(),
                 entity.getErrorMessage(),
                 entity.getVersion() == null ? 0L : entity.getVersion());
+    }
+
+    private static void requireCurrentExportVersion(
+            TenantDataExportJob exportJob, Optional<TenantDataExportJobEntity> existing) {
+        if (existing.isEmpty()) {
+            if (exportJob.version() != 0L) {
+                throw staleExport(exportJob.id());
+            }
+            return;
+        }
+        long persistedVersion = existing.orElseThrow().getVersion();
+        if (exportJob.version() <= 0L || persistedVersion != exportJob.version() - 1L) {
+            throw staleExport(exportJob.id());
+        }
+    }
+
+    private static OptimisticLockingFailureException staleExport(Long jobId) {
+        return new OptimisticLockingFailureException("Tenant export job " + jobId + " has a stale version");
     }
 
     private void saveConfigHistory(TenantConfigEntity saved, String oldSettings, Long operatorUserId) {

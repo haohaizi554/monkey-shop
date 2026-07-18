@@ -64,12 +64,11 @@ public final class TenantDtoAssembler {
                 job.tenantId(),
                 job.exportType(),
                 job.status(),
-                job.encryptedArchivePath(),
+                job.artifactUri() != null,
                 job.requestedBy(),
                 job.requestedAt(),
                 job.completedAt(),
                 job.auditTraceId(),
-                job.errorMessage(),
                 job.version());
     }
 

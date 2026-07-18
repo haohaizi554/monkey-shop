@@ -18,6 +18,7 @@ import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.ApiRateLimitApplicationService;
 import com.example.monkey.shared.application.security.ApiRateLimitResult;
 import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.application.tenant.PermissiveTenantAccessTestConfiguration;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.infrastructure.config.SecurityConfig;
 import com.example.monkey.shared.interfaces.web.VisitInterceptor;
@@ -39,7 +40,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 @WebMvcTest(controllers = OrderController.class)
-@Import({SecurityConfig.class, OrderOwnership.class})
+@Import({SecurityConfig.class, OrderOwnership.class, PermissiveTenantAccessTestConfiguration.class})
 @MockitoBean(
         types = {
             RiskApplicationService.class,

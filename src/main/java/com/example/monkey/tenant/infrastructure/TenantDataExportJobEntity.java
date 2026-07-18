@@ -10,6 +10,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.LocalDateTime;
 
 @Entity
@@ -29,12 +30,19 @@ public class TenantDataExportJobEntity implements TenantScoped {
     @Column(nullable = false, length = 32)
     private TenantExportStatus status;
 
-    private String encryptedArchivePath;
+    @Column(length = 255)
+    private String providerJobId;
+
+    @Column(name = "encrypted_archive_path", length = 512)
+    private String artifactUri;
+
     private Long requestedBy;
     private LocalDateTime requestedAt;
     private LocalDateTime completedAt;
     private String auditTraceId;
     private String errorMessage;
+
+    @Version
     private Long version;
 
     public Long getId() {
@@ -71,12 +79,20 @@ public class TenantDataExportJobEntity implements TenantScoped {
         this.status = status;
     }
 
-    public String getEncryptedArchivePath() {
-        return encryptedArchivePath;
+    public String getProviderJobId() {
+        return providerJobId;
     }
 
-    public void setEncryptedArchivePath(String encryptedArchivePath) {
-        this.encryptedArchivePath = encryptedArchivePath;
+    public void setProviderJobId(String providerJobId) {
+        this.providerJobId = providerJobId;
+    }
+
+    public String getArtifactUri() {
+        return artifactUri;
+    }
+
+    public void setArtifactUri(String artifactUri) {
+        this.artifactUri = artifactUri;
     }
 
     public Long getRequestedBy() {

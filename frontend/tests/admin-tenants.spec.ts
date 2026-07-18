@@ -34,6 +34,7 @@ interface TenantMockOptions {
   tenantOneDetailsGate?: Promise<void>
   onTenantOneDetailStarted?: () => void
   onTenantOneDetailCompleted?: () => void
+  exportRequestResult?: Record<string, unknown>
 }
 
 function requestBatchGate(expectedRequests: number) {
@@ -87,6 +88,12 @@ async function installTenantMocks(page: Page, options: TenantMockOptions = {}) {
         currentMonthRevenue: '16800.00',
         tenants,
       }
+    } else if (
+      route.request().method() === 'POST' &&
+      pathname === '/tenants/1/exports' &&
+      options.exportRequestResult
+    ) {
+      data = options.exportRequestResult
     } else if (/\/tenants\/1\/(configs|bills|exports)$/.test(pathname)) {
       tenantOneDetailRequest = true
       options.onTenantOneDetailStarted?.()
@@ -365,10 +372,52 @@ test('tenant exports render localized types instead of internal enum tokens', as
             id: 91,
             tenantId: 1,
             exportType: 'FULL',
-            status: 'COMPLETED',
-            encryptedArchivePath: 'archive.enc',
+            status: 'SUCCEEDED',
+            artifactAvailable: true,
             requestedBy: 1,
             requestedAt: '2026-07-12T08:00:00',
+            version: 1,
+          },
+          {
+            id: 92,
+            tenantId: 1,
+            exportType: 'ORDERS',
+            status: 'UNAVAILABLE',
+            artifactAvailable: false,
+            requestedBy: 1,
+            requestedAt: '2026-07-12T08:01:00',
+            errorMessage: 'tenant export provider is not configured',
+            version: 1,
+          },
+          {
+            id: 93,
+            tenantId: 1,
+            exportType: 'USERS',
+            status: 'FAILED',
+            artifactAvailable: false,
+            requestedBy: 1,
+            requestedAt: '2026-07-12T08:02:00',
+            errorMessage: 'tenant export provider failed',
+            version: 1,
+          },
+          {
+            id: 94,
+            tenantId: 1,
+            exportType: 'FULL',
+            status: 'QUEUED',
+            artifactAvailable: false,
+            requestedBy: 1,
+            requestedAt: '2026-07-12T08:03:00',
+            version: 1,
+          },
+          {
+            id: 95,
+            tenantId: 1,
+            exportType: 'FULL',
+            status: 'RUNNING',
+            artifactAvailable: false,
+            requestedBy: 1,
+            requestedAt: '2026-07-12T08:04:00',
             version: 1,
           },
         ]),
@@ -379,9 +428,40 @@ test('tenant exports render localized types instead of internal enum tokens', as
   await page.goto('/tenants?tenant=1')
   await page.getByRole('tab', { name: 'Export', exact: true }).click()
   const exportTable = page.getByRole('tabpanel', { name: 'Export' }).locator('.el-table')
-  await expect(exportTable.getByText('Full', { exact: true })).toBeVisible()
+  await expect(exportTable.getByText('Full', { exact: true })).toHaveCount(3)
   await expect(exportTable.getByText('FULL', { exact: true })).toHaveCount(0)
-  await expect(exportTable.getByText('archive.enc', { exact: true })).toHaveCount(0)
+  await expect(exportTable.getByText('Succeeded', { exact: true })).toBeVisible()
+  await expect(exportTable.getByText('Unavailable', { exact: true })).toBeVisible()
+  await expect(exportTable.getByText('Failed', { exact: true })).toBeVisible()
+  await expect(exportTable.getByText('Queued', { exact: true })).toBeVisible()
+  await expect(exportTable.getByText('Running', { exact: true })).toBeVisible()
+  await expect(exportTable.getByText('Encrypted archive ready', { exact: true })).toBeVisible()
+  await expect(exportTable.getByText('Provider unavailable', { exact: true })).toBeVisible()
+  await expect(exportTable.getByText('Export failed', { exact: true })).toBeVisible()
+  await expect(exportTable.getByText('Preparing archive', { exact: true })).toHaveCount(2)
+  await expect(exportTable.getByRole('link')).toHaveCount(0)
+  await expect(exportTable.getByText('tenant export provider failed', { exact: true })).toHaveCount(0)
+})
+
+test('an unavailable export response never announces a successful submission', async ({ page }) => {
+  await installTenantMocks(page, {
+    exportRequestResult: {
+      id: 96,
+      tenantId: 1,
+      exportType: 'FULL',
+      status: 'UNAVAILABLE',
+      artifactAvailable: false,
+      requestedBy: 1,
+      requestedAt: '2026-07-12T08:05:00',
+      version: 1,
+    },
+  })
+  await page.goto('/tenants?tenant=1')
+  await page.getByRole('tab', { name: 'Export' }).click()
+  await page.getByRole('button', { name: 'Submit export' }).click()
+
+  await expect(page.locator('.app-feedback-item--warning')).toContainText('Provider unavailable')
+  await expect(page.locator('.app-feedback-item--success')).toHaveCount(0)
 })
 
 test('billing rejects an impossible month inline without making a request', async ({ page }) => {
