@@ -17,7 +17,7 @@ import MetricStrip, { type MetricItem } from '@/components/admin/MetricStrip.vue
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import DataTableShell from '@/components/ui/DataTableShell.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
-import { useAsyncState } from '@/composables/useAsyncState'
+import { useAsyncState, type AsyncState } from '@/composables/useAsyncState'
 import { useNotify } from '@/composables/useNotify'
 import type {
   Tenant,
@@ -187,8 +187,10 @@ function firstQueryValue(value: unknown): string {
 }
 
 function queryTenantId(): number | undefined {
-  const value = Number.parseInt(firstQueryValue(route.query.tenant), 10)
-  return Number.isInteger(value) && value > 0 ? value : undefined
+  const rawValue = firstQueryValue(route.query.tenant).trim()
+  if (!/^[1-9]\d*$/.test(rawValue)) return undefined
+  const value = Number(rawValue)
+  return Number.isSafeInteger(value) ? value : undefined
 }
 
 function formatSuccessfulRefresh(value?: Date): string {
@@ -353,6 +355,19 @@ function setPending(key: string, value: boolean) {
   pendingKeys.value = next
 }
 
+async function commitResourceRow<T>(
+  state: AsyncState<T[]>,
+  row: T,
+  matches: (candidate: T) => boolean,
+) {
+  const rows = [...(state.data.value ?? [])]
+  const index = rows.findIndex(matches)
+  if (index >= 0) rows.splice(index, 1, row)
+  else rows.unshift(row)
+  state.cancel()
+  await state.load(async () => rows, { preserveData: false, timeoutMs: 0 })
+}
+
 function patchTenant(nextTenant: Tenant) {
   listState.cancel()
   const current = listState.data.value
@@ -417,6 +432,7 @@ async function loadTenantExports(tenantId: number, requestVersion = detailReques
 
 async function loadTenantDetails(tenantId: number) {
   const requestVersion = ++detailRequestVersion
+  billError.value = ''
   configState.reset()
   billState.reset()
   exportState.reset()
@@ -554,11 +570,12 @@ async function saveConfig() {
     if (activeConfigTenantId.value === tenantId && activeConfigType.value === configType) {
       renderConfigDraft(tenantId, configType, savedDraft)
     }
-    const rows = selectedTenantId.value === tenantId ? configState.data.value : undefined
-    if (rows) {
-      const index = rows.findIndex((row) => row.configType === saved.configType)
-      if (index >= 0) rows.splice(index, 1, saved)
-      else rows.unshift(saved)
+    if (selectedTenantId.value === tenantId) {
+      await commitResourceRow(
+        configState,
+        saved,
+        (row) => row.configType === saved.configType,
+      )
     }
     notify.success(t('tenant.configSaved'), { key: 'tenant:config:success' })
   } catch (error) {
@@ -582,11 +599,8 @@ async function generateBill() {
     const bill = await tenantApi.generateTenantBill(tenantId, {
       billingMonth: billForm.billingMonth,
     })
-    const rows = selectedTenantId.value === tenantId ? billState.data.value : undefined
-    if (rows) {
-      const index = rows.findIndex((row) => row.id === bill.id)
-      if (index >= 0) rows.splice(index, 1, bill)
-      else rows.unshift(bill)
+    if (selectedTenantId.value === tenantId) {
+      await commitResourceRow(billState, bill, (row) => row.id === bill.id)
     }
     notify.success(t('tenant.billGenerated'), { key: 'tenant:bill:success' })
   } catch (error) {
@@ -612,7 +626,7 @@ async function requestExport() {
       exportType: exportForm.exportType,
     })
     if (selectedTenantId.value === tenantId) {
-      exportState.data.value?.unshift(job)
+      await commitResourceRow(exportState, job, (row) => row.id === job.id)
     }
     notify.success(t('tenant.exportSubmitted'), { key: 'tenant:export:success' })
   } catch (error) {

@@ -181,6 +181,16 @@ test('an invalid tenant query is canonicalized without leaving a ghost selection
   await expect(page).toHaveURL(/tenant=1/)
   await expect(page.getByRole('heading', { name: 'Tenant Alpha' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Tenant Beta' })).toHaveCount(0)
+
+  for (const malformedTenant of ['1junk', '1.5']) {
+    await page.evaluate((tenant) => {
+      window.history.pushState({}, '', `/tenants?tenant=${tenant}`)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    }, malformedTenant)
+
+    await expect(page).toHaveURL(/\/tenants\?tenant=1$/)
+    await expect(page.getByRole('heading', { name: 'Tenant Alpha' })).toBeVisible()
+  }
 })
 
 test('a tenant detail failure leaves the tenant list usable and hides backend copy', async ({
@@ -247,6 +257,98 @@ test('a completed mutation cannot write into a tenant selected while it was pend
   await expect(page.getByText('beta-provider')).toBeVisible()
 })
 
+test('a stale same-tenant detail refresh cannot overwrite a completed config mutation', async ({
+  page,
+}) => {
+  let configGetCount = 0
+  let releaseSave!: () => void
+  let markSaveStarted!: () => void
+  let releaseStaleGet!: () => void
+  let markStaleGetStarted!: () => void
+  const saveGate = new Promise<void>((resolve) => {
+    releaseSave = resolve
+  })
+  const saveStarted = new Promise<void>((resolve) => {
+    markSaveStarted = resolve
+  })
+  const staleGetGate = new Promise<void>((resolve) => {
+    releaseStaleGet = resolve
+  })
+  const staleGetStarted = new Promise<void>((resolve) => {
+    markStaleGetStarted = resolve
+  })
+
+  await installTenantMocks(page)
+  await page.route('**/api/v1/tenants/1/configs', async (route) => {
+    if (route.request().method() === 'PUT') {
+      markSaveStarted()
+      await saveGate
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          ok({
+            id: 12,
+            tenantId: 1,
+            configType: 'PAYMENT',
+            provider: 'saved-alpha-provider',
+            settings: {},
+            enabled: true,
+            updatedAt: '2026-07-12T09:00:00',
+            version: 2,
+          }),
+        ),
+      })
+      return
+    }
+    configGetCount += 1
+    if (configGetCount === 1) {
+      await route.fallback()
+      return
+    }
+    markStaleGetStarted()
+    await staleGetGate
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        ok([
+          {
+            id: 11,
+            tenantId: 1,
+            configType: 'PAYMENT',
+            provider: 'alpha-provider',
+            settings: {},
+            enabled: true,
+            updatedAt: '2026-07-12T08:00:00',
+            version: 1,
+          },
+        ]),
+      ),
+    })
+  })
+
+  await page.goto('/tenants?tenant=1')
+  await expect(page.getByText('alpha-provider')).toBeVisible()
+  await page.getByRole('button', { name: 'Save config', exact: true }).click()
+  await saveStarted
+  await page.getByRole('button', { name: 'Open Tenant Alpha' }).click()
+  await staleGetStarted
+
+  const saveResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'PUT' &&
+      new URL(response.url()).pathname.endsWith('/api/v1/tenants/1/configs'),
+  )
+  releaseSave()
+  await saveResponse
+  await expect(page.getByText('saved-alpha-provider')).toBeVisible()
+
+  releaseStaleGet()
+  await expect(page.getByText('saved-alpha-provider')).toBeVisible()
+  await expect(page.getByText('alpha-provider', { exact: true })).toHaveCount(0)
+})
+
 test('tenant exports render localized types instead of internal enum tokens', async ({ page }) => {
   await installTenantMocks(page)
   await page.route('**/api/v1/tenants/1/exports', async (route) => {
@@ -305,6 +407,20 @@ test('billing rejects an impossible month inline without making a request', asyn
 
   await expect(page.getByRole('alert')).toContainText('valid month')
   expect(billCalls).toBe(0)
+})
+
+test('billing validation errors do not leak into another tenant', async ({ page }) => {
+  await installTenantMocks(page)
+  await page.goto('/tenants?tenant=1')
+  await page.getByRole('tab', { name: 'Billing', exact: true }).click()
+  await page.getByPlaceholder('yyyy-MM').fill('2026-13')
+  await page.getByRole('button', { name: 'Generate bill', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('valid month')
+
+  await page.getByRole('button', { name: 'Open Tenant Beta' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Tenant Beta' })).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveCount(0)
 })
 
 test('downgrade owns its pending lock before confirmation and releases it on cancel', async ({
