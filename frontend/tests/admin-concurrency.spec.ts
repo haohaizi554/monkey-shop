@@ -83,7 +83,7 @@ const adminStats = {
   seriesVisit: [],
 }
 
-test('tenant mutation blocks same-tenant refreshes until the write settles', async ({ page }) => {
+test('tenant detail mutation keeps list refresh and create actions available', async ({ page }) => {
   let dashboardLoads = 0
   let saveCalls = 0
   let releaseSave!: () => void
@@ -141,17 +141,17 @@ test('tenant mutation blocks same-tenant refreshes until the write settles', asy
   await expect.poll(() => saveCalls).toBe(1)
 
   const refresh = page.getByRole('button', { name: 'Refresh', exact: true })
-  await expect(refresh).toBeDisabled()
-  await refresh.evaluate((element) => {
-    element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  })
+  await expect(refresh).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Create tenant', exact: true })).toBeEnabled()
+  await refresh.click()
+  await expect.poll(() => dashboardLoads).toBe(2)
 
   releaseSave()
   await expect(page.getByText('saved-provider', { exact: true })).toBeVisible()
-  expect(dashboardLoads).toBe(1)
+  expect(saveCalls).toBe(1)
 })
 
-test('admin rejects a catalog refresh started after a product delete begins', async ({ page }) => {
+test('admin keeps refresh available and lets the product delete patch win', async ({ page }) => {
   let catalogLoads = 0
   let deleteCalls = 0
   let releaseDelete!: () => void
@@ -164,7 +164,15 @@ test('admin rejects a catalog refresh started after a product delete begins', as
     if (pathname === '/orders/all') return []
     if (pathname === '/monkeys' && request.method() === 'GET') {
       catalogLoads += 1
-      return [adminProduct]
+      return {
+        content: [adminProduct],
+        page: 0,
+        size: 100,
+        totalElements: 1,
+        totalPages: 1,
+        first: true,
+        last: true,
+      }
     }
     if (pathname === '/monkeys/1' && request.method() === 'DELETE') {
       deleteCalls += 1
@@ -181,19 +189,15 @@ test('admin rejects a catalog refresh started after a product delete begins', as
   await expect.poll(() => deleteCalls).toBe(1)
 
   const refresh = page.getByRole('button', { name: 'Refresh', exact: true })
-  await expect(refresh).toBeDisabled()
-  await refresh.evaluate((element) => {
-    element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  })
+  await expect(refresh).toBeEnabled()
+  await refresh.click()
+  await expect.poll(() => catalogLoads).toBe(2)
 
   releaseDelete()
   await expect(page.getByText('Concurrency Monkey', { exact: true })).toHaveCount(0)
-  expect(catalogLoads).toBe(1)
 })
 
-test('inventory rejects a same-SKU refresh started after a reservation begins', async ({
-  page,
-}) => {
+test('inventory keeps search available and lets the reservation patch win', async ({ page }) => {
   let stockLoads = 0
   let reserveCalls = 0
   let releaseReserve!: () => void
@@ -230,17 +234,18 @@ test('inventory rejects a same-SKU refresh started after a reservation begins', 
   await expect.poll(() => reserveCalls).toBe(1)
 
   const search = page.getByRole('button', { name: 'Search', exact: true })
-  await expect(search).toBeDisabled()
-  await search.evaluate((element) => {
-    element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  })
+  await expect(search).toBeEnabled()
+  await search.click()
+  await expect.poll(() => stockLoads).toBe(2)
 
   releaseReserve()
   await expect(page.getByText('same-sku-write', { exact: true })).toBeVisible()
-  expect(stockLoads).toBe(1)
+  await expect(page.getByText('SKU-7-RESERVED', { exact: true })).toBeVisible()
 })
 
-test('risk refresh stays available during a decision write and final patch wins', async ({ page }) => {
+test('risk refresh stays available during a decision write and final patch wins', async ({
+  page,
+}) => {
   let reviewLoads = 0
   let decisionCalls = 0
   let releaseDecision!: () => void

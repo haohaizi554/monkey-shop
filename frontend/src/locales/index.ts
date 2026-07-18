@@ -838,6 +838,8 @@ const messages = {
       createTenantTitle: 'Create a tenant',
       codeRequired: 'Tenant code is required',
       nameRequired: 'Tenant name is required',
+      planRequired: 'Select a tenant plan',
+      monthsRange: 'Months must be between 1 and 36',
       months: 'Months',
       openTenant: 'Open {name}',
       selectTenant: 'Select a tenant to view its details',
@@ -886,7 +888,9 @@ const messages = {
       configSaved: 'Tenant config saved',
       configSaveFailed: 'Unable to save config',
       configMustBeJson: 'Config must be valid JSON',
+      providerRequired: 'Provider is required',
       billingMonth: 'yyyy-MM',
+      billingMonthInvalid: 'Enter a valid month in YYYY-MM format',
       billGenerated: 'Bill generated',
       billGenerateFailed: 'Unable to generate bill',
       exportFull: 'Full',
@@ -903,6 +907,9 @@ const messages = {
       totalAmount: 'Total',
       paymentAmount: 'Paid',
       archivePath: 'Archive path',
+      archiveAvailability: 'Archive',
+      exportReady: 'Encrypted archive ready',
+      exportUnavailable: 'Not available yet',
       requestedAt: 'Requested at',
       planStarter: 'Starter',
       planGrowth: 'Growth',
@@ -1036,7 +1043,8 @@ const messages = {
       passwordSecurity: 'Password security',
       securityHint: 'Changing the password signs this device out after the update.',
       privacyTitle: 'Privacy and personal data',
-      privacyHint: 'Control irreversible anonymization of personal fields stored with this account.',
+      privacyHint:
+        'Control irreversible anonymization of personal fields stored with this account.',
       privacyMascotAlt: 'MonkeyShop privacy assistant holding a security shield',
       irreversibleTitle: 'Forget personal data',
       irreversibleHint: 'This action cannot be undone. Required transaction records may remain.',
@@ -1422,15 +1430,16 @@ const messages = {
       currentOrder: '\u5f53\u524d\u8ba2\u5355',
     },
     reviews: {
-      hint:
-        '\u5206\u4eab\u8fd9\u4e2a\u8ba2\u5355\u7684\u5546\u54c1\u4e0e\u5c65\u7ea6\u4f53\u9a8c\u3002',
+      hint: '\u5206\u4eab\u8fd9\u4e2a\u8ba2\u5355\u7684\u5546\u54c1\u4e0e\u5c65\u7ea6\u4f53\u9a8c\u3002',
       composeTitle: '\u5199\u4e0b\u8bc4\u4ef7',
       composeHint:
         '\u4e3a\u6574\u4f53\u4f53\u9a8c\u6253\u5206\uff0c\u5e76\u8865\u5145\u80fd\u5e2e\u52a9\u5176\u4ed6\u8d2d\u7269\u8005\u7684\u7ec6\u8282\u3002',
       ratingLabel: '\u7efc\u5408\u8bc4\u5206',
       ratingSummary: '5 \u5206\u5236\u4e2d\u7684 {rating} \u5206',
-      imageHint: '\u53ef\u6dfb\u52a0\u5546\u54c1\u6216\u914d\u9001\u72b6\u6001\u7684\u6e05\u6670\u7167\u7247\u3002',
-      anonymousHint: '\u8be5\u8bc4\u4ef7\u4e0d\u4f1a\u663e\u793a\u4f60\u7684\u8d26\u53f7\u540d\u3002',
+      imageHint:
+        '\u53ef\u6dfb\u52a0\u5546\u54c1\u6216\u914d\u9001\u72b6\u6001\u7684\u6e05\u6670\u7167\u7247\u3002',
+      anonymousHint:
+        '\u8be5\u8bc4\u4ef7\u4e0d\u4f1a\u663e\u793a\u4f60\u7684\u8d26\u53f7\u540d\u3002',
       historyTitle: '\u5df2\u63d0\u4ea4\u8bc4\u4ef7',
       historyHint: '\u8fd9\u4e2a\u8ba2\u5355\u5df2\u6709\u7684\u8bc4\u4ef7\u8bb0\u5f55\u3002',
       emptyMascotAlt: 'MonkeyShop \u52a9\u624b\u62ff\u7740\u8bc4\u4ef7\u8bb0\u5f55\u677f',
@@ -1438,8 +1447,7 @@ const messages = {
       loadFailed: '\u65e0\u6cd5\u52a0\u8f7d\u5df2\u63d0\u4ea4\u7684\u8bc4\u4ef7',
     },
     orders: {
-      hint:
-        '\u5728\u4e00\u5904\u67e5\u770b\u8d2d\u4e70\u8bb0\u5f55\u3001\u5305\u88f9\u3001\u9000\u8d27\u4e0e\u8bc4\u4ef7\u8fdb\u5ea6\u3002',
+      hint: '\u5728\u4e00\u5904\u67e5\u770b\u8d2d\u4e70\u8bb0\u5f55\u3001\u5305\u88f9\u3001\u9000\u8d27\u4e0e\u8bc4\u4ef7\u8fdb\u5ea6\u3002',
       filterLabel: '\u8ba2\u5355\u72b6\u6001\u7b5b\u9009',
       orderCount: '{count} \u4e2a\u8ba2\u5355',
       filters: {
@@ -1477,18 +1485,21 @@ const messages = {
       shipmentShippedStatus: '\u8fd0\u8f93\u4e2d',
       hidden: '\u8ba2\u5355\u5df2\u9690\u85cf',
       emptyMascotAlt: 'MonkeyShop \u52a9\u624b\u62ce\u7740\u7a7a\u8d2d\u7269\u888b',
-      emptyHint: '\u8d2d\u4e70\u8bb0\u5f55\u4e0e\u5c65\u7ea6\u8fdb\u5ea6\u4f1a\u663e\u793a\u5728\u8fd9\u91cc\u3002',
-      filterEmptyMascotAlt: 'MonkeyShop \u52a9\u624b\u6b63\u5728\u68c0\u67e5\u8ba2\u5355\u7b5b\u9009',
+      emptyHint:
+        '\u8d2d\u4e70\u8bb0\u5f55\u4e0e\u5c65\u7ea6\u8fdb\u5ea6\u4f1a\u663e\u793a\u5728\u8fd9\u91cc\u3002',
+      filterEmptyMascotAlt:
+        'MonkeyShop \u52a9\u624b\u6b63\u5728\u68c0\u67e5\u8ba2\u5355\u7b5b\u9009',
       filterEmpty: '\u5f53\u524d\u72b6\u6001\u4e0b\u6ca1\u6709\u8ba2\u5355\u3002',
     },
     logistics: {
-      hint:
-        '\u67e5\u8be2\u5305\u88f9\u8f68\u8ff9\u6216\u8bd5\u7b97\u8fd0\u8d39\uff0c\u4e0d\u4f1a\u4fee\u6539\u8ba2\u5355\u5c65\u7ea6\u6570\u636e\u3002',
+      hint: '\u67e5\u8be2\u5305\u88f9\u8f68\u8ff9\u6216\u8bd5\u7b97\u8fd0\u8d39\uff0c\u4e0d\u4f1a\u4fee\u6539\u8ba2\u5355\u5c65\u7ea6\u6570\u636e\u3002',
       lookupHint: '\u53ef\u4f7f\u7528\u8ba2\u5355 ID \u6216\u8fd0\u5355\u53f7\u67e5\u8be2\u3002',
       addressTools: '\u914d\u9001\u8bd5\u7b97',
       trackingDetails: '\u7269\u6d41\u8fdb\u5ea6',
-      emptyMascotAlt: 'MonkeyShop \u5305\u88f9\u52a9\u624b\u6b63\u5728\u7b49\u5f85\u8fd0\u5355\u53f7',
-      emptyHint: '\u8f93\u5165\u8ba2\u5355 ID \u6216\u8fd0\u5355\u53f7\u540e\u67e5\u770b\u5305\u88f9\u8f68\u8ff9\u3002',
+      emptyMascotAlt:
+        'MonkeyShop \u5305\u88f9\u52a9\u624b\u6b63\u5728\u7b49\u5f85\u8fd0\u5355\u53f7',
+      emptyHint:
+        '\u8f93\u5165\u8ba2\u5355 ID \u6216\u8fd0\u5355\u53f7\u540e\u67e5\u770b\u5305\u88f9\u8f68\u8ff9\u3002',
       createShipment: '\u521b\u5efa\u8fd0\u5355',
       carrier: '\u627f\u8fd0\u5546',
       trackingNo: '\u8fd0\u5355\u53f7',
@@ -1586,7 +1597,8 @@ const messages = {
       discrepancies: '\u5bf9\u8d26\u5dee\u5f02',
       noReservations: '\u672c\u6b21\u4f1a\u8bdd\u6682\u65e0\u9501\u5b9a\u8bb0\u5f55',
       noDiscrepancies: '\u6682\u65e0\u5e93\u5b58\u5dee\u5f02',
-      reconciliationHint: '\u6267\u884c\u5bf9\u8d26\u4ee5\u67e5\u770b\u4ed3\u5e93\u5dee\u5f02\u3002',
+      reconciliationHint:
+        '\u6267\u884c\u5bf9\u8d26\u4ee5\u67e5\u770b\u4ed3\u5e93\u5dee\u5f02\u3002',
       quantity: '\u6570\u91cf',
       expiresAt: '\u8fc7\u671f\u65f6\u95f4',
       action: '\u64cd\u4f5c',
@@ -1648,7 +1660,8 @@ const messages = {
       idCardNo: '\u8eab\u4efd\u8bc1\u53f7',
       verify: '\u8ba4\u8bc1',
       pointsAccount: '\u79ef\u5206\u8d26\u6237',
-      pointsHint: '\u4f7f\u7528\u53ef\u7528\u79ef\u5206\u62b5\u6263\u7b26\u5408\u6761\u4ef6\u7684\u6d88\u8d39\u3002',
+      pointsHint:
+        '\u4f7f\u7528\u53ef\u7528\u79ef\u5206\u62b5\u6263\u7b26\u5408\u6761\u4ef6\u7684\u6d88\u8d39\u3002',
       pointsToRedeem: '\u5151\u6362\u79ef\u5206',
       latestActivity: '\u6700\u8fd1\u6d3b\u52a8',
       activityTime: '\u6d3b\u52a8\u65f6\u95f4',
@@ -1664,7 +1677,8 @@ const messages = {
       productIdPlaceholder: '\u5546\u54c1 ID',
       addPriceWatch: '\u6dfb\u52a0\u4ef7\u683c\u5173\u6ce8',
       emptyWatchMascotAlt: 'MonkeyShop \u52a9\u624b\u62ce\u7740\u7a7a\u8d2d\u7269\u888b',
-      heroMascotAlt: 'MonkeyShop \u4f1a\u5458\u52a9\u624b\u6b63\u5728\u5e86\u795d\u60a8\u7684\u6210\u957f',
+      heroMascotAlt:
+        'MonkeyShop \u4f1a\u5458\u52a9\u624b\u6b63\u5728\u5e86\u795d\u60a8\u7684\u6210\u957f',
       emptyWatch: '\u6682\u65e0\u4ef7\u683c\u5173\u6ce8\u3002',
       couponAccount: '\u4f18\u60e0\u5238\u8d26\u6237',
       couponHint: '\u5f53\u524d\u4f1a\u5458\u8d26\u6237\u4e2d\u7684\u4f18\u60e0\u5238\u3002',
@@ -1677,7 +1691,8 @@ const messages = {
       notifiedYes: '\u5df2\u63d0\u9192',
       notifiedNo: '\u672a\u63d0\u9192',
       browseHistory: '\u6d4f\u89c8\u5386\u53f2',
-      historyHint: '\u4e3a\u5f53\u524d\u8d26\u6237\u4fdd\u7559\u7684\u6700\u8fd1\u5546\u54c1\u6d4f\u89c8\u8bb0\u5f55\u3002',
+      historyHint:
+        '\u4e3a\u5f53\u524d\u8d26\u6237\u4fdd\u7559\u7684\u6700\u8fd1\u5546\u54c1\u6d4f\u89c8\u8bb0\u5f55\u3002',
       noHistory: '\u6682\u65e0\u6700\u8fd1\u6d4f\u89c8\u8bb0\u5f55\u3002',
       record: '\u8bb0\u5f55',
       viewedAt: '\u6d4f\u89c8\u65f6\u95f4',
@@ -1689,7 +1704,8 @@ const messages = {
         '\u72ec\u7acb\u5904\u7406\u4f18\u60e0\u5238\u3001\u8bd5\u7b97\u3001\u79d2\u6740\u4e0e\u62fc\u56e2\u4efb\u52a1\u3002',
       userId: '\u7528\u6237\u7f16\u53f7',
       coupon: '\u4f18\u60e0\u5238',
-      couponDescription: '\u9886\u53d6\u3001\u6838\u9500\u6216\u8fd4\u8fd8\u4f18\u60e0\u5238\u8bb0\u5f55\u3002',
+      couponDescription:
+        '\u9886\u53d6\u3001\u6838\u9500\u6216\u8fd4\u8fd8\u4f18\u60e0\u5238\u8bb0\u5f55\u3002',
       couponId: '\u4f18\u60e0\u5238 ID',
       claim: '\u9886\u53d6',
       redeem: '\u6838\u9500',
@@ -1716,13 +1732,15 @@ const messages = {
       discountAmount: '\u4f18\u60e0 {amount}',
       payableAmount: '\u5e94\u4ed8 {amount}',
       seckill: '\u79d2\u6740',
-      seckillDescription: '\u4f7f\u7528\u53ef\u8ffd\u6eaf\u8bf7\u6c42\u5bc6\u94a5\u63d0\u4ea4\u65f6\u6548\u8ba2\u5355\u3002',
+      seckillDescription:
+        '\u4f7f\u7528\u53ef\u8ffd\u6eaf\u8bf7\u6c42\u5bc6\u94a5\u63d0\u4ea4\u65f6\u6548\u8ba2\u5355\u3002',
       idempotencyKey: '\u5e42\u7b49\u952e',
       seckillAccepted: '\u79d2\u6740\u8bf7\u6c42\u5df2\u53d7\u7406',
       seckillFailed: '\u79d2\u6740\u4e0b\u5355\u5931\u8d25',
       seckillOrder: '\u79d2\u6740\u8ba2\u5355 {id}',
       groupBuy: '\u62fc\u56e2',
-      groupDescription: '\u4e0d\u79bb\u5f00\u8fd0\u8425\u961f\u5217\u5373\u53ef\u521b\u5efa\u6216\u52a0\u5165\u961f\u4f0d\u3002',
+      groupDescription:
+        '\u4e0d\u79bb\u5f00\u8fd0\u8425\u961f\u5217\u5373\u53ef\u521b\u5efa\u6216\u52a0\u5165\u961f\u4f0d\u3002',
       join: '\u52a0\u5165',
       groupUpdated: '\u62fc\u56e2\u72b6\u6001\u5df2\u66f4\u65b0',
       groupFailed: '\u62fc\u56e2\u52a0\u5165\u5931\u8d25',
@@ -1773,7 +1791,8 @@ const messages = {
         '\u9000\u6b3e\u5df2\u5b8c\u6210\uff0c\u9000\u8d27\u786e\u8ba4\u4ecd\u5f85\u5904\u7406\u3002\u8bf7\u91cd\u8bd5\u4ee5\u5b8c\u6210\u8ba2\u5355\u66f4\u65b0\u3002',
       searchTrace: '\u67e5\u8be2\u8ffd\u8e2a',
       traceId: '\u8ffd\u8e2a\u7f16\u53f7',
-      noAuditEvents: '\u672a\u627e\u5230\u6b64\u8ffd\u8e2a\u7f16\u53f7\u7684\u5ba1\u8ba1\u4e8b\u4ef6',
+      noAuditEvents:
+        '\u672a\u627e\u5230\u6b64\u8ffd\u8e2a\u7f16\u53f7\u7684\u5ba1\u8ba1\u4e8b\u4ef6',
       noProducts: '\u6682\u65e0\u5546\u54c1',
       noOrders: '\u6682\u65e0\u5339\u914d\u8ba2\u5355',
       unsavedTitle: '\u653e\u5f03\u5546\u54c1\u4fee\u6539\u5417\uff1f',
@@ -1923,6 +1942,8 @@ const messages = {
       createTenantTitle: '\u521b\u5efa\u65b0\u79df\u6237',
       codeRequired: '\u8bf7\u8f93\u5165\u79df\u6237\u7f16\u7801',
       nameRequired: '\u8bf7\u8f93\u5165\u79df\u6237\u540d\u79f0',
+      planRequired: '\u8bf7\u9009\u62e9\u79df\u6237\u7248\u672c',
+      monthsRange: '\u6708\u6570\u5fc5\u987b\u5728 1 \u5230 36 \u4e4b\u95f4',
       months: '\u6708\u6570',
       openTenant: '\u6253\u5f00{name}',
       selectTenant: '\u8bf7\u9009\u62e9\u79df\u6237\u67e5\u770b\u8be6\u60c5',
@@ -1971,7 +1992,9 @@ const messages = {
       configSaved: '\u79df\u6237\u914d\u7f6e\u5df2\u4fdd\u5b58',
       configSaveFailed: '\u4fdd\u5b58\u914d\u7f6e\u5931\u8d25',
       configMustBeJson: '\u914d\u7f6e\u5185\u5bb9\u5fc5\u987b\u662f\u5408\u6cd5 JSON',
+      providerRequired: '\u8bf7\u8f93\u5165\u670d\u52a1\u5546',
       billingMonth: 'yyyy-MM',
+      billingMonthInvalid: '\u8bf7\u8f93\u5165\u6709\u6548\u7684 YYYY-MM \u6708\u4efd',
       billGenerated: '\u8d26\u5355\u5df2\u751f\u6210',
       billGenerateFailed: '\u8d26\u5355\u751f\u6210\u5931\u8d25',
       exportFull: '\u5168\u91cf',
@@ -1988,6 +2011,9 @@ const messages = {
       totalAmount: '\u5408\u8ba1',
       paymentAmount: '\u652f\u4ed8\u989d',
       archivePath: '\u5f52\u6863\u8def\u5f84',
+      archiveAvailability: '\u5f52\u6863\u72b6\u6001',
+      exportReady: '\u52a0\u5bc6\u5f52\u6863\u5df2\u5c31\u7eea',
+      exportUnavailable: '\u6682\u672a\u53ef\u7528',
       requestedAt: '\u63d0\u4ea4\u65f6\u95f4',
       planStarter: '\u57fa\u7840\u7248',
       planGrowth: '\u589e\u957f\u7248',
@@ -2128,21 +2154,28 @@ const messages = {
       addressCount: '\u5df2\u4fdd\u5b58 {count} \u4e2a',
       addAddress: '\u6dfb\u52a0\u5730\u5740',
       passwordSecurity: '\u5bc6\u7801\u5b89\u5168',
-      securityHint: '\u5bc6\u7801\u66f4\u65b0\u540e\u5f53\u524d\u8bbe\u5907\u4f1a\u9000\u51fa\u767b\u5f55\u3002',
+      securityHint:
+        '\u5bc6\u7801\u66f4\u65b0\u540e\u5f53\u524d\u8bbe\u5907\u4f1a\u9000\u51fa\u767b\u5f55\u3002',
       privacyTitle: '\u9690\u79c1\u4e0e\u4e2a\u4eba\u6570\u636e',
-      privacyHint: '\u7ba1\u7406\u8d26\u6237\u4e2a\u4eba\u5b57\u6bb5\u7684\u4e0d\u53ef\u9006\u533f\u540d\u5316\u3002',
+      privacyHint:
+        '\u7ba1\u7406\u8d26\u6237\u4e2a\u4eba\u5b57\u6bb5\u7684\u4e0d\u53ef\u9006\u533f\u540d\u5316\u3002',
       privacyMascotAlt: 'MonkeyShop \u9690\u79c1\u52a9\u624b\u624b\u6301\u5b89\u5168\u76fe\u724c',
       irreversibleTitle: '\u5fd8\u8bb0\u4e2a\u4eba\u6570\u636e',
       irreversibleHint:
         '\u6b64\u64cd\u4f5c\u65e0\u6cd5\u64a4\u9500\u3002\u5fc5\u8981\u7684\u4ea4\u6613\u8bb0\u5f55\u53ef\u80fd\u4f1a\u4fdd\u7559\u3002',
-      forgetProfileImpact: '\u4e2a\u4eba\u8d44\u6599\u5b57\u6bb5\u5c06\u88ab\u533f\u540d\u5316\u3002',
-      forgetAddressImpact: '\u6536\u4ef6\u4eba\u3001\u7535\u8bdd\u548c\u5730\u5740\u5c06\u88ab\u533f\u540d\u5316\u3002',
-      forgetOrderImpact: '\u8ba2\u5355\u4e2a\u4eba\u5b57\u6bb5\u5c06\u88ab\u533f\u540d\u5316\uff0c\u8ba2\u5355\u8bb0\u5f55\u4f1a\u4fdd\u7559\u3002',
+      forgetProfileImpact:
+        '\u4e2a\u4eba\u8d44\u6599\u5b57\u6bb5\u5c06\u88ab\u533f\u540d\u5316\u3002',
+      forgetAddressImpact:
+        '\u6536\u4ef6\u4eba\u3001\u7535\u8bdd\u548c\u5730\u5740\u5c06\u88ab\u533f\u540d\u5316\u3002',
+      forgetOrderImpact:
+        '\u8ba2\u5355\u4e2a\u4eba\u5b57\u6bb5\u5c06\u88ab\u533f\u540d\u5316\uff0c\u8ba2\u5355\u8bb0\u5f55\u4f1a\u4fdd\u7559\u3002',
       forgetMe: '\u5fd8\u8bb0\u6211',
       unsavedTitle: '\u653e\u5f03\u672a\u4fdd\u5b58\u66f4\u6539\u5417\uff1f',
-      unsavedContent: '\u5f53\u524d\u8d26\u6237\u8868\u5355\u4e2d\u8fd8\u6709\u672a\u4fdd\u5b58\u7684\u66f4\u6539\u3002',
+      unsavedContent:
+        '\u5f53\u524d\u8d26\u6237\u8868\u5355\u4e2d\u8fd8\u6709\u672a\u4fdd\u5b58\u7684\u66f4\u6539\u3002',
       forgetDialogTitle: '\u5fd8\u8bb0\u8fd9\u4e2a\u8d26\u6237\u5417\uff1f',
-      forgetDialogHint: '\u8f93\u5165 {phrase} \u4ee5\u786e\u8ba4\u4e0d\u53ef\u9006\u533f\u540d\u5316\u3002',
+      forgetDialogHint:
+        '\u8f93\u5165 {phrase} \u4ee5\u786e\u8ba4\u4e0d\u53ef\u9006\u533f\u540d\u5316\u3002',
       forgetInputLabel: '\u8f93\u5165 {phrase} \u4ee5\u786e\u8ba4',
       forgetConfirm: '\u5fd8\u8bb0\u6211\u7684\u6570\u636e',
       forgotten: '\u4e2a\u4eba\u6570\u636e\u533f\u540d\u5316\u5df2\u5b8c\u6210',

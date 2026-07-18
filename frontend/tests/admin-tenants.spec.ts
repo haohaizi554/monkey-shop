@@ -166,6 +166,23 @@ test('tenant selection is URL-backed and stale detail responses cannot overwrite
   await expect(page.getByRole('heading', { name: 'Tenant Beta' })).toBeVisible()
 })
 
+test('an invalid tenant query is canonicalized without leaving a ghost selection', async ({
+  page,
+}) => {
+  await installTenantMocks(page)
+  await page.goto('/tenants?tenant=1')
+  await expect(page.getByRole('heading', { name: 'Tenant Alpha' })).toBeVisible()
+
+  await page.evaluate(() => {
+    window.history.pushState({}, '', '/tenants?tenant=999')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  })
+
+  await expect(page).toHaveURL(/tenant=1/)
+  await expect(page.getByRole('heading', { name: 'Tenant Alpha' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Tenant Beta' })).toHaveCount(0)
+})
+
 test('a tenant detail failure leaves the tenant list usable and hides backend copy', async ({
   page,
 }) => {
@@ -174,7 +191,9 @@ test('a tenant detail failure leaves the tenant list usable and hides backend co
   await expect(page.getByRole('button', { name: 'Open Tenant Beta' })).toBeVisible()
   await page.getByRole('button', { name: 'Open Tenant Beta' }).click()
   await expect(page.getByRole('button', { name: 'Open Tenant Alpha' })).toBeEnabled()
-  await expect(page.getByText('The request failed. Please try again later.')).toBeVisible()
+  const safeErrors = page.getByText('The request failed. Please try again later.')
+  await expect(safeErrors).toHaveCount(3)
+  await expect(safeErrors.first()).toBeVisible()
   await expect(page.getByText('database exploded')).toHaveCount(0)
 })
 
@@ -260,4 +279,125 @@ test('tenant exports render localized types instead of internal enum tokens', as
   const exportTable = page.getByRole('tabpanel', { name: 'Export' }).locator('.el-table')
   await expect(exportTable.getByText('Full', { exact: true })).toBeVisible()
   await expect(exportTable.getByText('FULL', { exact: true })).toHaveCount(0)
+  await expect(exportTable.getByText('archive.enc', { exact: true })).toHaveCount(0)
+})
+
+test('billing rejects an impossible month inline without making a request', async ({ page }) => {
+  let billCalls = 0
+  await installTenantMocks(page)
+  await page.route('**/api/v1/tenants/1/bills', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.fallback()
+      return
+    }
+    billCalls += 1
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(ok({})),
+    })
+  })
+
+  await page.goto('/tenants?tenant=1')
+  await page.getByRole('tab', { name: 'Billing', exact: true }).click()
+  await page.getByPlaceholder('yyyy-MM').fill('2026-13')
+  await page.getByRole('button', { name: 'Generate bill', exact: true }).click()
+
+  await expect(page.getByRole('alert')).toContainText('valid month')
+  expect(billCalls).toBe(0)
+})
+
+test('downgrade owns its pending lock before confirmation and releases it on cancel', async ({
+  page,
+}) => {
+  let downgradeCalls = 0
+  await installTenantMocks(page)
+  await page.route('**/api/v1/tenants/1/downgrade', async (route) => {
+    downgradeCalls += 1
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(ok({ ...tenants[0], status: 'DOWNGRADED', plan: 'STARTER' })),
+    })
+  })
+
+  await page.goto('/tenants?tenant=1')
+  const tenantDetail = page.getByRole('region', { name: 'Tenant Alpha' })
+  const downgrade = tenantDetail.getByRole('button', { name: 'Downgrade', exact: true })
+  const renew = tenantDetail.getByRole('button', { name: 'Renew', exact: true })
+  await downgrade.click()
+
+  await expect(page.getByRole('dialog', { name: 'Downgrade tenant' })).toHaveCount(1)
+  await expect(downgrade).toBeDisabled()
+  await expect(renew).toBeDisabled()
+  await downgrade.evaluate((element) => {
+    element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+  await expect(page.getByRole('dialog', { name: 'Downgrade tenant' })).toHaveCount(1)
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect.poll(() => downgradeCalls).toBe(0)
+  await expect(downgrade).toBeEnabled()
+  await expect(renew).toBeEnabled()
+
+  await downgrade.click()
+  await page.getByRole('button', { name: 'Downgrade', exact: true }).last().click()
+  await expect.poll(() => downgradeCalls).toBe(1)
+})
+
+test('tenant creation rejects whitespace-only identity fields before the API call', async ({
+  page,
+}) => {
+  let createCalls = 0
+  await installTenantMocks(page)
+  await page.route('**/api/v1/tenants', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.fallback()
+      return
+    }
+    createCalls += 1
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(ok(tenants[0])),
+    })
+  })
+
+  await page.goto('/tenants?tenant=1')
+  await page.getByRole('button', { name: 'Create tenant', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Create a tenant' })
+  await dialog.getByRole('textbox', { name: 'Code' }).fill('   ')
+  await dialog.getByPlaceholder('Merchant name').fill('Valid tenant')
+  await dialog.getByRole('button', { name: 'Create', exact: true }).click()
+
+  await expect(dialog.getByText('Tenant code is required')).toBeVisible()
+  expect(createCalls).toBe(0)
+})
+
+test('tenant master-detail stays usable in desktop and mobile evidence views', async ({ page }) => {
+  await installTenantMocks(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/tenants?tenant=1')
+  await expect(page.getByRole('button', { name: 'Open navigation' })).toBeHidden()
+  await expect
+    .poll(() =>
+      page
+        .locator('.admin-topbar')
+        .evaluate((element) => element.scrollHeight <= element.clientHeight),
+    )
+    .toBe(true)
+  await expect(page.getByRole('heading', { name: 'Tenant list' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Tenant Alpha' })).toBeVisible()
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+    .toBe(true)
+  await page.screenshot({ path: 'output/task7-tenant-desktop.png', fullPage: false })
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: 'Open Tenant Beta' }).click()
+  await expect(page.getByRole('button', { name: 'Back to tenant list' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Tenant Beta' })).toBeVisible()
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+    .toBe(true)
+  await page.screenshot({ path: 'output/task7-tenant-mobile.png', fullPage: false })
 })
