@@ -107,6 +107,9 @@ app:
   pii:
     backfill:
       enabled: ${APP_PII_BACKFILL_ENABLED:false}
+      batch-size: ${APP_PII_BACKFILL_BATCH_SIZE:500}
+    ciphertext-audit:
+      batch-size: ${APP_PII_CIPHERTEXT_AUDIT_BATCH_SIZE:500}
     encryption:
       enabled: ${APP_PII_ENCRYPTION_ENABLED:true}
       key-provider: ${APP_PII_KEY_PROVIDER:env}

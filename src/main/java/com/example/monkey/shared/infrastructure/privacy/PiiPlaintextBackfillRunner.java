@@ -24,10 +24,11 @@ public class PiiPlaintextBackfillRunner implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         BackfillReport report = backfillService.backfillLegacyPlaintext();
         log.info(
-                "PII plaintext backfill completed: users={}, addresses={}, orders={}, total={}",
+                "PII plaintext backfill completed: users={}, addresses={}, orders={}, reviews={}, total={}",
                 report.users(),
                 report.addresses(),
                 report.orders(),
+                report.reviews(),
                 report.total());
     }
 }

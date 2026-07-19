@@ -18,6 +18,6 @@ class OrderReviewEntityTest {
         Column column = content.getAnnotation(Column.class);
 
         assertThat(convert.converter()).isEqualTo(EncryptedStringAttributeConverter.class);
-        assertThat(column.length()).isEqualTo(2048);
+        assertThat(column.length()).isGreaterThanOrEqualTo(8192);
     }
 }

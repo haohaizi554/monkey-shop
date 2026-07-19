@@ -4,8 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.monkey.order.infrastructure.Order;
 import com.example.monkey.shared.domain.privacy.PhoneBlindIndexTarget;
+import com.example.monkey.shared.infrastructure.privacy.EncryptedStringAttributeConverter;
 import com.example.monkey.user.infrastructure.Address;
 import com.example.monkey.user.infrastructure.User;
+import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
+import java.lang.reflect.Field;
 import org.junit.jupiter.api.Test;
 
 class PiiBlindIndexTargetMappingTest {
@@ -44,5 +48,17 @@ class PiiBlindIndexTargetMappingTest {
 
         assertThat(target.phoneValueForBlindIndex()).isEqualTo("+86 138-0000-0000");
         assertThat(order.getReceiverPhoneHmac()).isEqualTo("hash");
+    }
+
+    @Test
+    void userTotpSecretIsEncryptedAndSizedForCiphertext() throws NoSuchFieldException {
+        Field totpSecret = User.class.getDeclaredField("totpSecret");
+
+        Convert convert = totpSecret.getAnnotation(Convert.class);
+        Column column = totpSecret.getAnnotation(Column.class);
+
+        assertThat(convert).isNotNull();
+        assertThat(convert.converter()).isEqualTo(EncryptedStringAttributeConverter.class);
+        assertThat(column.length()).isGreaterThanOrEqualTo(1024);
     }
 }

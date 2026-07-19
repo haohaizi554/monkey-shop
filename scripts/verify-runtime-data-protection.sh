@@ -76,6 +76,20 @@ query_mysql() {
   compose_exec "$MYSQL_SERVICE" sh -c "printf '%s' '$encoded' | base64 -d | MYSQL_PWD=\"\$MYSQL_PASSWORD\" mysql -u\"\$MYSQL_USER\" -N -B \"\$MYSQL_DATABASE\""
 }
 
+run_authenticated_pii_audit() {
+  local main_class="com.example.monkey.shared.infrastructure.privacy.PiiCiphertextAuditCli"
+  local output
+  output="$(compose_exec "$APP_SERVICE" java \
+    "-Dloader.main=$main_class" \
+    -cp /app/app.jar \
+    org.springframework.boot.loader.launch.PropertiesLauncher \
+    "--app.pii.ciphertext-audit.require-populated=$REQUIRE_POPULATED_PII")"
+  printf '%s\n' "$output"
+  if ! grep -Fq "Authenticated PII ciphertext audit completed" <<< "$output"; then
+    fail "authenticated PII ciphertext audit did not report completion"
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --compose-project)
@@ -133,29 +147,33 @@ SELECT 'flyway.version' AS metric,
        COALESCE(MAX(CASE WHEN `success` = 1 THEN CAST(`version` AS UNSIGNED) END), 0) < __MINIMUM_FLYWAY_VERSION__ AS unprotected
 FROM flyway_schema_history
 UNION ALL
-SELECT 'user.phone', COUNT(*), COALESCE(SUM(`phone` IS NOT NULL AND `phone` <> ''), 0), COALESCE(SUM(`phone` IS NOT NULL AND `phone` <> '' AND `phone` LIKE 'enc:v1:%'), 0), COALESCE(SUM(`phone` IS NOT NULL AND `phone` <> '' AND `phone` NOT LIKE 'enc:v1:%'), 0) FROM `user`
+SELECT 'user.phone', COUNT(*), COALESCE(SUM(`phone` IS NOT NULL AND `phone` <> ''), 0), COALESCE(SUM(`phone` IS NOT NULL AND `phone` <> '' AND `phone` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0), COALESCE(SUM(`phone` IS NOT NULL AND `phone` <> '' AND `phone` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0) FROM `user`
 UNION ALL
-SELECT 'user.email', COUNT(*), COALESCE(SUM(`email` IS NOT NULL AND `email` <> ''), 0), COALESCE(SUM(`email` IS NOT NULL AND `email` <> '' AND `email` LIKE 'enc:v1:%'), 0), COALESCE(SUM(`email` IS NOT NULL AND `email` <> '' AND `email` NOT LIKE 'enc:v1:%'), 0) FROM `user`
+SELECT 'user.email', COUNT(*), COALESCE(SUM(`email` IS NOT NULL AND `email` <> ''), 0), COALESCE(SUM(`email` IS NOT NULL AND `email` <> '' AND `email` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0), COALESCE(SUM(`email` IS NOT NULL AND `email` <> '' AND `email` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0) FROM `user`
+UNION ALL
+SELECT 'user.totp_secret', COUNT(*), COALESCE(SUM(`totp_secret` IS NOT NULL AND `totp_secret` <> ''), 0), COALESCE(SUM(`totp_secret` IS NOT NULL AND `totp_secret` <> '' AND `totp_secret` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0), COALESCE(SUM(`totp_secret` IS NOT NULL AND `totp_secret` <> '' AND `totp_secret` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0) FROM `user`
 UNION ALL
 SELECT 'user.phone_hmac', COUNT(*), COALESCE(SUM(`phone` IS NOT NULL AND `phone` <> ''), 0), COALESCE(SUM(`phone` IS NOT NULL AND `phone` <> '' AND `phone_hmac` REGEXP '^[0-9a-f]{64}$'), 0), COALESCE(SUM(`phone` IS NOT NULL AND `phone` <> '' AND (`phone_hmac` IS NULL OR `phone_hmac` NOT REGEXP '^[0-9a-f]{64}$')), 0) FROM `user`
 UNION ALL
-SELECT 'address.receiver_name', COUNT(*), COALESCE(SUM(`receiver_name` IS NOT NULL AND `receiver_name` <> ''), 0), COALESCE(SUM(`receiver_name` IS NOT NULL AND `receiver_name` <> '' AND `receiver_name` LIKE 'enc:v1:%'), 0), COALESCE(SUM(`receiver_name` IS NOT NULL AND `receiver_name` <> '' AND `receiver_name` NOT LIKE 'enc:v1:%'), 0) FROM `address`
+SELECT 'address.receiver_name', COUNT(*), COALESCE(SUM(`receiver_name` IS NOT NULL AND `receiver_name` <> ''), 0), COALESCE(SUM(`receiver_name` IS NOT NULL AND `receiver_name` <> '' AND `receiver_name` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0), COALESCE(SUM(`receiver_name` IS NOT NULL AND `receiver_name` <> '' AND `receiver_name` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0) FROM `address`
 UNION ALL
-SELECT 'address.phone', COUNT(*), COALESCE(SUM(`phone` IS NOT NULL AND `phone` <> ''), 0), COALESCE(SUM(`phone` IS NOT NULL AND `phone` <> '' AND `phone` LIKE 'enc:v1:%'), 0), COALESCE(SUM(`phone` IS NOT NULL AND `phone` <> '' AND `phone` NOT LIKE 'enc:v1:%'), 0) FROM `address`
+SELECT 'address.phone', COUNT(*), COALESCE(SUM(`phone` IS NOT NULL AND `phone` <> ''), 0), COALESCE(SUM(`phone` IS NOT NULL AND `phone` <> '' AND `phone` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0), COALESCE(SUM(`phone` IS NOT NULL AND `phone` <> '' AND `phone` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0) FROM `address`
 UNION ALL
 SELECT 'address.phone_hmac', COUNT(*), COALESCE(SUM(`phone` IS NOT NULL AND `phone` <> ''), 0), COALESCE(SUM(`phone` IS NOT NULL AND `phone` <> '' AND `phone_hmac` REGEXP '^[0-9a-f]{64}$'), 0), COALESCE(SUM(`phone` IS NOT NULL AND `phone` <> '' AND (`phone_hmac` IS NULL OR `phone_hmac` NOT REGEXP '^[0-9a-f]{64}$')), 0) FROM `address`
 UNION ALL
-SELECT 'address.detail_address', COUNT(*), COALESCE(SUM(`detail_address` IS NOT NULL AND `detail_address` <> ''), 0), COALESCE(SUM(`detail_address` IS NOT NULL AND `detail_address` <> '' AND `detail_address` LIKE 'enc:v1:%'), 0), COALESCE(SUM(`detail_address` IS NOT NULL AND `detail_address` <> '' AND `detail_address` NOT LIKE 'enc:v1:%'), 0) FROM `address`
+SELECT 'address.detail_address', COUNT(*), COALESCE(SUM(`detail_address` IS NOT NULL AND `detail_address` <> ''), 0), COALESCE(SUM(`detail_address` IS NOT NULL AND `detail_address` <> '' AND `detail_address` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0), COALESCE(SUM(`detail_address` IS NOT NULL AND `detail_address` <> '' AND `detail_address` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0) FROM `address`
 UNION ALL
-SELECT 'orders.buyer_name', COUNT(*), COALESCE(SUM(`buyer_name` IS NOT NULL AND `buyer_name` <> ''), 0), COALESCE(SUM(`buyer_name` IS NOT NULL AND `buyer_name` <> '' AND `buyer_name` LIKE 'enc:v1:%'), 0), COALESCE(SUM(`buyer_name` IS NOT NULL AND `buyer_name` <> '' AND `buyer_name` NOT LIKE 'enc:v1:%'), 0) FROM `orders`
+SELECT 'orders.buyer_name', COUNT(*), COALESCE(SUM(`buyer_name` IS NOT NULL AND `buyer_name` <> ''), 0), COALESCE(SUM(`buyer_name` IS NOT NULL AND `buyer_name` <> '' AND `buyer_name` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0), COALESCE(SUM(`buyer_name` IS NOT NULL AND `buyer_name` <> '' AND `buyer_name` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0) FROM `orders`
 UNION ALL
-SELECT 'orders.receiver_name', COUNT(*), COALESCE(SUM(`receiver_name` IS NOT NULL AND `receiver_name` <> ''), 0), COALESCE(SUM(`receiver_name` IS NOT NULL AND `receiver_name` <> '' AND `receiver_name` LIKE 'enc:v1:%'), 0), COALESCE(SUM(`receiver_name` IS NOT NULL AND `receiver_name` <> '' AND `receiver_name` NOT LIKE 'enc:v1:%'), 0) FROM `orders`
+SELECT 'orders.receiver_name', COUNT(*), COALESCE(SUM(`receiver_name` IS NOT NULL AND `receiver_name` <> ''), 0), COALESCE(SUM(`receiver_name` IS NOT NULL AND `receiver_name` <> '' AND `receiver_name` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0), COALESCE(SUM(`receiver_name` IS NOT NULL AND `receiver_name` <> '' AND `receiver_name` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0) FROM `orders`
 UNION ALL
-SELECT 'orders.receiver_phone', COUNT(*), COALESCE(SUM(`receiver_phone` IS NOT NULL AND `receiver_phone` <> ''), 0), COALESCE(SUM(`receiver_phone` IS NOT NULL AND `receiver_phone` <> '' AND `receiver_phone` LIKE 'enc:v1:%'), 0), COALESCE(SUM(`receiver_phone` IS NOT NULL AND `receiver_phone` <> '' AND `receiver_phone` NOT LIKE 'enc:v1:%'), 0) FROM `orders`
+SELECT 'orders.receiver_phone', COUNT(*), COALESCE(SUM(`receiver_phone` IS NOT NULL AND `receiver_phone` <> ''), 0), COALESCE(SUM(`receiver_phone` IS NOT NULL AND `receiver_phone` <> '' AND `receiver_phone` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0), COALESCE(SUM(`receiver_phone` IS NOT NULL AND `receiver_phone` <> '' AND `receiver_phone` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0) FROM `orders`
 UNION ALL
 SELECT 'orders.receiver_phone_hmac', COUNT(*), COALESCE(SUM(`receiver_phone` IS NOT NULL AND `receiver_phone` <> ''), 0), COALESCE(SUM(`receiver_phone` IS NOT NULL AND `receiver_phone` <> '' AND `receiver_phone_hmac` REGEXP '^[0-9a-f]{64}$'), 0), COALESCE(SUM(`receiver_phone` IS NOT NULL AND `receiver_phone` <> '' AND (`receiver_phone_hmac` IS NULL OR `receiver_phone_hmac` NOT REGEXP '^[0-9a-f]{64}$')), 0) FROM `orders`
 UNION ALL
-SELECT 'orders.address_snapshot', COUNT(*), COALESCE(SUM(`address_snapshot` IS NOT NULL AND `address_snapshot` <> ''), 0), COALESCE(SUM(`address_snapshot` IS NOT NULL AND `address_snapshot` <> '' AND `address_snapshot` LIKE 'enc:v1:%'), 0), COALESCE(SUM(`address_snapshot` IS NOT NULL AND `address_snapshot` <> '' AND `address_snapshot` NOT LIKE 'enc:v1:%'), 0) FROM `orders`;
+SELECT 'orders.address_snapshot', COUNT(*), COALESCE(SUM(`address_snapshot` IS NOT NULL AND `address_snapshot` <> ''), 0), COALESCE(SUM(`address_snapshot` IS NOT NULL AND `address_snapshot` <> '' AND `address_snapshot` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0), COALESCE(SUM(`address_snapshot` IS NOT NULL AND `address_snapshot` <> '' AND `address_snapshot` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0) FROM `orders`
+UNION ALL
+SELECT 'order_review.content', COUNT(*), COALESCE(SUM(`content` IS NOT NULL AND `content` <> ''), 0), COALESCE(SUM(`content` IS NOT NULL AND `content` <> '' AND `content` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0), COALESCE(SUM(`content` IS NOT NULL AND `content` <> '' AND `content` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), 0) FROM `order_review`;
 SQL
 
 SQL_TEXT="${SQL_TEXT//__MINIMUM_FLYWAY_VERSION__/$MINIMUM_FLYWAY_VERSION}"
@@ -178,5 +196,8 @@ done <<< "$rows"
 if [[ "$REQUIRE_POPULATED_PII" == "true" && "$populated_total" -le 0 ]]; then
   fail "runtime database must contain at least one populated PII value"
 fi
+
+echo "==> Authenticated PII ciphertext and blind-index audit"
+run_authenticated_pii_audit
 
 echo "Runtime data protection gate completed successfully for compose project $COMPOSE_PROJECT"

@@ -12,6 +12,9 @@ import java.util.Map;
 import javax.crypto.spec.SecretKeySpec;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.AbstractPlatformTransactionManager;
+import org.springframework.transaction.support.DefaultTransactionStatus;
 
 class PiiPlaintextBackfillServiceTest {
 
@@ -54,7 +57,8 @@ class PiiPlaintextBackfillServiceTest {
                         "receiver_phone_hmac",
                         "old-order",
                         "address_snapshot",
-                        "Hangzhou Road"));
+                        "Hangzhou Road"))
+                .thenRows();
         PiiPlaintextBackfillService service = new PiiPlaintextBackfillService(jdbcTemplate, cryptoService);
 
         PiiPlaintextBackfillService.BackfillReport report = service.backfillLegacyPlaintext();
@@ -69,12 +73,12 @@ class PiiPlaintextBackfillServiceTest {
         assertThat(firstUser.sql()).contains("UPDATE `user`");
         assertThat(cryptoService.decrypt((String) firstUser.args()[0])).isEqualTo("13800000000");
         assertThat(cryptoService.decrypt((String) firstUser.args()[1])).isEqualTo("alice@example.com");
-        assertThat(firstUser.args()[2]).isEqualTo(cryptoService.blindIndexPhone("13800000000"));
+        assertThat(firstUser.args()[3]).isEqualTo(cryptoService.blindIndexPhone("13800000000"));
 
         FakeJdbcTemplate.Update secondUser = jdbcTemplate.updates.get(1);
         assertThat(secondUser.args()[0]).isEqualTo(encryptedExistingPhone);
         assertThat(cryptoService.decrypt((String) secondUser.args()[1])).isEqualTo("bob@example.com");
-        assertThat(secondUser.args()[2]).isEqualTo("existing-hmac");
+        assertThat(secondUser.args()[3]).isEqualTo("existing-hmac");
 
         FakeJdbcTemplate.Update address = jdbcTemplate.updates.get(2);
         assertThat(address.sql()).contains("UPDATE `address`");
@@ -93,6 +97,30 @@ class PiiPlaintextBackfillServiceTest {
     }
 
     @Test
+    void rewritesLegacyTotpSecretsAndReviewContent() {
+        PiiCryptoService cryptoService = enabledService();
+        String prefixedPlaintextReview = PiiCryptoService.ENCRYPTION_PREFIX + "private review";
+        FakeJdbcTemplate jdbcTemplate = new FakeJdbcTemplate()
+                .thenRows(row(
+                        "id", 10L, "phone", null, "email", null, "phone_hmac", null, "totp_secret", "JBSWY3DPEHPK3PXP"))
+                .thenRows()
+                .thenRows()
+                .thenRows(row("id", 11L, "content", prefixedPlaintextReview));
+        PiiPlaintextBackfillService service = new PiiPlaintextBackfillService(jdbcTemplate, cryptoService);
+
+        PiiPlaintextBackfillService.BackfillReport report = service.backfillLegacyPlaintext();
+
+        assertThat(report.users()).isEqualTo(1);
+        assertThat(report.reviews()).isEqualTo(1);
+        assertThat(report.total()).isEqualTo(2);
+        assertThat(jdbcTemplate.updates).hasSize(2);
+        assertThat(cryptoService.decrypt((String) jdbcTemplate.updates.get(0).args()[2]))
+                .isEqualTo("JBSWY3DPEHPK3PXP");
+        assertThat(cryptoService.decrypt((String) jdbcTemplate.updates.get(1).args()[0]))
+                .isEqualTo(prefixedPlaintextReview);
+    }
+
+    @Test
     void leavesAlreadyEncryptedRowsUntouched() {
         PiiCryptoService cryptoService = enabledService();
         FakeJdbcTemplate jdbcTemplate = new FakeJdbcTemplate()
@@ -105,6 +133,7 @@ class PiiPlaintextBackfillServiceTest {
                         cryptoService.encrypt("alice@example.com"),
                         "phone_hmac",
                         "existing-hmac"))
+                .thenRows()
                 .thenRows()
                 .thenRows();
         PiiPlaintextBackfillService service = new PiiPlaintextBackfillService(jdbcTemplate, cryptoService);
@@ -128,6 +157,36 @@ class PiiPlaintextBackfillServiceTest {
         assertThat(jdbcTemplate.updates).isEmpty();
     }
 
+    @Test
+    void processesStableIdPagesInIndependentTransactions() {
+        PiiCryptoService cryptoService = enabledService();
+        FakeJdbcTemplate jdbcTemplate = new FakeJdbcTemplate()
+                .thenRows(row("id", 1L, "phone", "13800000001"))
+                .thenRows(row("id", 2L, "phone", "13800000002"))
+                .thenRows()
+                .thenRows()
+                .thenRows()
+                .thenRows();
+        CountingTransactionManager transactionManager = new CountingTransactionManager();
+        PiiPlaintextBackfillService service =
+                new PiiPlaintextBackfillService(jdbcTemplate, cryptoService, transactionManager, 1);
+
+        PiiPlaintextBackfillService.BackfillReport report = service.backfillLegacyPlaintext();
+
+        assertThat(report.users()).isEqualTo(2);
+        assertThat(jdbcTemplate.queryCalls.subList(0, 3))
+                .extracting(call -> Arrays.asList(call.args()))
+                .containsExactly(List.of(0L, 1), List.of(1L, 1), List.of(2L, 1));
+        assertThat(jdbcTemplate.queryCalls.subList(0, 3))
+                .allSatisfy(call -> assertThat(call.sql())
+                        .contains("`id` > ?")
+                        .contains("ORDER BY `id`")
+                        .contains("LIMIT ?"));
+        assertThat(transactionManager.begins).isEqualTo(6);
+        assertThat(transactionManager.commits).isEqualTo(6);
+        assertThat(transactionManager.rollbacks).isZero();
+    }
+
     private static PiiCryptoService enabledService() {
         return new PiiCryptoService(
                 true,
@@ -149,6 +208,7 @@ class PiiPlaintextBackfillServiceTest {
 
         private final ArrayDeque<List<Map<String, Object>>> queryResults = new ArrayDeque<>();
         private final List<String> queries = new ArrayList<>();
+        private final List<QueryCall> queryCalls = new ArrayList<>();
         private final List<Update> updates = new ArrayList<>();
 
         @SafeVarargs
@@ -160,6 +220,7 @@ class PiiPlaintextBackfillServiceTest {
         @Override
         public List<Map<String, Object>> queryForList(String sql, Object... args) {
             queries.add(sql);
+            queryCalls.add(new QueryCall(sql, Arrays.copyOf(args, args.length)));
             return queryResults.removeFirst();
         }
 
@@ -169,6 +230,35 @@ class PiiPlaintextBackfillServiceTest {
             return 1;
         }
 
+        private record QueryCall(String sql, Object[] args) {}
+
         private record Update(String sql, Object[] args) {}
+    }
+
+    private static final class CountingTransactionManager extends AbstractPlatformTransactionManager {
+
+        private int begins;
+        private int commits;
+        private int rollbacks;
+
+        @Override
+        protected Object doGetTransaction() {
+            return new Object();
+        }
+
+        @Override
+        protected void doBegin(Object transaction, TransactionDefinition definition) {
+            begins++;
+        }
+
+        @Override
+        protected void doCommit(DefaultTransactionStatus status) {
+            commits++;
+        }
+
+        @Override
+        protected void doRollback(DefaultTransactionStatus status) {
+            rollbacks++;
+        }
     }
 }

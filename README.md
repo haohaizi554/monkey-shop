@@ -298,7 +298,7 @@ Run `.\scripts\verify-runtime-image-supply-chain.ps1 -ImageRef monkey-shop-mysho
 
 Run `.\scripts\run-pii-backfill-compose.ps1 -ComposeProject monkey-shop` first as a dry-run before any legacy plaintext PII migration. Actual rewrite requires explicit approval plus `-Execute -AcknowledgeDataRewrite 'I understand this rewrites PII data'`; the script creates a `mysqldump` backup, hides key material, enables one-time backfill, restores strict mode, and then calls the data-protection verifier.
 
-Run `.\scripts\verify-runtime-data-protection.ps1 -ComposeProject monkey-shop -RequirePopulatedPii` after PII backfill to verify Flyway version, strict runtime PII flags, `enc:v1:` ciphertext storage, and 64-character phone blind indexes without printing secrets or raw PII.
+Run `.\scripts\verify-runtime-data-protection.ps1 -ComposeProject monkey-shop -RequirePopulatedPii` after PII backfill to verify Flyway version and strict runtime flags, then authenticate every stored `enc:v1:` value through the application AEAD keys and recompute phone blind indexes without printing secrets or raw PII. The Bash verifier runs the same minimal `PiiCiphertextAuditCli` inside the application runtime.
 
 On Linux compose hosts or VMs without PowerShell, run `bash scripts/verify-runtime-data-protection.sh --compose-project monkey-shop --require-populated-pii` for the same runtime data-protection gate.
 

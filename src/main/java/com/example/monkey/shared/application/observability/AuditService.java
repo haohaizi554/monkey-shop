@@ -1,6 +1,9 @@
 package com.example.monkey.shared.application.observability;
 
 import com.example.monkey.shared.application.observability.dto.AuditTraceEventDto;
+import com.example.monkey.shared.application.tenant.ActiveTenantIterator;
+import com.example.monkey.shared.application.tenant.ActiveTenantIterator.IterationResult;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.observability.AuditLogStore;
@@ -123,20 +126,34 @@ public class AuditService {
             Pattern.compile("(?i)(password|token|secret|authorization|cookie|phone|email|address)=[^,;\\s]+");
 
     private final AuditLogStore auditLogStore;
+    private final ActiveTenantIterator activeTenantIterator;
     private final Clock clock;
     private final int retentionDays;
 
     @Autowired
-    public AuditService(AuditLogStore auditLogStore, @Value("${app.audit.retention-days:180}") int retentionDays) {
-        this(auditLogStore, Clock.systemUTC(), retentionDays);
+    public AuditService(
+            AuditLogStore auditLogStore,
+            ActiveTenantIterator activeTenantIterator,
+            @Value("${app.audit.retention-days:180}") int retentionDays) {
+        this(auditLogStore, activeTenantIterator, Clock.systemUTC(), retentionDays);
+    }
+
+    public AuditService(AuditLogStore auditLogStore, int retentionDays) {
+        this(auditLogStore, null, Clock.systemUTC(), retentionDays);
     }
 
     AuditService(AuditLogStore auditLogStore, Clock clock) {
-        this(auditLogStore, clock, DEFAULT_RETENTION_DAYS);
+        this(auditLogStore, null, clock, DEFAULT_RETENTION_DAYS);
     }
 
     AuditService(AuditLogStore auditLogStore, Clock clock, int retentionDays) {
+        this(auditLogStore, null, clock, retentionDays);
+    }
+
+    AuditService(
+            AuditLogStore auditLogStore, ActiveTenantIterator activeTenantIterator, Clock clock, int retentionDays) {
         this.auditLogStore = auditLogStore;
+        this.activeTenantIterator = activeTenantIterator;
         this.clock = clock;
         this.retentionDays = retentionDays;
     }
@@ -196,13 +213,33 @@ public class AuditService {
 
     @Scheduled(cron = "${app.audit.retention-cron:0 20 3 * * *}")
     @SchedulerLock(name = "audit-log-retention", lockAtMostFor = "${app.audit.retention-lock-at-most-for:PT30M}")
-    @Transactional
-    public void purgeExpiredAuditLogs() {
+    public IterationResult purgeExpiredAuditLogs() {
         LocalDateTime cutoff = LocalDateTime.now(clock).minusDays(retentionDays);
+        IterationResult result;
+        if (activeTenantIterator == null) {
+            long deleted = purgeCurrentTenant(cutoff);
+            result = new IterationResult(List.of(TenantContext.currentTenantIdOrDefault()), List.of(), deleted);
+        } else {
+            result = activeTenantIterator.forEachActiveTenant(tenantId -> purgeCurrentTenant(cutoff));
+        }
+        log.info(
+                "Audit log retention completed: successfulTenants={}, failedTenants={}, deleted={}",
+                result.successfulTenantIds().size(),
+                result.failedTenantIds().size(),
+                result.affectedRows());
+        return result;
+    }
+
+    private long purgeCurrentTenant(LocalDateTime cutoff) {
         long deleted = auditLogStore.deleteCreatedBefore(cutoff);
         if (deleted > 0) {
-            log.info("Deleted {} audit log records older than {} days", deleted, retentionDays);
+            log.info(
+                    "Deleted {} audit log records older than {} days for tenantId={}",
+                    deleted,
+                    retentionDays,
+                    TenantContext.currentTenantIdOrDefault());
         }
+        return deleted;
     }
 
     private static String hashSubject(String subject) {

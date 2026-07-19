@@ -79,7 +79,7 @@ class JpaPiiRetentionStoreTest {
         address.setPhoneHmac("hash");
         address.setDetailAddress("Mountain");
         address.setIsDefault(1);
-        when(addressRepository.findByUserId(eq(42L), any(Pageable.class)))
+        when(addressRepository.findByUserIdAndDeletedFalse(eq(42L), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(address)), emptyAddressPage());
 
         int count = store.anonymizeAddressesForUser(42L, 250);
@@ -121,7 +121,7 @@ class JpaPiiRetentionStoreTest {
         Address secondAddress = addressWithPii();
         Order firstOrder = orderWithPii();
         Order secondOrder = orderWithPii();
-        when(addressRepository.findByUserId(eq(42L), any(Pageable.class)))
+        when(addressRepository.findByUserIdAndDeletedFalse(eq(42L), any(Pageable.class)))
                 .thenReturn(
                         new PageImpl<>(List.of(firstAddress)),
                         new PageImpl<>(List.of(secondAddress)),
@@ -140,7 +140,7 @@ class JpaPiiRetentionStoreTest {
         assertOrderPiiScrubbed(firstOrder);
         assertOrderPiiScrubbed(secondOrder);
         ArgumentCaptor<Pageable> addressPageable = ArgumentCaptor.forClass(Pageable.class);
-        verify(addressRepository, times(3)).findByUserId(eq(42L), addressPageable.capture());
+        verify(addressRepository, times(3)).findByUserIdAndDeletedFalse(eq(42L), addressPageable.capture());
         assertThat(addressPageable.getAllValues()).allSatisfy(pageable -> {
             assertThat(pageable.getPageNumber()).isZero();
             assertThat(pageable.getPageSize()).isOne();
@@ -198,7 +198,7 @@ class JpaPiiRetentionStoreTest {
 
     private Pageable captureAddressPageable() {
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
-        verify(addressRepository, times(2)).findByUserId(eq(42L), captor.capture());
+        verify(addressRepository, times(2)).findByUserIdAndDeletedFalse(eq(42L), captor.capture());
         return captor.getValue();
     }
 

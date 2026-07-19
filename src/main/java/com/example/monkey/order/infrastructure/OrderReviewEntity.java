@@ -29,7 +29,7 @@ public class OrderReviewEntity extends TenantScopedJpaEntity {
     private int rating;
 
     @Convert(converter = EncryptedStringAttributeConverter.class)
-    @Column(length = 2048)
+    @Column(length = 8192)
     private String content;
 
     @Column(length = 2048)

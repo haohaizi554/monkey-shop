@@ -40,8 +40,9 @@ public class JpaPiiRetentionStore implements PiiRetentionStore {
         int anonymized = 0;
         PageRequest firstBatch = firstBatchById(batchSize);
         while (true) {
-            List<Address> addresses =
-                    addressRepository.findByUserId(userId, firstBatch).getContent();
+            List<Address> addresses = addressRepository
+                    .findByUserIdAndDeletedFalse(userId, firstBatch)
+                    .getContent();
             if (addresses.isEmpty()) {
                 return anonymized;
             }

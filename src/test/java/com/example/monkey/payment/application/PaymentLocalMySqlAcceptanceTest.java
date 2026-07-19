@@ -108,7 +108,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 class PaymentLocalMySqlAcceptanceTest {
 
     private static final SessionUser USER = new SessionUser(42L, "USER");
-    private static final String LATEST_SCHEMA_VERSION = "53";
+    private static final String LATEST_SCHEMA_VERSION = "54";
 
     private final PaymentOrderRepository paymentOrderRepository;
     private final PaymentLedgerRepository paymentLedgerRepository;

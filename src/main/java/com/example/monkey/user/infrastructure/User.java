@@ -63,7 +63,8 @@ public class User extends TenantScopedJpaEntity implements UserDetails, PhoneBli
     private boolean passwordChangeRequired;
 
     @JsonIgnore
-    @Column(name = "totp_secret")
+    @Convert(converter = EncryptedStringAttributeConverter.class)
+    @Column(name = "totp_secret", length = 1024)
     private String totpSecret;
 
     @Column(name = "mfa_enabled")

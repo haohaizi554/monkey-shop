@@ -95,7 +95,10 @@ public class PiiCryptoService {
     }
 
     public String encrypt(String plaintext) {
-        if (!encryptionEnabled || !StringUtils.hasText(plaintext) || plaintext.startsWith(ENCRYPTION_PREFIX)) {
+        if (!encryptionEnabled || !StringUtils.hasText(plaintext)) {
+            return plaintext;
+        }
+        if (isAuthenticatedCiphertext(plaintext)) {
             return plaintext;
         }
         try {
@@ -105,6 +108,30 @@ public class PiiCryptoService {
             return ENCRYPTION_PREFIX + keyVersion + ":" + TINK_MARKER + ":" + encoder.encodeToString(ciphertext);
         } catch (GeneralSecurityException exception) {
             throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "PII encryption failed");
+        }
+    }
+
+    boolean isAuthenticatedCiphertext(String value) {
+        if (!encryptionEnabled || !StringUtils.hasText(value) || !value.startsWith(ENCRYPTION_PREFIX)) {
+            return false;
+        }
+        String[] parts = value.split(":", 5);
+        if (parts.length != 5) {
+            return false;
+        }
+        String storedKeyVersion = parts[2];
+        boolean keyConfigured = TINK_MARKER.equals(parts[3])
+                ? aeadByVersion.containsKey(storedKeyVersion)
+                : legacyAesKeyByVersion.containsKey(storedKeyVersion);
+        if (!keyConfigured) {
+            throw new BusinessException(
+                    ErrorCode.SERVICE_UNAVAILABLE, "PII decryption key is not configured for stored ciphertext");
+        }
+        try {
+            decrypt(value);
+            return true;
+        } catch (BusinessException exception) {
+            return false;
         }
     }
 

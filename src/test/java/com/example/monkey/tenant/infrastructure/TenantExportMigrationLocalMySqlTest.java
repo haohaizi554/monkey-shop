@@ -21,7 +21,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 @EnabledIfSystemProperty(named = "task9a.local-mysql", matches = "true")
 class TenantExportMigrationLocalMySqlTest {
 
-    private static final String LATEST_SCHEMA_VERSION = "53";
+    private static final String LATEST_SCHEMA_VERSION = "54";
     private static final String SCHEMA_PREFIX = "monkeyshop_task9a_";
 
     @Test
@@ -43,6 +43,20 @@ class TenantExportMigrationLocalMySqlTest {
                                       AND table_name = 'tenant_data_export_job'
                                       AND column_name = 'provider_job_id'
                                     """, Long.class)).isEqualTo(1L);
+            assertThat(schema.jdbcTemplate().queryForObject("""
+                                    SELECT character_maximum_length
+                                    FROM information_schema.columns
+                                    WHERE table_schema = DATABASE()
+                                      AND table_name = 'user'
+                                      AND column_name = 'totp_secret'
+                                    """, Long.class)).isEqualTo(1024L);
+            assertThat(schema.jdbcTemplate().queryForObject("""
+                                    SELECT character_maximum_length
+                                    FROM information_schema.columns
+                                    WHERE table_schema = DATABASE()
+                                      AND table_name = 'order_review'
+                                      AND column_name = 'content'
+                                    """, Long.class)).isEqualTo(8192L);
         });
     }
 

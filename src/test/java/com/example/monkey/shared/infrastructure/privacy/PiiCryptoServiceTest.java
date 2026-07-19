@@ -45,6 +45,33 @@ class PiiCryptoServiceTest {
     }
 
     @Test
+    void encryptsMalformedCiphertextPrefixAsPlaintext() {
+        PiiCryptoService service = enabledService();
+        String userControlledValue = PiiCryptoService.ENCRYPTION_PREFIX + "private review";
+
+        String ciphertext = service.encrypt(userControlledValue);
+
+        assertThat(ciphertext).isNotEqualTo(userControlledValue);
+        assertThat(service.decrypt(ciphertext)).isEqualTo(userControlledValue);
+    }
+
+    @Test
+    void refusesToReEncryptCiphertextWhenItsKeyVersionIsUnavailable() {
+        PiiCryptoService previousService = new PiiCryptoService(
+                true,
+                new SecretKeySpec(filled(32, 3), "AES"),
+                new SecretKeySpec(new byte[32], "HmacSHA256"),
+                "previous",
+                true);
+        String previousCiphertext = previousService.encrypt("protected review");
+        PiiCryptoService currentService = enabledService();
+
+        assertThatExceptionOfType(BusinessException.class)
+                .isThrownBy(() -> currentService.encrypt(previousCiphertext))
+                .withMessage("PII decryption key is not configured for stored ciphertext");
+    }
+
+    @Test
     void malformedCiphertextIsRejected() {
         PiiCryptoService service = enabledService();
 

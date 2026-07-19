@@ -1,0 +1,5 @@
+ALTER TABLE `user`
+    MODIFY COLUMN `totp_secret` VARCHAR(1024) NULL;
+
+ALTER TABLE `order_review`
+    MODIFY COLUMN `content` VARCHAR(8192) NULL;

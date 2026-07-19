@@ -2,8 +2,13 @@ package com.example.monkey.shared.application.observability;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.example.monkey.shared.application.observability.dto.AuditTraceEventDto;
+import com.example.monkey.shared.application.tenant.ActiveTenantIterator;
+import com.example.monkey.shared.application.tenant.ActiveTenantIterator.IterationResult;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.observability.AuditLogStore;
 import com.example.monkey.shared.domain.observability.AuditLogStore.AuditEventRecord;
@@ -100,6 +105,22 @@ class AuditServiceTest {
         auditService.purgeExpiredAuditLogs();
 
         assertThat(auditLogStore.deletedBefore).isEqualTo(LocalDateTime.parse("2025-12-30T00:00:00"));
+    }
+
+    @Test
+    void purgeExpiredAuditLogsReturnsTheCrossTenantAggregate() {
+        ActiveTenantIterator iterator = mock(ActiveTenantIterator.class);
+        IterationResult expected = new IterationResult(List.of(1L, 2L), List.of(3L), 7L);
+        when(iterator.forEachActiveTenant(any())).thenReturn(expected);
+        AuditService auditService = new AuditService(
+                new TestAuditLogStore(),
+                iterator,
+                Clock.fixed(Instant.parse("2026-06-28T00:00:00Z"), ZoneOffset.UTC),
+                180);
+
+        IterationResult result = auditService.purgeExpiredAuditLogs();
+
+        assertThat(result).isSameAs(expected);
     }
 
     @Test

@@ -13,6 +13,8 @@ public interface AddressRepository extends JpaRepository<Address, Long> {
     // 閺屻儲鐓囨禍铏规畱閹碘偓閺堝婀撮崸鈧?
     Page<Address> findByUserId(Long userId, Pageable pageable);
 
+    Page<Address> findByUserIdAndDeletedFalse(Long userId, Pageable pageable);
+
     boolean existsByUserId(Long userId);
 
     Optional<Address> findByIdAndUserId(Long id, Long userId);

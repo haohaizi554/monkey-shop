@@ -46,6 +46,22 @@ function Get-AppRuntimeFlag {
     return (($lines | Select-Object -First 1) -as [string]).Trim()
 }
 
+function Invoke-AuthenticatedPiiAudit {
+    $requirePopulated = $RequirePopulatedPii.IsPresent.ToString().ToLowerInvariant()
+    $mainClass = "com.example.monkey.shared.infrastructure.privacy.PiiCiphertextAuditCli"
+    $shell = "java -Dloader.main=$mainClass -cp /app/app.jar " +
+        "org.springframework.boot.loader.launch.PropertiesLauncher " +
+        "--app.pii.ciphertext-audit.require-populated=$requirePopulated"
+    $output = Invoke-Compose -Arguments @(
+        "compose", "-p", $ComposeProject, "exec", "-T", $AppService, "sh", "-c", $shell
+    )
+    $rendered = $output -join [Environment]::NewLine
+    Assert-True (
+        $rendered.Contains("Authenticated PII ciphertext audit completed")
+    ) "authenticated PII ciphertext audit did not report completion"
+    $output | ForEach-Object { Write-Host $_ }
+}
+
 function Convert-ToInt {
     param(
         [string]$Value,
@@ -67,29 +83,33 @@ SELECT 'flyway.version' AS metric,
        COALESCE(MAX(CASE WHEN ``success`` = 1 THEN CAST(``version`` AS UNSIGNED) END), 0) < $MinimumFlywayVersion AS unprotected
 FROM flyway_schema_history
 UNION ALL
-SELECT 'user.phone', COUNT(*), SUM(``phone`` IS NOT NULL AND ``phone`` <> ''), SUM(``phone`` IS NOT NULL AND ``phone`` <> '' AND ``phone`` LIKE 'enc:v1:%'), SUM(``phone`` IS NOT NULL AND ``phone`` <> '' AND ``phone`` NOT LIKE 'enc:v1:%') FROM ``user``
+SELECT 'user.phone', COUNT(*), SUM(``phone`` IS NOT NULL AND ``phone`` <> ''), SUM(``phone`` IS NOT NULL AND ``phone`` <> '' AND ``phone`` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), SUM(``phone`` IS NOT NULL AND ``phone`` <> '' AND ``phone`` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$') FROM ``user``
 UNION ALL
-SELECT 'user.email', COUNT(*), SUM(``email`` IS NOT NULL AND ``email`` <> ''), SUM(``email`` IS NOT NULL AND ``email`` <> '' AND ``email`` LIKE 'enc:v1:%'), SUM(``email`` IS NOT NULL AND ``email`` <> '' AND ``email`` NOT LIKE 'enc:v1:%') FROM ``user``
+SELECT 'user.email', COUNT(*), SUM(``email`` IS NOT NULL AND ``email`` <> ''), SUM(``email`` IS NOT NULL AND ``email`` <> '' AND ``email`` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), SUM(``email`` IS NOT NULL AND ``email`` <> '' AND ``email`` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$') FROM ``user``
+UNION ALL
+SELECT 'user.totp_secret', COUNT(*), SUM(``totp_secret`` IS NOT NULL AND ``totp_secret`` <> ''), SUM(``totp_secret`` IS NOT NULL AND ``totp_secret`` <> '' AND ``totp_secret`` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), SUM(``totp_secret`` IS NOT NULL AND ``totp_secret`` <> '' AND ``totp_secret`` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$') FROM ``user``
 UNION ALL
 SELECT 'user.phone_hmac', COUNT(*), SUM(``phone`` IS NOT NULL AND ``phone`` <> ''), SUM(``phone`` IS NOT NULL AND ``phone`` <> '' AND ``phone_hmac`` REGEXP '^[0-9a-f]{64}$'), SUM(``phone`` IS NOT NULL AND ``phone`` <> '' AND (``phone_hmac`` IS NULL OR ``phone_hmac`` NOT REGEXP '^[0-9a-f]{64}$')) FROM ``user``
 UNION ALL
-SELECT 'address.receiver_name', COUNT(*), SUM(``receiver_name`` IS NOT NULL AND ``receiver_name`` <> ''), SUM(``receiver_name`` IS NOT NULL AND ``receiver_name`` <> '' AND ``receiver_name`` LIKE 'enc:v1:%'), SUM(``receiver_name`` IS NOT NULL AND ``receiver_name`` <> '' AND ``receiver_name`` NOT LIKE 'enc:v1:%') FROM ``address``
+SELECT 'address.receiver_name', COUNT(*), SUM(``receiver_name`` IS NOT NULL AND ``receiver_name`` <> ''), SUM(``receiver_name`` IS NOT NULL AND ``receiver_name`` <> '' AND ``receiver_name`` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), SUM(``receiver_name`` IS NOT NULL AND ``receiver_name`` <> '' AND ``receiver_name`` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$') FROM ``address``
 UNION ALL
-SELECT 'address.phone', COUNT(*), SUM(``phone`` IS NOT NULL AND ``phone`` <> ''), SUM(``phone`` IS NOT NULL AND ``phone`` <> '' AND ``phone`` LIKE 'enc:v1:%'), SUM(``phone`` IS NOT NULL AND ``phone`` <> '' AND ``phone`` NOT LIKE 'enc:v1:%') FROM ``address``
+SELECT 'address.phone', COUNT(*), SUM(``phone`` IS NOT NULL AND ``phone`` <> ''), SUM(``phone`` IS NOT NULL AND ``phone`` <> '' AND ``phone`` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), SUM(``phone`` IS NOT NULL AND ``phone`` <> '' AND ``phone`` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$') FROM ``address``
 UNION ALL
 SELECT 'address.phone_hmac', COUNT(*), SUM(``phone`` IS NOT NULL AND ``phone`` <> ''), SUM(``phone`` IS NOT NULL AND ``phone`` <> '' AND ``phone_hmac`` REGEXP '^[0-9a-f]{64}$'), SUM(``phone`` IS NOT NULL AND ``phone`` <> '' AND (``phone_hmac`` IS NULL OR ``phone_hmac`` NOT REGEXP '^[0-9a-f]{64}$')) FROM ``address``
 UNION ALL
-SELECT 'address.detail_address', COUNT(*), SUM(``detail_address`` IS NOT NULL AND ``detail_address`` <> ''), SUM(``detail_address`` IS NOT NULL AND ``detail_address`` <> '' AND ``detail_address`` LIKE 'enc:v1:%'), SUM(``detail_address`` IS NOT NULL AND ``detail_address`` <> '' AND ``detail_address`` NOT LIKE 'enc:v1:%') FROM ``address``
+SELECT 'address.detail_address', COUNT(*), SUM(``detail_address`` IS NOT NULL AND ``detail_address`` <> ''), SUM(``detail_address`` IS NOT NULL AND ``detail_address`` <> '' AND ``detail_address`` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), SUM(``detail_address`` IS NOT NULL AND ``detail_address`` <> '' AND ``detail_address`` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$') FROM ``address``
 UNION ALL
-SELECT 'orders.buyer_name', COUNT(*), SUM(``buyer_name`` IS NOT NULL AND ``buyer_name`` <> ''), SUM(``buyer_name`` IS NOT NULL AND ``buyer_name`` <> '' AND ``buyer_name`` LIKE 'enc:v1:%'), SUM(``buyer_name`` IS NOT NULL AND ``buyer_name`` <> '' AND ``buyer_name`` NOT LIKE 'enc:v1:%') FROM ``orders``
+SELECT 'orders.buyer_name', COUNT(*), SUM(``buyer_name`` IS NOT NULL AND ``buyer_name`` <> ''), SUM(``buyer_name`` IS NOT NULL AND ``buyer_name`` <> '' AND ``buyer_name`` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), SUM(``buyer_name`` IS NOT NULL AND ``buyer_name`` <> '' AND ``buyer_name`` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$') FROM ``orders``
 UNION ALL
-SELECT 'orders.receiver_name', COUNT(*), SUM(``receiver_name`` IS NOT NULL AND ``receiver_name`` <> ''), SUM(``receiver_name`` IS NOT NULL AND ``receiver_name`` <> '' AND ``receiver_name`` LIKE 'enc:v1:%'), SUM(``receiver_name`` IS NOT NULL AND ``receiver_name`` <> '' AND ``receiver_name`` NOT LIKE 'enc:v1:%') FROM ``orders``
+SELECT 'orders.receiver_name', COUNT(*), SUM(``receiver_name`` IS NOT NULL AND ``receiver_name`` <> ''), SUM(``receiver_name`` IS NOT NULL AND ``receiver_name`` <> '' AND ``receiver_name`` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), SUM(``receiver_name`` IS NOT NULL AND ``receiver_name`` <> '' AND ``receiver_name`` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$') FROM ``orders``
 UNION ALL
-SELECT 'orders.receiver_phone', COUNT(*), SUM(``receiver_phone`` IS NOT NULL AND ``receiver_phone`` <> ''), SUM(``receiver_phone`` IS NOT NULL AND ``receiver_phone`` <> '' AND ``receiver_phone`` LIKE 'enc:v1:%'), SUM(``receiver_phone`` IS NOT NULL AND ``receiver_phone`` <> '' AND ``receiver_phone`` NOT LIKE 'enc:v1:%') FROM ``orders``
+SELECT 'orders.receiver_phone', COUNT(*), SUM(``receiver_phone`` IS NOT NULL AND ``receiver_phone`` <> ''), SUM(``receiver_phone`` IS NOT NULL AND ``receiver_phone`` <> '' AND ``receiver_phone`` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), SUM(``receiver_phone`` IS NOT NULL AND ``receiver_phone`` <> '' AND ``receiver_phone`` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$') FROM ``orders``
 UNION ALL
 SELECT 'orders.receiver_phone_hmac', COUNT(*), SUM(``receiver_phone`` IS NOT NULL AND ``receiver_phone`` <> ''), SUM(``receiver_phone`` IS NOT NULL AND ``receiver_phone`` <> '' AND ``receiver_phone_hmac`` REGEXP '^[0-9a-f]{64}$'), SUM(``receiver_phone`` IS NOT NULL AND ``receiver_phone`` <> '' AND (``receiver_phone_hmac`` IS NULL OR ``receiver_phone_hmac`` NOT REGEXP '^[0-9a-f]{64}$')) FROM ``orders``
 UNION ALL
-SELECT 'orders.address_snapshot', COUNT(*), SUM(``address_snapshot`` IS NOT NULL AND ``address_snapshot`` <> ''), SUM(``address_snapshot`` IS NOT NULL AND ``address_snapshot`` <> '' AND ``address_snapshot`` LIKE 'enc:v1:%'), SUM(``address_snapshot`` IS NOT NULL AND ``address_snapshot`` <> '' AND ``address_snapshot`` NOT LIKE 'enc:v1:%') FROM ``orders``;
+SELECT 'orders.address_snapshot', COUNT(*), SUM(``address_snapshot`` IS NOT NULL AND ``address_snapshot`` <> ''), SUM(``address_snapshot`` IS NOT NULL AND ``address_snapshot`` <> '' AND ``address_snapshot`` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), SUM(``address_snapshot`` IS NOT NULL AND ``address_snapshot`` <> '' AND ``address_snapshot`` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$') FROM ``orders``
+UNION ALL
+SELECT 'order_review.content', COUNT(*), SUM(``content`` IS NOT NULL AND ``content`` <> ''), SUM(``content`` IS NOT NULL AND ``content`` <> '' AND ``content`` REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$'), SUM(``content`` IS NOT NULL AND ``content`` <> '' AND ``content`` NOT REGEXP '^enc:v1:[^:]+:(tink:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+)$') FROM ``order_review``;
 "@
 
 Write-Host "==> Runtime PII configuration"
@@ -122,5 +142,8 @@ foreach ($row in $rows) {
 if ($RequirePopulatedPii) {
     Assert-True ($populatedTotal -gt 0) "runtime database must contain at least one populated PII value"
 }
+
+Write-Host "==> Authenticated PII ciphertext and blind-index audit"
+Invoke-AuthenticatedPiiAudit
 
 Write-Host "Runtime data protection gate completed successfully for compose project $ComposeProject"

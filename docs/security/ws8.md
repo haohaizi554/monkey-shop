@@ -40,6 +40,7 @@ The JPA `EncryptedStringAttributeConverter` stores configured PII fields as Tink
 
 - `User.phone`
 - `User.email`
+- `User.totpSecret` (`user.totp_secret`)
 - `Address.receiverName`
 - `Address.phone`
 - `Address.detailAddress`
@@ -47,6 +48,7 @@ The JPA `EncryptedStringAttributeConverter` stores configured PII fields as Tink
 - `Order.receiverName`
 - `Order.receiverPhone`
 - `Order.addressSnapshot`
+- `OrderReview.content` (`order_review.content`)
 
 Phone-like fields also maintain HMAC-SHA256 blind indexes:
 
@@ -69,7 +71,7 @@ Staging and production set `APP_PII_ENCRYPTION_ENABLED=true`, `APP_PII_KEY_PROVI
 
 ## Legacy Plaintext Backfill
 
-Before setting `APP_PII_ALLOW_PLAINTEXT_READ=false` in an environment that already has customer data, run one controlled deployment with `APP_PII_ENCRYPTION_ENABLED=true`, `APP_PII_ALLOW_PLAINTEXT_READ=true`, and `APP_PII_BACKFILL_ENABLED=true`. The startup runner rewrites legacy plaintext values in `user`, `address`, and `orders` through `PiiPlaintextBackfillService`, keeps already encrypted rows unchanged, and recalculates phone blind indexes only from plaintext phone values.
+Before setting `APP_PII_ALLOW_PLAINTEXT_READ=false` in an environment that already has customer data, run one controlled deployment with `APP_PII_ENCRYPTION_ENABLED=true`, `APP_PII_ALLOW_PLAINTEXT_READ=true`, and `APP_PII_BACKFILL_ENABLED=true`. The startup runner rewrites legacy plaintext values in `user`, `address`, `orders`, and `order_review` through `PiiPlaintextBackfillService`, including `user.totp_secret` and `order_review.content`. It authenticates existing ciphertext with the configured current or previous key before leaving it unchanged; an unavailable historical key aborts the run instead of double-encrypting data. Rows are read with stable-ID keyset pagination and every bounded page commits in an independent transaction, avoiding an unbounded heap load or one database-wide migration transaction. Phone blind indexes are recalculated only from plaintext phone values.
 
 After the runner logs zero remaining plaintext updates in a follow-up run, switch `APP_PII_BACKFILL_ENABLED=false` and then enforce `APP_PII_ALLOW_PLAINTEXT_READ=false`. Keep the database snapshot and the backfill log counts with the release evidence so PIPL/GDPR reviewers can verify that exported PII is ciphertext-only.
 
@@ -98,7 +100,7 @@ For compose-hosted environments, use `scripts/run-pii-backfill-compose.ps1` as t
    - `APP_PII_ALLOW_PLAINTEXT_READ=true`
    - `APP_PII_BACKFILL_ENABLED=true`
 
-4. Wait for the startup log line `PII plaintext backfill completed` and keep the users/address/orders update counts with release evidence.
+4. Wait for the startup log line `PII plaintext backfill completed` and keep the users/addresses/orders/reviews update counts with release evidence.
 
 5. Disable migration mode and restart:
 
@@ -117,7 +119,7 @@ For compose-hosted environments, use `scripts/run-pii-backfill-compose.ps1` as t
    bash scripts/verify-runtime-data-protection.sh --compose-project monkey-shop --require-populated-pii
    ```
 
-   These verifiers check Flyway version, runtime flags, `enc:v1:` ciphertext prefixes, and 64-character phone blind indexes without printing secrets or raw PII.
+   These verifiers first check Flyway version, runtime flags, complete `enc:v1:` envelope structure, and blind-index shape. They then launch the minimal `PiiCiphertextAuditCli` inside the application runtime so every protected value, including `user.totp_secret` and `order_review.content`, must pass AEAD authentication with the configured current or historical key. The CLI decrypts authenticated phone ciphertext only in process memory and recomputes each blind index; it logs field-level aggregate counts without printing secrets or raw PII. A forged envelope, missing historical key, plaintext value, or mismatched blind index fails the gate.
 
 ## MySQL TDE and Backup Encryption
 

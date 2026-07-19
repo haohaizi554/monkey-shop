@@ -171,7 +171,7 @@ Assert-Match -Name "application.yml" -Text $application -Pattern "connection-tim
 Assert-Match -Name "SecurityConfig.java" -Text $securityConfig -Pattern "maximumSessions\(1\)" -Message "must restrict concurrent sessions"
 Assert-Match -Name "verify-runtime-data-protection.sh" -Text $runtimeDataProtectionBash -Pattern "APP_PII_ENCRYPTION_ENABLED" -Message "must verify runtime PII encryption flags on Linux compose hosts"
 Assert-Match -Name "verify-runtime-data-protection.sh" -Text $runtimeDataProtectionBash -Pattern "APP_PII_ALLOW_PLAINTEXT_READ" -Message "must verify strict plaintext-read mode on Linux compose hosts"
-Assert-Match -Name "verify-runtime-data-protection.sh" -Text $runtimeDataProtectionBash -Pattern "enc:v1:%" -Message "must verify ciphertext prefixes on Linux compose hosts"
+Assert-Match -Name "verify-runtime-data-protection.sh" -Text $runtimeDataProtectionBash -Pattern "REGEXP '\^enc:v1:" -Message "must verify complete ciphertext envelopes on Linux compose hosts"
 Assert-Match -Name "verify-runtime-data-protection.sh" -Text $runtimeDataProtectionBash -Pattern "\^\[0-9a-f\]\{64\}\$" -Message "must verify phone blind indexes on Linux compose hosts"
 Assert-Match -Name "verify-runtime-data-protection.sh" -Text $runtimeDataProtectionBash -Pattern "--require-populated-pii" -Message "must support populated PII evidence on Linux compose hosts"
 Assert-Match -Name "verify-runtime-data-protection.sh" -Text $runtimeDataProtectionBash -Pattern "does not print\s+secrets or raw PII" -Message "must document non-disclosure of secrets and raw PII"
