@@ -74,6 +74,10 @@ export function orderShipments(id: number): Promise<OrderShipment[]> {
   return request<OrderShipment[]>({ url: `/orders/${id}/shipments` })
 }
 
+export function adminOrderShipments(id: number): Promise<OrderShipment[]> {
+  return request<OrderShipment[]>({ url: `/orders/admin/${id}/shipments` })
+}
+
 export function receiveShipment(id: number): Promise<OrderShipment> {
   return request<OrderShipment>({ url: `/orders/shipments/receive/${id}`, method: 'POST' })
 }

@@ -17,6 +17,7 @@ class Ws8MembershipWorkflowTest {
                 read("src/main/java/com/example/monkey/membership/application/MembershipApplicationService.java");
         String controller = read("src/main/java/com/example/monkey/membership/interfaces/MembershipController.java");
         String migration = read("src/main/resources/db/migration/V35__membership_points_wallet.sql");
+        String frontendApi = read("frontend/src/api/membership.ts");
         String frontend = read("frontend/src/views/MembershipView.vue");
         String script = read("scripts/verify-ws8-membership.ps1");
 
@@ -25,7 +26,10 @@ class Ws8MembershipWorkflowTest {
                 .contains("@WithSpan(\"membership.check-in\")", "scanPriceDrops", "userMfaVerifier.verifyCode");
         assertThat(controller).contains("/api/membership", "/points/redeem", "/collections");
         assertThat(migration).contains("membership_points_wallet", "membership_points_ledger");
-        assertThat(frontend).contains("membershipApi.checkIn", "scanPriceDrops");
+        assertThat(frontendApi).contains("scanPriceDrops");
+        assertThat(frontend)
+                .contains("membershipApi.checkIn", "membershipApi.redeemPoints", "membershipApi.addCollection")
+                .doesNotContain("membershipApi.scanPriceDrops");
         assertThat(script)
                 .contains(
                         "JpaMembershipStoreTest",

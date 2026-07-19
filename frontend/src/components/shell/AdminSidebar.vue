@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import {
   Box,
+  CreditCard,
   DataAnalysis,
   Discount,
   Goods,
+  List,
   OfficeBuilding,
+  RefreshLeft,
   Setting,
+  UserFilled,
+  Van,
   Warning,
 } from '@element-plus/icons-vue'
 import { useEventListener, useMediaQuery } from '@vueuse/core'
@@ -32,6 +37,16 @@ const groups = computed(() => [
       { to: '/admin', label: t('nav.admin'), icon: Setting },
       { to: '/inventory', label: t('nav.inventory'), icon: Box },
       { to: '/marketing', label: t('nav.marketing'), icon: Discount },
+    ] satisfies AdminLink[],
+  },
+  {
+    label: t('nav.adminCommerce'),
+    links: [
+      { to: '/admin/orders', label: t('nav.adminOrders'), icon: List },
+      { to: '/admin/returns', label: t('nav.adminReturns'), icon: RefreshLeft },
+      { to: '/admin/payments', label: t('nav.adminPayments'), icon: CreditCard },
+      { to: '/admin/logistics', label: t('nav.adminLogistics'), icon: Van },
+      { to: '/admin/members', label: t('nav.adminMembers'), icon: UserFilled },
     ] satisfies AdminLink[],
   },
   {

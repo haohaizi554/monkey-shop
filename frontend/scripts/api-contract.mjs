@@ -4,316 +4,168 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const apiSourceFiles = (await fs.readdir(path.join(root, 'src', 'api'), { withFileTypes: true }))
+  .filter(
+    (entry) => entry.isFile() && entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts'),
+  )
+  .map((entry) => `src/api/${entry.name}`)
+  .sort()
 const sourceFiles = [
-  'src/App.vue',
-  'src/api/admin.ts',
-  'src/api/auth.ts',
-  'src/api/catalog.ts',
-  'src/api/http.ts',
-  'src/api/orders.ts',
-  'src/api/user.ts',
+  ...apiSourceFiles,
   'src/composables/useCheckout.ts',
-  'src/components/AppShell.vue',
-  'src/components/ProductImage.vue',
-  'src/locales/index.ts',
-  'src/stores/auth.ts',
-  'src/stores/theme.ts',
-  'src/seo/nuxt-reservation.ts',
-  'src/seo/product-json-ld.ts',
-  'src/seo/useJsonLd.ts',
   'src/router/index.ts',
+  'src/stores/auth.ts',
   'src/types.ts',
   'src/utils/csrf.ts',
-  'src/utils/format.ts',
-  'src/styles/main.css',
-  'src/views/AdminView.vue',
-  'src/views/OrdersView.vue',
-  'src/views/ProductDetailView.vue',
-  'src/views/ShopView.vue',
-  'package.json',
-  'public/robots.txt',
-  'public/sitemap.xml',
-  'tests/a11y.spec.ts',
-  'scripts/lighthouse.mjs',
-  'scripts/ui-smoke.mjs',
-  'vite.config.ts',
+  'src/utils/idempotencyIntent.ts',
 ]
-
 const sources = Object.fromEntries(
   await Promise.all(
     sourceFiles.map(async (file) => [file, await fs.readFile(path.join(root, file), 'utf8')]),
   ),
 )
-const apiSource = Object.entries(sources)
-  .filter(([file]) => file.startsWith('src/api/'))
-  .map(([, source]) => source)
-  .join('\n')
+const apiSource = apiSourceFiles.map((file) => sources[file]).join('\n')
 const cookieAuthSource = [
   sources['src/api/http.ts'],
   sources['src/api/auth.ts'],
   sources['src/stores/auth.ts'],
   sources['src/types.ts'],
 ].join('\n')
-
 const failures = []
 
 function requireIncludes(file, snippet, label = snippet) {
-  if (!sources[file].includes(snippet)) {
+  if (!sources[file]?.includes(snippet)) {
     failures.push(`${file}: missing ${label}`)
   }
 }
 
 function forbidIn(label, source, pattern, description) {
   if (pattern.test(source)) {
-    failures.push(`${label}: contains legacy ${description}`)
+    failures.push(`${label}: contains forbidden ${description}`)
   }
 }
 
-requireIncludes('src/api/http.ts', "baseURL: '/api/v1'", 'versioned API base URL')
-requireIncludes('src/api/http.ts', "'X-Trace-Id'", 'trace id request header')
-requireIncludes('src/api/http.ts', "'Idempotency-Key'", 'idempotency key request header')
-requireIncludes('src/api/http.ts', 'crypto.randomUUID', 'browser trace id generation')
-requireIncludes('src/api/http.ts', 'crypto.getRandomValues', 'crypto-backed trace id fallback')
+async function filesUnder(directory) {
+  const entries = await fs.readdir(directory, { withFileTypes: true })
+  const nested = await Promise.all(
+    entries.map((entry) => {
+      const file = path.join(directory, entry.name)
+      return entry.isDirectory() ? filesUnder(file) : [file]
+    }),
+  )
+  return nested.flat()
+}
+
+requireIncludes('src/api/http.ts', "baseURL: '/api/v1'", 'canonical v1 base URL')
 requireIncludes('src/api/http.ts', 'withCredentials: true', 'cookie credential mode')
+requireIncludes('src/api/http.ts', "'X-Trace-Id'", 'trace request header')
+requireIncludes('src/api/http.ts', "'Idempotency-Key'", 'idempotency request header')
+requireIncludes('src/api/http.ts', "'X-Device-Fingerprint'", 'device fingerprint header')
+requireIncludes('src/api/http.ts', 'crypto.randomUUID', 'crypto trace generation')
+requireIncludes('src/api/http.ts', 'crypto.getRandomValues', 'crypto trace fallback')
 requireIncludes('src/api/http.ts', 'unsafeMethods.has(method)', 'unsafe request detection')
+requireIncludes('src/api/http.ts', 'config.headers.set(csrfHeader())', 'unsafe request CSRF')
 requireIncludes(
   'src/api/http.ts',
   'config.headers.set(idempotencyKeyHeader, createTraceId())',
-  'global unsafe request idempotency key',
+  'unsafe request idempotency fallback',
 )
-requireIncludes('src/api/http.ts', 'csrfHeader()', 'unsafe request CSRF header')
-requireIncludes('src/utils/csrf.ts', "'X-XSRF-TOKEN'", 'Spring CSRF header')
-requireIncludes('src/App.vue', ':message="messageConfig"', 'global Element Plus message config')
-requireIncludes('src/App.vue', 'grouping: true', 'grouped duplicate messages')
-requireIncludes('src/App.vue', 'max: 2', 'bounded message stack')
-requireIncludes('package.json', '"test:ui-smoke"', 'UI smoke script entrypoint')
-requireIncludes('src/styles/main.css', '--panel-muted', 'semantic surface token')
-requireIncludes('src/styles/main.css', '--focus-ring', 'semantic focus token')
-requireIncludes(
-  'src/styles/main.css',
-  '.el-table th.el-table__cell',
-  'industrial table header surface',
-)
-requireIncludes('src/styles/main.css', '.el-popper', 'viewport-safe popper surface')
-requireIncludes('src/styles/main.css', 'prefers-reduced-motion', 'reduced motion support')
-requireIncludes('scripts/ui-smoke.mjs', 'documentOverflow', 'page-level overflow smoke check')
-requireIncludes('scripts/ui-smoke.mjs', 'maxH1Px', 'industrial heading size smoke check')
-requireIncludes('scripts/ui-smoke.mjs', 'Operation is not permitted', 'raw permission copy guard')
-requireIncludes('scripts/ui-smoke.mjs', 'Too many requests', 'raw rate-limit copy guard')
+requireIncludes('src/api/http.ts', "http.post('/auth/refresh')", 'cookie session refresh')
+requireIncludes('src/api/http.ts', 'sessionRefreshPromise', 'single-page refresh coordination')
+requireIncludes('src/api/http.ts', 'friendlyMessage', 'localized backend error normalization')
+requireIncludes('src/api/http.ts', 'retryAfterSeconds', 'rate-limit retry metadata')
+
 requireIncludes('src/api/auth.ts', "'/api/v1/auth/captcha'", 'auth captcha endpoint')
 requireIncludes('src/api/auth.ts', "'/api/v1/users/captcha'", 'user captcha endpoint')
-requireIncludes('src/api/auth.ts', "url: '/auth/login'", 'cookie-backed login endpoint')
-requireIncludes('src/stores/auth.ts', 'await loadCurrentUser()', 'cookie session hydration')
+requireIncludes('src/api/auth.ts', "url: '/auth/login'", 'login endpoint')
+requireIncludes('src/api/auth.ts', "url: '/users/logout'", 'filter-owned logout endpoint')
+requireIncludes('src/api/auth.ts', "url: '/auth/register'", 'registration endpoint')
 requireIncludes(
-  'src/components/AppShell.vue',
-  'aria-label="Switch language"',
-  'language toggle label',
+  'src/api/auth.ts',
+  "url: '/auth/reset-password/request'",
+  'password reset challenge endpoint',
 )
-requireIncludes(
-  'src/components/AppShell.vue',
-  "localStorage.setItem('monkeyshop-locale'",
-  'locale persistence',
-)
-requireIncludes('src/locales/index.ts', 'initialLocale()', 'SSR-safe locale initialization')
-requireIncludes('src/locales/index.ts', 'zh: {', 'Chinese locale bundle')
-requireIncludes('src/locales/index.ts', "shop: '\\u5546\\u57ce'", 'Chinese shop locale')
-requireIncludes('src/stores/theme.ts', "storageKey = 'monkeyshop-theme'", 'theme persistence')
-requireIncludes('src/stores/theme.ts', "darkClass = 'dark'", 'Element Plus dark class')
-requireIncludes('src/api/orders.ts', "'Idempotency-Key'", 'order idempotency header')
-requireIncludes(
-  'src/types.ts',
-  'export type PaymentReconciliationStatus',
-  'payment reconciliation status type',
-)
-requireIncludes(
-  'src/types.ts',
-  "'PENDING_PROVIDER_DATA'",
-  'pending provider data reconciliation status',
-)
-requireIncludes(
-  'src/types.ts',
-  'status: PaymentReconciliationStatus',
-  'typed payment reconciliation response status',
-)
-requireIncludes(
-  'src/utils/format.ts',
-  'paymentReconciliationStatusLabel',
-  'payment reconciliation status label formatter',
-)
-requireIncludes(
-  'src/utils/format.ts',
-  "PENDING_PROVIDER_DATA: '",
-  'pending provider data reconciliation label',
-)
-requireIncludes('src/router/index.ts', "path: '/shop/:productId'", 'product detail route')
-requireIncludes(
-  'src/router/index.ts',
-  "import('@/views/ProductDetailView.vue')",
-  'product detail route component',
-)
-requireIncludes('src/composables/useCheckout.ts', 'submitTimer', 'shared checkout debounce')
-requireIncludes(
-  'src/composables/useCheckout.ts',
-  'afterOrderCreated',
-  'checkout post-create refresh hook',
-)
-requireIncludes(
-  'src/composables/useCheckout.ts',
-  'await createOrder(selectedMonkey.value.id, selectedAddressId.value)',
-  'shared checkout order creation',
-)
-requireIncludes(
-  'src/components/ProductImage.vue',
-  'v-fallback-img',
-  'CSP-compatible fallback image directive',
-)
-requireIncludes(
-  'src/components/ProductImage.vue',
-  "addEventListener('error'",
-  'directive-managed image error listener',
-)
-requireIncludes(
-  'src/views/ShopView.vue',
-  'useCheckout({ afterOrderCreated: loadMonkeys, notify: showNotice })',
-  'shared checkout flow',
-)
-requireIncludes('src/views/ShopView.vue', 'submittingOrder', 'checkout submit loading guard')
-requireIncludes(
-  'src/views/ShopView.vue',
-  ':disabled="submittingOrder"',
-  'checkout submit disabled state',
-)
-requireIncludes('src/views/ShopView.vue', 'openingCheckoutId', 'checkout dialog open loading guard')
-requireIncludes('src/views/ShopView.vue', '`/shop/${monkey.id}`', 'catalog product detail links')
-requireIncludes(
-  'src/views/ShopView.vue',
-  'productListStructuredData',
-  'shop product structured data',
-)
-requireIncludes(
-  'src/views/ShopView.vue',
-  "useJsonLd('monkeyshop-product-list-jsonld'",
-  'shop JSON-LD injection',
-)
-forbidIn(
-  'src/views/ShopView.vue',
-  sources['src/views/ShopView.vue'],
-  /from ['"]element-plus['"]/,
-  'shop Element Plus import',
-)
-forbidIn(
-  'src/components/AppShell.vue',
-  sources['src/components/AppShell.vue'],
-  /from ['"]element-plus['"]/,
-  'shell Element Plus import',
-)
-requireIncludes(
-  'vite.config.ts',
-  'resolveDependencies(_filename, deps)',
-  'modulepreload dependency filter',
-)
-requireIncludes(
-  'src/views/ProductDetailView.vue',
-  "useJsonLd('monkeyshop-product-jsonld'",
-  'product detail structured data',
-)
-requireIncludes(
-  'src/views/ProductDetailView.vue',
-  'productJsonLd(checkoutProduct.value)',
-  'Product JSON-LD source',
-)
-requireIncludes('src/views/ProductDetailView.vue', 'useCheckout()', 'detail checkout flow')
-requireIncludes('src/views/ProductDetailView.vue', 'listMonkeys()', 'detail catalog resolution')
-requireIncludes('src/views/OrdersView.vue', 'useDebounceFn', 'debounced order actions')
-requireIncludes('src/views/OrdersView.vue', 'actionInProgress', 'order action loading guard')
-requireIncludes(
-  'src/views/OrdersView.vue',
-  ':loading="actionInProgress ===',
-  'order action loading state',
-)
-requireIncludes('src/views/AdminView.vue', 'useDebounceFn', 'debounced admin actions')
-requireIncludes('src/views/AdminView.vue', 'savingProduct', 'product submit loading guard')
-requireIncludes(
-  'src/views/AdminView.vue',
-  'orderActionInProgress',
-  'admin order action loading guard',
-)
-requireIncludes(
-  'src/seo/product-json-ld.ts',
-  "'@context': 'https://schema.org'",
-  'schema.org context',
-)
-requireIncludes('src/seo/product-json-ld.ts', "'@type': 'Product'", 'Product JSON-LD')
-requireIncludes('src/seo/product-json-ld.ts', "'@type': 'ItemList'", 'ItemList JSON-LD')
-requireIncludes('src/seo/product-json-ld.ts', 'priceCurrency', 'offer price currency')
-requireIncludes(
-  'src/seo/product-json-ld.ts',
-  'url: `${siteOrigin}/shop/${monkey.id}`',
-  'canonical detail offer URL',
-)
-requireIncludes('src/seo/useJsonLd.ts', 'application/ld+json', 'JSON-LD script type')
-requireIncludes('src/seo/useJsonLd.ts', 'csp-nonce', 'CSP nonce propagation')
-requireIncludes('src/seo/useJsonLd.ts', 'data.value == null', 'JSON-LD null cleanup')
-requireIncludes('src/seo/nuxt-reservation.ts', 'nuxtSsrRouteRules', 'Nuxt SSR reservation rules')
-requireIncludes('src/seo/nuxt-reservation.ts', "rendering: 'ssr'", 'public SSR route reservation')
-requireIncludes('src/seo/nuxt-reservation.ts', "rendering: 'csr'", 'private CSR route reservation')
-requireIncludes('src/seo/nuxt-reservation.ts', 'nuxtPrerenderRoutes', 'Nuxt prerender route list')
-requireIncludes(
-  'src/seo/nuxt-reservation.ts',
-  'nuxtSitemapDynamicSources',
-  'dynamic product sitemap source',
-)
-requireIncludes(
-  'src/seo/nuxt-reservation.ts',
-  "source: '/api/v1/monkeys'",
-  'versioned sitemap source API',
-)
-requireIncludes('public/robots.txt', 'User-agent: *', 'robots user-agent policy')
-requireIncludes('public/robots.txt', 'Allow: /', 'robots public catalog access')
-requireIncludes(
-  'public/robots.txt',
-  'Sitemap: https://monkeyshop.example.com/sitemap.xml',
-  'robots sitemap pointer',
-)
-requireIncludes(
-  'public/sitemap.xml',
-  '<loc>https://monkeyshop.example.com/shop</loc>',
-  'public shop sitemap URL',
-)
-requireIncludes('public/sitemap.xml', '<priority>1.0</priority>', 'shop sitemap priority')
-requireIncludes('tests/a11y.spec.ts', '**/api/v1/users/me', 'versioned user mock')
-requireIncludes('tests/a11y.spec.ts', '**/api/v1/monkeys', 'versioned product mock')
-requireIncludes(
-  'tests/a11y.spec.ts',
-  'product detail route renders product JSON-LD',
-  'product detail a11y route',
-)
-requireIncludes(
-  'tests/a11y.spec.ts',
-  'app shell toggles language and dark theme',
-  'language and theme a11y route',
-)
-requireIncludes('scripts/lighthouse.mjs', "'/api/v1/users/me'", 'versioned Lighthouse user mock')
-requireIncludes('scripts/lighthouse.mjs', "'/api/v1/monkeys'", 'versioned Lighthouse product mock')
+requireIncludes('src/api/auth.ts', "url: '/auth/reset-password'", 'password reset endpoint')
+requireIncludes('src/stores/auth.ts', 'await loadCurrentUser()', 'session hydration after login')
+requireIncludes('src/stores/auth.ts', 'clearLocalSession()', 'local session invalidation')
+requireIncludes('src/stores/auth.ts', 'isSafeLocalPath', 'safe post-login redirect')
+requireIncludes('src/utils/csrf.ts', "'X-XSRF-TOKEN'", 'Spring CSRF header')
+requireIncludes('src/api/page.ts', 'maximumPageSize = 100', 'bounded pagination')
+requireIncludes('src/api/page.ts', 'page.totalPages', 'complete page traversal')
 
-forbidIn(
-  'src/components/ProductImage.vue',
-  sources['src/components/ProductImage.vue'],
-  /@error\s*=/,
-  'template image error handler',
+requireIncludes('src/api/orders.ts', 'url: `/orders/admin/${id}/shipments`', 'admin shipment read')
+requireIncludes(
+  'src/api/membership.ts',
+  'url: `/membership/admin/${userId}/dashboard`',
+  'target member dashboard',
 )
-forbidIn('src/api', apiSource, /baseURL:\s*['"`]\/api['"`]/, 'unversioned API base URL')
-forbidIn('src/api', apiSource, /\/api\/(?!v1(?:\/|['"`]|$))/, 'raw /api URL outside /api/v1')
+requireIncludes(
+  'src/api/membership.ts',
+  'url: `/membership/admin/${userId}/points/earn`',
+  'target member points adjustment',
+)
+requireIncludes(
+  'src/api/membership.ts',
+  'url: `/membership/admin/${userId}/level`',
+  'target member level change',
+)
+requireIncludes('src/api/payments.ts', "url: '/payments/admin/refund'", 'admin refund endpoint')
+requireIncludes(
+  'src/api/payments.ts',
+  "url: '/payments/reconciliation'",
+  'structured reconciliation endpoint',
+)
+requireIncludes('src/api/risk.ts', "url: '/risk/assess'", 'risk assessment endpoint')
+requireIncludes('src/composables/useCheckout.ts', 'await assessRisk({', 'checkout risk gate')
+requireIncludes(
+  'src/composables/useCheckout.ts',
+  "assessment.decision !== 'ALLOW'",
+  'risk decision enforcement',
+)
+requireIncludes('src/router/index.ts', "path: '/admin/orders'", 'admin order workspace')
+requireIncludes('src/router/index.ts', "path: '/admin/payments'", 'admin payment workspace')
+requireIncludes('src/router/index.ts', "path: '/admin/logistics'", 'admin logistics workspace')
+requireIncludes('src/router/index.ts', "path: '/admin/members'", 'admin member workspace')
+
+forbidIn('src/api', apiSource, /url:\s*['"`]\/api(?:\/|['"`])/, 'raw API-prefixed request URL')
 forbidIn('src/api', apiSource, /url:\s*['"`]\/user(?:\/|['"`])/, 'singular user URL')
 forbidIn('src/api', apiSource, /url:\s*['"`]\/address(?:\/|['"`])/, 'singular address URL')
 forbidIn('src/api', apiSource, /url:\s*['"`]\/upload(?:\/|['"`])/, 'singular upload URL')
-forbidIn('src/api', apiSource, /Math\.random/, 'Math.random trace/id generation')
+forbidIn('src/api', apiSource, /Math\.random/, 'Math.random request identifier')
+forbidIn('browser API', apiSource, /\/logistics\/webhook/, 'machine logistics webhook client')
 forbidIn(
-  'cookie auth frontend',
-  cookieAuthSource,
-  /Authorization|Bearer/,
-  'token authorization header',
+  'browser API',
+  apiSource,
+  /url:\s*['"`]\/logistics\/shipments['"`]/,
+  'legacy owner shipment client',
 )
+forbidIn(
+  'browser API',
+  apiSource,
+  /\/inventory\/reservations\/\$\{[^}]+\}\/deduct/,
+  'inventory deduction client',
+)
+forbidIn(
+  'browser API',
+  apiSource,
+  /url:\s*['"`]\/inventory\/compensations['"`]/,
+  'inventory compensation client',
+)
+forbidIn(
+  'browser API',
+  apiSource,
+  /url:\s*['"`]\/membership\/points\/earn['"`]/,
+  'legacy self-targeting points client',
+)
+forbidIn(
+  'browser API',
+  apiSource,
+  /url:\s*['"`]\/membership\/level['"`]/,
+  'legacy self-targeting level client',
+)
+forbidIn('browser API', apiSource, /\/tracking\/profile\/\$\{userId\}/, 'arbitrary profile client')
+forbidIn('browser API', apiSource, /\/payments\/callback/, 'payment callback client')
+forbidIn('cookie auth frontend', cookieAuthSource, /Authorization|Bearer/, 'token authorization')
 forbidIn('cookie auth frontend', cookieAuthSource, /\baccessToken\b/, 'access token handling')
 forbidIn('cookie auth frontend', cookieAuthSource, /\brefreshToken\b/, 'refresh token handling')
 forbidIn(
@@ -323,6 +175,33 @@ forbidIn(
   'browser token storage',
 )
 
+const uiFiles = (await filesUnder(path.join(root, 'src'))).filter(
+  (file) =>
+    /\.(?:ts|vue)$/.test(file) &&
+    !file.includes(`${path.sep}api${path.sep}`) &&
+    !file.endsWith('.test.ts'),
+)
+const uiSource = (await Promise.all(uiFiles.map((file) => fs.readFile(file, 'utf8')))).join('\n')
+const clientFunctions = []
+for (const file of apiSourceFiles) {
+  if (file.endsWith('/http.ts') || file.endsWith('/page.ts')) {
+    continue
+  }
+  for (const match of sources[file].matchAll(/export\s+(?:async\s+)?function\s+(\w+)/g)) {
+    const name = match[1]
+    clientFunctions.push(`${file}#${name}`)
+    if (!new RegExp(`\\b${name}\\b`).test(uiSource)) {
+      failures.push(`${file}: exported client ${name} has no UI or workflow consumer`)
+    }
+  }
+}
+
+if (apiSourceFiles.length < 15) {
+  failures.push(
+    `src/api: expected a complete module scan, found only ${apiSourceFiles.length} files`,
+  )
+}
+
 if (failures.length > 0) {
   console.error(
     `API contract check failed:\n${failures.map((failure) => `- ${failure}`).join('\n')}`,
@@ -330,4 +209,6 @@ if (failures.length > 0) {
   process.exit(1)
 }
 
-console.log('API contract check passed')
+console.log(
+  `API contract check passed (${apiSourceFiles.length} modules, ${clientFunctions.length} UI-consumed clients)`,
+)

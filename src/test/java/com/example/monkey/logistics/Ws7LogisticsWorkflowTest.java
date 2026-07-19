@@ -48,8 +48,16 @@ class Ws7LogisticsWorkflowTest {
         assertThat(addressParser).contains("Hangzou", "Hangzhou", "ParsedAddress");
         assertThat(rateLimit).contains("LOGISTICS(\"logistics\", 20");
         assertThat(audit).contains("LOGISTICS_SHIPMENT_CREATED", "LOGISTICS_WEBHOOK_ACCEPTED");
-        assertThat(frontendApi).contains("createShipment", "quoteFreight", "pushWebhook");
-        assertThat(logisticsView).contains("logisticsApi.createShipment", "logisticsApi.pushWebhook");
+        assertThat(frontendApi)
+                .contains("quoteFreight")
+                .doesNotContain("export function createShipment", "pushWebhook");
+        assertThat(logisticsView)
+                .contains(
+                        "logisticsApi.logisticsForOrder",
+                        "logisticsApi.logisticsByTrackingNo",
+                        "logisticsApi.quoteFreight",
+                        "logisticsApi.parseAddress")
+                .doesNotContain("logisticsApi.createShipment", "logisticsApi.pushWebhook");
         assertThat(verifier).contains("LogisticsApplicationServiceTest", "Ws7LogisticsWorkflowTest");
     }
 

@@ -108,6 +108,12 @@ public class OrderController {
         return Result.success(orderApplicationService.findShipments(currentUser, id));
     }
 
+    @GetMapping("/admin/{id}/shipments")
+    @PreAuthorize("hasAuthority('ORDER_MANAGE')")
+    public Result<List<OrderShipmentResponseDto>> adminShipments(@PathVariable Long id) {
+        return Result.success(orderService.findShipmentsAsAdmin(id));
+    }
+
     @PostMapping("/receive/{id}")
     @PreAuthorize("hasAuthority('ORDER_READ_OWN') and @orderOwnership.isOwner(#id, authentication)")
     public Result<OrderResponseDto> receiveOrder(

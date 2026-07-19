@@ -43,6 +43,13 @@ public class MembershipController {
         return Result.success(membershipApplicationService.dashboard(currentUser));
     }
 
+    @GetMapping("/admin/{userId}/dashboard")
+    @PreAuthorize("hasAuthority('MEMBERSHIP_ADMIN')")
+    public Result<MembershipDashboardDto> adminDashboard(
+            @PathVariable Long userId, @AuthenticationPrincipal SessionUser currentUser) {
+        return Result.success(membershipApplicationService.dashboardAsAdmin(currentUser, userId));
+    }
+
     @PostMapping("/identity")
     @PreAuthorize("hasAuthority('MEMBERSHIP_WRITE')")
     public Result<MembershipDashboardDto> verifyIdentity(
@@ -67,6 +74,17 @@ public class MembershipController {
         return Result.success(membershipApplicationService.earnPoints(currentUser, request, idempotencyKey));
     }
 
+    @PostMapping("/admin/{userId}/points/earn")
+    @PreAuthorize("hasAuthority('MEMBERSHIP_ADMIN')")
+    public Result<PointsLedgerEntryDto> adminEarnPoints(
+            @PathVariable Long userId,
+            @RequestHeader(value = "Idempotency-Key") @NotBlank String idempotencyKey,
+            @Valid @RequestBody PointsEarnRequestDto request,
+            @AuthenticationPrincipal SessionUser currentUser) {
+        return Result.success(
+                membershipApplicationService.earnPointsAsAdmin(currentUser, userId, request, idempotencyKey));
+    }
+
     @PostMapping("/points/redeem")
     @PreAuthorize("hasAuthority('MEMBERSHIP_WRITE')")
     public Result<PointsLedgerEntryDto> redeemPoints(
@@ -81,6 +99,15 @@ public class MembershipController {
     public Result<MembershipDashboardDto> changeLevel(
             @Valid @RequestBody LevelChangeRequestDto request, @AuthenticationPrincipal SessionUser currentUser) {
         return Result.success(membershipApplicationService.changeLevel(currentUser, request));
+    }
+
+    @PostMapping("/admin/{userId}/level")
+    @PreAuthorize("hasAuthority('MEMBERSHIP_ADMIN')")
+    public Result<MembershipDashboardDto> adminChangeLevel(
+            @PathVariable Long userId,
+            @Valid @RequestBody LevelChangeRequestDto request,
+            @AuthenticationPrincipal SessionUser currentUser) {
+        return Result.success(membershipApplicationService.changeLevelAsAdmin(currentUser, userId, request));
     }
 
     @PostMapping("/collections")

@@ -24,6 +24,17 @@ function Assert-Matches {
     }
 }
 
+function Assert-NotMatches {
+    param(
+        [string]$Name,
+        [string]$Content,
+        [string]$Pattern
+    )
+    if ($Content -match $Pattern) {
+        throw "$Name contains forbidden pattern: $Pattern"
+    }
+}
+
 Write-Host "==> WS7 logistics artifacts"
 $docs = Read-Text "docs/logistics/ws7.md"
 $trackingMigration = Read-Text "src/main/resources/db/migration/V32__logistics_tracking.sql"
@@ -84,11 +95,15 @@ Assert-Matches "application test" $applicationTest "createShipmentCalculatesFrei
 Assert-Matches "application test" $applicationTest "webhookAdvancesTrackingOnceForReplayProtectedEvent"
 Assert-Matches "application test" $applicationTest "webhookRejectsInvalidSignatureBeforeStateChange"
 Assert-Matches "infrastructure test" $infrastructureTest "saveTrackingEncryptsRecipientPhoneAndAddressBlindIndexes"
-Assert-Matches "frontend api" $frontendApi "createShipment"
 Assert-Matches "frontend api" $frontendApi "quoteFreight"
-Assert-Matches "frontend api" $frontendApi "pushWebhook"
-Assert-Matches "logistics view" $logisticsView "logisticsApi\.createShipment"
-Assert-Matches "logistics view" $logisticsView "logisticsApi\.pushWebhook"
+Assert-NotMatches "frontend api" $frontendApi "export function createShipment"
+Assert-NotMatches "frontend api" $frontendApi "pushWebhook"
+Assert-Matches "logistics view" $logisticsView "logisticsApi\.logisticsForOrder"
+Assert-Matches "logistics view" $logisticsView "logisticsApi\.logisticsByTrackingNo"
+Assert-Matches "logistics view" $logisticsView "logisticsApi\.quoteFreight"
+Assert-Matches "logistics view" $logisticsView "logisticsApi\.parseAddress"
+Assert-NotMatches "consumer logistics view" $logisticsView "logisticsApi\.createShipment"
+Assert-NotMatches "consumer logistics view" $logisticsView "logisticsApi\.pushWebhook"
 
 if (-not $SkipMaven) {
     Write-Host "==> Maven WS7 logistics tests"

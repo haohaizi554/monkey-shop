@@ -261,6 +261,14 @@ public class OrderService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<OrderShipmentResponseDto> findShipmentsAsAdmin(Long orderId) {
+        requireOrder(orderId);
+        return fulfillmentStore.findShipments(orderId).stream()
+                .map(OrderDtoAssembler::toResponse)
+                .toList();
+    }
+
     @WithSpan("order.review.create")
     @Transactional
     public OrderReviewResponseDto reviewOrder(Long orderId, Long userId, OrderReviewRequestDto request) {

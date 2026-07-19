@@ -272,6 +272,7 @@ const apiFixtures: Record<string, unknown> = {
   'GET /payments/orders/101': payment,
   'GET /logistics/orders/101': logisticsTracking,
   'GET /membership/dashboard': membershipDashboard,
+  'GET /membership/admin/7/dashboard': membershipDashboard,
   'GET /cart': cart,
   'GET /users/profile': {
     isLogin: true,
@@ -310,6 +311,7 @@ const apiFixtures: Record<string, unknown> = {
     first: true,
     last: true,
   },
+  'GET /orders/admin/101/shipments': [],
   'GET /risk/reviews': [
     {
       id: 101,
@@ -596,6 +598,11 @@ const consumerRoutes: RouteCase[] = [
 
 const adminRoutes: RouteCase[] = [
   { name: 'store operations', path: '/admin', ready: pageHeader },
+  { name: 'order operations', path: '/admin/orders', ready: pageHeader },
+  { name: 'return operations', path: '/admin/returns', ready: pageHeader },
+  { name: 'payment operations', path: '/admin/payments', ready: pageHeader },
+  { name: 'logistics operations', path: '/admin/logistics', ready: pageHeader },
+  { name: 'member operations', path: '/admin/members?userId=7', ready: pageHeader },
   { name: 'inventory', path: '/inventory?skuId=7', ready: pageHeader },
   { name: 'marketing', path: '/marketing', ready: pageHeader },
   { name: 'risk review', path: '/risk', ready: pageHeader },
@@ -640,7 +647,9 @@ for (const routeCase of adminRoutes) {
   })
 }
 
-test('tenant export state table passes Axe with all five provider states visible', async ({ page }) => {
+test('tenant export state table passes Axe with all five provider states visible', async ({
+  page,
+}) => {
   const unhandled = await installApiMocks(page, 'admin')
   await settleRoute(
     page,

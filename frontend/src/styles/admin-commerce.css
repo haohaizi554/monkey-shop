@@ -1,0 +1,212 @@
+.commerce-page {
+  display: grid;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.commerce-section {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+  padding-block: var(--space-5);
+  border-block: 1px solid var(--color-line);
+}
+
+.commerce-section + .commerce-section {
+  border-top: 0;
+}
+
+.commerce-section__heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.commerce-section__heading h2,
+.commerce-section__heading p {
+  margin: 0;
+}
+
+.commerce-section__heading h2 {
+  color: var(--color-ink);
+  font-size: var(--text-lg);
+  line-height: var(--leading-tight);
+}
+
+.commerce-section__heading p {
+  max-width: 68ch;
+  margin-top: var(--space-1);
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.commerce-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.commerce-form-grid[data-columns='3'] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.commerce-field {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.commerce-field > span {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.commerce-field--wide {
+  grid-column: 1 / -1;
+}
+
+.commerce-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.commerce-actions--end {
+  justify-content: flex-end;
+}
+
+.commerce-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+}
+
+.commerce-table th,
+.commerce-table td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-line);
+  color: var(--color-text);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.commerce-table th {
+  background: var(--color-surface-subtle);
+  color: var(--color-text);
+  font-size: var(--text-xs);
+  font-weight: 750;
+}
+
+.commerce-table tbody tr {
+  background: var(--color-surface-raised);
+  transition: background-color var(--motion-fast);
+}
+
+.commerce-table tbody tr:hover {
+  background: var(--color-brand-soft);
+}
+
+.commerce-table td {
+  font-size: var(--text-sm);
+}
+
+.commerce-table__primary {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.commerce-table__primary strong {
+  color: var(--color-ink);
+}
+
+.commerce-table__primary small {
+  color: var(--color-muted);
+}
+
+.commerce-kv {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-surface);
+  background: var(--color-line);
+}
+
+.commerce-kv > div {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-4);
+  background: var(--color-surface-raised);
+}
+
+.commerce-kv dt {
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+
+.commerce-kv dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-ink);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.commerce-line-editor {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) minmax(110px, 0.6fr) auto;
+  gap: var(--space-3);
+  align-items: end;
+  padding-block: var(--space-3);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.commerce-inline-state {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+
+.commerce-inline-state strong {
+  color: var(--color-ink);
+}
+
+@media (max-width: 820px) {
+  .commerce-form-grid,
+  .commerce-form-grid[data-columns='3'],
+  .commerce-line-editor {
+    grid-template-columns: 1fr;
+  }
+
+  .commerce-actions--end {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 560px) {
+  .commerce-page {
+    gap: var(--space-4);
+  }
+
+  .commerce-section {
+    padding-block: var(--space-4);
+  }
+
+  .commerce-actions > .el-button,
+  .commerce-actions > a {
+    flex: 1 1 auto;
+  }
+}

@@ -78,6 +78,7 @@ $requiredFiles = @(
     "pom.xml",
     ".github/workflows/ci.yaml",
     "src/main/resources/application.yml",
+    "src/main/resources/application-dev.yml",
     "src/main/resources/application-staging.yml",
     "src/main/resources/application-prod.yml",
     "src/main/java/com/example/monkey/shared/infrastructure/config/SecurityConfig.java",
@@ -87,6 +88,7 @@ $requiredFiles = @(
     "src/main/java/com/example/monkey/shared/domain/security/RateLimitPolicy.java",
     "src/main/java/com/example/monkey/shared/domain/security/ApiRateLimiter.java",
     "src/main/java/com/example/monkey/shared/application/security/ApiRateLimitOperation.java",
+    "src/main/java/com/example/monkey/shared/infrastructure/security/RateLimitProperties.java",
     "src/main/java/com/example/monkey/shared/infrastructure/security/ApiRateLimitService.java",
     "src/main/java/com/example/monkey/shared/interfaces/security/ApiRateLimitFilter.java",
     "src/main/java/com/example/monkey/user/infrastructure/TurnstileVerifier.java",
@@ -105,6 +107,7 @@ $requiredFiles = @(
     "src/main/java/com/example/monkey/order/infrastructure/Order.java",
     "src/main/resources/db/migration/V16__pii_encryption_columns.sql",
     "src/main/resources/db/migration/V18__user_email_pii_encryption.sql",
+    "src/test/java/com/example/monkey/shared/infrastructure/security/RateLimitPropertiesTest.java",
     "src/test/java/com/example/monkey/shared/infrastructure/privacy/PiiCryptoServiceTest.java",
     "src/test/java/com/example/monkey/shared/infrastructure/privacy/PiiKeyMaterialProviderTest.java",
     "deploy/nginx/monkeyshop.conf",
@@ -121,6 +124,7 @@ foreach ($file in $requiredFiles) {
 $pom = Read-RequiredFile -Path "pom.xml"
 $workflow = Read-RequiredFile -Path ".github/workflows/ci.yaml"
 $application = Read-RequiredFile -Path "src/main/resources/application.yml"
+$dev = Read-RequiredFile -Path "src/main/resources/application-dev.yml"
 $staging = Read-RequiredFile -Path "src/main/resources/application-staging.yml"
 $prod = Read-RequiredFile -Path "src/main/resources/application-prod.yml"
 $securityConfig = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared/infrastructure/config/SecurityConfig.java"
@@ -130,6 +134,8 @@ $runtimeDataProtectionBash = Read-RequiredFile -Path "scripts/verify-runtime-dat
 $rateLimitPolicy = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared/domain/security/RateLimitPolicy.java"
 $rateLimitPort = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared/domain/security/ApiRateLimiter.java"
 $rateLimitOperation = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared/application/security/ApiRateLimitOperation.java"
+$rateLimitProperties = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared/infrastructure/security/RateLimitProperties.java"
+$rateLimitPropertiesTest = Read-RequiredFile -Path "src/test/java/com/example/monkey/shared/infrastructure/security/RateLimitPropertiesTest.java"
 $rateLimitService = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared/infrastructure/security/ApiRateLimitService.java"
 $rateLimitFilter = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared/interfaces/security/ApiRateLimitFilter.java"
 $turnstile = Read-RequiredFile -Path "src/main/java/com/example/monkey/user/infrastructure/TurnstileVerifier.java"
@@ -187,7 +193,24 @@ foreach ($profile in @(@{ Name = "application-staging.yml"; Text = $staging }, @
 }
 
 Assert-Match -Name "RateLimitPolicy.java" -Text $rateLimitPolicy -Pattern 'LOGIN\("login",\s*5,\s*Duration\.ofMinutes\(1\)\)' -Message "must cap login to 5 requests per minute"
-Assert-Match -Name "RateLimitPolicy.java" -Text $rateLimitPolicy -Pattern 'REGISTER\("register",\s*3,\s*Duration\.ofHours\(1\)\)' -Message "must cap registration to 3 requests per hour"
+Assert-Match -Name "RateLimitPolicy.java" -Text $rateLimitPolicy -Pattern 'REGISTER\("register",\s*120,\s*Duration\.ofHours\(1\)\)' -Message "must keep the lenient registration fallback used by local/default profiles"
+Assert-Match -Name "RateLimitProperties.java" -Text $rateLimitProperties -Pattern 'ConfigurationProperties\(prefix\s*=\s*"monkeyshop\.rate-limit"\)' -Message "must bind typed registration quotas"
+Assert-Match -Name "RateLimitProperties.java" -Text $rateLimitProperties -Pattern 'DEFAULT_REGISTER_CAPACITY\s*=\s*120L' -Message "must keep the usable default registration quota"
+foreach ($profile in @(@{ Name = "application.yml"; Text = $application }, @{ Name = "application-dev.yml"; Text = $dev })) {
+    Assert-Match -Name $profile.Name -Text $profile.Text -Pattern 'edge-capacity:\s+\$\{MONKEYSHOP_RATE_LIMIT_REGISTER_EDGE_CAPACITY:120\}' -Message "must allow normal local registration retries at the edge"
+    Assert-Match -Name $profile.Name -Text $profile.Text -Pattern 'edge-window:\s+\$\{MONKEYSHOP_RATE_LIMIT_REGISTER_EDGE_WINDOW:1h\}' -Message "must use a one-hour local edge window"
+    Assert-Match -Name $profile.Name -Text $profile.Text -Pattern 'identity-capacity:\s+\$\{MONKEYSHOP_RATE_LIMIT_REGISTER_IDENTITY_CAPACITY:120\}' -Message "must allow normal local retries per identity"
+    Assert-Match -Name $profile.Name -Text $profile.Text -Pattern 'identity-window:\s+\$\{MONKEYSHOP_RATE_LIMIT_REGISTER_IDENTITY_WINDOW:1h\}' -Message "must use a one-hour local identity window"
+}
+foreach ($profile in @(@{ Name = "application-staging.yml"; Text = $staging }, @{ Name = "application-prod.yml"; Text = $prod })) {
+    Assert-Match -Name $profile.Name -Text $profile.Text -Pattern 'edge-capacity:\s+\$\{MONKEYSHOP_RATE_LIMIT_REGISTER_EDGE_CAPACITY:20\}' -Message "must retain a production edge abuse threshold"
+    Assert-Match -Name $profile.Name -Text $profile.Text -Pattern 'edge-window:\s+\$\{MONKEYSHOP_RATE_LIMIT_REGISTER_EDGE_WINDOW:15m\}' -Message "must retain the production edge window"
+    Assert-Match -Name $profile.Name -Text $profile.Text -Pattern 'identity-capacity:\s+\$\{MONKEYSHOP_RATE_LIMIT_REGISTER_IDENTITY_CAPACITY:5\}' -Message "must retain a production identity abuse threshold"
+    Assert-Match -Name $profile.Name -Text $profile.Text -Pattern 'identity-window:\s+\$\{MONKEYSHOP_RATE_LIMIT_REGISTER_IDENTITY_WINDOW:1h\}' -Message "must retain the production identity window"
+}
+Assert-Match -Name "RateLimitPropertiesTest.java" -Text $rateLimitPropertiesTest -Pattern 'assertRegister\(defaults\.register\(\),\s*120,\s*Duration\.ofHours\(1\),\s*120,\s*Duration\.ofHours\(1\)\)' -Message "must test default quotas"
+Assert-Match -Name "RateLimitPropertiesTest.java" -Text $rateLimitPropertiesTest -Pattern 'assertRegister\(prod\.register\(\),\s*20,\s*Duration\.ofMinutes\(15\),\s*5,\s*Duration\.ofHours\(1\)\)' -Message "must test production quotas"
+Assert-Match -Name "RateLimitPropertiesTest.java" -Text $rateLimitPropertiesTest -Pattern 'assertRegister\(staging\.register\(\),\s*20,\s*Duration\.ofMinutes\(15\),\s*5,\s*Duration\.ofHours\(1\)\)' -Message "must test staging quotas"
 Assert-Match -Name "RateLimitPolicy.java" -Text $rateLimitPolicy -Pattern 'ORDER\("order",\s*10,\s*Duration\.ofMinutes\(1\)\)' -Message "must cap order creation to 10 requests per minute"
 Assert-Match -Name "RateLimitPolicy.java" -Text $rateLimitPolicy -Pattern 'SEARCH\("search",\s*30,\s*Duration\.ofMinutes\(1\)\)' -Message "must cap product search to 30 requests per minute"
 Assert-Match -Name "RateLimitPolicy.java" -Text $rateLimitPolicy -Pattern 'UPLOAD\("upload",\s*10,\s*Duration\.ofMinutes\(1\)\)' -Message "must cap uploads to 10 requests per minute"
@@ -198,6 +221,10 @@ Assert-Match -Name "ApiRateLimitService.java" -Text $rateLimitService -Pattern "
 Assert-Match -Name "ApiRateLimitService.java" -Text $rateLimitService -Pattern 'consumeDimension\(policy,\s*"ip"' -Message "must charge IP rate-limit dimension"
 Assert-Match -Name "ApiRateLimitService.java" -Text $rateLimitService -Pattern 'consumeDimension\(policy,\s*"user"' -Message "must charge authenticated-user rate-limit dimension"
 Assert-Match -Name "ApiRateLimitService.java" -Text $rateLimitService -Pattern 'consumeDimension\(policy,\s*"endpoint"' -Message "must charge endpoint rate-limit dimension"
+Assert-Match -Name "ApiRateLimitService.java" -Text $rateLimitService -Pattern 'register\.edgeCapacity\(\)' -Message "must apply the typed registration edge quota"
+Assert-Match -Name "ApiRateLimitService.java" -Text $rateLimitService -Pattern 'register\.edgeWindow\(\)' -Message "must apply the typed registration edge window"
+Assert-Match -Name "ApiRateLimitService.java" -Text $rateLimitService -Pattern 'register\.identityCapacity\(\)' -Message "must apply the typed registration identity quota"
+Assert-Match -Name "ApiRateLimitService.java" -Text $rateLimitService -Pattern 'register\.identityWindow\(\)' -Message "must apply the typed registration identity window"
 Assert-Match -Name "ApiRateLimitService.java" -Text $rateLimitService -Pattern "REDIS_LIMIT_PREFIX" -Message "must namespace Redis rate counters"
 Assert-Match -Name "ApiRateLimitService.java" -Text $rateLimitService -Pattern "STATE_UNAVAILABLE_MESSAGE" -Message "must fail closed when required rate-limit state is unavailable"
 Assert-Match -Name "ApiRateLimitService.java" -Text $rateLimitService -Pattern "REDIS_BLOCK_PREFIX" -Message "must persist WAF honeypot blocks"

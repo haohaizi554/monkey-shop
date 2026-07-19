@@ -24,10 +24,6 @@ export function currentTrackingProfile(): Promise<UserProfileTag> {
   return request<UserProfileTag>({ url: '/tracking/profile/me' })
 }
 
-export function trackingUserProfile(userId: number): Promise<UserProfileTag> {
-  return request<UserProfileTag>({ url: `/tracking/profile/${userId}` })
-}
-
 export function trackingProductProfile(productId: number): Promise<ProductProfile> {
   return request<ProductProfile>({ url: `/tracking/products/${productId}` })
 }

@@ -217,7 +217,7 @@ class StaticAssetIntegrityTest {
                 .contains("localStorage.setItem(storageKey, dark ? 'dark' : 'light')");
         assertThat(a11y)
                 .contains("app shell toggles language and dark theme")
-                .contains("getByRole('link', { name: '商城', exact: true })")
+                .contains("getByRole('link', { name: '发现', exact: true })")
                 .contains("toHaveClass(/dark/)");
     }
 

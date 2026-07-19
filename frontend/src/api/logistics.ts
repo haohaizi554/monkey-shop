@@ -4,22 +4,8 @@ import type {
   FreightQuoteRequest,
   FreightQuoteResponse,
   LogisticsTracking,
-  ShipmentCreateRequest,
-  TrackingWebhookRequest,
   ParsedAddress,
 } from '@/types'
-
-export function createShipment(
-  payload: ShipmentCreateRequest,
-  idempotencyKey?: string,
-): Promise<LogisticsTracking> {
-  return request<LogisticsTracking>({
-    url: '/logistics/shipments',
-    method: 'POST',
-    data: payload,
-    headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
-  })
-}
 
 export function logisticsForOrder(orderId: number): Promise<LogisticsTracking> {
   return request<LogisticsTracking>({ url: `/logistics/orders/${orderId}` })
@@ -40,14 +26,6 @@ export function quoteFreight(payload: FreightQuoteRequest): Promise<FreightQuote
 export function parseAddress(payload: AddressParseRequest): Promise<ParsedAddress> {
   return request<ParsedAddress>({
     url: '/logistics/address/parse',
-    method: 'POST',
-    data: payload,
-  })
-}
-
-export function pushWebhook(payload: TrackingWebhookRequest): Promise<LogisticsTracking> {
-  return request<LogisticsTracking>({
-    url: '/logistics/webhook',
     method: 'POST',
     data: payload,
   })

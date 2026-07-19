@@ -120,6 +120,14 @@ public class MembershipApplicationService {
         return dashboardFor(userId, profile(userId), wallet(userId));
     }
 
+    @WithSpan("membership.admin.dashboard")
+    @Transactional
+    public MembershipDashboardDto dashboardAsAdmin(SessionUser currentUser, Long userId) {
+        requireUserId(currentUser);
+        Long targetUserId = requireExistingUserId(userId);
+        return dashboardFor(targetUserId, profile(targetUserId), wallet(targetUserId));
+    }
+
     @WithSpan("membership.identity.verify")
     @Transactional
     public MembershipDashboardDto verifyIdentity(SessionUser currentUser, RealNameVerifyRequestDto request) {
@@ -158,6 +166,27 @@ public class MembershipApplicationService {
         return applyPoints(userId, PointsLedgerType.PURCHASE, points, request.orderId(), request.referenceKey(), key);
     }
 
+    @WithSpan("membership.admin.points.adjust")
+    @Transactional
+    public PointsLedgerEntryDto earnPointsAsAdmin(
+            SessionUser currentUser, Long userId, PointsEarnRequestDto request, String idempotencyKey) {
+        Long actorUserId = requireUserId(currentUser);
+        Long targetUserId = requireExistingUserId(userId);
+        String reason = requiredText(request.referenceKey(), "referenceKey");
+        String key = normalizeIdempotencyKey(idempotencyKey);
+        long points = wholePositivePoints(request.amount());
+        return applyPoints(
+                targetUserId,
+                PointsLedgerType.ADJUST,
+                points,
+                request.orderId(),
+                reason,
+                key,
+                actorUserId,
+                actorRole(currentUser),
+                "targetUserId=" + targetUserId + ",reason=" + reason);
+    }
+
     @WithSpan("membership.points.redeem")
     @Transactional
     public PointsLedgerEntryDto redeemPoints(
@@ -174,34 +203,54 @@ public class MembershipApplicationService {
     @Transactional
     public MembershipDashboardDto changeLevel(SessionUser currentUser, LevelChangeRequestDto request) {
         Long userId = requireUserId(currentUser);
+        String reason = StringUtils.hasText(request.reason()) ? request.reason().trim() : "manual";
+        return changeLevelFor(currentUser, userId, request, reason);
+    }
+
+    @WithSpan("membership.admin.level.change")
+    @Transactional
+    public MembershipDashboardDto changeLevelAsAdmin(
+            SessionUser currentUser, Long userId, LevelChangeRequestDto request) {
+        requireUserId(currentUser);
+        Long targetUserId = requireExistingUserId(userId);
+        String reason = requiredText(request.reason(), "reason");
+        return changeLevelFor(currentUser, targetUserId, request, reason);
+    }
+
+    private MembershipDashboardDto changeLevelFor(
+            SessionUser currentUser, Long targetUserId, LevelChangeRequestDto request, String reason) {
+        Long actorUserId = requireUserId(currentUser);
+        String role = actorRole(currentUser);
         UserAccount account = userAccountStore
-                .findById(userId)
+                .findById(actorUserId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User account does not exist"));
         if (!account.mfaEnabled() || !userMfaVerifier.verifyCode(account.totpSecret(), request.totpCode())) {
-            audit(AuditService.MEMBERSHIP_LEVEL_DENIED, userId, "membership:" + userId, null, "reason=totp");
+            auditAs(
+                    AuditService.MEMBERSHIP_LEVEL_DENIED,
+                    actorUserId,
+                    role,
+                    "membership:" + targetUserId,
+                    null,
+                    "reason=totp,targetUserId=" + targetUserId);
             throw new BusinessException(ErrorCode.FORBIDDEN, "TOTP verification is required for level changes");
         }
-        MemberProfile current = profile(userId);
+        MemberProfile current = profile(targetUserId);
         levelTransitionResolver.assertAllowed(current.level(), request.level());
-        boolean updated = membershipStore.updateLevel(userId, current.version(), request.level(), now());
+        boolean updated = membershipStore.updateLevel(targetUserId, current.version(), request.level(), now());
         if (!updated) {
             throw new BusinessException(ErrorCode.CONFLICT, "Membership profile changed concurrently");
         }
         membershipStore.saveLevelHistory(
-                idGenerator.nextId(),
-                userId,
-                current.level(),
-                request.level(),
-                StringUtils.hasText(request.reason()) ? request.reason().trim() : "manual",
-                userId,
-                now());
-        audit(
+                idGenerator.nextId(), targetUserId, current.level(), request.level(), reason, actorUserId, now());
+        auditAs(
                 AuditService.MEMBERSHIP_LEVEL_CHANGED,
-                userId,
-                "membership:" + userId,
+                actorUserId,
+                role,
+                "membership:" + targetUserId,
                 null,
-                "from=" + current.level() + ",to=" + request.level());
-        return dashboard(currentUser);
+                "from=" + current.level() + ",to=" + request.level() + ",targetUserId=" + targetUserId + ",reason="
+                        + reason);
+        return dashboardFor(targetUserId, profile(targetUserId), wallet(targetUserId));
     }
 
     @WithSpan("membership.collection.add")
@@ -327,6 +376,19 @@ public class MembershipApplicationService {
 
     private PointsLedgerEntryDto applyPoints(
             Long userId, PointsLedgerType type, long points, Long orderId, String referenceKey, String idempotencyKey) {
+        return applyPoints(userId, type, points, orderId, referenceKey, idempotencyKey, userId, CUSTOMER_ROLE, null);
+    }
+
+    private PointsLedgerEntryDto applyPoints(
+            Long userId,
+            PointsLedgerType type,
+            long points,
+            Long orderId,
+            String referenceKey,
+            String idempotencyKey,
+            Long actorUserId,
+            String actorRole,
+            String auditDetail) {
         return membershipStore
                 .findLedger(userId, idempotencyKey)
                 .map(MembershipDtoAssembler::toLedger)
@@ -349,14 +411,16 @@ public class MembershipApplicationService {
                     if (points > 0) {
                         membershipStore.saveProfile(profile(userId).addGrowth(points, now()));
                     }
-                    audit(
+                    auditAs(
                             points >= 0
                                     ? AuditService.MEMBERSHIP_POINTS_EARNED
                                     : AuditService.MEMBERSHIP_POINTS_REDEEMED,
-                            userId,
+                            actorUserId,
+                            actorRole,
                             "points:" + saved.id(),
                             null,
-                            "points=" + points + ",type=" + type);
+                            "points=" + points + ",type=" + type
+                                    + (StringUtils.hasText(auditDetail) ? "," + auditDetail : ""));
                     return MembershipDtoAssembler.toLedger(saved);
                 });
     }
@@ -409,15 +473,50 @@ public class MembershipApplicationService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Product does not exist"));
     }
 
+    private Long requireExistingUserId(Long userId) {
+        if (userId == null || userId <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "userId must be positive");
+        }
+        userAccountStore
+                .findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User account does not exist"));
+        return userId;
+    }
+
     private void audit(String eventType, Long actorUserId, String subject, String sourceIp, String detail) {
+        auditAs(eventType, actorUserId, actorUserId == null ? SYSTEM_ROLE : CUSTOMER_ROLE, subject, sourceIp, detail);
+    }
+
+    private void auditAs(
+            String eventType, Long actorUserId, String actorRole, String subject, String sourceIp, String detail) {
         auditService.record(
                 eventType,
                 AuditService.OUTCOME_SUCCESS,
                 actorUserId,
-                actorUserId == null ? SYSTEM_ROLE : CUSTOMER_ROLE,
+                actorUserId == null ? SYSTEM_ROLE : actorRole,
                 subject,
                 sourceIp,
                 detail);
+    }
+
+    private static long wholePositivePoints(BigDecimal amount) {
+        if (amount == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "amount is required");
+        }
+        final long points;
+        try {
+            points = amount.setScale(0, RoundingMode.UNNECESSARY).longValueExact();
+        } catch (ArithmeticException exception) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "amount must be a whole number");
+        }
+        if (points <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "amount must be positive");
+        }
+        return points;
+    }
+
+    private static String actorRole(SessionUser currentUser) {
+        return StringUtils.hasText(currentUser.role()) ? currentUser.role().trim() : CUSTOMER_ROLE;
     }
 
     private static String normalizeIdempotencyKey(String idempotencyKey) {

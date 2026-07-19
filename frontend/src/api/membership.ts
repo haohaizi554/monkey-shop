@@ -17,6 +17,10 @@ export function membershipDashboard(): Promise<MembershipDashboard> {
   return request<MembershipDashboard>({ url: '/membership/dashboard' })
 }
 
+export function adminMembershipDashboard(userId: number): Promise<MembershipDashboard> {
+  return request<MembershipDashboard>({ url: `/membership/admin/${userId}/dashboard` })
+}
+
 export function verifyIdentity(payload: RealNameVerifyRequest): Promise<MembershipDashboard> {
   return request<MembershipDashboard>({
     url: '/membership/identity',
@@ -33,12 +37,13 @@ export function checkIn(idempotencyKey: string): Promise<CheckInResponse> {
   })
 }
 
-export function earnPoints(
+export function adminEarnPoints(
+  userId: number,
   payload: PointsEarnRequest,
   idempotencyKey: string,
 ): Promise<PointsLedgerEntry> {
   return request<PointsLedgerEntry>({
-    url: '/membership/points/earn',
+    url: `/membership/admin/${userId}/points/earn`,
     method: 'POST',
     data: payload,
     headers: { 'Idempotency-Key': idempotencyKey },
@@ -57,9 +62,12 @@ export function redeemPoints(
   })
 }
 
-export function changeLevel(payload: LevelChangeRequest): Promise<MembershipDashboard> {
+export function adminChangeLevel(
+  userId: number,
+  payload: LevelChangeRequest,
+): Promise<MembershipDashboard> {
   return request<MembershipDashboard>({
-    url: '/membership/level',
+    url: `/membership/admin/${userId}/level`,
     method: 'POST',
     data: payload,
   })

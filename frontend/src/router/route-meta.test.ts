@@ -24,4 +24,18 @@ describe('route shell metadata', () => {
     expect(metaFor('/shop').area).toBe('consumer')
     expect(metaFor('/admin').area).toBe('admin')
   })
+
+  it('protects every commerce operations workspace as an admin route', () => {
+    for (const path of [
+      '/admin/orders',
+      '/admin/returns',
+      '/admin/payments',
+      '/admin/logistics',
+      '/admin/members',
+    ]) {
+      expect(metaFor(path).area, path).toBe('admin')
+      expect(metaFor(path).requiresAuth, path).toBe(true)
+      expect(metaFor(path).requiresAdmin, path).toBe(true)
+    }
+  })
 })

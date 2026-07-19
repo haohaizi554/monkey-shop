@@ -1,6 +1,5 @@
 import { request } from './http'
 import type {
-  InventoryCompensateRequest,
   InventoryReconciliation,
   InventoryReservation,
   InventoryReserveRequest,
@@ -25,23 +24,6 @@ export function releaseInventory(reservationKey: string): Promise<InventoryReser
   return request<InventoryReservation>({
     url: `/inventory/reservations/${reservationKey}/release`,
     method: 'POST',
-  })
-}
-
-export function deductInventory(reservationKey: string): Promise<InventoryReservation> {
-  return request<InventoryReservation>({
-    url: `/inventory/reservations/${reservationKey}/deduct`,
-    method: 'POST',
-  })
-}
-
-export function compensateInventory(
-  requestBody: InventoryCompensateRequest,
-): Promise<WarehouseStock> {
-  return request<WarehouseStock>({
-    url: '/inventory/compensations',
-    method: 'POST',
-    data: requestBody,
   })
 }
 

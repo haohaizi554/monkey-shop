@@ -16,10 +16,18 @@ const STATUS_TAGS: Readonly<Record<string, StatusTagDefinition>> = Object.freeze
   REFUNDING: { tone: 'warning', labelKey: 'status.payment.refunding' },
   REFUNDED: { tone: 'neutral', labelKey: 'status.payment.refunded' },
   FULFILLING: { tone: 'info', labelKey: 'status.order.fulfilling' },
+  PARTIALLY_SHIPPED: { tone: 'info', labelKey: 'status.order.partiallyShipped' },
   SHIPPED: { tone: 'info', labelKey: 'status.logistics.shipped' },
+  PARTIALLY_RECEIVED: { tone: 'info', labelKey: 'status.order.partiallyReceived' },
   DELIVERED: { tone: 'success', labelKey: 'status.logistics.delivered' },
   COMPLETED: { tone: 'success', labelKey: 'status.common.completed' },
   CANCELLED: { tone: 'neutral', labelKey: 'status.order.cancelled' },
+  RETURN_REQUESTED: { tone: 'warning', labelKey: 'status.order.returnRequested' },
+  WAITING_RETURN_SHIPMENT: {
+    tone: 'warning',
+    labelKey: 'status.order.waitingReturnShipment',
+  },
+  RETURN_SHIPPING: { tone: 'warning', labelKey: 'status.order.returnShipping' },
   FAILED: { tone: 'danger', labelKey: 'status.common.failed' },
   IN_STOCK: { tone: 'success', labelKey: 'status.inventory.inStock' },
   LOW_STOCK: { tone: 'warning', labelKey: 'status.inventory.lowStock' },
@@ -34,7 +42,10 @@ const STATUS_TAGS: Readonly<Record<string, StatusTagDefinition>> = Object.freeze
 })
 
 export function resolveStatusTag(status: string): StatusTagDefinition {
-  const normalized = status.trim().toUpperCase().replace(/[\s-]+/g, '_')
+  const normalized = status
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_')
   return STATUS_TAGS[normalized] ?? { tone: 'neutral', labelKey: 'status.common.unknown' }
 }
 

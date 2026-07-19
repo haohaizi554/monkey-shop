@@ -96,6 +96,56 @@ export const router = createRouter({
       meta: { area: 'admin', titleKey: 'nav.admin', requiresAuth: true, requiresAdmin: true },
     },
     {
+      path: '/admin/orders',
+      component: () => import('@/views/admin/OrderOperationsView.vue'),
+      meta: {
+        area: 'admin',
+        titleKey: 'nav.adminOrders',
+        requiresAuth: true,
+        requiresAdmin: true,
+      },
+    },
+    {
+      path: '/admin/returns',
+      component: () => import('@/views/admin/ReturnOperationsView.vue'),
+      meta: {
+        area: 'admin',
+        titleKey: 'nav.adminReturns',
+        requiresAuth: true,
+        requiresAdmin: true,
+      },
+    },
+    {
+      path: '/admin/payments',
+      component: () => import('@/views/admin/PaymentOperationsView.vue'),
+      meta: {
+        area: 'admin',
+        titleKey: 'nav.adminPayments',
+        requiresAuth: true,
+        requiresAdmin: true,
+      },
+    },
+    {
+      path: '/admin/logistics',
+      component: () => import('@/views/admin/LogisticsOperationsView.vue'),
+      meta: {
+        area: 'admin',
+        titleKey: 'nav.adminLogistics',
+        requiresAuth: true,
+        requiresAdmin: true,
+      },
+    },
+    {
+      path: '/admin/members',
+      component: () => import('@/views/admin/MemberOperationsView.vue'),
+      meta: {
+        area: 'admin',
+        titleKey: 'nav.adminMembers',
+        requiresAuth: true,
+        requiresAdmin: true,
+      },
+    },
+    {
       path: '/inventory',
       component: () => import('@/views/InventoryView.vue'),
       meta: {

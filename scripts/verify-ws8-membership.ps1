@@ -24,6 +24,17 @@ function Assert-Matches {
     }
 }
 
+function Assert-NotMatches {
+    param(
+        [string]$Name,
+        [string]$Content,
+        [string]$Pattern
+    )
+    if ($Content -match $Pattern) {
+        throw "$Name contains forbidden pattern: $Pattern"
+    }
+}
+
 Write-Host "==> WS8 membership artifacts"
 $docs = Read-Text "docs/membership/ws8.md"
 $levelMigration = Read-Text "src/main/resources/db/migration/V34__membership_level.sql"
@@ -84,8 +95,11 @@ Assert-Matches "security config test" $securityConfigTest "MEMBERSHIP_READ"
 Assert-Matches "security config test" $securityConfigTest "MEMBERSHIP_ADMIN"
 Assert-Matches "frontend api" $frontendApi "membershipDashboard"
 Assert-Matches "frontend api" $frontendApi "checkIn"
+Assert-Matches "frontend api" $frontendApi "scanPriceDrops"
 Assert-Matches "membership view" $membershipView "membershipApi\.checkIn"
-Assert-Matches "membership view" $membershipView "scanPriceDrops"
+Assert-Matches "membership view" $membershipView "membershipApi\.redeemPoints"
+Assert-Matches "membership view" $membershipView "membershipApi\.addCollection"
+Assert-NotMatches "consumer membership view" $membershipView "membershipApi\.scanPriceDrops"
 
 if (-not $SkipMaven) {
     Write-Host "==> Maven WS8 membership tests"
