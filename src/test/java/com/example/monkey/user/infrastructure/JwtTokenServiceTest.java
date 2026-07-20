@@ -37,6 +37,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -103,6 +104,43 @@ class JwtTokenServiceTest {
         assertThat(refreshToken).isPresent();
         assertThat(refreshToken.get().userId()).isEqualTo(1L);
         assertThat(refreshToken.get().authorities()).containsExactly("ROLE_USER");
+    }
+
+    @Test
+    void issuedTokensCarryIssuerAudienceAndNotBeforeClaims() throws Exception {
+        JwtTokenService tokenService = new JwtTokenService(TEST_SECRET, 30, 60, 30, 60, false, null);
+
+        JwtTokenPair tokenPair = tokenService.issueTokenPair(1L, "USER");
+        JWTClaimsSet claims = SignedJWT.parse(tokenPair.accessToken()).getJWTClaimsSet();
+
+        assertThat(claims.getIssuer()).isEqualTo("monkeyshop");
+        assertThat(claims.getAudience()).containsExactly("monkeyshop-web");
+        assertThat(claims.getNotBeforeTime()).isEqualTo(claims.getIssueTime());
+    }
+
+    @Test
+    void rejectsSignedTokensOutsideIssuerAudienceOrValidityWindow() throws Exception {
+        Instant now = Instant.parse("2026-07-20T00:00:00Z");
+        JwtTokenService tokenService = new JwtTokenService(
+                TEST_SECRET,
+                30,
+                60,
+                30,
+                60,
+                false,
+                false,
+                false,
+                null,
+                Duration.ofSeconds(5),
+                Clock.fixed(now, ZoneOffset.UTC));
+
+        assertThat(tokenService.parseAccessToken(signedAccessToken(now, "foreign", "monkeyshop-web", now)))
+                .isEmpty();
+        assertThat(tokenService.parseAccessToken(signedAccessToken(now, "monkeyshop", "foreign", now)))
+                .isEmpty();
+        assertThat(tokenService.parseAccessToken(
+                        signedAccessToken(now, "monkeyshop", "monkeyshop-web", now.plusSeconds(30))))
+                .isEmpty();
     }
 
     @Test
@@ -945,6 +983,27 @@ class JwtTokenServiceTest {
                 .tag("reason", reason)
                 .counter();
         return counter == null ? 0.0d : counter.count();
+    }
+
+    private static String signedAccessToken(Instant issuedAt, String issuer, String audience, Instant notBefore)
+            throws Exception {
+        SignedJWT token = new SignedJWT(
+                new JWSHeader(JWSAlgorithm.HS256),
+                new JWTClaimsSet.Builder()
+                        .issuer(issuer)
+                        .audience(audience)
+                        .jwtID(UUID.randomUUID().toString())
+                        .subject("1")
+                        .claim("role", "USER")
+                        .claim("auth", List.of("ROLE_USER"))
+                        .claim("tenant_id", 1L)
+                        .claim("typ", "access")
+                        .issueTime(Date.from(issuedAt))
+                        .notBeforeTime(Date.from(notBefore))
+                        .expirationTime(Date.from(issuedAt.plusSeconds(60)))
+                        .build());
+        token.sign(new MACSigner(TEST_SECRET.getBytes(StandardCharsets.UTF_8)));
+        return token.serialize();
     }
 
     private static String signedTokenWithoutExpiration(Instant issuedAt) throws Exception {

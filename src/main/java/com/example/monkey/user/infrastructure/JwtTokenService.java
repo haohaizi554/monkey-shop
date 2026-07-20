@@ -65,6 +65,8 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
     private static final String TOKEN_TYPE_ACCESS = "access";
     private static final String TOKEN_TYPE_REFRESH = "refresh";
     private static final long DEFAULT_TENANT_ID = 1L;
+    private static final String JWT_ISSUER = "monkeyshop";
+    private static final String JWT_AUDIENCE = "monkeyshop-web";
     private static final String COOKIE_ACCESS_TOKEN = "access_token";
     private static final String COOKIE_REFRESH_TOKEN = "refresh_token";
     private static final String SECURITY_PREFIX = "Bearer ";
@@ -520,20 +522,30 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
             String tokenType = claims.getStringClaim(CLAIM_TOKEN_TYPE);
             Date issuedAtDate = claims.getIssueTime();
             Date expirationDate = claims.getExpirationTime();
+            Date notBeforeDate = claims.getNotBeforeTime();
             Instant expiresAt = expirationDate == null ? null : expirationDate.toInstant();
             Instant issuedAt = issuedAtDate == null ? null : issuedAtDate.toInstant();
 
             if (expirationDate == null
+                    || notBeforeDate == null
                     || !StringUtils.hasText(tokenId)
                     || userId <= 0
                     || !StringUtils.hasText(role)
                     || !StringUtils.hasText(tokenType)
-                    || issuedAt == null) {
+                    || issuedAt == null
+                    || !JWT_ISSUER.equals(claims.getIssuer())
+                    || claims.getAudience() == null
+                    || !claims.getAudience().contains(JWT_AUDIENCE)) {
                 recordJwtParseFailure(JWT_PARSE_REASON_MALFORMED, enforceRevocationState, null);
                 return Optional.empty();
             }
-            if (!expiresAt.isAfter(now())) {
+            Instant currentTime = now();
+            if (!expiresAt.isAfter(currentTime)) {
                 recordJwtParseFailure(JWT_PARSE_REASON_EXPIRED, enforceRevocationState, null);
+                return Optional.empty();
+            }
+            if (notBeforeDate.toInstant().isAfter(currentTime)) {
+                recordJwtParseFailure(JWT_PARSE_REASON_MALFORMED, enforceRevocationState, null);
                 return Optional.empty();
             }
             if (enforceRevocationState && isUserTokenRevoked(userId, issuedAt)) {
@@ -624,6 +636,8 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
             Instant now) {
         Instant expiry = now.plusSeconds(ttlSeconds);
         JWTClaimsSet claims = new JWTClaimsSet.Builder()
+                .issuer(JWT_ISSUER)
+                .audience(JWT_AUDIENCE)
                 .subject(userId.toString())
                 .claim(CLAIM_ROLE, role)
                 .claim(CLAIM_AUTHORITIES, authorities)
@@ -631,6 +645,7 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
                 .claim(CLAIM_TOKEN_TYPE, tokenType)
                 .jwtID(jti)
                 .issueTime(Date.from(now))
+                .notBeforeTime(Date.from(now))
                 .expirationTime(Date.from(expiry))
                 .build();
         SignedJWT signedJwt = new SignedJWT(
