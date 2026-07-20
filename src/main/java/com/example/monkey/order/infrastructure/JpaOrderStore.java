@@ -81,6 +81,16 @@ public class JpaOrderStore implements OrderStore {
     }
 
     @Override
+    public List<OrderStore.CheckoutOrderLineRecord> findLines(Long orderId) {
+        if (orderLineRepository == null) {
+            return List.of();
+        }
+        return orderLineRepository.findByOrderIdOrderByIdAsc(orderId).stream()
+                .map(OrderLineEntity::toRecord)
+                .toList();
+    }
+
+    @Override
     public List<OrderRecord> saveCheckoutOrders(List<CheckoutOrderRecord> orders) {
         if (orderLineRepository == null) {
             throw new IllegalStateException("Order line repository is required for checkout persistence");

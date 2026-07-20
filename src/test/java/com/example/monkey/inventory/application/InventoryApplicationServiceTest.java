@@ -97,6 +97,26 @@ class InventoryApplicationServiceTest {
     }
 
     @Test
+    void orderLifecycleDeductsReservationAndCompensatesExactReturnedQuantityIdempotently() {
+        InMemoryInventoryStore store = new InMemoryInventoryStore(
+                new WarehouseStock(101L, 2200000000001L, "BJ-01", "CN-BJ", 5, 0, 0, 0, 1, 0));
+        InventoryApplicationService service = service(store, Duration.ofMinutes(15));
+        service.reserve(new InventoryReserveRequestDto(101L, 2200000000001L, null, 10L, 3, "checkout-line-1"));
+
+        service.deductReservation("checkout-line-1");
+        service.compensateReturn(101L, 2200000000001L, 99L, 3, "return:99:1");
+        service.compensateReturn(101L, 2200000000001L, 99L, 3, "return:99:1");
+
+        WarehouseStock stock = store.stock(101L, 2200000000001L);
+        assertThat(stock.availableQuantity()).isEqualTo(5);
+        assertThat(stock.lockedQuantity()).isZero();
+        assertThat(stock.deductedQuantity()).isZero();
+        assertThat(store.reservation("checkout-line-1").status()).isEqualTo(InventoryReservationStatus.DEDUCTED);
+        assertThat(store.ledgerCount(InventoryOperation.DEDUCT)).isOne();
+        assertThat(store.ledgerCount(InventoryOperation.COMPENSATE)).isOne();
+    }
+
+    @Test
     void compensationReplayDoesNotIncreaseStockOrAuditTwice() {
         InMemoryInventoryStore store = new InMemoryInventoryStore(
                 new WarehouseStock(101L, 2200000000001L, "BJ-01", "CN-BJ", 5, 0, 4, 0, 1, 0));

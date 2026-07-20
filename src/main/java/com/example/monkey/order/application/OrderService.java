@@ -24,6 +24,7 @@ import com.example.monkey.order.domain.OrderStatus;
 import com.example.monkey.order.domain.OrderStore;
 import com.example.monkey.order.domain.OrderStore.AddressRecord;
 import com.example.monkey.order.domain.OrderStore.BuyerRecord;
+import com.example.monkey.order.domain.OrderStore.CheckoutOrderLineRecord;
 import com.example.monkey.order.domain.OrderStore.OrderPage;
 import com.example.monkey.order.domain.OrderStore.OrderPageRequest;
 import com.example.monkey.order.domain.OrderStore.OrderRecord;
@@ -37,6 +38,7 @@ import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
+import com.example.monkey.shared.domain.inventory.InventoryReservationLifecycle;
 import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.nio.charset.StandardCharsets;
@@ -50,6 +52,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.regex.Pattern;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -73,6 +76,7 @@ public class OrderService {
 
     private final OrderStore orderStore;
     private final OrderProductPort orderProductPort;
+    private final InventoryReservationLifecycle inventoryReservationLifecycle;
     private final OrderCustomerPort orderCustomerPort;
     private final OrderFulfillmentStore fulfillmentStore;
     private final OrderNumberGenerator orderNumberGenerator;
@@ -87,9 +91,11 @@ public class OrderService {
     private final Clock clock;
     private final Duration autoReceiveAfter;
 
+    @Autowired
     public OrderService(
             OrderStore orderStore,
             OrderProductPort orderProductPort,
+            InventoryReservationLifecycle inventoryReservationLifecycle,
             OrderCustomerPort orderCustomerPort,
             OrderNumberGenerator orderNumberGenerator,
             OrderIdempotencyService orderIdempotencyService,
@@ -104,6 +110,7 @@ public class OrderService {
             @Value("${app.order.auto-receive-after:P7D}") Duration autoReceiveAfter) {
         this.orderStore = orderStore;
         this.orderProductPort = orderProductPort;
+        this.inventoryReservationLifecycle = inventoryReservationLifecycle;
         this.orderCustomerPort = orderCustomerPort;
         this.fulfillmentStore = fulfillmentStore;
         this.orderNumberGenerator = orderNumberGenerator;
@@ -117,6 +124,39 @@ public class OrderService {
         this.auditService = auditService;
         this.clock = Clock.systemDefaultZone();
         this.autoReceiveAfter = autoReceiveAfter == null ? Duration.ofDays(7) : autoReceiveAfter;
+    }
+
+    OrderService(
+            OrderStore orderStore,
+            OrderProductPort orderProductPort,
+            OrderCustomerPort orderCustomerPort,
+            OrderNumberGenerator orderNumberGenerator,
+            OrderIdempotencyService orderIdempotencyService,
+            OrderLockManager orderLockManager,
+            OrderTransitionResolver orderTransitionResolver,
+            TransactionOperations transactionOperations,
+            ImageReferenceService imageReferenceService,
+            BusinessMetricsService businessMetricsService,
+            AuditService auditService,
+            OrderFulfillmentStore fulfillmentStore,
+            IdGenerator idGenerator,
+            Duration autoReceiveAfter) {
+        this(
+                orderStore,
+                orderProductPort,
+                InventoryReservationLifecycle.noop(),
+                orderCustomerPort,
+                orderNumberGenerator,
+                orderIdempotencyService,
+                orderLockManager,
+                orderTransitionResolver,
+                transactionOperations,
+                imageReferenceService,
+                businessMetricsService,
+                auditService,
+                fulfillmentStore,
+                idGenerator,
+                autoReceiveAfter);
     }
 
     @Transactional(readOnly = true)
@@ -383,16 +423,47 @@ public class OrderService {
     }
 
     private void restoreStockForOrder(OrderRecord order) {
-        Long productId = order.productId();
         Long orderId = order.id();
-        if (productId == null || orderId == null) {
+        if (orderId == null) {
             throw new BusinessException(ErrorCode.CONFLICT, "Product snapshot is missing or stale");
         }
-        if (!orderStore.recordStockRestore(orderId, productId)) {
+        List<CheckoutOrderLineRecord> checkoutLines = orderStore.findLines(orderId);
+        if (checkoutLines.isEmpty()) {
+            if (order.checkoutId() != null) {
+                throw new BusinessException(ErrorCode.CONFLICT, "Checkout inventory snapshot is missing or stale");
+            }
+            restoreLegacyStock(order, orderId);
             return;
         }
-        if (!orderProductPort.restoreProductStock(productId)) {
+        checkoutLines.forEach(OrderService::requireReturnableInventoryLine);
+        for (CheckoutOrderLineRecord line : checkoutLines) {
+            inventoryReservationLifecycle.compensateReturn(
+                    line.skuId(),
+                    line.warehouseId(),
+                    orderId,
+                    line.quantity(),
+                    "return:" + orderId + ":" + line.checkoutLineId());
+        }
+    }
+
+    private void restoreLegacyStock(OrderRecord order, Long orderId) {
+        Long productId = order.productId();
+        if (productId == null) {
             throw new BusinessException(ErrorCode.CONFLICT, "Product snapshot is missing or stale");
+        }
+        if (orderStore.recordStockRestore(orderId, productId) && !orderProductPort.restoreProductStock(productId)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Product snapshot is missing or stale");
+        }
+    }
+
+    private static void requireReturnableInventoryLine(CheckoutOrderLineRecord line) {
+        if (line == null
+                || line.checkoutLineId() == null
+                || line.skuId() == null
+                || line.warehouseId() == null
+                || line.quantity() <= 0
+                || !StringUtils.hasText(line.reservationKey())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Checkout inventory snapshot is missing or stale");
         }
     }
 

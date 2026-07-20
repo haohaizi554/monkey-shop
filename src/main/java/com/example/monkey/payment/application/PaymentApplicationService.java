@@ -4,6 +4,7 @@ import static com.example.monkey.shared.application.security.AuthenticatedPrinci
 
 import com.example.monkey.order.domain.OrderStatus;
 import com.example.monkey.order.domain.OrderStore;
+import com.example.monkey.order.domain.OrderStore.CheckoutOrderLineRecord;
 import com.example.monkey.order.domain.OrderStore.OrderRecord;
 import com.example.monkey.payment.application.dto.PaymentCallbackRequestDto;
 import com.example.monkey.payment.application.dto.PaymentCreateRequestDto;
@@ -45,6 +46,7 @@ import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
+import com.example.monkey.shared.domain.inventory.InventoryReservationLifecycle;
 import com.example.monkey.user.domain.UserAccountStore;
 import com.example.monkey.user.domain.UserAccountStore.UserAccount;
 import com.example.monkey.user.domain.UserMfaVerifier;
@@ -104,6 +106,7 @@ public class PaymentApplicationService {
     private final PaymentCallbackReplayGuard callbackReplayGuard;
     private final PaymentTransitionResolver transitionResolver;
     private final OrderStore orderStore;
+    private final InventoryReservationLifecycle inventoryReservationLifecycle;
     private final UserAccountStore userAccountStore;
     private final UserMfaVerifier userMfaVerifier;
     private final IdGenerator idGenerator;
@@ -125,6 +128,7 @@ public class PaymentApplicationService {
             PaymentCallbackReplayGuard callbackReplayGuard,
             PaymentTransitionResolver transitionResolver,
             OrderStore orderStore,
+            InventoryReservationLifecycle inventoryReservationLifecycle,
             UserAccountStore userAccountStore,
             UserMfaVerifier userMfaVerifier,
             IdGenerator idGenerator,
@@ -143,6 +147,7 @@ public class PaymentApplicationService {
                 callbackReplayGuard,
                 transitionResolver,
                 orderStore,
+                inventoryReservationLifecycle,
                 userAccountStore,
                 userMfaVerifier,
                 idGenerator,
@@ -164,6 +169,7 @@ public class PaymentApplicationService {
             PaymentCallbackReplayGuard callbackReplayGuard,
             PaymentTransitionResolver transitionResolver,
             OrderStore orderStore,
+            InventoryReservationLifecycle inventoryReservationLifecycle,
             UserAccountStore userAccountStore,
             UserMfaVerifier userMfaVerifier,
             IdGenerator idGenerator,
@@ -180,6 +186,7 @@ public class PaymentApplicationService {
                 callbackReplayGuard,
                 transitionResolver,
                 orderStore,
+                inventoryReservationLifecycle,
                 userAccountStore,
                 userMfaVerifier,
                 idGenerator,
@@ -201,6 +208,7 @@ public class PaymentApplicationService {
             PaymentCallbackReplayGuard callbackReplayGuard,
             PaymentTransitionResolver transitionResolver,
             OrderStore orderStore,
+            InventoryReservationLifecycle inventoryReservationLifecycle,
             UserAccountStore userAccountStore,
             UserMfaVerifier userMfaVerifier,
             IdGenerator idGenerator,
@@ -218,6 +226,7 @@ public class PaymentApplicationService {
                 callbackReplayGuard,
                 transitionResolver,
                 orderStore,
+                inventoryReservationLifecycle,
                 userAccountStore,
                 userMfaVerifier,
                 idGenerator,
@@ -239,6 +248,7 @@ public class PaymentApplicationService {
             PaymentCallbackReplayGuard callbackReplayGuard,
             PaymentTransitionResolver transitionResolver,
             OrderStore orderStore,
+            InventoryReservationLifecycle inventoryReservationLifecycle,
             UserAccountStore userAccountStore,
             UserMfaVerifier userMfaVerifier,
             IdGenerator idGenerator,
@@ -257,6 +267,7 @@ public class PaymentApplicationService {
                 callbackReplayGuard,
                 transitionResolver,
                 orderStore,
+                inventoryReservationLifecycle,
                 userAccountStore,
                 userMfaVerifier,
                 idGenerator,
@@ -278,6 +289,7 @@ public class PaymentApplicationService {
             PaymentCallbackReplayGuard callbackReplayGuard,
             PaymentTransitionResolver transitionResolver,
             OrderStore orderStore,
+            InventoryReservationLifecycle inventoryReservationLifecycle,
             UserAccountStore userAccountStore,
             UserMfaVerifier userMfaVerifier,
             IdGenerator idGenerator,
@@ -296,6 +308,7 @@ public class PaymentApplicationService {
         this.callbackReplayGuard = callbackReplayGuard;
         this.transitionResolver = transitionResolver;
         this.orderStore = orderStore;
+        this.inventoryReservationLifecycle = inventoryReservationLifecycle;
         this.userAccountStore = userAccountStore;
         this.userMfaVerifier = userMfaVerifier;
         this.idGenerator = idGenerator;
@@ -1449,6 +1462,7 @@ public class PaymentApplicationService {
             return payment;
         }
         transitionResolver.nextStatus(payment.status(), PaymentEvent.CONFIRM);
+        List<CheckoutOrderLineRecord> checkoutLines = checkoutInventoryLines(payment.orderId());
         PaymentOrder updated = paymentStore.savePayment(payment.markPaid(providerTradeNo, now()));
         paymentStore
                 .findLedger(payment.id(), PaymentLedgerType.PAY, requestKey)
@@ -1464,6 +1478,7 @@ public class PaymentApplicationService {
                         providerTradeNo,
                         now())));
         markOrderPaid(payment.orderId());
+        deductCheckoutInventory(checkoutLines);
         audit(
                 AuditService.PAYMENT_PAID,
                 payment.userId(),
@@ -1471,6 +1486,33 @@ public class PaymentApplicationService {
                 null,
                 "amount=" + payment.amount() + ",providerTradeNo=" + providerTradeNo);
         return updated;
+    }
+
+    private List<CheckoutOrderLineRecord> checkoutInventoryLines(Long orderId) {
+        List<CheckoutOrderLineRecord> checkoutLines = orderStore.findLines(orderId);
+        if (checkoutLines.isEmpty()
+                && orderStore
+                        .findById(orderId)
+                        .map(order -> order.checkoutId() != null)
+                        .orElse(false)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Checkout inventory snapshot is missing or stale");
+        }
+        for (CheckoutOrderLineRecord line : checkoutLines) {
+            if (line == null
+                    || line.skuId() == null
+                    || line.warehouseId() == null
+                    || line.quantity() <= 0
+                    || !StringUtils.hasText(line.reservationKey())) {
+                throw new BusinessException(ErrorCode.CONFLICT, "Checkout inventory snapshot is missing or stale");
+            }
+        }
+        return checkoutLines;
+    }
+
+    private void deductCheckoutInventory(List<CheckoutOrderLineRecord> checkoutLines) {
+        for (CheckoutOrderLineRecord line : checkoutLines) {
+            inventoryReservationLifecycle.deductReservation(line.reservationKey());
+        }
     }
 
     private void markOrderPaid(Long orderId) {

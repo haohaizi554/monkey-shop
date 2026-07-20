@@ -88,6 +88,24 @@ public class OrderLineEntity extends TenantScopedJpaEntity {
         return entity;
     }
 
+    CheckoutOrderLineRecord toRecord() {
+        return new CheckoutOrderLineRecord(
+                checkoutLineId,
+                skuId,
+                shopId,
+                categoryId,
+                productName,
+                productImage,
+                quantity,
+                unitPrice,
+                originalAmount,
+                discountAmount,
+                payableAmount,
+                couponCodes,
+                reservationKey,
+                warehouseId);
+    }
+
     public Long getId() {
         return id;
     }

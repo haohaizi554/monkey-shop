@@ -25,6 +25,7 @@ import com.example.monkey.order.domain.OrderStatus;
 import com.example.monkey.order.domain.OrderStore;
 import com.example.monkey.order.domain.OrderStore.AddressRecord;
 import com.example.monkey.order.domain.OrderStore.BuyerRecord;
+import com.example.monkey.order.domain.OrderStore.CheckoutOrderLineRecord;
 import com.example.monkey.order.domain.OrderStore.OrderPage;
 import com.example.monkey.order.domain.OrderStore.OrderPageRequest;
 import com.example.monkey.order.domain.OrderStore.OrderRecord;
@@ -38,6 +39,7 @@ import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
+import com.example.monkey.shared.domain.inventory.InventoryReservationLifecycle;
 import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -62,6 +64,9 @@ class OrderServiceTest {
 
     @Mock
     private OrderProductPort orderProductPort;
+
+    @Mock
+    private InventoryReservationLifecycle inventoryReservationLifecycle;
 
     @Mock
     private OrderCustomerPort orderCustomerPort;
@@ -97,6 +102,7 @@ class OrderServiceTest {
         orderService = new OrderService(
                 orderStore,
                 orderProductPort,
+                inventoryReservationLifecycle,
                 orderCustomerPort,
                 orderNumberGenerator,
                 orderIdempotencyService,
@@ -506,6 +512,54 @@ class OrderServiceTest {
     }
 
     @Test
+    void confirmReturnCompensatesEveryPersistedCheckoutLineWithItsExactQuantity() {
+        when(orderStore.findById(10L)).thenReturn(Optional.of(orderWithStatus(OrderStatus.RETURN_SHIPPING)));
+        when(orderStore.findLines(10L))
+                .thenReturn(List.of(
+                        checkoutLine(101L, 1L, 2, "cart:42:return:101"),
+                        checkoutLine(202L, 2L, 3, "cart:42:return:202")));
+
+        OrderResponseDto result = orderService.confirmReturn(10L);
+
+        assertThat(result.status()).isEqualTo(OrderStatus.REFUNDED.label());
+        verify(inventoryReservationLifecycle).compensateReturn(101L, 1L, 10L, 2, "return:10:101");
+        verify(inventoryReservationLifecycle).compensateReturn(202L, 2L, 10L, 3, "return:10:202");
+        verify(orderStore, never()).recordStockRestore(any(), any());
+        verify(orderProductPort, never()).restoreProductStock(any());
+    }
+
+    @Test
+    void confirmReturnRejectsCheckoutOrderWithoutPersistedLines() {
+        when(orderStore.findById(10L)).thenReturn(Optional.of(checkoutOrderWithStatus(OrderStatus.RETURN_SHIPPING)));
+
+        assertThatThrownBy(() -> orderService.confirmReturn(10L))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+
+        verifyNoInteractions(inventoryReservationLifecycle);
+        verify(orderStore, never()).recordStockRestore(any(), any());
+        verify(orderProductPort, never()).restoreProductStock(any());
+        verify(orderStore, never()).transitionStatus(any(), any(), any(), any());
+    }
+
+    @Test
+    void confirmReturnValidatesEveryCheckoutLineBeforeCompensatingAnyStock() {
+        CheckoutOrderLineRecord invalidLine = checkoutLine(202L, null, 3, "cart:42:return:202");
+        when(orderStore.findById(10L)).thenReturn(Optional.of(checkoutOrderWithStatus(OrderStatus.RETURN_SHIPPING)));
+        when(orderStore.findLines(10L))
+                .thenReturn(List.of(checkoutLine(101L, 1L, 2, "cart:42:return:101"), invalidLine));
+
+        assertThatThrownBy(() -> orderService.confirmReturn(10L))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+
+        verifyNoInteractions(inventoryReservationLifecycle);
+        verify(orderStore, never()).transitionStatus(any(), any(), any(), any());
+    }
+
+    @Test
     void confirmReturnSkipsDuplicateStockRestoreWhenLedgerAlreadyExists() {
         when(orderStore.findById(10L)).thenReturn(Optional.of(orderWithStatus(OrderStatus.RETURN_SHIPPING)));
         when(orderStore.recordStockRestore(10L, 7L)).thenReturn(false);
@@ -596,6 +650,26 @@ class OrderServiceTest {
         return captor.getValue();
     }
 
+    private static CheckoutOrderLineRecord checkoutLine(
+            Long skuId, Long warehouseId, int quantity, String reservationKey) {
+        BigDecimal amount = BigDecimal.TEN.multiply(BigDecimal.valueOf(quantity));
+        return new CheckoutOrderLineRecord(
+                skuId,
+                skuId,
+                9L,
+                3L,
+                "SKU-" + skuId,
+                "/images/product/" + skuId + ".png",
+                quantity,
+                BigDecimal.TEN,
+                amount,
+                BigDecimal.ZERO,
+                amount,
+                "",
+                reservationKey,
+                warehouseId);
+    }
+
     private static ProductRecord product() {
         return new ProductRecord(7L, "Momo", "/images/product/momo.png", new BigDecimal("199.99"), "calm", 5);
     }
@@ -631,6 +705,34 @@ class OrderServiceTest {
                 status.label(),
                 LocalDateTime.of(2026, 6, 28, 14, 0),
                 false);
+    }
+
+    private static OrderRecord checkoutOrderWithStatus(OrderStatus status) {
+        OrderRecord order = orderWithStatus(status);
+        return new OrderRecord(
+                order.id(),
+                order.orderNo(),
+                order.userId(),
+                order.buyerName(),
+                order.buyerAvatar(),
+                order.productId(),
+                order.productName(),
+                order.productImage(),
+                order.price(),
+                order.description(),
+                order.receiverName(),
+                order.receiverPhone(),
+                order.addressSnapshot(),
+                order.shippingTime(),
+                order.status(),
+                order.createTime(),
+                order.userHidden(),
+                900L,
+                901L,
+                9L,
+                order.price(),
+                BigDecimal.ZERO,
+                "checkout-key");
     }
 
     private static OrderRecord orderWithoutProductSnapshot() {

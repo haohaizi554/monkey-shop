@@ -17,6 +17,7 @@ import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
+import com.example.monkey.shared.domain.inventory.InventoryReservationLifecycle;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.time.Clock;
 import java.time.Duration;
@@ -33,7 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 @Service
-public class InventoryApplicationService {
+public class InventoryApplicationService implements InventoryReservationLifecycle {
 
     private static final Duration DEFAULT_RESERVATION_TTL = Duration.ofMinutes(15);
     private static final int EXPIRY_BATCH_SIZE = 100;
@@ -129,6 +130,12 @@ public class InventoryApplicationService {
         });
     }
 
+    @Override
+    @Transactional
+    public void deductReservation(String reservationKey) {
+        deduct(reservationKey);
+    }
+
     @WithSpan("inventory.compensate")
     @Transactional
     public WarehouseStockResponseDto compensate(InventoryCompensateRequestDto request) {
@@ -158,6 +165,12 @@ public class InventoryApplicationService {
                     "quantity=" + request.quantity() + ",orderId=" + request.orderId());
             return InventoryDtoAssembler.toResponse(savedStock);
         });
+    }
+
+    @Override
+    @Transactional
+    public void compensateReturn(Long skuId, Long warehouseId, Long orderId, int quantity, String idempotencyKey) {
+        compensate(new InventoryCompensateRequestDto(skuId, warehouseId, orderId, quantity, idempotencyKey));
     }
 
     @WithSpan("inventory.stock")

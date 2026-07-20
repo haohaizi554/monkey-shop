@@ -24,6 +24,10 @@ public interface OrderStore {
         return List.of();
     }
 
+    default List<CheckoutOrderLineRecord> findLines(Long orderId) {
+        return List.of();
+    }
+
     default List<OrderRecord> saveCheckoutOrders(List<CheckoutOrderRecord> orders) {
         throw new UnsupportedOperationException("Checkout order persistence is not configured");
     }

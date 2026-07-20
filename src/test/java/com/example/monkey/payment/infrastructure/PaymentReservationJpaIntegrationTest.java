@@ -27,6 +27,7 @@ import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
+import com.example.monkey.shared.domain.inventory.InventoryReservationLifecycle;
 import com.example.monkey.shared.infrastructure.observability.AuditLogRepository;
 import com.example.monkey.shared.infrastructure.observability.JpaAuditLogStore;
 import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
@@ -338,6 +339,7 @@ class PaymentReservationJpaIntegrationTest {
                 replayGuard,
                 resolver,
                 mock(OrderStore.class),
+                InventoryReservationLifecycle.noop(),
                 mock(UserAccountStore.class),
                 mock(UserMfaVerifier.class),
                 idGenerator,

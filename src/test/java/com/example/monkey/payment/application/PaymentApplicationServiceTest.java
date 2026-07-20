@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -14,6 +15,7 @@ import static org.mockito.Mockito.when;
 
 import com.example.monkey.order.domain.OrderStatus;
 import com.example.monkey.order.domain.OrderStore;
+import com.example.monkey.order.domain.OrderStore.CheckoutOrderLineRecord;
 import com.example.monkey.order.domain.OrderStore.OrderRecord;
 import com.example.monkey.payment.application.dto.PaymentCallbackRequestDto;
 import com.example.monkey.payment.application.dto.PaymentCreateRequestDto;
@@ -54,6 +56,7 @@ import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
+import com.example.monkey.shared.domain.inventory.InventoryReservationLifecycle;
 import com.example.monkey.user.domain.UserAccountStore;
 import com.example.monkey.user.domain.UserAccountStore.UserAccount;
 import com.example.monkey.user.domain.UserMfaVerifier;
@@ -112,6 +115,9 @@ class PaymentApplicationServiceTest {
     private OrderStore orderStore;
 
     @Mock
+    private InventoryReservationLifecycle inventoryReservationLifecycle;
+
+    @Mock
     private UserAccountStore userAccountStore;
 
     @Mock
@@ -150,6 +156,7 @@ class PaymentApplicationServiceTest {
                 new InMemoryCallbackReplayGuard(),
                 new PolicyPaymentTransitionResolver(),
                 orderStore,
+                inventoryReservationLifecycle,
                 userAccountStore,
                 userMfaVerifier,
                 idGenerator,
@@ -1147,6 +1154,44 @@ class PaymentApplicationServiceTest {
     }
 
     @Test
+    void successfulCallbackDeductsEveryPersistedCheckoutReservationExactlyOnce() {
+        paymentStore.savePayment(pendingPayment());
+        when(orderStore.transitionStatus(10L, OrderStatus.PENDING_PAYMENT.label(), OrderStatus.PAID.label(), null))
+                .thenReturn(1);
+        when(orderStore.findLines(10L))
+                .thenReturn(List.of(
+                        checkoutLine(101L, 1L, 2, "cart:42:pay:101"), checkoutLine(202L, 2L, 3, "cart:42:pay:202")));
+        when(idGenerator.nextId()).thenReturn(2000L);
+        PaymentCallbackRequestDto request = callback("cb-stock", "SUCCESS", new BigDecimal("100.00"));
+
+        service.handleCallback(request, "127.0.0.1");
+        service.handleCallback(request, "127.0.0.1");
+
+        verify(inventoryReservationLifecycle).deductReservation("cart:42:pay:101");
+        verify(inventoryReservationLifecycle).deductReservation("cart:42:pay:202");
+    }
+
+    @Test
+    void successfulCallbackRejectsCheckoutOrderWithoutPersistedLinesBeforeStateChange() {
+        paymentStore.savePayment(pendingPayment());
+        when(orderStore.findById(10L)).thenReturn(Optional.of(checkoutOrderForId(10L, new BigDecimal("100.00"))));
+
+        assertThatThrownBy(() -> service.handleCallback(
+                        callback("cb-missing-lines", "SUCCESS", new BigDecimal("100.00")), "127.0.0.1"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+
+        assertThat(paymentStore.findByPaymentNo("PAY100"))
+                .get()
+                .extracting(PaymentOrder::status)
+                .isEqualTo(PaymentStatus.PENDING);
+        verify(orderStore, never())
+                .transitionStatus(10L, OrderStatus.PENDING_PAYMENT.label(), OrderStatus.PAID.label(), null);
+        verifyNoInteractions(inventoryReservationLifecycle);
+    }
+
+    @Test
     void callbackAcceptsAnOrderThatAlreadyAdvancedBeyondPendingPayment() {
         paymentStore.savePayment(pendingPayment());
         when(orderStore.findById(10L)).thenReturn(Optional.of(order(new BigDecimal("100.00"))));
@@ -1164,6 +1209,7 @@ class PaymentApplicationServiceTest {
         paymentStore.savePayment(pendingPayment());
         OrderRecord corruptOrder = mock(OrderRecord.class);
         when(corruptOrder.status()).thenReturn("CORRUPT");
+        when(corruptOrder.checkoutId()).thenReturn(null);
         when(orderStore.findById(10L)).thenReturn(Optional.of(corruptOrder));
         when(idGenerator.nextId()).thenReturn(2002L);
 
@@ -1996,6 +2042,54 @@ class PaymentApplicationServiceTest {
                 "PAID",
                 LocalDateTime.parse("2026-07-04T08:00:00"),
                 false);
+    }
+
+    private static OrderRecord checkoutOrderForId(Long orderId, BigDecimal amount) {
+        OrderRecord order = orderForId(orderId, amount);
+        return new OrderRecord(
+                order.id(),
+                order.orderNo(),
+                order.userId(),
+                order.buyerName(),
+                order.buyerAvatar(),
+                order.productId(),
+                order.productName(),
+                order.productImage(),
+                order.price(),
+                order.description(),
+                order.receiverName(),
+                order.receiverPhone(),
+                order.addressSnapshot(),
+                order.shippingTime(),
+                order.status(),
+                order.createTime(),
+                order.userHidden(),
+                900L,
+                901L,
+                9L,
+                order.price(),
+                BigDecimal.ZERO,
+                "checkout-key");
+    }
+
+    private static CheckoutOrderLineRecord checkoutLine(
+            Long skuId, Long warehouseId, int quantity, String reservationKey) {
+        BigDecimal amount = BigDecimal.TEN.multiply(BigDecimal.valueOf(quantity));
+        return new CheckoutOrderLineRecord(
+                skuId,
+                skuId,
+                9L,
+                3L,
+                "SKU-" + skuId,
+                "/images/product/" + skuId + ".png",
+                quantity,
+                BigDecimal.TEN,
+                amount,
+                BigDecimal.ZERO,
+                amount,
+                "",
+                reservationKey,
+                warehouseId);
     }
 
     private static UserAccount account(boolean mfaEnabled) {

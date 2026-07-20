@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.order.domain.OrderStatus;
+import com.example.monkey.order.domain.OrderStore.CheckoutOrderLineRecord;
 import com.example.monkey.order.domain.OrderStore.OrderPage;
 import com.example.monkey.order.domain.OrderStore.OrderPageRequest;
 import com.example.monkey.order.domain.OrderStore.OrderRecord;
@@ -36,11 +37,14 @@ class JpaOrderStoreTest {
     @Mock
     private StockLogRepository stockLogRepository;
 
+    @Mock
+    private OrderLineRepository orderLineRepository;
+
     private JpaOrderStore store;
 
     @BeforeEach
     void setUp() {
-        store = new JpaOrderStore(orderRepository, stockLogRepository);
+        store = new JpaOrderStore(orderRepository, stockLogRepository, orderLineRepository);
     }
 
     @Test
@@ -119,6 +123,16 @@ class JpaOrderStoreTest {
     }
 
     @Test
+    void findLinesReturnsEveryPersistedCheckoutLineWithInventoryCoordinates() {
+        CheckoutOrderLineRecord first = checkoutLine(101L, 1L, 2, "cart:42:pay:101");
+        CheckoutOrderLineRecord second = checkoutLine(202L, 2L, 3, "cart:42:pay:202");
+        when(orderLineRepository.findByOrderIdOrderByIdAsc(10L))
+                .thenReturn(List.of(OrderLineEntity.from(10L, first), OrderLineEntity.from(10L, second)));
+
+        assertThat(store.findLines(10L)).containsExactly(first, second);
+    }
+
+    @Test
     void recordStockRestoreDelegatesToAtomicRepository() {
         when(stockLogRepository.recordRestore(10L, 7L)).thenReturn(1);
 
@@ -172,6 +186,26 @@ class JpaOrderStoreTest {
         OrderPage page = new OrderPage(null, 0, 5, 0, 0, true, true);
 
         assertThat(page.content()).isEmpty();
+    }
+
+    private static CheckoutOrderLineRecord checkoutLine(
+            Long skuId, Long warehouseId, int quantity, String reservationKey) {
+        BigDecimal amount = BigDecimal.TEN.multiply(BigDecimal.valueOf(quantity));
+        return new CheckoutOrderLineRecord(
+                skuId,
+                skuId,
+                9L,
+                3L,
+                "SKU-" + skuId,
+                "/images/product/" + skuId + ".png",
+                quantity,
+                BigDecimal.TEN,
+                amount,
+                BigDecimal.ZERO,
+                amount,
+                "",
+                reservationKey,
+                warehouseId);
     }
 
     private Pageable captureVisiblePageable() {
