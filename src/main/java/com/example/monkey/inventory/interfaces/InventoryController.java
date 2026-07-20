@@ -34,7 +34,7 @@ public class InventoryController {
     }
 
     @PostMapping("/reservations")
-    @PreAuthorize("hasAuthority('ORDER_CREATE')")
+    @PreAuthorize("hasAuthority('ORDER_MANAGE')")
     public Result<InventoryReservationResponseDto> reserve(@Valid @RequestBody InventoryReserveRequestDto request) {
         return Result.success(inventoryApplicationService.reserve(request));
     }

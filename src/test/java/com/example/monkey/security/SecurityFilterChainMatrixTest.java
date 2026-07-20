@@ -139,14 +139,14 @@ class SecurityFilterChainMatrixTest {
                 200,
                 "coupon return with ORDER_MANAGE");
         Stream<Arguments> inventoryReleaseDenied = aliases(
-                List.of("/inventory/reservations/r-1/release", "/inventory/compensations"),
+                List.of("/inventory/reservations", "/inventory/reservations/r-1/release", "/inventory/compensations"),
                 HttpMethod.POST,
                 PrincipalKind.USER,
                 true,
                 403,
                 "inventory compensation without ORDER_MANAGE");
         Stream<Arguments> inventoryReleaseAllowed = aliases(
-                List.of("/inventory/reservations/r-1/release", "/inventory/compensations"),
+                List.of("/inventory/reservations", "/inventory/reservations/r-1/release", "/inventory/compensations"),
                 HttpMethod.POST,
                 PrincipalKind.ORDER_MANAGER,
                 true,
@@ -322,6 +322,8 @@ class SecurityFilterChainMatrixTest {
         }
 
         @PostMapping({
+            "/api/inventory/reservations",
+            "/api/v1/inventory/reservations",
             "/api/inventory/reservations/{key}/release",
             "/api/v1/inventory/reservations/{key}/release",
             "/api/inventory/compensations",

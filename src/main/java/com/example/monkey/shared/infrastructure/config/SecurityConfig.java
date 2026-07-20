@@ -268,7 +268,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/orders/create", "/api/v1/orders/create")
                         .hasAuthority("ORDER_CREATE")
                         .requestMatchers("/api/inventory/reservations", "/api/v1/inventory/reservations")
-                        .hasAuthority("ORDER_CREATE")
+                        .hasAuthority("ORDER_MANAGE")
                         .requestMatchers(
                                 "/api/inventory/reservations/*/release", "/api/v1/inventory/reservations/*/release")
                         .hasAuthority("ORDER_MANAGE")

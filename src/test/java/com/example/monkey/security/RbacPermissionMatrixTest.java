@@ -100,6 +100,12 @@ class RbacPermissionMatrixTest {
                 .contains("hasAuthority('PRODUCT_MANAGE')");
         assertThat(between(
                         inventory,
+                        "@PostMapping(\"/reservations\")",
+                        "@PostMapping(\"/reservations/{reservationKey}/release\")"))
+                .contains("hasAuthority('ORDER_MANAGE')")
+                .doesNotContain("ORDER_CREATE");
+        assertThat(between(
+                        inventory,
                         "@PostMapping(\"/reservations/{reservationKey}/release\")",
                         "@PostMapping(\"/reservations/{reservationKey}/deduct\")"))
                 .contains("hasAuthority('ORDER_MANAGE')")

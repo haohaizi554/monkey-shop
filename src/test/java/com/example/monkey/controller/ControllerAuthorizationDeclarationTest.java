@@ -78,6 +78,10 @@ class ControllerAuthorizationDeclarationTest {
                 "hasAuthority('PRODUCT_MANAGE')");
         assertAuthorization(
                 com.example.monkey.inventory.interfaces.InventoryController.class,
+                "reserve",
+                "hasAuthority('ORDER_MANAGE')");
+        assertAuthorization(
+                com.example.monkey.inventory.interfaces.InventoryController.class,
                 "release",
                 "hasAuthority('ORDER_MANAGE')");
         assertAuthorization(
