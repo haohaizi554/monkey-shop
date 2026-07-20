@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -21,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.script.RedisScript;
 
 class ApiRateLimitServiceTest {
 
@@ -81,11 +83,32 @@ class ApiRateLimitServiceTest {
     }
 
     @Test
+    void redisCounterIncrementAndExpiryUseSingleAtomicScript() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        whenAtomicIncrement(redisTemplate).thenReturn(1L);
+        ApiRateLimitService service = new ApiRateLimitService(redisTemplate, true, true, Duration.ofHours(24));
+
+        assertThat(service.consume(RateLimitPolicy.REGISTER, "203.0.113.10", "anonymous")
+                        .allowed())
+                .isTrue();
+
+        ArgumentCaptor<RedisScript<Long>> script = ArgumentCaptor.forClass(RedisScript.class);
+        ArgumentCaptor<java.util.List<String>> keys = ArgumentCaptor.forClass(java.util.List.class);
+        verify(redisTemplate)
+                .execute(
+                        script.capture(),
+                        keys.capture(),
+                        eq(Long.toString(Duration.ofHours(1).toMillis())));
+        assertThat(script.getValue().getScriptAsString()).contains("INCR", "PTTL", "PEXPIRE");
+        assertThat(keys.getValue()).singleElement().asString().startsWith("api:rate:register:");
+        verify(redisTemplate, never()).expire(anyString(), any(Duration.class));
+        verify(redisTemplate, never()).opsForValue();
+    }
+
+    @Test
     void redisRegistrationIdentityKeysContainOnlyHmacValues() {
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        ValueOperations<String, String> values = mockRedisValues(redisTemplate);
-        when(values.increment(org.mockito.ArgumentMatchers.startsWith("api:rate:register:")))
-                .thenReturn(1L, 1L);
+        whenAtomicIncrement(redisTemplate).thenReturn(1L, 1L);
         PiiCryptoService piiCryptoService = mock(PiiCryptoService.class);
         String usernameHmac = "a".repeat(64);
         String phoneHmac = "b".repeat(64);
@@ -99,13 +122,16 @@ class ApiRateLimitServiceTest {
         service.consumeRegistrationIdentity(ApiRateLimiter.RegistrationIdentity.USERNAME, "Alice1");
         service.consumeRegistrationIdentity(ApiRateLimiter.RegistrationIdentity.PHONE, "13800138000");
 
-        ArgumentCaptor<String> keys = ArgumentCaptor.forClass(String.class);
-        verify(values, times(2)).increment(keys.capture());
+        ArgumentCaptor<java.util.List<String>> keys = ArgumentCaptor.forClass(java.util.List.class);
+        verify(redisTemplate, times(2))
+                .execute(
+                        org.mockito.ArgumentMatchers.<RedisScript<Long>>any(),
+                        keys.capture(),
+                        eq(Long.toString(Duration.ofHours(1).toMillis())));
         assertThat(keys.getAllValues())
+                .extracting(keyList -> keyList.get(0))
                 .containsExactly("api:rate:register:username:" + usernameHmac, "api:rate:register:phone:" + phoneHmac)
                 .allSatisfy(key -> assertThat(key).doesNotContain("Alice1", "alice1", "13800138000"));
-        verify(redisTemplate, times(2))
-                .expire(org.mockito.ArgumentMatchers.startsWith("api:rate:register:"), eq(Duration.ofHours(1)));
     }
 
     @Test
@@ -199,9 +225,7 @@ class ApiRateLimitServiceTest {
     @Test
     void requiredRedisStateFailsClosedWhenRedisCounterFails() {
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        ValueOperations<String, String> values = mockRedisValues(redisTemplate);
-        when(values.increment(org.mockito.ArgumentMatchers.startsWith("api:rate:")))
-                .thenThrow(new RuntimeException("redis unavailable"));
+        whenAtomicIncrement(redisTemplate).thenThrow(new RuntimeException("redis unavailable"));
         ApiRateLimitService service = new ApiRateLimitService(redisTemplate, true, true, Duration.ofHours(24));
 
         assertThatExceptionOfType(BusinessException.class)
@@ -210,26 +234,25 @@ class ApiRateLimitServiceTest {
     }
 
     @Test
-    void redisCounterSetsTtlOnFirstAllowedHit() {
+    void redisCounterPassesTtlToAtomicScriptForEveryDimension() {
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        ValueOperations<String, String> values = mockRedisValues(redisTemplate);
-        when(values.increment(org.mockito.ArgumentMatchers.startsWith("api:rate:")))
-                .thenReturn(1L, 1L, 1L);
+        whenAtomicIncrement(redisTemplate).thenReturn(1L, 1L, 1L);
         ApiRateLimitService service = new ApiRateLimitService(redisTemplate, true, true, Duration.ofHours(24));
 
         RateLimitDecision decision = service.consume(RateLimitPolicy.LOGIN, "203.0.113.10", "alice");
 
         assertThat(decision.allowed()).isTrue();
         verify(redisTemplate, times(3))
-                .expire(org.mockito.ArgumentMatchers.startsWith("api:rate:"), eq(Duration.ofMinutes(1)));
+                .execute(
+                        org.mockito.ArgumentMatchers.<RedisScript<Long>>any(),
+                        org.mockito.ArgumentMatchers.anyList(),
+                        eq(Long.toString(Duration.ofMinutes(1).toMillis())));
     }
 
     @Test
     void redisCounterRejectsWithRedisTtl() {
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        ValueOperations<String, String> values = mockRedisValues(redisTemplate);
-        when(values.increment(org.mockito.ArgumentMatchers.startsWith("api:rate:")))
-                .thenReturn(RateLimitPolicy.LOGIN.capacity() + 1);
+        whenAtomicIncrement(redisTemplate).thenReturn(RateLimitPolicy.LOGIN.capacity() + 1);
         when(redisTemplate.getExpire(org.mockito.ArgumentMatchers.startsWith("api:rate:")))
                 .thenReturn(7L);
         ApiRateLimitService service = new ApiRateLimitService(redisTemplate, true, true, Duration.ofHours(24));
@@ -244,9 +267,7 @@ class ApiRateLimitServiceTest {
     @Test
     void requiredRedisStateFailsClosedWhenRetryAfterLookupFails() {
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        ValueOperations<String, String> values = mockRedisValues(redisTemplate);
-        when(values.increment(org.mockito.ArgumentMatchers.startsWith("api:rate:")))
-                .thenReturn(RateLimitPolicy.LOGIN.capacity() + 1);
+        whenAtomicIncrement(redisTemplate).thenReturn(RateLimitPolicy.LOGIN.capacity() + 1);
         when(redisTemplate.getExpire(org.mockito.ArgumentMatchers.startsWith("api:rate:")))
                 .thenThrow(new RuntimeException("redis unavailable"));
         ApiRateLimitService service = new ApiRateLimitService(redisTemplate, true, true, Duration.ofHours(24));
@@ -312,6 +333,11 @@ class ApiRateLimitServiceTest {
         assertThatExceptionOfType(BusinessException.class)
                 .isThrownBy(() -> service.blockForHoneypot("203.0.113.66"))
                 .satisfies(exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.SERVICE_UNAVAILABLE));
+    }
+
+    private static org.mockito.stubbing.OngoingStubbing<Long> whenAtomicIncrement(StringRedisTemplate redisTemplate) {
+        return when(redisTemplate.execute(
+                org.mockito.ArgumentMatchers.<RedisScript<Long>>any(), org.mockito.ArgumentMatchers.anyList(), any()));
     }
 
     @SuppressWarnings("unchecked")
