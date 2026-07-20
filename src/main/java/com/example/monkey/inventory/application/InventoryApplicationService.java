@@ -135,8 +135,7 @@ public class InventoryApplicationService {
         String idempotencyKey = normalizeKey(request.idempotencyKey(), "idempotency key");
         return lockManager.withStockLock(request.skuId(), request.warehouseId(), () -> {
             WarehouseStock stock = findStock(request.skuId(), request.warehouseId());
-            WarehouseStock savedStock = inventoryStore.saveStock(stock.compensate(request.quantity()));
-            inventoryStore.recordLedger(new InventoryStockLedgerEntry(
+            InventoryStockLedgerEntry ledgerEntry = new InventoryStockLedgerEntry(
                     idGenerator.nextId(),
                     request.skuId(),
                     request.warehouseId(),
@@ -144,7 +143,11 @@ public class InventoryApplicationService {
                     request.orderId(),
                     InventoryOperation.COMPENSATE,
                     request.quantity(),
-                    "compensate:" + idempotencyKey));
+                    "compensate:" + idempotencyKey);
+            if (!inventoryStore.recordLedger(ledgerEntry)) {
+                return InventoryDtoAssembler.toResponse(stock);
+            }
+            WarehouseStock savedStock = inventoryStore.saveStock(stock.compensate(request.quantity()));
             auditService.record(
                     AuditService.INVENTORY_COMPENSATED,
                     AuditService.OUTCOME_SUCCESS,

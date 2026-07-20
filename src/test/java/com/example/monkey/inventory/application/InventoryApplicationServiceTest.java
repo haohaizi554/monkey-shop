@@ -2,7 +2,9 @@ package com.example.monkey.inventory.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockingDetails;
 
+import com.example.monkey.inventory.application.dto.InventoryCompensateRequestDto;
 import com.example.monkey.inventory.application.dto.InventoryReserveRequestDto;
 import com.example.monkey.inventory.domain.InventoryLockManager;
 import com.example.monkey.inventory.domain.InventoryOperation;
@@ -95,6 +97,47 @@ class InventoryApplicationServiceTest {
     }
 
     @Test
+    void compensationReplayDoesNotIncreaseStockOrAuditTwice() {
+        InMemoryInventoryStore store = new InMemoryInventoryStore(
+                new WarehouseStock(101L, 2200000000001L, "BJ-01", "CN-BJ", 5, 0, 4, 0, 1, 0));
+        AuditService auditService = mock(AuditService.class);
+        InventoryApplicationService service = service(store, auditService, Duration.ofMinutes(15));
+        InventoryCompensateRequestDto request =
+                new InventoryCompensateRequestDto(101L, 2200000000001L, 1L, 2, "compensate-once");
+
+        service.compensate(request);
+        var replay = service.compensate(request);
+
+        WarehouseStock stock = store.stock(101L, 2200000000001L);
+        assertThat(stock.availableQuantity()).isEqualTo(7);
+        assertThat(stock.deductedQuantity()).isEqualTo(2);
+        assertThat(replay.availableQuantity()).isEqualTo(7);
+        assertThat(store.ledgerCount(InventoryOperation.COMPENSATE)).isOne();
+        assertThat(mockingDetails(auditService).getInvocations()).hasSize(1);
+    }
+
+    @Test
+    void compensationKeyIsGlobalAcrossStockLocksWithoutSuppressingDistinctAudit() {
+        InMemoryInventoryStore store = new InMemoryInventoryStore(
+                new WarehouseStock(101L, 2200000000001L, "BJ-01", "CN-BJ", 0, 0, 1, 0, 0, 0),
+                new WarehouseStock(202L, 2200000000002L, "SH-01", "CN-SH", 0, 0, 2, 0, 0, 0));
+        AuditService auditService = mock(AuditService.class);
+        InventoryApplicationService service = service(store, auditService, Duration.ofMinutes(15));
+
+        service.compensate(new InventoryCompensateRequestDto(101L, 2200000000001L, 1L, 1, "shared-compensation-key"));
+        service.compensate(new InventoryCompensateRequestDto(202L, 2200000000002L, 2L, 1, "distinct-compensation-key"));
+        var duplicate = service.compensate(
+                new InventoryCompensateRequestDto(202L, 2200000000002L, 3L, 1, "shared-compensation-key"));
+
+        assertThat(store.stock(101L, 2200000000001L).availableQuantity()).isOne();
+        assertThat(store.stock(202L, 2200000000002L).availableQuantity()).isOne();
+        assertThat(store.stock(202L, 2200000000002L).deductedQuantity()).isOne();
+        assertThat(duplicate.availableQuantity()).isOne();
+        assertThat(store.ledgerCount(InventoryOperation.COMPENSATE)).isEqualTo(2);
+        assertThat(mockingDetails(auditService).getInvocations()).hasSize(2);
+    }
+
+    @Test
     void reconciliationDetectsStockLedgerDrift() {
         InMemoryInventoryStore store = new InMemoryInventoryStore(
                 new WarehouseStock(101L, 2200000000001L, "BJ-01", "CN-BJ", 5, 2, 0, 0, 1, 0));
@@ -121,11 +164,16 @@ class InventoryApplicationServiceTest {
     }
 
     private static InventoryApplicationService service(InMemoryInventoryStore store, Duration ttl) {
+        return service(store, mock(AuditService.class), ttl);
+    }
+
+    private static InventoryApplicationService service(
+            InMemoryInventoryStore store, AuditService auditService, Duration ttl) {
         return new InventoryApplicationService(
                 store,
                 new SynchronizedInventoryLockManager(),
                 new AtomicIdGenerator(),
-                mock(AuditService.class),
+                auditService,
                 Clock.fixed(Instant.parse("2026-07-04T00:00:00Z"), ZoneOffset.UTC),
                 ttl);
     }

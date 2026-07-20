@@ -7,6 +7,7 @@ import com.example.monkey.inventory.domain.InventoryReservationStatus;
 import com.example.monkey.inventory.domain.InventoryStockLedgerEntry;
 import com.example.monkey.inventory.domain.InventoryStore;
 import com.example.monkey.inventory.domain.WarehouseStock;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -93,21 +94,26 @@ public class JpaInventoryStore implements InventoryStore {
 
     @Override
     public boolean recordLedger(InventoryStockLedgerEntry ledgerEntry) {
-        if (ledgerRepository.existsByIdempotencyKey(ledgerEntry.idempotencyKey())) {
-            return false;
+        long tenantId = TenantContext.currentTenantIdOrDefault();
+        int inserted = ledgerRepository.insertIfAbsent(
+                ledgerEntry.id(),
+                ledgerEntry.skuId(),
+                ledgerEntry.warehouseId(),
+                ledgerEntry.reservationKey(),
+                ledgerEntry.orderId(),
+                ledgerEntry.operation().name(),
+                ledgerEntry.quantity(),
+                ledgerEntry.idempotencyKey(),
+                LocalDateTime.now(),
+                tenantId);
+        if (inserted > 0) {
+            return true;
         }
-        InventoryStockLedger entity = new InventoryStockLedger();
-        entity.setId(ledgerEntry.id());
-        entity.setSkuId(ledgerEntry.skuId());
-        entity.setWarehouseId(ledgerEntry.warehouseId());
-        entity.setReservationKey(ledgerEntry.reservationKey());
-        entity.setOrderId(ledgerEntry.orderId());
-        entity.setOperation(ledgerEntry.operation());
-        entity.setQuantity(ledgerEntry.quantity());
-        entity.setIdempotencyKey(ledgerEntry.idempotencyKey());
-        entity.setCreateTime(LocalDateTime.now());
-        ledgerRepository.save(entity);
-        return true;
+        if (ledgerRepository.findClaim(tenantId, ledgerEntry.idempotencyKey()).isEmpty()) {
+            throw new IllegalStateException(
+                    "Inventory ledger insert was ignored without an existing idempotency claim");
+        }
+        return false;
     }
 
     @Override
