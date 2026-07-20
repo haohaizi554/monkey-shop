@@ -79,6 +79,18 @@ spec:
       env:
         - name: JAVA_OPTS
           value: {{ .Values.javaOpts | quote }}
+        - name: MONKEYSHOP_INSTANCE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
+        - name: APP_SNOWFLAKE_NODE_LEASE_ENABLED
+          value: {{ .Values.snowflake.distributedNodeLease.enabled | quote }}
+        - name: APP_SNOWFLAKE_NODE_LEASE_NAMESPACE
+          value: {{ printf "%s/%s" .Release.Namespace (include "monkeyshop.fullname" .) | quote }}
+        - name: APP_SNOWFLAKE_NODE_LEASE_DURATION
+          value: {{ .Values.snowflake.distributedNodeLease.duration | quote }}
+        - name: APP_SNOWFLAKE_NODE_LEASE_RENEW_INTERVAL
+          value: {{ .Values.snowflake.distributedNodeLease.renewInterval | quote }}
         {{- with .Values.extraEnv }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

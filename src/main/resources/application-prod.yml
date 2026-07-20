@@ -66,6 +66,9 @@ app:
     webhook-secret: ${APP_LOGISTICS_WEBHOOK_SECRET}
   payment:
     callback-secret: ${APP_PAYMENT_CALLBACK_SECRET}
+  snowflake:
+    node-lease:
+      enabled: ${APP_SNOWFLAKE_NODE_LEASE_ENABLED:true}
   pii:
     encryption:
       enabled: ${APP_PII_ENCRYPTION_ENABLED:true}

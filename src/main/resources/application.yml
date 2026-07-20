@@ -172,6 +172,15 @@ app:
     callback-ttl: ${APP_PAYMENT_CALLBACK_TTL:PT24H}
     query-after: ${APP_PAYMENT_QUERY_AFTER:PT5M}
     high-value-threshold: ${APP_PAYMENT_HIGH_VALUE_THRESHOLD:5000}
+  snowflake:
+    worker-id: ${APP_SNOWFLAKE_WORKER_ID:${APP_ORDER_SNOWFLAKE_WORKER_ID:0}}
+    datacenter-id: ${APP_SNOWFLAKE_DATACENTER_ID:${APP_ORDER_SNOWFLAKE_DATACENTER_ID:0}}
+    instance-id: ${MONKEYSHOP_INSTANCE_ID:}
+    node-lease:
+      enabled: ${APP_SNOWFLAKE_NODE_LEASE_ENABLED:false}
+      namespace: ${APP_SNOWFLAKE_NODE_LEASE_NAMESPACE:${spring.application.name:monkeyshop}}
+      duration: ${APP_SNOWFLAKE_NODE_LEASE_DURATION:PT30S}
+      renew-interval: ${APP_SNOWFLAKE_NODE_LEASE_RENEW_INTERVAL:PT10S}
   order:
     idempotency:
       ttl: ${APP_ORDER_IDEMPOTENCY_TTL:PT24H}

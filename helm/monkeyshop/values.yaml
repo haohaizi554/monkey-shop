@@ -11,6 +11,12 @@ namespace:
 
 replicaCount: 2
 
+snowflake:
+  distributedNodeLease:
+    enabled: true
+    duration: PT30S
+    renewInterval: PT10S
+
 image:
   repository: ghcr.io/example/monkeyshop
   tag: "dev"
