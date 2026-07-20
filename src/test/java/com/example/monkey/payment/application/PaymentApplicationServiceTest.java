@@ -6,11 +6,13 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.example.monkey.order.domain.OrderStatus;
 import com.example.monkey.order.domain.OrderStore;
 import com.example.monkey.order.domain.OrderStore.OrderRecord;
 import com.example.monkey.payment.application.dto.PaymentCallbackRequestDto;
@@ -1129,6 +1131,8 @@ class PaymentApplicationServiceTest {
     @Test
     void callbackVerifiesSignatureAndIsIdempotent() {
         paymentStore.savePayment(pendingPayment());
+        when(orderStore.transitionStatus(10L, OrderStatus.PENDING_PAYMENT.label(), OrderStatus.PAID.label(), null))
+                .thenReturn(1);
         when(idGenerator.nextId()).thenReturn(2000L);
         PaymentCallbackRequestDto request = callback("cb-1", "SUCCESS", new BigDecimal("100.00"));
 
@@ -1139,6 +1143,36 @@ class PaymentApplicationServiceTest {
         assertThat(replay.status()).isEqualTo(PaymentStatus.PAID);
         assertThat(paymentStore.ledgers).hasSize(1);
         assertThat(paymentStore.ledgers.get(0).type()).isEqualTo(PaymentLedgerType.PAY);
+        verify(orderStore).transitionStatus(10L, OrderStatus.PENDING_PAYMENT.label(), OrderStatus.PAID.label(), null);
+    }
+
+    @Test
+    void callbackAcceptsAnOrderThatAlreadyAdvancedBeyondPendingPayment() {
+        paymentStore.savePayment(pendingPayment());
+        when(orderStore.findById(10L)).thenReturn(Optional.of(order(new BigDecimal("100.00"))));
+        when(idGenerator.nextId()).thenReturn(2001L);
+
+        PaymentResponseDto response =
+                service.handleCallback(callback("cb-advanced", "SUCCESS", new BigDecimal("100.00")), "127.0.0.1");
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.PAID);
+        verify(orderStore).transitionStatus(10L, OrderStatus.PENDING_PAYMENT.label(), OrderStatus.PAID.label(), null);
+    }
+
+    @Test
+    void callbackRejectsAnUnknownPersistedOrderState() {
+        paymentStore.savePayment(pendingPayment());
+        OrderRecord corruptOrder = mock(OrderRecord.class);
+        when(corruptOrder.status()).thenReturn("CORRUPT");
+        when(orderStore.findById(10L)).thenReturn(Optional.of(corruptOrder));
+        when(idGenerator.nextId()).thenReturn(2002L);
+
+        assertThatThrownBy(() -> service.handleCallback(
+                        callback("cb-corrupt", "SUCCESS", new BigDecimal("100.00")), "127.0.0.1"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+        verify(orderStore).transitionStatus(10L, OrderStatus.PENDING_PAYMENT.label(), OrderStatus.PAID.label(), null);
     }
 
     @Test
@@ -1666,6 +1700,8 @@ class PaymentApplicationServiceTest {
         paymentGateway.queryResult =
                 new PaymentGatewayResult(PaymentStatus.PAID, "wx-trade-1", null, new BigDecimal("100.00"));
         when(idGenerator.nextId()).thenReturn(5000L);
+        when(orderStore.transitionStatus(10L, OrderStatus.PENDING_PAYMENT.label(), OrderStatus.PAID.label(), null))
+                .thenReturn(1);
 
         int handled = service.queryTimedOutPayments();
 
@@ -1679,6 +1715,7 @@ class PaymentApplicationServiceTest {
                 .extracting(PaymentLedgerEntry::requestKey)
                 .isEqualTo("query:PAY100");
         assertThat(paymentStore.queryAttempt("PAY100").nextReadyAt()).isNull();
+        verify(orderStore).transitionStatus(10L, OrderStatus.PENDING_PAYMENT.label(), OrderStatus.PAID.label(), null);
     }
 
     @Test

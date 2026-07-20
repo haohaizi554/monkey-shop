@@ -2,6 +2,7 @@ package com.example.monkey.payment.application;
 
 import static com.example.monkey.shared.application.security.AuthenticatedPrincipals.requireUserId;
 
+import com.example.monkey.order.domain.OrderStatus;
 import com.example.monkey.order.domain.OrderStore;
 import com.example.monkey.order.domain.OrderStore.OrderRecord;
 import com.example.monkey.payment.application.dto.PaymentCallbackRequestDto;
@@ -1462,6 +1463,7 @@ public class PaymentApplicationService {
                         requestKey,
                         providerTradeNo,
                         now())));
+        markOrderPaid(payment.orderId());
         audit(
                 AuditService.PAYMENT_PAID,
                 payment.userId(),
@@ -1469,6 +1471,25 @@ public class PaymentApplicationService {
                 null,
                 "amount=" + payment.amount() + ",providerTradeNo=" + providerTradeNo);
         return updated;
+    }
+
+    private void markOrderPaid(Long orderId) {
+        int rows = orderStore.transitionStatus(
+                orderId, OrderStatus.PENDING_PAYMENT.label(), OrderStatus.PAID.label(), null);
+        if (rows == 1) {
+            return;
+        }
+        OrderRecord current = orderStore
+                .findById(orderId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.CONFLICT, "Payment references a missing order"));
+        try {
+            if (OrderStatus.fromStoredValue(current.status()) != OrderStatus.PENDING_PAYMENT) {
+                return;
+            }
+        } catch (IllegalArgumentException ignored) {
+            // Fall through to a public conflict instead of accepting an unknown persisted state.
+        }
+        throw new BusinessException(ErrorCode.CONFLICT, "Order status could not be synchronized after payment");
     }
 
     private PaymentOrder failPayment(PaymentOrder payment, String requestKey) {

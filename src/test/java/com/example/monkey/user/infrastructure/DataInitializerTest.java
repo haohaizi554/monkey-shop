@@ -145,7 +145,7 @@ class DataInitializerTest {
     }
 
     @Test
-    void bootstrapsAdminWithEncodedStrongPassword() throws Exception {
+    void bootstrapsAdminWithoutAnUnfulfillableForcedPasswordChange() throws Exception {
         when(userAccountStore.findByRole(UserRoles.ADMIN)).thenReturn(List.of());
         when(totpService.isValidSecret("JBSWY3DPEHPK3PXP")).thenReturn(true);
         when(passwordHasher.hash("StrongPass1!")).thenReturn("encoded-password");
@@ -174,7 +174,7 @@ class DataInitializerTest {
         assertThat(admin.totpSecret()).isEqualTo("JBSWY3DPEHPK3PXP");
         assertThat(admin.mfaEnabled()).isTrue();
         assertThat(admin.passwordLastChangedAt()).isNotNull();
-        assertThat(admin.passwordChangeRequired()).isTrue();
+        assertThat(admin.passwordChangeRequired()).isFalse();
         verify(userAccountStore).recordPasswordHistory(1L, "encoded-password", admin.passwordLastChangedAt());
     }
 

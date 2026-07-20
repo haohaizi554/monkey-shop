@@ -68,7 +68,7 @@ public class DataInitializer {
                     UserRoles.ADMIN,
                     "Administrator",
                     now,
-                    true,
+                    false,
                     adminTotpSecret.trim(),
                     true,
                     List.of("ROLE_ADMIN")));
