@@ -189,7 +189,7 @@ data:
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
           "targets": [
             {
-              "expr": "sum(increase(order_created_total{service=\"$service\"}[$__range]))",
+              "expr": "sum(increase(order_total{service=\"$service\"}[$__range]))",
               "legendFormat": "orders",
               "refId": "A"
             }

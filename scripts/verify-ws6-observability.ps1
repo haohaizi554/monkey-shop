@@ -167,6 +167,9 @@ foreach ($dependency in @(
 
 Assert-Contains -Name "application.yml" -Text $application -Expected "include: health,prometheus,loggers" -Message "must expose health, Prometheus, and loggers endpoints"
 Assert-Contains -Name "application.yml" -Text $application -Expected "show-values: NEVER" -Message "must avoid leaking env values through actuator"
+Assert-Contains -Name "application.yml" -Text $application -Expected "percentiles-histogram:" -Message "must publish histogram buckets used by latency dashboards"
+Assert-Contains -Name "application.yml" -Text $application -Expected "http.server.requests: true" -Message "must publish HTTP request latency buckets"
+Assert-Contains -Name "application.yml" -Text $application -Expected "order.create: true" -Message "must publish order creation latency buckets"
 Assert-Contains -Name "application.yml" -Text $application -Expected 'exporter: ${OTEL_TRACES_EXPORTER:none}' -Message "must default tracing exporter to safe local mode"
 Assert-Contains -Name "application.yml" -Text $application -Expected "send-default-pii: false" -Message "must keep Sentry PII disabled"
 Assert-Contains -Name "application.yml" -Text $application -Expected 'retention-days: ${APP_AUDIT_RETENTION_DAYS:180}' -Message "must default audit retention to 180 days"
@@ -242,6 +245,7 @@ foreach ($signal in @("MonkeyShopHighErrorRate", "MonkeyShopSloFastBurn", "Monke
 foreach ($panel in @("HTTP RPS", "HTTP P99 Latency", "HTTP 5xx Error Rate", "HikariCP Saturation", "JVM Memory", "Orders Created", "Stock Deduct Failures", "Order Create P99", "Pending Orders", "Audit Events By TraceId", "Tempo Trace Drilldown", "SLO Availability 30d", "Error Budget Burn Rate")) {
     Assert-Contains -Name "grafana-dashboard.yaml" -Text $grafanaDashboard -Expected $panel -Message "must include dashboard panel $panel"
 }
+Assert-Contains -Name "grafana-dashboard.yaml" -Text $grafanaDashboard -Expected "order_total" -Message "must query the Prometheus-normalized order counter"
 Assert-Contains -Name "grafana-dashboard.yaml" -Text $grafanaDashboard -Expected '"traceId"' -Message "must provide traceId dashboard variable"
 Assert-Contains -Name "docs/observability/ws6.md" -Text $docs -Expected "TraceId Flow" -Message "must document trace ID flow"
 Assert-Contains -Name "docs/observability/ws6.md" -Text $docs -Expected "99.9% Availability SLO" -Message "must document the production availability SLO"

@@ -130,6 +130,22 @@ class Ws6ObservabilityWorkflowTest {
     }
 
     @Test
+    void metricConfigurationPublishesEveryHistogramQueriedByGrafana() throws IOException {
+        String application = read("src/main/resources/application.yml");
+        String grafanaDashboard = read("helm/monkeyshop/templates/grafana-dashboard.yaml");
+
+        assertThat(application)
+                .contains("percentiles-histogram:")
+                .contains("http.server.requests: true")
+                .contains("order.create: true");
+        assertThat(grafanaDashboard)
+                .contains("http_server_requests_seconds_bucket")
+                .contains("order_create_seconds_bucket")
+                .contains("order_total")
+                .doesNotContain("order_created_total");
+    }
+
+    @Test
     void helmObservabilityDefinesAvailabilitySloBurnAlertsAndDashboard() throws IOException {
         String values = read("helm/monkeyshop/values.yaml");
         String prometheusRule = read("helm/monkeyshop/templates/prometheusrule.yaml");

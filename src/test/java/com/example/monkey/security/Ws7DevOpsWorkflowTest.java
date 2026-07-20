@@ -53,7 +53,7 @@ class Ws7DevOpsWorkflowTest {
                 .contains("HTTP 5xx Error Rate")
                 .contains("HikariCP Saturation")
                 .contains("jvm_memory_used_bytes")
-                .contains("order_created_total")
+                .contains("order_total")
                 .contains("stock_deduct_fail_total")
                 .contains("order_create_seconds_bucket")
                 .contains("order_pending")
