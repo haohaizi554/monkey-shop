@@ -19,8 +19,6 @@ import com.example.monkey.shared.application.security.ApiRateLimitApplicationSer
 import com.example.monkey.shared.application.security.ApiRateLimitResult;
 import com.example.monkey.shared.application.storage.FileService;
 import com.example.monkey.shared.application.storage.UploadFileContent;
-import com.example.monkey.shared.application.storage.dto.PresignedGetUrlResponseDto;
-import com.example.monkey.shared.application.storage.dto.PresignedUploadResponseDto;
 import com.example.monkey.shared.application.storage.dto.UploadResponseDto;
 import com.example.monkey.shared.application.tenant.PermissiveTenantAccessTestConfiguration;
 import com.example.monkey.shared.domain.exception.BusinessException;
@@ -28,9 +26,7 @@ import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.infrastructure.config.SecurityConfig;
 import com.example.monkey.shared.interfaces.web.VisitInterceptor;
 import com.example.monkey.user.domain.UserAccountStore;
-import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -172,112 +168,29 @@ class UploadControllerSecurityTest {
     }
 
     @Test
-    void userCanCreatePresignedAvatarUpload() throws Exception {
-        when(fileService.createPresignedUpload("avatar", "image/png"))
-                .thenReturn(new PresignedUploadResponseDto(
-                        "avatar/alice.png",
-                        "https://storage.example.test/upload",
-                        Map.of("key", "avatar/alice.png"),
-                        "https://cdn.example.test/avatar/alice.png",
-                        Instant.parse("2026-01-01T00:15:00Z")));
+    void directPresignedUploadEndpointsAreNotExposed() throws Exception {
+        for (String endpoint : List.of("/api/upload/presigned", "/api/v1/uploads/presigned")) {
+            mockMvc.perform(post(endpoint)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"type\":\"avatar\",\"contentType\":\"image/png\"}")
+                            .with(csrf())
+                            .with(user("alice").authorities(authorities("ROLE_USER", "UPLOAD_AVATAR"))))
+                    .andExpect(status().isNotFound());
+        }
 
-        mockMvc.perform(post("/api/upload/presigned")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"type\":\"avatar\",\"contentType\":\"image/png\"}")
-                        .with(csrf())
-                        .with(user("alice").authorities(authorities("ROLE_USER", "UPLOAD_AVATAR"))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value("OK"))
-                .andExpect(jsonPath("$.data.objectKey").value("avatar/alice.png"))
-                .andExpect(jsonPath("$.data.uploadUrl").value("https://storage.example.test/upload"))
-                .andExpect(jsonPath("$.data.formData.key").value("avatar/alice.png"))
-                .andExpect(jsonPath("$.data.publicUrl").value("https://cdn.example.test/avatar/alice.png"));
+        verify(fileService, never()).createPresignedUpload(any(), any());
     }
 
     @Test
-    void userCannotCreateProductPresignedUpload() throws Exception {
-        mockMvc.perform(post("/api/upload/presigned")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"type\":\"product\",\"contentType\":\"image/png\"}")
-                        .with(csrf())
-                        .with(user("alice").authorities(authorities("ROLE_USER", "UPLOAD_AVATAR"))))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    void directPresignedGetEndpointsAreNotExposed() throws Exception {
+        for (String endpoint : List.of("/api/upload/presigned-get", "/api/v1/uploads/presigned-get")) {
+            mockMvc.perform(get(endpoint)
+                            .param("objectKey", "avatar/alice.png")
+                            .with(user("alice").authorities(authorities("ROLE_USER", "UPLOAD_AVATAR"))))
+                    .andExpect(status().isNotFound());
+        }
 
-        verify(fileService, never()).createPresignedUpload(eq("product"), eq("image/png"));
-    }
-
-    @Test
-    void adminCanCreateProductPresignedUpload() throws Exception {
-        when(fileService.createPresignedUpload("product", "image/jpeg"))
-                .thenReturn(new PresignedUploadResponseDto(
-                        "product/item.jpg",
-                        "https://storage.example.test/upload",
-                        Map.of("key", "product/item.jpg"),
-                        "https://cdn.example.test/product/item.jpg",
-                        Instant.parse("2026-01-01T00:15:00Z")));
-
-        mockMvc.perform(post("/api/upload/presigned")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"type\":\"product\",\"contentType\":\"image/jpeg\"}")
-                        .with(csrf())
-                        .with(user("admin").authorities(authorities("ROLE_ADMIN", "UPLOAD_PRODUCT_IMAGE"))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.objectKey").value("product/item.jpg"));
-    }
-
-    @Test
-    void userCanCreateAvatarPresignedGetUrl() throws Exception {
-        when(fileService.createPresignedGetUrl("avatar/alice.png"))
-                .thenReturn(new PresignedGetUrlResponseDto(
-                        "avatar/alice.png",
-                        "https://storage.example.test/get/avatar/alice.png",
-                        Instant.parse("2026-01-01T00:15:00Z")));
-
-        mockMvc.perform(get("/api/upload/presigned-get")
-                        .param("objectKey", "avatar/alice.png")
-                        .with(user("alice").authorities(authorities("ROLE_USER", "UPLOAD_AVATAR"))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.objectKey").value("avatar/alice.png"))
-                .andExpect(jsonPath("$.data.url").value("https://storage.example.test/get/avatar/alice.png"));
-    }
-
-    @Test
-    void userCannotCreateProductPresignedGetUrl() throws Exception {
-        mockMvc.perform(get("/api/upload/presigned-get")
-                        .param("objectKey", "product/item.png")
-                        .with(user("alice").authorities(authorities("ROLE_USER", "UPLOAD_AVATAR"))))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
-
-        verify(fileService, never()).createPresignedGetUrl("product/item.png");
-    }
-
-    @Test
-    void adminCanCreateProductPresignedGetUrl() throws Exception {
-        when(fileService.createPresignedGetUrl("product/item.png"))
-                .thenReturn(new PresignedGetUrlResponseDto(
-                        "product/item.png",
-                        "https://storage.example.test/get/product/item.png",
-                        Instant.parse("2026-01-01T00:15:00Z")));
-
-        mockMvc.perform(get("/api/upload/presigned-get")
-                        .param("objectKey", "product/item.png")
-                        .with(user("admin").authorities(authorities("ROLE_ADMIN", "UPLOAD_PRODUCT_IMAGE"))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.objectKey").value("product/item.png"))
-                .andExpect(jsonPath("$.data.url").value("https://storage.example.test/get/product/item.png"));
-    }
-
-    @Test
-    void unrelatedObjectKeyCannotCreatePresignedGetUrl() throws Exception {
-        mockMvc.perform(get("/api/upload/presigned-get")
-                        .param("objectKey", "private/backup.sql")
-                        .with(user("admin").authorities(authorities("ROLE_ADMIN", "UPLOAD_PRODUCT_IMAGE"))))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
-
-        verify(fileService, never()).createPresignedGetUrl("private/backup.sql");
+        verify(fileService, never()).createPresignedGetUrl(any());
     }
 
     private static MockMultipartFile imageFile() {

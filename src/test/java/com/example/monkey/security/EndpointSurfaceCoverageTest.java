@@ -154,8 +154,6 @@ class EndpointSurfaceCoverageTest {
                     "analytics integration endpoint; dashboard uses the aggregate response"),
             Map.entry(
                     "TrackingController#userProfile", "support integration endpoint; no arbitrary-user browser lookup"),
-            Map.entry("UploadController#createPresignedGetUrl", "object-storage integration contract"),
-            Map.entry("UploadController#createPresignedUpload", "object-storage integration contract"),
             Map.entry(
                     "UploadController#uploadAvatar",
                     "typed upload compatibility endpoint; UI uses the guarded generic upload"),
@@ -183,7 +181,7 @@ class EndpointSurfaceCoverageTest {
         Files.createDirectories(report.getParent());
         Files.writeString(report, renderReport(endpoints, classifications), StandardCharsets.UTF_8);
 
-        assertThat(endpoints).hasSize(124);
+        assertThat(endpoints).hasSize(122);
         assertThat(classifications.values()).contains(Surface.CONSUMER_UI, Surface.ADMIN_UI, Surface.MACHINE_ONLY);
     }
 

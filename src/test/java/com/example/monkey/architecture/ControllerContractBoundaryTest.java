@@ -8,7 +8,6 @@ import com.example.monkey.admin.interfaces.dto.StatsQueryRequestDto;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.interfaces.dto.Result;
 import com.example.monkey.shared.interfaces.storage.UploadController;
-import com.example.monkey.shared.interfaces.storage.dto.PresignedGetUrlRequestDto;
 import com.example.monkey.shared.interfaces.storage.dto.UploadFileRequestDto;
 import com.example.monkey.shared.interfaces.storage.dto.UploadRequestDto;
 import com.example.monkey.user.application.UserService;
@@ -224,9 +223,6 @@ class ControllerContractBoundaryTest {
         assertValidatedModelAttribute(
                 UploadController.class.getDeclaredMethod("uploadProduct", UploadFileRequestDto.class),
                 UploadFileRequestDto.class);
-        assertValidatedModelAttribute(
-                UploadController.class.getDeclaredMethod("createPresignedGetUrl", PresignedGetUrlRequestDto.class),
-                PresignedGetUrlRequestDto.class);
     }
 
     @Test

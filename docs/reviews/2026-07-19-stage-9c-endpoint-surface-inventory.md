@@ -1,12 +1,12 @@
 # Stage 9C Endpoint Surface Inventory
 
-Generated from controller annotations. Canonical endpoints: 124.
+Generated from controller annotations. Canonical endpoints: 122.
 
 - CONSUMER_UI: 66
 - ADMIN_UI: 43
 - MACHINE_ONLY: 2
 - SCHEDULED_INTERNAL: 0
-- API_ONLY: 13
+- API_ONLY: 11
 
 | Method | Canonical path | Surface | Handler | Authorization | Evidence |
 | --- | --- | --- | --- | --- | --- |
@@ -124,8 +124,6 @@ Generated from controller annotations. Canonical endpoints: 124.
 | GET | `/api/v1/tracking/profile/{userId}` | API_ONLY | `TrackingController#userProfile` | `hasAuthority('TRACKING_ADMIN')` | support integration endpoint; no arbitrary-user browser lookup |
 | POST | `/api/v1/uploads` | CONSUMER_UI | `UploadController#upload` | `hasAuthority('UPLOAD_PRODUCT_IMAGE') or (#request.type() == 'avatar' and hasAuthority('UPLOAD_AVATAR'))` | `frontend/src/api/catalog.ts` -> `/profile` |
 | POST | `/api/v1/uploads/avatar` | API_ONLY | `UploadController#uploadAvatar` | `hasAuthority('UPLOAD_AVATAR')` | typed upload compatibility endpoint; UI uses the guarded generic upload |
-| POST | `/api/v1/uploads/presigned` | API_ONLY | `UploadController#createPresignedUpload` | `hasAuthority('UPLOAD_PRODUCT_IMAGE') or (#request.type() == 'avatar' and hasAuthority('UPLOAD_AVATAR'))` | object-storage integration contract |
-| GET | `/api/v1/uploads/presigned-get` | API_ONLY | `UploadController#createPresignedGetUrl` | `(#request.avatarObject() and hasAuthority('UPLOAD_AVATAR')) or (#request.productObject() and hasAuthority('UPLOAD_PRODUCT_IMAGE'))` | object-storage integration contract |
 | POST | `/api/v1/uploads/product` | API_ONLY | `UploadController#uploadProduct` | `hasAuthority('UPLOAD_PRODUCT_IMAGE')` | typed upload compatibility endpoint; UI uses the guarded generic upload |
 | GET | `/api/v1/users/captcha` | CONSUMER_UI | `UserController#getCaptcha` | `hasAuthority('USER_PROFILE_WRITE')` | `frontend/src/api/user.ts` -> `/profile` |
 | POST | `/api/v1/users/forget-me` | CONSUMER_UI | `PrivacyController#forgetMe` | `hasAuthority('USER_PROFILE_WRITE')` | `frontend/src/api/user.ts` -> `/profile` |
