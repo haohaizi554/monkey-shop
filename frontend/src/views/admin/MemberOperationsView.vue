@@ -299,7 +299,7 @@ watch(
           <h2 id="member-points-title">{{ t('adminCommerce.manualPointsTitle') }}</h2>
           <p>{{ t('adminCommerce.manualPointsDescription') }}</p>
         </div>
-        <Medal aria-hidden="true" />
+        <Medal class="commerce-section__icon" aria-hidden="true" />
       </div>
 
       <div class="commerce-form-grid">

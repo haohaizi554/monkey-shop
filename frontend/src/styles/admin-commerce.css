@@ -24,6 +24,13 @@
   justify-content: space-between;
 }
 
+.commerce-section__icon {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  color: var(--color-honey);
+}
+
 .commerce-section__heading h2,
 .commerce-section__heading p {
   margin: 0;

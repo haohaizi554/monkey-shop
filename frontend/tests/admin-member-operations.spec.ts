@@ -79,6 +79,13 @@ test('member operations loads a target member and exposes guarded admin actions'
   await expect(page.getByText('100', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Apply points', exact: true })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Change level', exact: true })).toBeDisabled()
+  const sectionIcon = page
+    .getByRole('region', { name: 'Manual points adjustment' })
+    .locator('.commerce-section__icon')
+  await expect(sectionIcon).toBeVisible()
+  const iconBox = await sectionIcon.boundingBox()
+  expect(iconBox?.width).toBeLessThanOrEqual(24)
+  expect(iconBox?.height).toBeLessThanOrEqual(24)
   await expect(page.getByRole('button', { name: 'Run price-drop scan', exact: true })).toBeEnabled()
 })
 

@@ -957,7 +957,7 @@ onMounted(() => {
 .auth-brand-copy h1 {
   margin: 0;
   color: var(--color-ink);
-  font-size: 2.5rem;
+  font-size: var(--text-4xl);
   line-height: 1.12;
   overflow-wrap: anywhere;
 }
@@ -1193,7 +1193,7 @@ onMounted(() => {
   }
 
   .auth-brand-copy h1 {
-    font-size: 2rem;
+    font-size: var(--text-3xl);
   }
 
   .auth-brand-copy > p:last-child {

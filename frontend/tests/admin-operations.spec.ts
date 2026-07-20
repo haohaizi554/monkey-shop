@@ -17,7 +17,14 @@ function pageResult<T>(content: T[]) {
 }
 
 const products = [
-  { id: 1, name: 'Golden Monkey', breed: 'Golden', price: '128.00', imageUrl: '', stock: 8 },
+  {
+    id: 1,
+    name: 'Golden Monkey',
+    breed: 'Golden',
+    price: '128.00',
+    imageUrl: '/images/default_product.jpg',
+    stock: 8,
+  },
   { id: 2, name: 'Capuchin', breed: 'Capuchin', price: '98.00', imageUrl: '', stock: 12 },
 ]
 
@@ -112,6 +119,10 @@ test('admin product mutation is row-scoped while trace and URL order search stay
   await installAdminMocks(page)
   await page.goto('/admin')
   await expect(page.getByText('Golden Monkey', { exact: true }).first()).toBeVisible()
+  const productImageBox = await page.getByRole('img', { name: 'Golden Monkey' }).boundingBox()
+  expect(productImageBox?.width).toBeLessThanOrEqual(64)
+  expect(productImageBox?.height).toBeLessThanOrEqual(56)
+  expect(productImageBox?.height).toBeGreaterThan(32)
 
   await page.getByRole('button', { name: 'Delete Golden Monkey' }).click()
   await page.getByRole('button', { name: 'OK', exact: true }).click()

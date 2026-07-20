@@ -16,6 +16,8 @@
     "test:api-contract": "node scripts/api-contract.mjs",
     "test:ui-smoke": "node scripts/ui-smoke.mjs",
     "test:a11y": "node scripts/a11y.mjs",
+    "test:visual": "node scripts/visual.mjs",
+    "test:visual:update": "node scripts/visual.mjs --update-snapshots",
     "test:lighthouse": "node scripts/lighthouse.mjs"
   },
   "dependencies": {

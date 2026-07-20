@@ -73,6 +73,7 @@
 .product-image {
   display: block;
   width: 100%;
+  height: auto;
   aspect-ratio: 4 / 3;
   object-fit: cover;
   background: color-mix(in srgb, var(--line) 45%, transparent);

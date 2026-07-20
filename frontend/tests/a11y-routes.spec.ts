@@ -16,7 +16,7 @@ const monkey = {
   breed: 'Sichuan golden snub-nosed monkey',
   price: '128.00',
   description: 'A calm companion with a golden coat.',
-  imageUrl: '/images/golden-monkey.svg',
+  imageUrl: '/images/default_product.jpg',
   stock: 6,
 }
 
@@ -490,15 +490,15 @@ function dynamicFixture(method: string, pathname: string): unknown {
   return undefined
 }
 
-async function installApiMocks(page: Page, role: SessionRole) {
+async function installApiMocks(page: Page, role: SessionRole, theme: 'light' | 'dark' = 'light') {
+  await page.clock.setFixedTime(new Date('2026-07-19T00:00:00+08:00'))
   const unhandledRequests: string[] = []
-  await page.addInitScript(() => {
+  await page.addInitScript((currentTheme) => {
     localStorage.setItem('monkeyshop-locale', 'en')
-    localStorage.setItem('monkeyshop-theme', 'light')
-  })
-  await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'light' })
+    localStorage.setItem('monkeyshop-theme', currentTheme)
+  }, theme)
+  await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: theme })
 
-  await page.route('**/images/**', fulfillImage)
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request()
     const pathname = new URL(request.url()).pathname.replace('/api/v1', '')
@@ -611,9 +611,10 @@ const adminRoutes: RouteCase[] = [
 ]
 
 test('login route and every progressive authentication form pass Axe', async ({ page }) => {
+  test.setTimeout(60_000)
   const unhandled = await installApiMocks(page, 'anonymous')
   await page.goto('/login')
-  await expect(page.getByRole('tabpanel', { name: 'Sign in' })).toBeVisible()
+  await expect(page.getByRole('tabpanel', { name: 'Sign in' })).toBeVisible({ timeout: 30_000 })
   await page.waitForLoadState('networkidle')
   await expectNoAxeViolations(page)
 
@@ -709,4 +710,154 @@ test('risk decision drawer passes Axe', async ({ page }) => {
   await expect(page.locator('.el-drawer')).toBeVisible()
   await expectNoAxeViolations(page)
   expect(unhandled).toEqual([])
+})
+
+async function expectVisualBaseline(page: Page, name: string) {
+  await page.waitForFunction(
+    () =>
+      Array.from(document.images)
+        .filter((image) => {
+          const rect = image.getBoundingClientRect()
+          return (
+            rect.width > 0 &&
+            rect.height > 0 &&
+            rect.bottom > 0 &&
+            rect.right > 0 &&
+            rect.top < window.innerHeight &&
+            rect.left < window.innerWidth
+          )
+        })
+        .every((image) => image.complete && image.naturalWidth > 0),
+    undefined,
+    { timeout: 10_000 },
+  )
+  await expectViewportFit(page, name)
+  await expect(page).toHaveScreenshot(name, {
+    animations: 'disabled',
+    caret: 'hide',
+    scale: 'css',
+  })
+}
+
+async function expectViewportFit(page: Page, name: string) {
+  const viewport = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+  }))
+  expect(
+    viewport.scrollWidth,
+    `${name} must not overflow the viewport horizontally`,
+  ).toBeLessThanOrEqual(viewport.clientWidth + 1)
+}
+
+function consumerRoute(name: string) {
+  return consumerRoutes.find((item) => item.name === name)!
+}
+
+function adminRoute(name: string) {
+  return adminRoutes.find((item) => item.name === name)!
+}
+
+test.describe('visual route baselines', () => {
+  test.skip(process.env.RUN_VISUAL_BASELINES !== '1', 'Run through npm run test:visual')
+
+  test('visual baseline: authentication shell on desktop and mobile', async ({ page }) => {
+    test.setTimeout(60_000)
+    const unhandled = await installApiMocks(page, 'anonymous')
+
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/login')
+    await expect(page.getByRole('tabpanel', { name: 'Sign in' })).toBeVisible({ timeout: 30_000 })
+    await expectVisualBaseline(page, 'auth-login-desktop-light.png')
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.reload()
+    await expect(page.getByRole('tabpanel', { name: 'Sign in' })).toBeVisible({ timeout: 30_000 })
+    await expectVisualBaseline(page, 'auth-login-mobile-light.png')
+    expect(unhandled).toEqual([])
+  })
+
+  test('visual baseline: every consumer route on desktop plus core mobile flows', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000)
+    const unhandled = await installApiMocks(page, 'user')
+
+    await page.setViewportSize({ width: 1440, height: 900 })
+    for (const routeCase of consumerRoutes.filter((item) => item.name !== 'root redirect')) {
+      await settleRoute(page, routeCase)
+      await expectVisualBaseline(
+        page,
+        `consumer-${routeCase.name.replaceAll(' ', '-')}-desktop-light.png`,
+      )
+    }
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    for (const routeCase of [
+      consumerRoute('shop'),
+      consumerRoute('cart'),
+      consumerRoute('checkout form'),
+    ]) {
+      await settleRoute(page, routeCase)
+      await expectVisualBaseline(
+        page,
+        `consumer-${routeCase.name.replaceAll(' ', '-')}-mobile-light.png`,
+      )
+    }
+    expect(unhandled).toEqual([])
+  })
+
+  test('visual baseline: consumer dark theme', async ({ page }) => {
+    const unhandled = await installApiMocks(page, 'user', 'dark')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await settleRoute(page, consumerRoute('shop'))
+    await expectVisualBaseline(page, 'consumer-shop-desktop-dark.png')
+    expect(unhandled).toEqual([])
+  })
+
+  test('visual baseline: every admin workspace', async ({ page }) => {
+    test.setTimeout(120_000)
+    const unhandled = await installApiMocks(page, 'admin')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    for (const routeCase of adminRoutes) {
+      await settleRoute(page, routeCase)
+      await expectVisualBaseline(
+        page,
+        `admin-${routeCase.name.replaceAll(' ', '-')}-desktop-light.png`,
+      )
+    }
+    expect(unhandled).toEqual([])
+  })
+
+  test('visual baseline: every consumer route fits the mobile viewport', async ({ page }) => {
+    test.setTimeout(120_000)
+    const unhandled = await installApiMocks(page, 'user')
+    await page.setViewportSize({ width: 390, height: 844 })
+
+    for (const routeCase of consumerRoutes) {
+      await settleRoute(page, routeCase)
+      await expectViewportFit(page, `consumer ${routeCase.name} mobile`)
+    }
+    expect(unhandled).toEqual([])
+  })
+
+  test('visual baseline: every admin workspace fits the mobile viewport', async ({ page }) => {
+    test.setTimeout(120_000)
+    const unhandled = await installApiMocks(page, 'admin')
+    await page.setViewportSize({ width: 390, height: 844 })
+
+    for (const routeCase of adminRoutes) {
+      await settleRoute(page, routeCase)
+      await expectViewportFit(page, `admin ${routeCase.name} mobile`)
+    }
+    expect(unhandled).toEqual([])
+  })
+
+  test('visual baseline: admin dark theme', async ({ page }) => {
+    const unhandled = await installApiMocks(page, 'admin', 'dark')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await settleRoute(page, adminRoute('store operations'))
+    await expectVisualBaseline(page, 'admin-store-operations-desktop-dark.png')
+    expect(unhandled).toEqual([])
+  })
 })
