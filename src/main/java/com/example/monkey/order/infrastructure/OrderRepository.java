@@ -86,7 +86,6 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
                 and o.tenantId = :tenantId
                 and o.status = :expectedStatus
                 and o.deleted = false
-                and o.userHidden = false
             """)
     int transitionStatus(
             @Param("id") Long id,
@@ -110,7 +109,6 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
                 and o.tenantId = :tenantId
                 and o.status = :expectedStatus
                 and o.deleted = false
-                and o.userHidden = false
             """)
     int transitionStatusWithShippingTime(
             @Param("id") Long id,
