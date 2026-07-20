@@ -9,6 +9,8 @@ import lighthouse from 'lighthouse'
 import desktopConfig from 'lighthouse/core/config/desktop-config.js'
 import { preview } from 'vite'
 
+import { collectLighthouseFailures, resolveMockApiRequest } from './lighthouse-gate.mjs'
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const reportPath = path.join(root, 'lighthouse-report.json')
 const url = 'http://127.0.0.1:4173/shop'
@@ -52,8 +54,8 @@ function listen(server) {
   })
 }
 
-function json(response, body) {
-  response.writeHead(200, { 'content-type': 'application/json' })
+function json(response, body, status = 200) {
+  response.writeHead(status, { 'content-type': 'application/json' })
   response.end(JSON.stringify(body))
 }
 
@@ -78,29 +80,14 @@ async function cleanup(chrome, server, mockApi) {
 }
 
 const mockApi = http.createServer((request, response) => {
-  if (request.url === '/api/v1/users/me') {
-    json(response, { code: 'OK', message: 'ok', data: { isLogin: false } })
+  const mockResponse = resolveMockApiRequest(request.method ?? 'GET', request.url ?? '/')
+  if (mockResponse) {
+    json(response, mockResponse.body, mockResponse.status)
     return
   }
-  if (request.url === '/api/v1/monkeys') {
-    json(response, {
-      code: 'OK',
-      message: 'ok',
-      data: [
-        {
-          id: 1,
-          name: 'Golden Snub-nosed',
-          breed: 'Rhinopithecus roxellana',
-          price: '128.00',
-          description: 'Healthy and ready for browsing.',
-          imageUrl: '/images/default_product.jpg',
-          stock: 3,
-        },
-      ],
-    })
-    return
-  }
-  if (request.url === '/images/default_product.jpg') {
+
+  const pathname = new URL(request.url ?? '/', 'http://127.0.0.1').pathname
+  if (pathname === '/images/default_product.jpg') {
     response.writeHead(200, { 'content-type': 'image/svg+xml' })
     response.end(
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 3"><rect width="4" height="3" fill="#d9e2ec"/></svg>',
@@ -161,9 +148,7 @@ try {
     Object.entries(report.categories).map(([name, category]) => [name, category.score ?? 0]),
   )
   const lcp = report.audits['largest-contentful-paint']?.numericValue ?? Number.POSITIVE_INFINITY
-  const failures = Object.entries(scores)
-    .filter(([, score]) => score < 0.95)
-    .map(([name, score]) => `${name}=${Math.round(score * 100)}`)
+  const failures = collectLighthouseFailures(report)
 
   console.table(
     Object.fromEntries(
@@ -174,10 +159,8 @@ try {
   console.log(`LCP: ${Math.round(lcp)}ms`)
   console.log(`Report: ${path.relative(root, reportPath)}`)
 
-  if (failures.length > 0 || lcp > 2500) {
-    throw new Error(
-      `Lighthouse gate failed: ${[...failures, `lcp=${Math.round(lcp)}ms`].join(', ')}`,
-    )
+  if (failures.length > 0) {
+    throw new Error(`Lighthouse gate failed: ${failures.join(', ')}`)
   }
 } catch (error) {
   exitCode = 1

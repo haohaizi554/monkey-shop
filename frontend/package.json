@@ -18,7 +18,7 @@
     "test:a11y": "node scripts/a11y.mjs",
     "test:visual": "node scripts/visual.mjs",
     "test:visual:update": "node scripts/visual.mjs --update-snapshots",
-    "test:lighthouse": "node scripts/lighthouse.mjs",
+    "test:lighthouse": "node --test scripts/lighthouse-gate.test.mjs && node scripts/lighthouse.mjs",
     "test:runtime": "playwright test --config playwright.runtime.config.ts"
   },
   "dependencies": {
