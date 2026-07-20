@@ -178,7 +178,7 @@ test('level change sends the selected member, reason, and operator TOTP', async 
     expect(route.request().postDataJSON()).toEqual({
       level: 'SILVER',
       reason: 'Retention review',
-      totpCode: '123456',
+      totpCode: '847261',
     })
     await fulfillOk(route, dashboard('SILVER'))
   })
@@ -187,7 +187,7 @@ test('level change sends the selected member, reason, and operator TOTP', async 
   await page.getByRole('region', { name: 'Level management' }).locator('.el-select').click()
   await page.getByRole('option', { name: 'Silver', exact: true }).click()
   await page.getByRole('textbox', { name: 'Level change reason' }).fill('Retention review')
-  await page.getByRole('textbox', { name: 'TOTP code' }).fill('123456')
+  await page.getByRole('textbox', { name: 'TOTP code' }).fill('847261')
   await page.getByRole('button', { name: 'Change level', exact: true }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Change level', exact: true }).click()
 

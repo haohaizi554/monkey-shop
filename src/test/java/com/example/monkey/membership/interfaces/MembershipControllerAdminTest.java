@@ -33,7 +33,7 @@ class MembershipControllerAdminTest {
         PointsLedgerEntryDto ledger = mock(PointsLedgerEntryDto.class);
         PointsEarnRequestDto pointsRequest = new PointsEarnRequestDto(null, BigDecimal.valueOf(25), "Service recovery");
         LevelChangeRequestDto levelRequest =
-                new LevelChangeRequestDto(MembershipLevel.SILVER, "Retention review", "123456");
+                new LevelChangeRequestDto(MembershipLevel.SILVER, "Retention review", "847261");
         when(service.dashboardAsAdmin(ADMIN, MEMBER_ID)).thenReturn(dashboard);
         when(service.earnPointsAsAdmin(ADMIN, MEMBER_ID, pointsRequest, "adjust-1"))
                 .thenReturn(ledger);

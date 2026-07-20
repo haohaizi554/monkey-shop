@@ -167,11 +167,46 @@ ArchUnit tests enforce important boundaries: controllers do not access repositor
 - Node.js 24+
 - npm 10+
 - MySQL 8
-- Redis 7
-- Docker Desktop or another Docker-compatible runtime
+- Redis 7 or Memurai 4 (Redis 7 API compatible on Windows)
+- Docker Desktop or another Docker-compatible runtime, only for the optional Compose path
 - ClamAV, optional unless upload scanning is enabled
 
 ## Quick Start
+
+### Run the Entire Stack Natively on Windows
+
+The native path keeps MySQL, Redis-compatible state, Spring Boot, and Vite on the
+workstation. It does not use Docker. Keep long-lived secrets in the ignored
+repository `.env`, then create `%LOCALAPPDATA%\MonkeyShop\local-runtime.env`
+from `scripts/local-runtime.env.example` with the workstation database password.
+
+The scripts discover Maven, npm, Node, the `MySQL` Windows service, and a Memurai
+installation under `%LOCALAPPDATA%\MonkeyShop\memurai-*`. Override the Redis
+executable with `-MemuraiExecutable` or `MONKEYSHOP_MEMURAI_EXE` when installed
+elsewhere.
+
+```powershell
+# Start MySQL checks, Memurai, Spring Boot, and Vite.
+.\scripts\start-local.ps1
+
+# Inspect all four services.
+.\scripts\status-local.ps1
+
+# Run health/security smoke, OpenAPI inventory, and real admin MFA browser acceptance.
+.\scripts\verify-local-runtime.ps1
+
+# Stop only processes recorded by start-local.ps1. MySQL remains available by default.
+.\scripts\stop-local.ps1
+
+# Also stop the shared MySQL Windows service when explicitly desired.
+.\scripts\stop-local.ps1 -StopMySql
+```
+
+Runtime data, logs, uploads, and the managed-process state file stay under
+`%LOCALAPPDATA%\MonkeyShop`. The browser acceptance reads administrator
+credentials and the Base32 TOTP secret from `.env` without printing them.
+Pass `-RunRateLimitProbe` to `verify-local-runtime.ps1` only when consuming the
+shared local rate-limit bucket is intentional.
 
 ### Run With Docker Compose
 
