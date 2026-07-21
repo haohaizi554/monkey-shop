@@ -235,9 +235,19 @@ public interface OrderStore {
 
     record BuyerRecord(Long id, String username, String avatar) {}
 
-    record OrderPageRequest(int page, int size, List<SortOrder> sortOrders) {
+    record OrderPageRequest(int page, int size, List<SortOrder> sortOrders, List<String> statuses, String keyword) {
         public OrderPageRequest {
             sortOrders = sortOrders == null ? List.of() : List.copyOf(sortOrders);
+            statuses = statuses == null ? List.of() : List.copyOf(statuses);
+            keyword = keyword == null || keyword.isBlank() ? null : keyword.trim();
+        }
+
+        public OrderPageRequest(int page, int size, List<SortOrder> sortOrders) {
+            this(page, size, sortOrders, List.of(), null);
+        }
+
+        public boolean hasFilters() {
+            return !statuses.isEmpty() || keyword != null;
         }
     }
 

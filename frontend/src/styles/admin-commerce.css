@@ -191,6 +191,11 @@
   color: var(--color-ink);
 }
 
+.admin-orders-pagination {
+  justify-self: center;
+  margin-top: var(--space-4);
+}
+
 @media (max-width: 820px) {
   .commerce-form-grid,
   .commerce-form-grid[data-columns='3'],

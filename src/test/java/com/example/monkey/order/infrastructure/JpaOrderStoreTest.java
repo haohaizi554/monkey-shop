@@ -115,6 +115,36 @@ class JpaOrderStoreTest {
     }
 
     @Test
+    void findVisibleByUserFiltersInTheRepositoryBeforePagination() {
+        List<String> statuses = List.of(OrderStatus.PAID.name(), OrderStatus.PAID.label());
+        PageRequest repositoryPageable = PageRequest.of(0, 10, Sort.by(Sort.Order.desc("createTime")));
+        when(orderRepository.findVisiblePage(eq(42L), eq(true), eq(statuses), eq("Momo"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(order()), repositoryPageable, 1));
+
+        OrderPage result = store.findVisibleByUser(
+                42L,
+                new OrderPageRequest(0, 10, List.of(new SortOrder("createTime", Direction.DESC)), statuses, " Momo "));
+
+        assertThat(result.content()).containsExactly(record());
+        verify(orderRepository).findVisiblePage(eq(42L), eq(true), eq(statuses), eq("Momo"), any(Pageable.class));
+    }
+
+    @Test
+    void findAllFiltersInTheRepositoryBeforePagination() {
+        List<String> statuses = List.of(OrderStatus.RETURN_REQUESTED.name(), OrderStatus.RETURN_REQUESTED.label());
+        PageRequest repositoryPageable = PageRequest.of(1, 25);
+        when(orderRepository.findAdminPage(eq(true), eq(statuses), eq("ORD-42"), any(Pageable.class)))
+                .thenReturn(
+                        new PageImpl<>(List.of(order(), order(), order(), order(), order()), repositoryPageable, 30));
+
+        OrderPage result = store.findAll(new OrderPageRequest(1, 25, List.of(), statuses, " ORD-42 "));
+
+        assertThat(result.page()).isEqualTo(1);
+        assertThat(result.totalElements()).isEqualTo(30);
+        verify(orderRepository).findAdminPage(eq(true), eq(statuses), eq("ORD-42"), any(Pageable.class));
+    }
+
+    @Test
     void findByIdAndVisibleOwnedOrderMapRepositoryOptionals() {
         when(orderRepository.findById(10L)).thenReturn(Optional.of(order()));
         when(orderRepository.findByIdAndUserIdAndUserHiddenFalse(10L, 42L)).thenReturn(Optional.of(order()));

@@ -26,7 +26,22 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const notify = useNotify()
-const { orders, status: orderStatus, error: orderError, loadOrders } = useAdminOrders()
+const logisticsStatuses = [
+  'PAID',
+  'PARTIALLY_SHIPPED',
+  'SHIPPED',
+  'PARTIALLY_RECEIVED',
+  'COMPLETED',
+] as const
+const {
+  orders,
+  page,
+  pageSize,
+  currentPage,
+  status: orderStatus,
+  error: orderError,
+  loadOrders,
+} = useAdminOrders({ statuses: () => logisticsStatuses })
 const shipmentState = useAsyncState<OrderShipment[]>({ preserveData: true })
 const selectedOrderId = ref<ApiId>()
 const carrier = ref<LogisticsCarrier>('SF')
@@ -78,6 +93,14 @@ async function selectOrder(orderId: ApiId | undefined) {
     return
   }
   await loadShipments(orderId)
+}
+
+async function changeOrderPage(pageNumber: number) {
+  const loaded = await loadOrders(pageNumber - 1)
+  const firstOrder = loaded?.content[0]
+  if (firstOrder && !sameApiId(firstOrder.id, selectedOrderId.value)) {
+    await selectOrder(firstOrder.id)
+  }
 }
 
 async function createShipment() {
@@ -221,6 +244,17 @@ watch(
             {{ t('adminCommerce.createShipment') }}
           </el-button>
         </div>
+
+        <el-pagination
+          v-if="(page?.totalElements ?? 0) > pageSize"
+          class="admin-orders-pagination"
+          background
+          layout="prev, pager, next, total"
+          :current-page="currentPage + 1"
+          :page-size="pageSize"
+          :total="page?.totalElements ?? 0"
+          @current-change="changeOrderPage"
+        />
       </section>
 
       <section class="commerce-section" :aria-labelledby="'shipment-list-title'">

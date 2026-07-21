@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { CreditCard, RefreshLeft, RefreshRight, Search, Van } from '@element-plus/icons-vue'
-import { computed, ref } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
+import type { ApiId } from '@/api/ids'
 import AdminCommerceNav from '@/components/admin/AdminCommerceNav.vue'
 import AdminPageToolbar from '@/components/admin/AdminPageToolbar.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
@@ -17,43 +18,46 @@ defineOptions({ name: 'OrderOperationsView' })
 
 const { t } = useI18n()
 const router = useRouter()
-const { orders, status, error, loadOrders } = useAdminOrders()
 const keyword = ref('')
 const statusFilter = ref('')
+let filterTimer: ReturnType<typeof setTimeout> | null = null
 
-const statusOptions = computed(() =>
-  Array.from(new Set(orders.value.map((order) => normalizeAdminOrderStatus(order.status)))).filter(
-    (value) => value !== 'UNKNOWN',
-  ),
-)
+const availableStatuses = [
+  'PENDING_PAYMENT',
+  'PAID',
+  'PARTIALLY_SHIPPED',
+  'SHIPPED',
+  'PARTIALLY_RECEIVED',
+  'COMPLETED',
+  'RETURN_REQUESTED',
+  'WAITING_RETURN_SHIPMENT',
+  'RETURN_SHIPPING',
+  'REFUNDED',
+] as const
 
-const filteredOrders = computed(() => {
-  const search = keyword.value.trim().toLocaleLowerCase()
-  return orders.value.filter((order) => {
-    const normalizedStatus = normalizeAdminOrderStatus(order.status)
-    const matchesStatus = !statusFilter.value || normalizedStatus === statusFilter.value
-    const matchesSearch =
-      !search ||
-      [order.orderNo, order.buyerName, order.productName, String(order.id)].some((value) =>
-        value.toLocaleLowerCase().includes(search),
-      )
-    return matchesStatus && matchesSearch
+const { orders, page, pageSize, currentPage, status, error, loadOrders, changePage } =
+  useAdminOrders({
+    statuses: () => (statusFilter.value ? [statusFilter.value] : undefined),
+    keyword: () => keyword.value,
   })
-})
 
-const viewStatus = computed(() => {
-  if (
-    (status.value === 'success' || status.value === 'empty') &&
-    filteredOrders.value.length === 0
-  ) {
-    return 'empty'
-  }
-  return status.value
-})
+const viewStatus = computed(() => status.value)
 
-function openWorkspace(path: string, orderId: number) {
+function openWorkspace(path: string, orderId: ApiId) {
   void router.push({ path, query: { orderId: String(orderId) } })
 }
+
+watch([keyword, statusFilter], () => {
+  if (filterTimer !== null) clearTimeout(filterTimer)
+  filterTimer = setTimeout(() => {
+    filterTimer = null
+    void loadOrders(0)
+  }, 250)
+})
+
+onUnmounted(() => {
+  if (filterTimer !== null) clearTimeout(filterTimer)
+})
 </script>
 
 <template>
@@ -64,7 +68,7 @@ function openWorkspace(path: string, orderId: number) {
       :description="t('adminCommerce.ordersDescription')"
     >
       <template #actions>
-        <el-button :icon="RefreshRight" :loading="status === 'updating'" @click="loadOrders">
+        <el-button :icon="RefreshRight" :loading="status === 'updating'" @click="loadOrders()">
           {{ t('adminCommerce.refreshOrders') }}
         </el-button>
       </template>
@@ -90,7 +94,7 @@ function openWorkspace(path: string, orderId: number) {
           :aria-label="t('adminCommerce.statusFilter')"
         >
           <el-option
-            v-for="option in statusOptions"
+            v-for="option in availableStatuses"
             :key="option"
             :value="option"
             :label="option.replaceAll('_', ' ')"
@@ -105,7 +109,7 @@ function openWorkspace(path: string, orderId: number) {
       :error="error"
       :empty-title="t('adminCommerce.noOrders')"
       preserve-content-on-error
-      @retry="loadOrders"
+      @retry="loadOrders()"
     >
       <DataTableShell :aria-label="t('adminCommerce.ordersTitle')" :busy="status === 'updating'">
         <table class="commerce-table">
@@ -121,7 +125,7 @@ function openWorkspace(path: string, orderId: number) {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="order in filteredOrders" :key="order.id">
+            <tr v-for="order in orders" :key="order.id">
               <td>
                 <span class="commerce-table__primary">
                   <strong>{{ order.orderNo }}</strong>
@@ -174,6 +178,16 @@ function openWorkspace(path: string, orderId: number) {
           </tbody>
         </table>
       </DataTableShell>
+      <el-pagination
+        v-if="(page?.totalElements ?? 0) > pageSize"
+        class="admin-orders-pagination"
+        background
+        layout="prev, pager, next, total"
+        :current-page="currentPage + 1"
+        :page-size="pageSize"
+        :total="page?.totalElements ?? 0"
+        @current-change="changePage"
+      />
     </AsyncStateView>
   </div>
 </template>

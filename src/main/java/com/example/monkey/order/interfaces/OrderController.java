@@ -34,6 +34,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -74,10 +75,17 @@ public class OrderController {
     @GetMapping("/my")
     @PreAuthorize("hasAuthority('ORDER_READ_OWN')")
     public Result<PageResponseDto<OrderResponseDto>> myOrders(
+            @RequestParam(name = "status", required = false) List<String> statuses,
+            @RequestParam(required = false) String keyword,
             @ParameterObject @PageableDefault(size = 20, sort = "createTime", direction = Sort.Direction.DESC)
                     Pageable pageable,
             @AuthenticationPrincipal SessionUser currentUser) {
-        return Result.success(orderApplicationService.findOrders(currentUser, toOrderPageQuery(pageable)));
+        return Result.success(
+                orderApplicationService.findOrders(currentUser, toOrderPageQuery(pageable, statuses, keyword)));
+    }
+
+    public Result<PageResponseDto<OrderResponseDto>> myOrders(Pageable pageable, SessionUser currentUser) {
+        return myOrders(List.of(), null, pageable, currentUser);
     }
 
     @GetMapping("/{id}")
@@ -89,9 +97,15 @@ public class OrderController {
     @GetMapping("/all")
     @PreAuthorize("hasAuthority('ORDER_MANAGE')")
     public Result<PageResponseDto<OrderResponseDto>> getAllOrders(
+            @RequestParam(name = "status", required = false) List<String> statuses,
+            @RequestParam(required = false) String keyword,
             @ParameterObject @PageableDefault(size = 20, sort = "createTime", direction = Sort.Direction.DESC)
                     Pageable pageable) {
-        return Result.success(orderService.findAllOrders(toOrderPageQuery(pageable)));
+        return Result.success(orderService.findAllOrders(toOrderPageQuery(pageable, statuses, keyword)));
+    }
+
+    public Result<PageResponseDto<OrderResponseDto>> getAllOrders(Pageable pageable) {
+        return getAllOrders(List.of(), null, pageable);
     }
 
     @PostMapping("/ship/{id}")
@@ -183,10 +197,10 @@ public class OrderController {
         return Result.success(orderApplicationService.findReviews(currentUser, id));
     }
 
-    private static OrderPageQuery toOrderPageQuery(Pageable pageable) {
+    private static OrderPageQuery toOrderPageQuery(Pageable pageable, List<String> statuses, String keyword) {
         List<SortOrder> sortOrders = pageable.getSort().stream()
                 .map(order -> new SortOrder(order.getProperty(), order.isAscending() ? Direction.ASC : Direction.DESC))
                 .toList();
-        return new OrderPageQuery(pageable.getPageNumber(), pageable.getPageSize(), sortOrders);
+        return new OrderPageQuery(pageable.getPageNumber(), pageable.getPageSize(), sortOrders, statuses, keyword);
     }
 }

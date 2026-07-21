@@ -48,15 +48,23 @@ public class JpaOrderStore implements OrderStore {
 
     @Override
     public OrderPage findVisibleByUser(Long userId, OrderPageRequest request) {
-        Page<OrderRecord> page = orderRepository
-                .findByUserIdAndUserHiddenFalse(userId, toPageable(request))
-                .map(JpaOrderStore::toRecord);
+        Pageable pageable = toPageable(request);
+        Page<Order> entities = request.hasFilters()
+                ? orderRepository.findVisiblePage(
+                        userId, !request.statuses().isEmpty(), queryStatuses(request), request.keyword(), pageable)
+                : orderRepository.findByUserIdAndUserHiddenFalse(userId, pageable);
+        Page<OrderRecord> page = entities.map(JpaOrderStore::toRecord);
         return toOrderPage(page);
     }
 
     @Override
     public OrderPage findAll(OrderPageRequest request) {
-        return toOrderPage(orderRepository.findAll(toPageable(request)).map(JpaOrderStore::toRecord));
+        Pageable pageable = toPageable(request);
+        Page<Order> entities = request.hasFilters()
+                ? orderRepository.findAdminPage(
+                        !request.statuses().isEmpty(), queryStatuses(request), request.keyword(), pageable)
+                : orderRepository.findAll(pageable);
+        return toOrderPage(entities.map(JpaOrderStore::toRecord));
     }
 
     @Override
@@ -150,6 +158,10 @@ public class JpaOrderStore implements OrderStore {
                 .toList();
         Sort sort = orders.isEmpty() ? Sort.unsorted() : Sort.by(orders);
         return JpaPageRequests.bounded(request.page(), request.size(), sort);
+    }
+
+    private static List<String> queryStatuses(OrderPageRequest request) {
+        return request.statuses().isEmpty() ? List.of("") : request.statuses();
     }
 
     private static Sort.Direction toSpringDirection(Direction direction) {

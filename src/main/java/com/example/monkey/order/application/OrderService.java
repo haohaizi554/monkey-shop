@@ -762,7 +762,8 @@ public class OrderService {
         List<SortOrder> sortOrders = pageQuery.sortOrders().stream()
                 .map(OrderService::toDomainSortOrder)
                 .toList();
-        return new OrderPageRequest(pageQuery.page(), pageQuery.size(), sortOrders);
+        return new OrderPageRequest(
+                pageQuery.page(), pageQuery.size(), sortOrders, pageQuery.statuses(), pageQuery.keyword());
     }
 
     private static SortOrder toDomainSortOrder(OrderPageQuery.SortOrder sortOrder) {

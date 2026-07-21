@@ -114,6 +114,68 @@ test('commerce operations are four linked admin workspaces without callback simu
   }
 })
 
+test('admin orders request one bounded server page at a time', async ({ page }) => {
+  const queries: Array<{ page: string | null; size: string | null }> = []
+  await installAdminMocks(page)
+  await page.route('**/api/v1/orders/all**', async (route) => {
+    const url = new URL(route.request().url())
+    const pageNumber = Number(url.searchParams.get('page') ?? 0)
+    queries.push({ page: url.searchParams.get('page'), size: url.searchParams.get('size') })
+    await fulfillOk(route, {
+      content: [{ ...orders[0], id: 100 + pageNumber, orderNo: `ADMIN-PAGE-${pageNumber + 1}` }],
+      page: pageNumber,
+      size: 25,
+      totalElements: 51,
+      totalPages: 3,
+      first: pageNumber === 0,
+      last: pageNumber === 2,
+    })
+  })
+
+  await page.goto('/admin/orders')
+  await expect(page.getByText('ADMIN-PAGE-1', { exact: true })).toBeVisible()
+  expect(queries).toEqual([{ page: '0', size: '25' }])
+
+  await page.locator('.admin-orders-pagination .btn-next').click()
+  await expect.poll(() => queries.at(-1)?.page).toBe('1')
+  await expect(page.getByText('ADMIN-PAGE-2', { exact: true })).toBeVisible()
+})
+
+test('returns and logistics declare bounded status filters to the server', async ({ page }) => {
+  const queries: Array<{
+    path: string
+    page: string | null
+    size: string | null
+    status: string | null
+  }> = []
+  await installAdminMocks(page)
+  await page.route('**/api/v1/orders/all**', async (route) => {
+    const url = new URL(route.request().url())
+    queries.push({
+      path: url.pathname,
+      page: url.searchParams.get('page'),
+      size: url.searchParams.get('size'),
+      status: url.searchParams.get('status'),
+    })
+    const statuses = new Set((url.searchParams.get('status') ?? '').split(','))
+    await fulfillOk(route, pageResult(orders.filter((candidate) => statuses.has(candidate.status))))
+  })
+
+  await page.goto('/admin/returns')
+  await expect
+    .poll(() => queries.at(-1)?.status)
+    .toBe('RETURN_REQUESTED,WAITING_RETURN_SHIPMENT,RETURN_SHIPPING')
+
+  await page.goto('/admin/logistics')
+  await expect
+    .poll(() => queries.at(-1)?.status)
+    .toBe('PAID,PARTIALLY_SHIPPED,SHIPPED,PARTIALLY_RECEIVED,COMPLETED')
+  expect(queries.map(({ page: pageNumber, size }) => ({ page: pageNumber, size }))).toEqual([
+    { page: '0', size: '25' },
+    { page: '0', size: '25' },
+  ])
+})
+
 test('refund stays disabled while a different order payment is loading', async ({ page }) => {
   let lookupCalls = 0
   let releaseLookup!: () => void

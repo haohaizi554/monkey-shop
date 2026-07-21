@@ -23,6 +23,43 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     Page<Order> findByUserIdAndUserHiddenFalse(Long userId, Pageable pageable);
 
+    @Query("""
+            SELECT o
+            FROM Order o
+            WHERE o.userId = :userId
+              AND o.userHidden = false
+              AND (:filterByStatus = false OR o.status IN :statuses)
+              AND (
+                  :keyword IS NULL
+                  OR LOWER(o.orderNo) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                  OR LOWER(o.productName) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                  OR LOWER(o.buyerName) LIKE LOWER(CONCAT('%', :keyword, '%'))
+              )
+            """)
+    Page<Order> findVisiblePage(
+            @Param("userId") Long userId,
+            @Param("filterByStatus") boolean filterByStatus,
+            @Param("statuses") List<String> statuses,
+            @Param("keyword") String keyword,
+            Pageable pageable);
+
+    @Query("""
+            SELECT o
+            FROM Order o
+            WHERE (:filterByStatus = false OR o.status IN :statuses)
+              AND (
+                  :keyword IS NULL
+                  OR LOWER(o.orderNo) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                  OR LOWER(o.productName) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                  OR LOWER(o.buyerName) LIKE LOWER(CONCAT('%', :keyword, '%'))
+              )
+            """)
+    Page<Order> findAdminPage(
+            @Param("filterByStatus") boolean filterByStatus,
+            @Param("statuses") List<String> statuses,
+            @Param("keyword") String keyword,
+            Pageable pageable);
+
     List<Order> findByStatusInAndCreateTimeBeforeAndPiiAnonymizedFalse(
             List<String> statuses, LocalDateTime cutoff, Pageable pageable);
 

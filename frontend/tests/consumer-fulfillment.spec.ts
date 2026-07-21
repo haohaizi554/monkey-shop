@@ -151,6 +151,46 @@ test('orders localize fulfillment states and confirm a single return request', a
   await expect(page.getByText('\u5f85\u652f\u4ed8', { exact: true }).first()).toBeVisible()
 })
 
+test('orders request one server page and translate filters into status queries', async ({
+  page,
+}) => {
+  const queries: Array<{ page: string | null; size: string | null; status: string | null }> = []
+  await installFulfillmentMocks(page, async (route, pathname) => {
+    if (pathname !== '/orders/my') return false
+    const url = new URL(route.request().url())
+    const pageNumber = Number(url.searchParams.get('page') ?? 0)
+    queries.push({
+      page: url.searchParams.get('page'),
+      size: url.searchParams.get('size'),
+      status: url.searchParams.get('status'),
+    })
+    await fulfillOk(route, {
+      content: [order(700 + pageNumber, 'PAID', `Paged order ${pageNumber + 1}`)],
+      page: pageNumber,
+      size: 10,
+      totalElements: 25,
+      totalPages: 3,
+      first: pageNumber === 0,
+      last: pageNumber === 2,
+    })
+    return true
+  })
+
+  await page.goto('/orders')
+  await expect(page.getByText('Paged order 1', { exact: true })).toBeVisible()
+  expect(queries).toEqual([{ page: '0', size: '10', status: null }])
+
+  await page.getByText('In delivery', { exact: true }).click()
+  await expect
+    .poll(() => queries.at(-1)?.status)
+    .toBe('PAID,PARTIALLY_SHIPPED,SHIPPED,PARTIALLY_RECEIVED')
+  await expect.poll(() => queries.at(-1)?.page).toBe('0')
+
+  await page.locator('.orders-pagination .btn-next').click()
+  await expect.poll(() => queries.at(-1)?.page).toBe('1')
+  await expect(page.getByText('Paged order 2', { exact: true })).toBeVisible()
+})
+
 test('order details load shipment batches lazily and receive one batch at a time', async ({
   page,
 }) => {

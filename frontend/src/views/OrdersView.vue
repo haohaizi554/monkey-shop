@@ -9,11 +9,12 @@ import {
   Star,
   Van,
 } from '@element-plus/icons-vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import * as ordersApi from '@/api/orders'
 import type { OrderSummary } from '@/api/orders'
+import type { PageEnvelope } from '@/api/page'
 import MascotState from '@/components/mascot/MascotState.vue'
 import OrderStatusTimeline from '@/components/order/OrderStatusTimeline.vue'
 import ProductImage from '@/components/ProductImage.vue'
@@ -44,14 +45,17 @@ interface ShipmentState {
 const router = useRouter()
 const { t } = useI18n()
 const notify = useNotify()
-const orderResource = useAsyncState<OrderSummary[]>({ timeoutMs: 20000 })
+const orderResource = useAsyncState<PageEnvelope<OrderSummary>>({ timeoutMs: 20000 })
 const actionInProgress = reactive<Record<number, string | undefined>>({})
 const actionErrors = reactive<Record<number, string | undefined>>({})
 const shipmentStates = reactive<Record<number, ShipmentState>>({})
 const expandedOrders = reactive(new Set<number>())
 const activeFilter = ref<OrderFilter>('all')
+const currentPage = ref(0)
+const pageSize = 10
 
-const orders = computed(() => orderResource.data.value ?? [])
+const orderPage = computed(() => orderResource.data.value)
+const orders = computed(() => orderPage.value?.content ?? [])
 const filterOptions = computed(() => [
   { label: t('orders.filters.all'), value: 'all' },
   { label: t('orders.filters.payment'), value: 'payment' },
@@ -59,7 +63,13 @@ const filterOptions = computed(() => [
   { label: t('orders.filters.returns'), value: 'returns' },
   { label: t('orders.filters.completed'), value: 'completed' },
 ])
-const filteredOrders = computed(() => orders.value.filter(matchesActiveFilter))
+const statusesByFilter: Record<OrderFilter, string | undefined> = {
+  all: undefined,
+  payment: 'PENDING_PAYMENT',
+  shipping: 'PAID,PARTIALLY_SHIPPED,SHIPPED,PARTIALLY_RECEIVED',
+  returns: 'RETURN_REQUESTED,WAITING_RETURN_SHIPMENT,RETURN_SHIPPING',
+  completed: 'COMPLETED,REFUNDED',
+}
 
 function openReview(order: OrderSummary) {
   const skuId = order.lines?.[0]?.skuId ?? order.productId
@@ -67,23 +77,6 @@ function openReview(order: OrderSummary) {
     path: `/orders/${order.id}/review`,
     query: { skuId: String(skuId) },
   })
-}
-
-function matchesActiveFilter(order: OrderSummary): boolean {
-  const status = normalizeConsumerOrderStatus(order.status)
-  if (activeFilter.value === 'payment') {
-    return status === 'PAYMENT_PENDING'
-  }
-  if (activeFilter.value === 'shipping') {
-    return ['PAID', 'PARTIALLY_SHIPPED', 'SHIPPED', 'PARTIALLY_RECEIVED'].includes(status)
-  }
-  if (activeFilter.value === 'returns') {
-    return ['RETURN_REQUESTED', 'WAITING_RETURN_SHIPMENT', 'RETURN_SHIPPING'].includes(status)
-  }
-  if (activeFilter.value === 'completed') {
-    return ['COMPLETED', 'REFUNDED', 'CANCELLED'].includes(status)
-  }
-  return true
 }
 
 function actionKey(action: string, targetId: number): string {
@@ -140,11 +133,26 @@ function detailsId(orderId: number): string {
   return `order-details-${orderId}`
 }
 
-async function loadOrders() {
-  await orderResource.load(() => ordersApi.myOrders(), {
-    isEmpty: (items) => items.length === 0,
-    preserveData: true,
-  })
+async function loadOrders(page = currentPage.value) {
+  currentPage.value = page
+  await orderResource.load(
+    ({ signal }) =>
+      ordersApi.myOrderPage({
+        page,
+        size: pageSize,
+        status: statusesByFilter[activeFilter.value],
+        signal,
+      }),
+    {
+      isEmpty: (result) => result.content.length === 0,
+      preserveData: true,
+    },
+  )
+}
+
+function changePage(page: number) {
+  expandedOrders.clear()
+  void loadOrders(page - 1)
 }
 
 async function loadShipments(orderId: number, force = false) {
@@ -249,6 +257,13 @@ async function hideOrder(order: OrderSummary) {
 onMounted(() => {
   void loadOrders()
 })
+
+watch(activeFilter, () => {
+  expandedOrders.clear()
+  void loadOrders(0)
+})
+
+onUnmounted(() => orderResource.cancel())
 </script>
 
 <template>
@@ -258,7 +273,7 @@ onMounted(() => {
         <el-button
           :icon="RefreshRight"
           :loading="orderResource.status.value === 'updating'"
-          @click="loadOrders"
+          @click="loadOrders()"
         >
           {{ $t('common.refresh') }}
         </el-button>
@@ -271,19 +286,19 @@ onMounted(() => {
         :options="filterOptions"
         :aria-label="$t('orders.filterLabel')"
       />
-      <span>{{ $t('orders.orderCount', { count: filteredOrders.length }) }}</span>
+      <span>{{ $t('orders.orderCount', { count: orderPage?.totalElements ?? 0 }) }}</span>
     </div>
 
     <AsyncStateView
       :status="orderResource.status.value"
       :error="orderResource.error.value"
       :empty-title="$t('common.noOrders')"
-      @retry="loadOrders"
+      @retry="loadOrders()"
     >
       <template #error>
         <div class="orders-view__load-error" role="alert">
           <p>{{ $t('common.unableToLoadOrders') }}</p>
-          <el-button :icon="RefreshRight" @click="loadOrders">
+          <el-button :icon="RefreshRight" @click="loadOrders()">
             {{ $t('common.retry') }}
           </el-button>
         </div>
@@ -304,8 +319,8 @@ onMounted(() => {
         :aria-label="$t('common.orders')"
         :busy="orderResource.status.value === 'updating'"
       >
-        <div v-if="filteredOrders.length" class="order-list">
-          <article v-for="order in filteredOrders" :key="order.id" class="order-row">
+        <div v-if="orders.length" class="order-list">
+          <article v-for="order in orders" :key="order.id" class="order-row">
             <div class="order-row__summary">
               <ProductImage :src="order.productImage" :alt="order.productName" />
 
@@ -543,6 +558,16 @@ onMounted(() => {
           <p>{{ $t('orders.filterEmpty') }}</p>
         </section>
       </DataTableShell>
+      <el-pagination
+        v-if="(orderPage?.totalElements ?? 0) > pageSize"
+        class="orders-pagination"
+        background
+        layout="prev, pager, next, total"
+        :current-page="currentPage + 1"
+        :page-size="pageSize"
+        :total="orderPage?.totalElements ?? 0"
+        @current-change="changePage"
+      />
     </AsyncStateView>
   </div>
 </template>
@@ -560,6 +585,12 @@ onMounted(() => {
   gap: var(--space-4);
   padding-bottom: var(--space-4);
   border-bottom: 1px solid var(--color-line);
+}
+
+.orders-pagination {
+  min-height: 32px;
+  justify-content: center;
+  overflow-x: auto;
 }
 
 .orders-toolbar > span {
