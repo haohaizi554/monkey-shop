@@ -161,7 +161,17 @@ test('admin keeps refresh available and lets the product delete patch win', asyn
 
   await installAdminMocks(page, async ({ pathname, request }) => {
     if (pathname === '/stats/data') return adminStats
-    if (pathname === '/orders/all') return []
+    if (pathname === '/orders/all') {
+      return {
+        content: [],
+        page: 0,
+        size: 25,
+        totalElements: 0,
+        totalPages: 0,
+        first: true,
+        last: true,
+      }
+    }
     if (pathname === '/monkeys' && request.method() === 'GET') {
       catalogLoads += 1
       return {

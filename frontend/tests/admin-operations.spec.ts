@@ -87,7 +87,16 @@ async function installAdminMocks(page: Page) {
     } else if (pathname === '/monkeys' && request.method() === 'GET') {
       data = pageResult(products)
     } else if (pathname === '/orders/all') {
-      data = pageResult(orders)
+      const keyword = (url.searchParams.get('keyword') ?? '').trim().toLocaleLowerCase()
+      data = pageResult(
+        keyword
+          ? orders.filter((order) =>
+              [order.orderNo, order.productName, order.buyerName].some((value) =>
+                value.toLocaleLowerCase().includes(keyword),
+              ),
+            )
+          : orders,
+      )
     } else if (pathname === '/monkeys/1' && request.method() === 'DELETE') {
       await new Promise((resolve) => setTimeout(resolve, 450))
       data = null
@@ -140,6 +149,83 @@ test('admin product mutation is row-scoped while trace and URL order search stay
   await expect(page.getByText('ORDER-ALPHA', { exact: true })).toHaveCount(0)
   await page.reload()
   await expect(page.getByRole('textbox', { name: 'Search orders' })).toHaveValue('BETA')
+})
+
+test('admin dashboard requests bounded product and order pages', async ({ page }) => {
+  const productQueries: Array<{ page: string | null; size: string | null }> = []
+  const orderQueries: Array<{
+    page: string | null
+    size: string | null
+    keyword: string | null
+  }> = []
+  await installAdminMocks(page)
+  await page.route('**/api/v1/monkeys**', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fallback()
+      return
+    }
+    const url = new URL(route.request().url())
+    const pageNumber = Number(url.searchParams.get('page') ?? 0)
+    productQueries.push({ page: url.searchParams.get('page'), size: url.searchParams.get('size') })
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        ok({
+          ...pageResult([
+            { ...products[0], id: 100 + pageNumber, name: `PRODUCT-PAGE-${pageNumber + 1}` },
+          ]),
+          page: pageNumber,
+          size: 20,
+          totalElements: 41,
+          totalPages: 3,
+          first: pageNumber === 0,
+          last: pageNumber === 2,
+        }),
+      ),
+    })
+  })
+  await page.route('**/api/v1/orders/all**', async (route) => {
+    const url = new URL(route.request().url())
+    const pageNumber = Number(url.searchParams.get('page') ?? 0)
+    orderQueries.push({
+      page: url.searchParams.get('page'),
+      size: url.searchParams.get('size'),
+      keyword: url.searchParams.get('keyword'),
+    })
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        ok({
+          ...pageResult([
+            { ...orders[0], id: 200 + pageNumber, orderNo: `ORDER-PAGE-${pageNumber + 1}` },
+          ]),
+          page: pageNumber,
+          size: 25,
+          totalElements: 51,
+          totalPages: 3,
+          first: pageNumber === 0,
+          last: pageNumber === 2,
+        }),
+      ),
+    })
+  })
+
+  await page.goto('/admin')
+  await expect(page.getByText('PRODUCT-PAGE-1', { exact: true })).toBeVisible()
+  await expect(page.getByText('ORDER-PAGE-1', { exact: true })).toBeVisible()
+  expect(productQueries).toEqual([{ page: '0', size: '20' }])
+  expect(orderQueries).toEqual([{ page: '0', size: '25', keyword: null }])
+
+  await page.locator('.admin-product-pagination .btn-next').click()
+  await expect(page.getByText('PRODUCT-PAGE-2', { exact: true })).toBeVisible()
+  await page.locator('.admin-order-pagination .btn-next').click()
+  await expect(page.getByText('ORDER-PAGE-2', { exact: true })).toBeVisible()
+
+  await page.getByRole('textbox', { name: 'Search orders' }).fill('BETA')
+  await expect.poll(() => orderQueries.at(-1)?.keyword).toBe('BETA')
+  expect(orderQueries.at(-1)).toEqual({ page: '0', size: '25', keyword: 'BETA' })
 })
 
 test('retrying return confirmation after a completed refund does not refund twice', async ({

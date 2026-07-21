@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { Refresh, Search, Upload } from '@element-plus/icons-vue'
 import type { FormInstance, FormRules } from 'element-plus'
-import { computed, nextTick, reactive, ref } from 'vue'
+import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { LocationQuery, LocationQueryRaw } from 'vue-router'
 import { auditTrace, stats as fetchStats, type AuditTraceEvent } from '@/api/admin'
-import { addMonkey, deleteMonkey, listMonkeys, updateMonkey, uploadImage } from '@/api/catalog'
+import { addMonkey, deleteMonkey, listMonkeyPage, updateMonkey, uploadImage } from '@/api/catalog'
 import * as ordersApi from '@/api/orders'
+import type { PageEnvelope } from '@/api/page'
 import { adminPaymentForOrder, adminRefundPayment } from '@/api/payments'
 import ProductImage from '@/components/ProductImage.vue'
 import AdminPageToolbar from '@/components/admin/AdminPageToolbar.vue'
@@ -40,16 +41,21 @@ const { t } = useI18n()
 const notify = useNotify()
 const { state: query } = useRouteQueryState(adminQuerySchema, { debounceMs: 250 })
 const statsState = useAsyncState<Stats>({ preserveData: true })
-const productsState = useAsyncState<Monkey[]>({ preserveData: true })
-const ordersState = useAsyncState<Order[]>({ preserveData: true })
+const productsState = useAsyncState<PageEnvelope<Monkey>>({ preserveData: true })
+const ordersState = useAsyncState<PageEnvelope<Order>>({ preserveData: true })
 const traceState = useAsyncState<AuditTraceEvent[]>({ preserveData: false })
 const pendingKeys = ref(new Set<string>())
+const productPageNumber = ref(0)
+const orderPageNumber = ref(0)
+const productPageSize = 20
+const orderPageSize = 25
 const productDialog = ref(false)
 const uploadingProductImage = ref(false)
 const productFormRef = ref<FormInstance>()
 const traceKeyword = ref('')
 const refundKeys = new Map<number, string>()
 let productSnapshot = ''
+let orderSearchTimer: ReturnType<typeof setTimeout> | null = null
 
 const productForm = reactive<MonkeyRequest>({
   id: null,
@@ -88,18 +94,11 @@ const productRules = computed<FormRules>(() => ({
 }))
 
 const stats = computed(() => statsState.data.value)
-const products = computed(() => productsState.data.value ?? [])
-const orders = computed(() => ordersState.data.value ?? [])
+const productPage = computed(() => productsState.data.value)
+const orderPage = computed(() => ordersState.data.value)
+const products = computed(() => productPage.value?.content ?? [])
+const orders = computed(() => orderPage.value?.content ?? [])
 const traceEvents = computed(() => traceState.data.value ?? [])
-const filteredOrders = computed(() => {
-  const keyword = query.order.trim().toLocaleLowerCase()
-  if (!keyword) return orders.value
-  return orders.value.filter((order) =>
-    [order.orderNo, order.productName, order.buyerName].some((value) =>
-      value.toLocaleLowerCase().includes(keyword),
-    ),
-  )
-})
 const metrics = computed<MetricItem[]>(() => [
   { key: 'gmv', label: t('common.gmv'), value: money(stats.value?.totalGmv), tone: 'success' },
   { key: 'orders', label: t('common.orders'), value: stats.value?.totalOrders ?? 0 },
@@ -134,18 +133,40 @@ async function loadStats() {
   await statsState.load(() => fetchStats(), { preserveData: true })
 }
 
-async function loadProducts() {
-  await productsState.load(() => listMonkeys(), {
-    preserveData: true,
-    isEmpty: (rows) => rows.length === 0,
-  })
+async function loadProducts(pageNumber = productPageNumber.value) {
+  productPageNumber.value = pageNumber
+  await productsState.load(
+    ({ signal }) => listMonkeyPage({ page: pageNumber, size: productPageSize, signal }),
+    {
+      preserveData: true,
+      isEmpty: (page) => page.content.length === 0,
+    },
+  )
 }
 
-async function loadOrders() {
-  await ordersState.load(() => ordersApi.allOrders(), {
-    preserveData: true,
-    isEmpty: (rows) => rows.length === 0,
-  })
+async function loadOrders(pageNumber = orderPageNumber.value) {
+  orderPageNumber.value = pageNumber
+  await ordersState.load(
+    ({ signal }) =>
+      ordersApi.allOrderPage({
+        page: pageNumber,
+        size: orderPageSize,
+        keyword: query.order.trim() || undefined,
+        signal,
+      }),
+    {
+      preserveData: true,
+      isEmpty: (page) => page.content.length === 0,
+    },
+  )
+}
+
+function changeProductPage(pageNumber: number) {
+  void loadProducts(pageNumber - 1)
+}
+
+function changeOrderPage(pageNumber: number) {
+  void loadOrders(pageNumber - 1)
 }
 
 function refreshAdmin() {
@@ -205,12 +226,17 @@ async function uploadProductImage(event: Event) {
   }
 }
 
-function patchProduct(product: Monkey) {
-  const rows = productsState.data.value
+function patchProduct(product: Monkey, created = false) {
+  const page = productsState.data.value
+  const rows = page?.content
   if (!rows) return
   const index = rows.findIndex((row) => row.id === product.id)
   if (index >= 0) rows.splice(index, 1, product)
-  else rows.unshift(product)
+  else {
+    rows.unshift(product)
+    if (rows.length > productPageSize) rows.pop()
+    if (created && page) page.totalElements += 1
+  }
 }
 
 async function saveProduct() {
@@ -221,10 +247,11 @@ async function saveProduct() {
   try {
     statsState.cancel()
     productsState.cancel()
+    const created = !productForm.id
     const saved = productForm.id
       ? await updateMonkey({ ...productForm })
       : await addMonkey({ ...productForm })
-    patchProduct(saved)
+    patchProduct(saved, created)
     productSnapshot = serializeProductForm()
     productDialog.value = false
     notify.success(t('admin.productSaved'), { key: 'admin:product:saved' })
@@ -249,9 +276,16 @@ async function removeProduct(product: Monkey) {
     statsState.cancel()
     productsState.cancel()
     await deleteMonkey(product.id)
-    const rows = productsState.data.value
+    const page = productsState.data.value
+    const rows = page?.content
     const index = rows?.findIndex((row) => row.id === product.id) ?? -1
-    if (rows && index >= 0) rows.splice(index, 1)
+    if (rows && index >= 0) {
+      rows.splice(index, 1)
+      if (page) page.totalElements = Math.max(0, page.totalElements - 1)
+      if (rows.length === 0 && productPageNumber.value > 0) {
+        void loadProducts(productPageNumber.value - 1)
+      }
+    }
     notify.success(t('admin.productDeleted'), { key: 'admin:product:deleted' })
   } catch (error) {
     notify.fromApiError(error, 'common.unableToDeleteProduct')
@@ -261,7 +295,7 @@ async function removeProduct(product: Monkey) {
 }
 
 function patchOrder(order: Order) {
-  const rows = ordersState.data.value
+  const rows = ordersState.data.value?.content
   const index = rows?.findIndex((row) => row.id === order.id) ?? -1
   if (rows && index >= 0) rows.splice(index, 1, order)
 }
@@ -363,6 +397,25 @@ function auditEventLabel(eventType: string): string {
   return normalized ? normalized.charAt(0).toLocaleUpperCase() + normalized.slice(1) : eventType
 }
 
+watch(
+  () => query.order,
+  () => {
+    if (orderSearchTimer !== null) clearTimeout(orderSearchTimer)
+    orderSearchTimer = setTimeout(() => {
+      orderSearchTimer = null
+      void loadOrders(0)
+    }, 250)
+  },
+)
+
+onUnmounted(() => {
+  if (orderSearchTimer !== null) clearTimeout(orderSearchTimer)
+  statsState.cancel()
+  productsState.cancel()
+  ordersState.cancel()
+  traceState.cancel()
+})
+
 refreshAdmin()
 </script>
 
@@ -455,6 +508,16 @@ refreshAdmin()
             </el-table-column>
           </el-table>
         </DataTableShell>
+        <el-pagination
+          v-if="(productPage?.totalElements ?? 0) > productPageSize"
+          class="admin-product-pagination"
+          background
+          layout="prev, pager, next, total"
+          :current-page="productPageNumber + 1"
+          :page-size="productPageSize"
+          :total="productPage?.totalElements ?? 0"
+          @current-change="changeProductPage"
+        />
       </AsyncStateView>
     </section>
 
@@ -483,11 +546,11 @@ refreshAdmin()
       >
         <DataTableShell
           class="order-table"
-          :empty="filteredOrders.length === 0"
+          :empty="orders.length === 0"
           :aria-label="t('admin.fulfillment')"
         >
           <template #empty>{{ t('admin.noOrders') }}</template>
-          <el-table :data="filteredOrders" row-key="id" size="small">
+          <el-table :data="orders" row-key="id" size="small">
             <el-table-column prop="orderNo" :label="t('common.order')" min-width="160" />
             <el-table-column prop="productName" :label="t('common.product')" min-width="150" />
             <el-table-column prop="buyerName" :label="t('common.buyer')" width="120" />
@@ -542,6 +605,16 @@ refreshAdmin()
             </el-table-column>
           </el-table>
         </DataTableShell>
+        <el-pagination
+          v-if="(orderPage?.totalElements ?? 0) > orderPageSize"
+          class="admin-order-pagination"
+          background
+          layout="prev, pager, next, total"
+          :current-page="orderPageNumber + 1"
+          :page-size="orderPageSize"
+          :total="orderPage?.totalElements ?? 0"
+          @current-change="changeOrderPage"
+        />
       </AsyncStateView>
     </section>
 
@@ -751,6 +824,12 @@ refreshAdmin()
 .product-image-editor :deep(.product-image) {
   width: 96px;
   aspect-ratio: 1;
+}
+
+.admin-product-pagination,
+.admin-order-pagination {
+  justify-self: center;
+  margin-top: var(--space-4);
 }
 
 @media (max-width: 600px) {
