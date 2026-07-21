@@ -304,3 +304,31 @@ describe('HTTP authentication recovery', () => {
     expect((caught as ApiError).headers?.get('retry-after')).toBe('9')
   })
 })
+
+describe('HTTP JSON precision', () => {
+  const originalAdapter = http.defaults.adapter
+
+  afterEach(() => {
+    http.defaults.adapter = originalAdapter
+  })
+
+  it('keeps unsafe Java long identifiers exact while ordinary numbers stay numeric', async () => {
+    http.defaults.adapter = async (config) => ({
+      config,
+      data: '{"code":"OK","message":"ok","data":{"id":338329504114688001,"quantity":2,"amount":12.5}}',
+      headers: new AxiosHeaders({ 'Content-Type': 'application/json' }),
+      status: 200,
+      statusText: 'OK',
+    })
+
+    const result = await request<{ id: string; quantity: number; amount: number }>({
+      url: '/catalog/spus/338329504114688001',
+    })
+
+    expect(result).toEqual({
+      id: '338329504114688001',
+      quantity: 2,
+      amount: 12.5,
+    })
+  })
+})

@@ -2,8 +2,10 @@ import axios, {
   AxiosError,
   AxiosHeaders,
   type AxiosRequestConfig,
+  type AxiosResponseTransformer,
   type InternalAxiosRequestConfig,
 } from 'axios'
+import { parseApiJson } from '@/api/safeJson'
 import type { ApiProblem, ApiResult, FieldViolation } from '@/types'
 import { csrfHeader } from '@/utils/csrf'
 
@@ -82,6 +84,26 @@ export class ApiError extends Error {
 export const http = axios.create({
   baseURL: '/api/v1',
   withCredentials: true,
+  transformResponse: [
+    ((data: unknown, headers: AxiosHeaders) => {
+      if (typeof data !== 'string') {
+        return data
+      }
+      const normalized = data.trim()
+      if (!normalized) {
+        return data
+      }
+      const contentType = String(headers?.get('content-type') || '')
+      if (!contentType.toLowerCase().includes('json') && !/^[{[]/.test(normalized)) {
+        return data
+      }
+      try {
+        return parseApiJson(normalized)
+      } catch {
+        return data
+      }
+    }) as AxiosResponseTransformer,
+  ],
   headers: {
     Accept: 'application/json',
   },
