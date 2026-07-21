@@ -1,5 +1,5 @@
 import { request } from './http'
-import { requestAllPageContent } from './page'
+import { requestAllPageContent, type PageEnvelope } from './page'
 import type {
   CatalogPriceQuote,
   CatalogSpu,
@@ -11,6 +11,22 @@ import type {
 
 export function listMonkeys(): Promise<Monkey[]> {
   return requestAllPageContent<Monkey>({ url: '/monkeys' })
+}
+
+export interface MonkeyPageQuery {
+  page: number
+  size: number
+  sort?: string
+  keyword?: string
+  minPrice?: string | number
+  maxPrice?: string | number
+  inStock?: boolean
+  signal?: AbortSignal
+}
+
+export function listMonkeyPage(query: MonkeyPageQuery): Promise<PageEnvelope<Monkey>> {
+  const { signal, ...params } = query
+  return request<PageEnvelope<Monkey>>({ url: '/monkeys', params, signal })
 }
 
 export function addMonkey(payload: MonkeyRequest): Promise<Monkey> {

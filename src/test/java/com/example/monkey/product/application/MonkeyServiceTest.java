@@ -72,9 +72,19 @@ class MonkeyServiceTest {
                 10,
                 List.of(
                         new ProductPageQuery.SortOrder("price", ProductPageQuery.SortOrder.Direction.DESC),
-                        new ProductPageQuery.SortOrder("name", ProductPageQuery.SortOrder.Direction.ASC)));
+                        new ProductPageQuery.SortOrder("name", ProductPageQuery.SortOrder.Direction.ASC)),
+                "golden",
+                BigDecimal.valueOf(100),
+                BigDecimal.valueOf(300),
+                true);
         ProductPageRequest expectedPageRequest = new ProductPageRequest(
-                1, 10, List.of(new SortOrder("price", Direction.DESC), new SortOrder("name", Direction.ASC)));
+                1,
+                10,
+                List.of(new SortOrder("price", Direction.DESC), new SortOrder("name", Direction.ASC)),
+                "golden",
+                BigDecimal.valueOf(100),
+                BigDecimal.valueOf(300),
+                true);
         ProductPage page = new ProductPage(List.of(product()), 1, 10, 23, 3, false, false);
         when(productCatalog.findPage(expectedPageRequest)).thenReturn(page);
 

@@ -28,8 +28,12 @@ public class JpaProductCatalog implements ProductCatalog {
 
     @Override
     public ProductPage findPage(ProductPageRequest request) {
-        Page<ProductRecord> page =
-                monkeyRepository.findAllBy(toPageable(request)).map(JpaProductCatalog::toRecord);
+        Pageable pageable = toPageable(request);
+        Page<Monkey> entities = request.hasFilters()
+                ? monkeyRepository.findPage(
+                        request.keyword(), request.minPrice(), request.maxPrice(), request.inStock(), pageable)
+                : monkeyRepository.findAllBy(pageable);
+        Page<ProductRecord> page = entities.map(JpaProductCatalog::toRecord);
         return new ProductPage(
                 page.getContent(),
                 page.getNumber(),

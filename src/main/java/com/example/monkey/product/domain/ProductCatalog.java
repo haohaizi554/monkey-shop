@@ -17,9 +17,25 @@ public interface ProductCatalog {
     record ProductRecord(
             Long id, String name, String breed, BigDecimal price, String description, String imageUrl, Integer stock) {}
 
-    record ProductPageRequest(int page, int size, List<SortOrder> sortOrders) {
+    record ProductPageRequest(
+            int page,
+            int size,
+            List<SortOrder> sortOrders,
+            String keyword,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            Boolean inStock) {
         public ProductPageRequest {
             sortOrders = sortOrders == null ? List.of() : List.copyOf(sortOrders);
+            keyword = keyword == null || keyword.isBlank() ? null : keyword.trim();
+        }
+
+        public ProductPageRequest(int page, int size, List<SortOrder> sortOrders) {
+            this(page, size, sortOrders, null, null, null, null);
+        }
+
+        public boolean hasFilters() {
+            return keyword != null || minPrice != null || maxPrice != null || Boolean.TRUE.equals(inStock);
         }
     }
 

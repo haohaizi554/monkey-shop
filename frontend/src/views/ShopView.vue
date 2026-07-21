@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { Search } from '@element-plus/icons-vue'
-import { computed, onMounted, reactive } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { flattenCategoryTree, getCategoryTree, listMonkeys } from '@/api/catalog'
+import { flattenCategoryTree, getCategoryTree, listMonkeyPage } from '@/api/catalog'
+import type { PageEnvelope } from '@/api/page'
 import ProductImage from '@/components/ProductImage.vue'
 import ProductCard from '@/components/product/ProductCard.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
@@ -17,13 +18,22 @@ import type { Address, CategoryNode, Monkey } from '@/types'
 import { money } from '@/utils/format'
 
 type NoticeLevel = 'error' | 'success' | 'warning'
+type PriceFilter = string | number
 
 const router = useRouter()
 const { t } = useI18n()
-const filters = reactive({ keyword: '', minPrice: '', maxPrice: '', inStockOnly: false })
+const filters = reactive({
+  keyword: '',
+  minPrice: '' as PriceFilter,
+  maxPrice: '' as PriceFilter,
+  inStockOnly: false,
+})
 const notify = useNotify()
-const catalogState = useAsyncState<Monkey[]>({ timeoutMs: 20000 })
+const catalogState = useAsyncState<PageEnvelope<Monkey>>({ timeoutMs: 20000 })
 const categoryState = useAsyncState<CategoryNode[]>({ timeoutMs: 10000 })
+const currentPage = ref(0)
+const pageSize = 12
+let filterTimer: ReturnType<typeof setTimeout> | null = null
 
 function addressLabel(address: Address) {
   return `${address.receiverName} - ${address.phone} - ${address.detailAddress}`
@@ -37,11 +47,47 @@ function showNotice(level: NoticeLevel, message: string) {
   notify.notify(level, message)
 }
 
-async function loadMonkeys() {
-  await catalogState.load(() => listMonkeys(), {
-    isEmpty: (list) => list.length === 0,
-  })
+async function loadMonkeys(page = currentPage.value) {
+  currentPage.value = page
+  await catalogState.load(
+    ({ signal }) =>
+      listMonkeyPage({
+        page,
+        size: pageSize,
+        sort: 'id,asc',
+        keyword: filters.keyword.trim() || undefined,
+        minPrice: String(filters.minPrice).trim() || undefined,
+        maxPrice: String(filters.maxPrice).trim() || undefined,
+        inStock: filters.inStockOnly || undefined,
+        signal,
+      }),
+    {
+      isEmpty: (result) => result.content.length === 0,
+      preserveData: true,
+    },
+  )
 }
+
+function scheduleFilterReload() {
+  if (filterTimer !== null) clearTimeout(filterTimer)
+  currentPage.value = 0
+  filterTimer = setTimeout(() => {
+    filterTimer = null
+    void loadMonkeys(0)
+  }, 250)
+}
+
+function changePage(page: number) {
+  void loadMonkeys(page - 1)
+}
+
+watch(filters, scheduleFilterReload, { deep: true })
+
+onUnmounted(() => {
+  if (filterTimer !== null) clearTimeout(filterTimer)
+  catalogState.cancel()
+  categoryState.cancel()
+})
 
 async function loadCategories() {
   await categoryState.load(() => getCategoryTree(), {
@@ -63,36 +109,20 @@ const {
   submitOrder,
 } = useCheckout({ afterOrderCreated: loadMonkeys, notify: showNotice })
 
-const monkeysList = computed(() => catalogState.data.value ?? [])
+const catalogPage = computed(() => catalogState.data.value)
+const monkeysList = computed(() => catalogPage.value?.content ?? [])
 const categories = computed(() => flattenCategoryTree(categoryState.data.value ?? []))
-const filteredMonkeys = computed(() =>
-  monkeysList.value.filter((monkey) => {
-    const keyword = filters.keyword.trim().toLowerCase()
-    const price = Number(monkey.price)
-    return (
-      (!keyword ||
-        monkey.name.toLowerCase().includes(keyword) ||
-        monkey.breed.toLowerCase().includes(keyword)) &&
-      (!filters.minPrice || price >= Number(filters.minPrice)) &&
-      (!filters.maxPrice || price <= Number(filters.maxPrice)) &&
-      (!filters.inStockOnly || monkey.stock > 0)
-    )
-  }),
-)
 const hasActiveFilters = computed(
   () =>
     filters.keyword.trim().length > 0 ||
-    filters.minPrice.trim().length > 0 ||
-    filters.maxPrice.trim().length > 0 ||
+    String(filters.minPrice).trim().length > 0 ||
+    String(filters.maxPrice).trim().length > 0 ||
     filters.inStockOnly,
 )
 const catalogStatus = computed<AsyncStatus>(() => {
-  if (catalogState.status.value === 'success' && filteredMonkeys.value.length === 0) {
-    return 'empty'
-  }
   return catalogState.status.value
 })
-const productListStructuredData = computed(() => productListJsonLd(filteredMonkeys.value))
+const productListStructuredData = computed(() => productListJsonLd(monkeysList.value))
 useJsonLd('monkeyshop-product-list-jsonld', productListStructuredData)
 
 function clearFilters() {
@@ -102,7 +132,7 @@ function clearFilters() {
   filters.inStockOnly = false
 }
 
-function openProductDetails(productId: number) {
+function openProductDetails(productId: string | number) {
   void router.push(`/shop/${productId}`)
 }
 
@@ -203,7 +233,7 @@ onMounted(() => {
 
       <div class="product-grid">
         <ProductCard
-          v-for="monkey in filteredMonkeys"
+          v-for="monkey in monkeysList"
           :key="monkey.id"
           :product="monkey"
           :pending="openingCheckoutId === monkey.id"
@@ -213,6 +243,16 @@ onMounted(() => {
           @secondary="openProductDetails(monkey.id)"
         />
       </div>
+      <el-pagination
+        v-if="(catalogPage?.totalElements ?? 0) > pageSize"
+        class="catalog-pagination"
+        background
+        layout="prev, pager, next, total"
+        :current-page="currentPage + 1"
+        :page-size="pageSize"
+        :total="catalogPage?.totalElements ?? 0"
+        @current-change="changePage"
+      />
     </AsyncStateView>
 
     <el-dialog
@@ -297,6 +337,13 @@ onMounted(() => {
 
 .catalog-toolbar {
   min-width: 0;
+  padding-block: var(--space-2);
+}
+
+.catalog-pagination {
+  min-height: 32px;
+  justify-content: center;
+  overflow-x: auto;
   padding-block: var(--space-2);
 }
 

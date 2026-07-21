@@ -9,6 +9,7 @@ import com.example.monkey.product.application.dto.ProductPageQuery.SortOrder.Dir
 import com.example.monkey.shared.application.dto.PageResponseDto;
 import com.example.monkey.shared.interfaces.dto.Result;
 import jakarta.validation.Valid;
+import java.math.BigDecimal;
 import java.util.List;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -36,9 +38,14 @@ public class MonkeyController {
     @GetMapping
     @PreAuthorize("permitAll()")
     public Result<PageResponseDto<MonkeyResponseDto>> getMonkeys(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) BigDecimal minPrice,
+            @RequestParam(required = false) BigDecimal maxPrice,
+            @RequestParam(required = false) Boolean inStock,
             @ParameterObject @PageableDefault(size = 20, sort = "id", direction = Sort.Direction.ASC)
                     Pageable pageable) {
-        return Result.success(monkeyService.findMonkeys(toProductPageQuery(pageable)));
+        return Result.success(
+                monkeyService.findMonkeys(toProductPageQuery(pageable, keyword, minPrice, maxPrice, inStock)));
     }
 
     @PostMapping("/add")
@@ -60,10 +67,12 @@ public class MonkeyController {
         return Result.success();
     }
 
-    private static ProductPageQuery toProductPageQuery(Pageable pageable) {
+    private static ProductPageQuery toProductPageQuery(
+            Pageable pageable, String keyword, BigDecimal minPrice, BigDecimal maxPrice, Boolean inStock) {
         List<SortOrder> sortOrders = pageable.getSort().stream()
                 .map(order -> new SortOrder(order.getProperty(), order.isAscending() ? Direction.ASC : Direction.DESC))
                 .toList();
-        return new ProductPageQuery(pageable.getPageNumber(), pageable.getPageSize(), sortOrders);
+        return new ProductPageQuery(
+                pageable.getPageNumber(), pageable.getPageSize(), sortOrders, keyword, minPrice, maxPrice, inStock);
     }
 }

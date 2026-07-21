@@ -44,7 +44,7 @@ class MonkeyControllerTest {
         PageResponseDto<MonkeyResponseDto> page = new PageResponseDto<>(List.of(monkey), 0, 20, 1, 1, true, true);
         when(monkeyService.findMonkeys(any(ProductPageQuery.class))).thenReturn(page);
 
-        Result<PageResponseDto<MonkeyResponseDto>> result = controller.getMonkeys(pageable);
+        Result<PageResponseDto<MonkeyResponseDto>> result = controller.getMonkeys(null, null, null, null, pageable);
 
         assertThat(result.code()).isEqualTo("OK");
         assertThat(result.data()).isSameAs(page);
@@ -60,7 +60,8 @@ class MonkeyControllerTest {
         PageResponseDto<MonkeyResponseDto> page = new PageResponseDto<>(List.of(monkey), 0, 20, 1, 1, true, true);
         when(monkeyService.findMonkeys(any(ProductPageQuery.class))).thenReturn(page);
 
-        Result<PageResponseDto<MonkeyResponseDto>> result = controller.getMonkeys(pageable);
+        Result<PageResponseDto<MonkeyResponseDto>> result =
+                controller.getMonkeys(" golden ", BigDecimal.valueOf(100), BigDecimal.valueOf(300), true, pageable);
 
         assertThat(result.code()).isEqualTo("OK");
         assertThat(result.data()).isSameAs(page);
@@ -69,6 +70,10 @@ class MonkeyControllerTest {
         assertThat(pageQuery.size()).isEqualTo(20);
         assertThat(pageQuery.sortOrders())
                 .containsExactly(new SortOrder("price", Direction.DESC), new SortOrder("name", Direction.ASC));
+        assertThat(pageQuery.keyword()).isEqualTo("golden");
+        assertThat(pageQuery.minPrice()).isEqualByComparingTo("100");
+        assertThat(pageQuery.maxPrice()).isEqualByComparingTo("300");
+        assertThat(pageQuery.inStock()).isTrue();
     }
 
     @Test

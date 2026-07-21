@@ -316,6 +316,55 @@ test('catalog card keeps geometry when its image fails', async ({ page }) => {
   expect(box?.height).toBeGreaterThan(150)
 })
 
+test('catalog requests one filtered server page at a time', async ({ page }) => {
+  const queries: Array<Record<string, string | null>> = []
+  await page.route('**/api/v1/monkeys**', async (route) => {
+    const url = new URL(route.request().url())
+    const pageNumber = Number(url.searchParams.get('page') ?? 0)
+    queries.push({
+      page: url.searchParams.get('page'),
+      size: url.searchParams.get('size'),
+      keyword: url.searchParams.get('keyword'),
+      minPrice: url.searchParams.get('minPrice'),
+      maxPrice: url.searchParams.get('maxPrice'),
+      inStock: url.searchParams.get('inStock'),
+    })
+    await fulfillJson(route, {
+      content: [{ ...catalogProduct, id: pageNumber + 1, name: `Page ${pageNumber + 1}` }],
+      page: pageNumber,
+      size: 12,
+      totalElements: 25,
+      totalPages: 3,
+      first: pageNumber === 0,
+      last: pageNumber === 2,
+    })
+  })
+
+  await page.goto('/shop')
+  await expect(page.getByText('Page 1', { exact: true })).toBeVisible()
+  expect(queries).toHaveLength(1)
+  expect(queries[0]).toMatchObject({ page: '0', size: '12', keyword: null })
+
+  await page.locator('#catalog-keyword').fill('golden')
+  await page.locator('#catalog-min-price').fill('100')
+  await page.locator('#catalog-max-price').fill('300')
+  await page.locator('#catalog-in-stock').check()
+  await expect
+    .poll(() => queries.at(-1))
+    .toMatchObject({
+      page: '0',
+      size: '12',
+      keyword: 'golden',
+      minPrice: '100',
+      maxPrice: '300',
+      inStock: 'true',
+    })
+
+  await page.locator('.catalog-pagination .btn-next').click()
+  await expect.poll(() => queries.at(-1)?.page).toBe('1')
+  await expect(page.getByText('Page 2', { exact: true })).toBeVisible()
+})
+
 test('category discovery is API-backed and carries selection into the search URL', async ({
   page,
 }) => {

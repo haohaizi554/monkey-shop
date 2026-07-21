@@ -2,6 +2,7 @@ package com.example.monkey.product.infrastructure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -97,6 +98,38 @@ class JpaProductCatalogTest {
         Pageable pageable = capturePageable();
         assertThat(pageable.getPageNumber()).isZero();
         assertThat(pageable.getPageSize()).isEqualTo(100);
+    }
+
+    @Test
+    void findPageAppliesFiltersBeforeDatabasePagination() {
+        PageRequest repositoryPageable = PageRequest.of(0, 12, Sort.by(Sort.Order.asc("name")));
+        when(monkeyRepository.findPage(
+                        eq("golden"),
+                        eq(BigDecimal.valueOf(100)),
+                        eq(BigDecimal.valueOf(300)),
+                        eq(true),
+                        any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(monkey()), repositoryPageable, 1));
+
+        ProductPage result = catalog.findPage(new ProductPageRequest(
+                0,
+                12,
+                List.of(new SortOrder("name", Direction.ASC)),
+                " golden ",
+                BigDecimal.valueOf(100),
+                BigDecimal.valueOf(300),
+                true));
+
+        assertThat(result.content()).containsExactly(record());
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(monkeyRepository)
+                .findPage(
+                        eq("golden"),
+                        eq(BigDecimal.valueOf(100)),
+                        eq(BigDecimal.valueOf(300)),
+                        eq(true),
+                        pageable.capture());
+        assertThat(pageable.getValue().getPageSize()).isEqualTo(12);
     }
 
     @Test

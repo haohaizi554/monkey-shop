@@ -98,7 +98,14 @@ public class MonkeyService {
         List<SortOrder> sortOrders = pageQuery.sortOrders().stream()
                 .map(MonkeyService::toDomainSortOrder)
                 .toList();
-        return new ProductPageRequest(pageQuery.page(), pageQuery.size(), sortOrders);
+        return new ProductPageRequest(
+                pageQuery.page(),
+                pageQuery.size(),
+                sortOrders,
+                pageQuery.keyword(),
+                pageQuery.minPrice(),
+                pageQuery.maxPrice(),
+                pageQuery.inStock());
     }
 
     private static SortOrder toDomainSortOrder(ProductPageQuery.SortOrder sortOrder) {
