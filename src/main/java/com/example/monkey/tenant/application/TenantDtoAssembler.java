@@ -65,11 +65,19 @@ public final class TenantDtoAssembler {
                 job.exportType(),
                 job.status(),
                 job.artifactUri() != null,
+                artifactDownloadUri(job),
                 job.requestedBy(),
                 job.requestedAt(),
                 job.completedAt(),
                 job.auditTraceId(),
                 job.version());
+    }
+
+    private static String artifactDownloadUri(TenantDataExportJob job) {
+        if (job.artifactUri() == null) {
+            return null;
+        }
+        return "/api/v1/tenants/" + job.tenantId() + "/exports/" + job.id() + "/artifact";
     }
 
     public static TenantDashboardDto toDashboard(TenantDashboard dashboard) {

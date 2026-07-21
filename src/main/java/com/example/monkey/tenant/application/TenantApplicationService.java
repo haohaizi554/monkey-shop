@@ -244,6 +244,29 @@ public class TenantApplicationService {
                 .toList();
     }
 
+    @WithSpan("tenant.export-download")
+    @Transactional(readOnly = true)
+    public TenantExportProvider.ExportArtifact downloadExportArtifact(Long tenantId, Long exportJobId) {
+        requireTenant(tenantId);
+        TenantDataExportJob exportJob = tenantStore
+                .findExportJob(tenantId, exportJobId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Tenant export was not found"));
+        if (exportJob.status() != TenantExportStatus.SUCCEEDED || exportJob.artifactUri() == null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Tenant export artifact is not ready");
+        }
+        try {
+            TenantExportProvider.ExportArtifact artifact = tenantExportProvider.downloadArtifact(exportJob);
+            if (artifact == null) {
+                throw new IllegalStateException("tenant export provider returned no artifact");
+            }
+            return artifact;
+        } catch (RuntimeException exception) {
+            LOGGER.warn("Tenant export artifact for job {} is temporarily unavailable", exportJobId);
+            throw new BusinessException(
+                    ErrorCode.SERVICE_UNAVAILABLE, "Tenant export artifact is temporarily unavailable");
+        }
+    }
+
     @WithSpan("tenant.export-complete-pending")
     public int completePendingExports() {
         List<TenantDataExportJob> jobs = tenantStore.findPendingExportJobs(20);

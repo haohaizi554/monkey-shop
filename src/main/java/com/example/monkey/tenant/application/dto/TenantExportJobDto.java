@@ -9,6 +9,7 @@ public record TenantExportJobDto(
         String exportType,
         TenantExportStatus status,
         boolean artifactAvailable,
+        String artifactDownloadUri,
         Long requestedBy,
         LocalDateTime requestedAt,
         LocalDateTime completedAt,

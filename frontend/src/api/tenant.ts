@@ -8,10 +8,25 @@ import type {
   TenantCreateRequest,
   TenantDashboard,
   TenantDowngradeRequest,
-  TenantExportJob,
+  TenantExportJob as TenantExportJobContract,
   TenantExportRequest,
   TenantRenewRequest,
 } from '@/types'
+
+export interface TenantExportJob extends TenantExportJobContract {
+  artifactDownloadUri?: string | null
+}
+
+export function tenantExportDownloadUri(job: TenantExportJob): string | undefined {
+  if (job.status !== 'SUCCEEDED' || !job.artifactAvailable) return undefined
+
+  const tenantId = String(job.tenantId)
+  const jobId = String(job.id)
+  if (!/^\d+$/.test(tenantId) || !/^\d+$/.test(jobId)) return undefined
+
+  const expected = `/api/v1/tenants/${tenantId}/exports/${jobId}/artifact`
+  return job.artifactDownloadUri === expected ? expected : undefined
+}
 
 export function tenantDashboard(): Promise<TenantDashboard> {
   return request<TenantDashboard>({ url: '/tenants/dashboard' })

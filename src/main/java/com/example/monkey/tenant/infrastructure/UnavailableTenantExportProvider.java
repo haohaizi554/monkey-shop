@@ -21,4 +21,9 @@ public class UnavailableTenantExportProvider implements TenantExportProvider {
     public ExportResult refresh(TenantDataExportJob job) {
         return new ExportResult(TenantExportStatus.UNAVAILABLE, job.providerJobId(), null, NOT_CONFIGURED);
     }
+
+    @Override
+    public ExportArtifact downloadArtifact(TenantDataExportJob job) {
+        throw new IllegalStateException(NOT_CONFIGURED);
+    }
 }

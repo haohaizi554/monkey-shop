@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   CircleCheck,
   Clock,
+  Download,
   InfoFilled,
   Plus,
   Refresh,
@@ -13,6 +14,7 @@ import { computed, onMounted, reactive, ref, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import * as tenantApi from '@/api/tenant'
+import type { TenantExportJob } from '@/api/tenant'
 import MetricStrip, { type MetricItem } from '@/components/admin/MetricStrip.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import DataTableShell from '@/components/ui/DataTableShell.vue'
@@ -25,7 +27,6 @@ import type {
   TenantConfig,
   TenantConfigType,
   TenantDashboard,
-  TenantExportJob,
   TenantPlan,
 } from '@/types'
 import { money } from '@/utils/format'
@@ -311,11 +312,15 @@ function exportTypeLabel(type: ExportType): string {
 }
 
 function exportAvailabilityLabel(job: TenantExportJob): string {
-  if (job.status === 'SUCCEEDED' && job.artifactAvailable) return t('tenant.exportReady')
+  if (exportDownloadUri(job)) return t('tenant.exportReady')
   if (job.status === 'FAILED') return t('tenant.exportFailedInline')
   if (job.status === 'UNAVAILABLE') return t('tenant.exportProviderUnavailable')
   if (job.status === 'QUEUED' || job.status === 'RUNNING') return t('tenant.exportPending')
   return t('tenant.exportUnavailable')
+}
+
+function exportDownloadUri(job: TenantExportJob): string | undefined {
+  return tenantApi.tenantExportDownloadUri(job)
 }
 
 function tenantStatusType(status: TenantStatus): 'success' | 'warning' | 'danger' | 'info' {
@@ -1017,7 +1022,20 @@ onMounted(loadTenantList)
                       </el-table-column>
                       <el-table-column :label="t('tenant.archiveAvailability')" min-width="170">
                         <template #default="{ row }">
-                          {{ exportAvailabilityLabel(row) }}
+                          <div class="export-artifact-cell">
+                            <span>{{ exportAvailabilityLabel(row) }}</span>
+                            <el-link
+                              v-if="exportDownloadUri(row)"
+                              :href="exportDownloadUri(row)"
+                              type="primary"
+                              underline="never"
+                              download
+                              :aria-label="t('tenant.downloadExport')"
+                            >
+                              <el-icon aria-hidden="true"><Download /></el-icon>
+                              <span>{{ t('tenant.downloadExport') }}</span>
+                            </el-link>
+                          </div>
                         </template>
                       </el-table-column>
                       <el-table-column
@@ -1161,6 +1179,17 @@ onMounted(loadTenantList)
   align-items: center;
   gap: var(--space-1);
   white-space: nowrap;
+}
+
+.export-artifact-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 32px;
+}
+
+.export-artifact-cell :deep(.el-link__inner) {
+  gap: var(--space-1);
 }
 
 .tenant-detail-content {

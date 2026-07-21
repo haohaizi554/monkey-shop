@@ -2,6 +2,7 @@ package com.example.monkey.tenant.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.contains;
@@ -15,6 +16,8 @@ import static org.mockito.Mockito.when;
 
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.domain.exception.BusinessException;
+import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
 import com.example.monkey.tenant.application.dto.TenantBillGenerateRequestDto;
 import com.example.monkey.tenant.application.dto.TenantConfigRequestDto;
@@ -30,7 +33,9 @@ import com.example.monkey.tenant.domain.TenantPlan;
 import com.example.monkey.tenant.domain.TenantStatus;
 import com.example.monkey.tenant.domain.TenantStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.ByteArrayInputStream;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.List;
@@ -376,6 +381,7 @@ class TenantApplicationServiceTest {
         String json =
                 new ObjectMapper().findAndRegisterModules().writeValueAsString(TenantDtoAssembler.toExport(failed));
 
+        assertThat(TenantDtoAssembler.toExport(failed).artifactDownloadUri()).isNull();
         assertThat(json)
                 .contains("\"status\":\"FAILED\"", "\"artifactAvailable\":false")
                 .doesNotContain(
@@ -385,6 +391,125 @@ class TenantApplicationServiceTest {
                         "errorMessage",
                         "credential",
                         "internal-provider");
+    }
+
+    @Test
+    void successfulPublicExportDtoExposesOnlyTheSameOriginArtifactDownloadUri() throws Exception {
+        TenantDataExportJob succeeded = new TenantDataExportJob(
+                2200L,
+                200L,
+                "FULL",
+                TenantExportStatus.SUCCEEDED,
+                "provider-job-secret",
+                "file:///C:/tenant-exports/private/2200.tink?accessKey=storage-secret",
+                1L,
+                LocalDateTime.now(),
+                LocalDateTime.now(),
+                "trace-download-contract",
+                null,
+                0L);
+
+        String json =
+                new ObjectMapper().findAndRegisterModules().writeValueAsString(TenantDtoAssembler.toExport(succeeded));
+
+        assertThat(json)
+                .contains("\"status\":\"SUCCEEDED\"")
+                .contains("\"artifactAvailable\":true")
+                .contains("\"artifactDownloadUri\":\"/api/v1/tenants/200/exports/2200/artifact\"")
+                .doesNotContain(
+                        "artifactUri", "providerJobId", "file:///", "C:/tenant-exports", "accessKey", "storage-secret");
+    }
+
+    @Test
+    void completedArtifactDownloadIsTenantScopedAndStreamsProviderBytes() throws Exception {
+        TenantDataExportJob succeeded = succeededExport(2300L, 200L);
+        byte[] encryptedArchive = "encrypted-tenant-export".getBytes(StandardCharsets.UTF_8);
+        when(tenantStore.findTenant(200L)).thenReturn(Optional.of(tenant()));
+        when(tenantStore.findExportJob(200L, 2300L)).thenReturn(Optional.of(succeeded));
+        when(tenantExportProvider.downloadArtifact(succeeded))
+                .thenReturn(new TenantExportProvider.ExportArtifact(
+                        new ByteArrayInputStream(encryptedArchive), encryptedArchive.length));
+
+        try (TenantExportProvider.ExportArtifact artifact = service.downloadExportArtifact(200L, 2300L)) {
+            assertThat(artifact.content().readAllBytes()).isEqualTo(encryptedArchive);
+            assertThat(artifact.contentLength()).isEqualTo(encryptedArchive.length);
+        }
+
+        verify(tenantStore).findExportJob(200L, 2300L);
+        verify(tenantExportProvider).downloadArtifact(succeeded);
+    }
+
+    @Test
+    void unfinishedExportCannotBeDownloaded() {
+        TenantDataExportJob running = new TenantDataExportJob(
+                2400L,
+                200L,
+                "FULL",
+                TenantExportStatus.RUNNING,
+                "provider-job-2400",
+                null,
+                1L,
+                LocalDateTime.now(),
+                null,
+                "trace-running",
+                null,
+                0L);
+        when(tenantStore.findTenant(200L)).thenReturn(Optional.of(tenant()));
+        when(tenantStore.findExportJob(200L, 2400L)).thenReturn(Optional.of(running));
+
+        assertThatThrownBy(() -> service.downloadExportArtifact(200L, 2400L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).errorCode())
+                .isEqualTo(ErrorCode.CONFLICT);
+
+        verify(tenantExportProvider, never()).downloadArtifact(any());
+    }
+
+    @Test
+    void providerDownloadFailureReturnsAGenericErrorWithoutLeakingCredentials() {
+        TenantDataExportJob succeeded = succeededExport(2500L, 200L);
+        when(tenantStore.findTenant(200L)).thenReturn(Optional.of(tenant()));
+        when(tenantStore.findExportJob(200L, 2500L)).thenReturn(Optional.of(succeeded));
+        when(tenantExportProvider.downloadArtifact(succeeded))
+                .thenThrow(new IllegalStateException("s3://access-key:storage-secret@internal/export.tink"));
+
+        assertThatThrownBy(() -> service.downloadExportArtifact(200L, 2500L))
+                .isInstanceOfSatisfying(BusinessException.class, error -> {
+                    assertThat(error.errorCode()).isEqualTo(ErrorCode.SERVICE_UNAVAILABLE);
+                    assertThat(error.getMessage())
+                            .isEqualTo("Tenant export artifact is temporarily unavailable")
+                            .doesNotContain("access-key", "storage-secret", "internal");
+                });
+    }
+
+    @Test
+    void artifactLookupCannotCrossTheRequestedTenantBoundary() {
+        when(tenantStore.findTenant(200L)).thenReturn(Optional.of(tenant()));
+        when(tenantStore.findExportJob(200L, 2600L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.downloadExportArtifact(200L, 2600L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).errorCode())
+                .isEqualTo(ErrorCode.NOT_FOUND);
+
+        verify(tenantStore).findExportJob(200L, 2600L);
+        verify(tenantExportProvider, never()).downloadArtifact(any());
+    }
+
+    private static TenantDataExportJob succeededExport(Long jobId, Long tenantId) {
+        return new TenantDataExportJob(
+                jobId,
+                tenantId,
+                "FULL",
+                TenantExportStatus.SUCCEEDED,
+                "provider-job-" + jobId,
+                "s3://private-tenant-exports/" + tenantId + "/" + jobId + ".tink?credential=secret",
+                1L,
+                LocalDateTime.now(),
+                LocalDateTime.now(),
+                "trace-" + jobId,
+                null,
+                0L);
     }
 
     private static Tenant tenant() {

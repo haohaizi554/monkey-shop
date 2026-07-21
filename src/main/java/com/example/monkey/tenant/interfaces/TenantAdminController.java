@@ -15,7 +15,12 @@ import com.example.monkey.tenant.application.dto.TenantExportRequestDto;
 import com.example.monkey.tenant.application.dto.TenantRenewRequestDto;
 import com.example.monkey.tenant.application.dto.TenantResponseDto;
 import jakarta.validation.Valid;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,6 +30,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 @RestController
 @RequestMapping({"/api/tenants", "/api/v1/tenants"})
@@ -116,5 +122,32 @@ public class TenantAdminController {
     @PreAuthorize("hasAuthority('TENANT_READ')")
     public Result<List<TenantExportJobDto>> exports(@PathVariable Long tenantId) {
         return Result.success(tenantApplicationService.exports(tenantId));
+    }
+
+    @GetMapping("/{tenantId}/exports/{exportJobId}/artifact")
+    @PreAuthorize("hasRole('ADMIN') and hasAuthority('TENANT_ADMIN')")
+    public ResponseEntity<StreamingResponseBody> downloadExportArtifact(
+            @PathVariable Long tenantId, @PathVariable Long exportJobId) {
+        var artifact = tenantApplicationService.downloadExportArtifact(tenantId, exportJobId);
+        String filename = "tenant-" + tenantId + "-export-" + exportJobId + ".tink";
+        StreamingResponseBody responseBody = outputStream -> {
+            try (artifact) {
+                artifact.content().transferTo(outputStream);
+            }
+        };
+        ResponseEntity.BodyBuilder response = ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .header(HttpHeaders.CACHE_CONTROL, "private, no-store, max-age=0")
+                .header("X-Content-Type-Options", "nosniff")
+                .header(
+                        HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment()
+                                .filename(filename, StandardCharsets.UTF_8)
+                                .build()
+                                .toString());
+        if (artifact.contentLength() >= 0) {
+            response.contentLength(artifact.contentLength());
+        }
+        return response.body(responseBody);
     }
 }

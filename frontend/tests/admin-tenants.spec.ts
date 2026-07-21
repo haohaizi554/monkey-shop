@@ -374,6 +374,7 @@ test('tenant exports render localized types instead of internal enum tokens', as
             exportType: 'FULL',
             status: 'SUCCEEDED',
             artifactAvailable: true,
+            artifactDownloadUri: '/api/v1/tenants/1/exports/91/artifact',
             requestedBy: 1,
             requestedAt: '2026-07-12T08:00:00',
             version: 1,
@@ -439,7 +440,9 @@ test('tenant exports render localized types instead of internal enum tokens', as
   await expect(exportTable.getByText('Provider unavailable', { exact: true })).toBeVisible()
   await expect(exportTable.getByText('Export failed', { exact: true })).toBeVisible()
   await expect(exportTable.getByText('Preparing archive', { exact: true })).toHaveCount(2)
-  await expect(exportTable.getByRole('link')).toHaveCount(0)
+  const downloadLink = exportTable.getByRole('link', { name: 'Download export' })
+  await expect(downloadLink).toHaveAttribute('href', '/api/v1/tenants/1/exports/91/artifact')
+  await expect(downloadLink).toHaveAttribute('download', '')
   await expect(exportTable.getByText('tenant export provider failed', { exact: true })).toHaveCount(0)
 })
 

@@ -1,5 +1,9 @@
 package com.example.monkey.tenant.domain;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Objects;
+
 public interface TenantExportProvider {
 
     /**
@@ -9,6 +13,9 @@ public interface TenantExportProvider {
     ExportResult submit(ExportRequest request);
 
     ExportResult refresh(TenantDataExportJob job);
+
+    /** Resolves the private provider URI server-side without exposing it to the browser. */
+    ExportArtifact downloadArtifact(TenantDataExportJob job);
 
     record ExportRequest(Long jobId, Long tenantId, String exportType, Long requestedBy, String auditTraceId) {
 
@@ -49,6 +56,21 @@ public interface TenantExportProvider {
                     && errorMessage == null) {
                 throw new IllegalArgumentException("terminal export error is required");
             }
+        }
+    }
+
+    record ExportArtifact(InputStream content, long contentLength) implements AutoCloseable {
+
+        public ExportArtifact {
+            content = Objects.requireNonNull(content, "tenant export artifact content is required");
+            if (contentLength < -1) {
+                throw new IllegalArgumentException("tenant export artifact length is invalid");
+            }
+        }
+
+        @Override
+        public void close() throws IOException {
+            content.close();
         }
     }
 
