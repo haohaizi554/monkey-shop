@@ -7,23 +7,11 @@ import { i18n } from '@/locales'
 import ProductDetailView from './ProductDetailView.vue'
 
 const requestMock = vi.hoisted(() => vi.fn())
-const requestAllPageContentMock = vi.hoisted(() => vi.fn())
 const checkoutMock = vi.hoisted(() => ({ openCheckout: vi.fn() }))
 
 vi.mock('@/api/http', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/http')>()
   return { ...actual, request: requestMock }
-})
-
-vi.mock('@/api/page', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/api/page')>()
-  return {
-    ...actual,
-    requestAllPageContent: (config: AxiosRequestConfig) => {
-      requestAllPageContentMock(config)
-      return actual.requestAllPageContent(config)
-    },
-  }
 })
 
 vi.mock('@/api/cart', () => ({
@@ -215,7 +203,6 @@ describe('ProductDetailView canonical catalog loading', () => {
     expect(host.textContent).toContain('Color: Gold')
 
     const requests = requestMock.mock.calls.map(([config]) => config as AxiosRequestConfig)
-    expect(requestAllPageContentMock).not.toHaveBeenCalled()
     expect(requests.filter((config) => config.url === '/monkeys')).toHaveLength(0)
 
     const spuRequest = requests.find((config) => config.url === `/catalog/spus/${canonicalSpuId}`)

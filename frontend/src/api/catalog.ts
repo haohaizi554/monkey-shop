@@ -1,5 +1,5 @@
 import { request } from './http'
-import { requestAllPageContent, type PageEnvelope } from './page'
+import type { PageEnvelope } from './page'
 import type {
   CatalogPriceQuote,
   CatalogSpu,
@@ -8,10 +8,6 @@ import type {
   MonkeyRequest,
   UploadResponse,
 } from '@/types'
-
-export function listMonkeys(): Promise<Monkey[]> {
-  return requestAllPageContent<Monkey>({ url: '/monkeys' })
-}
 
 export interface MonkeyPageQuery {
   page: number

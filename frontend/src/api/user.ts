@@ -1,5 +1,5 @@
 import { request } from './http'
-import { requestAllPageContent, type PageEnvelope } from './page'
+import type { PageEnvelope } from './page'
 import type { Address, AddressRequest, AvatarUpdateRequest, UserProfile } from '@/types'
 
 export function me(): Promise<UserProfile> {
@@ -8,10 +8,6 @@ export function me(): Promise<UserProfile> {
 
 export function profile(signal?: AbortSignal): Promise<UserProfile> {
   return request<UserProfile>({ url: '/users/profile', signal })
-}
-
-export function addresses(): Promise<Address[]> {
-  return requestAllPageContent<Address>({ url: '/addresses' })
 }
 
 export interface AddressPageQuery {

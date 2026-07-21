@@ -1,6 +1,6 @@
 import { request } from './http'
 import type { ApiId } from './ids'
-import { requestAllPageContent, type PageEnvelope } from './page'
+import type { PageEnvelope } from './page'
 import type {
   Order,
   OrderReview,
@@ -49,10 +49,6 @@ export type OrderShipmentPayload = Omit<OrderShipmentRequest, 'lines'> & {
   lines: OrderShipmentLinePayload[]
 }
 
-export function myOrders(): Promise<OrderSummary[]> {
-  return requestAllPageContent<OrderSummary>({ url: '/orders/my' })
-}
-
 export function myOrderPage(query: OrderPageQuery): Promise<PageEnvelope<OrderSummary>> {
   const { signal, ...params } = query
   return request<PageEnvelope<OrderSummary>>({ url: '/orders/my', params, signal })
@@ -60,10 +56,6 @@ export function myOrderPage(query: OrderPageQuery): Promise<PageEnvelope<OrderSu
 
 export function myOrder(id: ApiId): Promise<OrderSummary> {
   return request<OrderSummary>({ url: `/orders/${id}` })
-}
-
-export function allOrders(): Promise<OrderSummary[]> {
-  return requestAllPageContent<OrderSummary>({ url: '/orders/all' })
 }
 
 export function allOrderPage(query: OrderPageQuery): Promise<PageEnvelope<OrderSummary>> {

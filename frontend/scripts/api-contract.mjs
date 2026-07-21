@@ -90,9 +90,6 @@ requireIncludes('src/stores/auth.ts', 'await loadCurrentUser()', 'session hydrat
 requireIncludes('src/stores/auth.ts', 'clearLocalSession()', 'local session invalidation')
 requireIncludes('src/stores/auth.ts', 'isSafeLocalPath', 'safe post-login redirect')
 requireIncludes('src/utils/csrf.ts', "'X-XSRF-TOKEN'", 'Spring CSRF header')
-requireIncludes('src/api/page.ts', 'maximumPageSize = 100', 'bounded pagination')
-requireIncludes('src/api/page.ts', 'page.totalPages', 'complete page traversal')
-
 requireIncludes('src/api/orders.ts', 'url: `/orders/admin/${id}/shipments`', 'admin shipment read')
 requireIncludes(
   'src/api/membership.ts',
@@ -183,8 +180,9 @@ const uiFiles = (await filesUnder(path.join(root, 'src'))).filter(
 )
 const uiSource = (await Promise.all(uiFiles.map((file) => fs.readFile(file, 'utf8')))).join('\n')
 const clientFunctions = []
+const internalApiModules = new Set(['src/api/http.ts', 'src/api/page.ts', 'src/api/safeJson.ts'])
 for (const file of apiSourceFiles) {
-  if (file.endsWith('/http.ts') || file.endsWith('/page.ts')) {
+  if (internalApiModules.has(file)) {
     continue
   }
   for (const match of sources[file].matchAll(/export\s+(?:async\s+)?function\s+(\w+)/g)) {

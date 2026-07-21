@@ -6,9 +6,9 @@ vi.mock('@/api/http', () => ({
   request: requestMock,
 }))
 
-import { listMonkeyPage, listMonkeys } from '@/api/catalog'
-import { allOrderPage, allOrders, myOrderPage, myOrders } from '@/api/orders'
-import { addressPage, addresses } from '@/api/user'
+import { listMonkeyPage } from '@/api/catalog'
+import { allOrderPage, myOrderPage } from '@/api/orders'
+import { addressPage } from '@/api/user'
 
 function page<T>(content: T[], pageNumber = 0, totalPages = 1) {
   return {
@@ -22,38 +22,9 @@ function page<T>(content: T[], pageNumber = 0, totalPages = 1) {
   }
 }
 
-describe('paged collection API compatibility', () => {
+describe('paged collection API contracts', () => {
   beforeEach(() => {
     requestMock.mockReset()
-  })
-
-  it('keeps existing list callers on arrays while the backend returns page envelopes', async () => {
-    requestMock
-      .mockResolvedValueOnce(page([{ id: 1, nickname: 'Momo' }], 0, 2))
-      .mockResolvedValueOnce(page([{ id: 5, nickname: 'Kiki' }], 1, 2))
-      .mockResolvedValueOnce(page([{ id: 2, orderNo: 'ORD-2' }]))
-      .mockResolvedValueOnce(page([{ id: 3, orderNo: 'ORD-3' }]))
-      .mockResolvedValueOnce(page([{ id: 4, recipientName: 'Ada' }]))
-
-    await expect(listMonkeys()).resolves.toEqual([
-      { id: 1, nickname: 'Momo' },
-      { id: 5, nickname: 'Kiki' },
-    ])
-    await expect(myOrders()).resolves.toEqual([{ id: 2, orderNo: 'ORD-2' }])
-    await expect(allOrders()).resolves.toEqual([{ id: 3, orderNo: 'ORD-3' }])
-    await expect(addresses()).resolves.toEqual([{ id: 4, recipientName: 'Ada' }])
-
-    expect(requestMock.mock.calls.map(([config]) => config.url)).toEqual([
-      '/monkeys',
-      '/monkeys',
-      '/orders/my',
-      '/orders/all',
-      '/addresses',
-    ])
-    expect(requestMock.mock.calls.slice(0, 2).map(([config]) => config.params)).toEqual([
-      { page: 0, size: 100 },
-      { page: 1, size: 100 },
-    ])
   })
 
   it('exposes one-page contracts without silently walking the remaining pages', async () => {
