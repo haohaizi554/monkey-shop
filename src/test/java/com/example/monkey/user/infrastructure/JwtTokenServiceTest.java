@@ -196,11 +196,12 @@ class JwtTokenServiceTest {
                         .counter()
                         .count())
                 .isEqualTo(1.0d);
-        assertThat(output).doesNotContain(malformedToken);
+        assertThat(output).doesNotContain(malformedToken).doesNotContain(" WARN ");
     }
 
     @Test
-    void jwtParseFailuresUseBoundedSignatureExpiryAndRevocationReasons() {
+    @ExtendWith(OutputCaptureExtension.class)
+    void expectedJwtRejectionsUseBoundedReasonsWithoutWarningLogs(CapturedOutput output) {
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         MutableClock clock = new MutableClock(Instant.parse("2026-07-14T00:00:00Z"));
         JwtTokenService tokenService = meteredTokenService(clock, meterRegistry);
@@ -221,6 +222,11 @@ class JwtTokenServiceTest {
         assertThat(parseFailureCount(meterRegistry, "invalid-signature")).isEqualTo(1.0d);
         assertThat(parseFailureCount(meterRegistry, "expired")).isEqualTo(1.0d);
         assertThat(parseFailureCount(meterRegistry, "revoked")).isEqualTo(1.0d);
+        assertThat(output)
+                .doesNotContain(" WARN ")
+                .doesNotContain(foreignPair.accessToken())
+                .doesNotContain(expiringPair.accessToken())
+                .doesNotContain(revokedPair.accessToken());
     }
 
     @Test
@@ -238,7 +244,7 @@ class JwtTokenServiceTest {
 
     @Test
     @ExtendWith(OutputCaptureExtension.class)
-    void unexpectedJwtFailuresLogOnlyTheExceptionClass(CapturedOutput output) {
+    void unexpectedJwtFailuresLogSafeParameterizedContextWithoutTokenOrPii(CapturedOutput output) {
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         JwtTokenService issuer = new JwtTokenService(TEST_SECRET, 30, 60, 30, 60, false, null);
         String rawToken = issuer.issueTokenPair(1L, "USER").accessToken();
@@ -248,7 +254,8 @@ class JwtTokenServiceTest {
 
         assertThat(parseFailureCount(meterRegistry, "unexpected")).isEqualTo(1.0d);
         assertThat(output)
-                .contains("IllegalStateException")
+                .contains(
+                        "Unexpected JWT parsing failure; context=request; reason=unexpected; exception=IllegalStateException")
                 .doesNotContain(rawToken)
                 .doesNotContain("clock backend detail");
     }

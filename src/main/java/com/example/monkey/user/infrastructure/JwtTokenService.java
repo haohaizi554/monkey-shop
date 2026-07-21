@@ -575,8 +575,9 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
         String tokenContext = requestToken ? "request" : "revocation";
         if (JWT_PARSE_REASON_UNEXPECTED.equals(reason)) {
             log.warn(
-                    "Unexpected JWT token parsing failure while parsing {} token; exception={}",
+                    "Unexpected JWT parsing failure; context={}; reason={}; exception={}",
                     tokenContext,
+                    reason,
                     exception == null ? "unknown" : exception.getClass().getSimpleName());
             return;
         }
