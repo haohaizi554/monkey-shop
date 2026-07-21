@@ -16,6 +16,7 @@ import com.example.monkey.order.domain.OrderStore.SortOrder.Direction;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -130,6 +131,23 @@ class JpaOrderStoreTest {
                 .thenReturn(List.of(OrderLineEntity.from(10L, first), OrderLineEntity.from(10L, second)));
 
         assertThat(store.findLines(10L)).containsExactly(first, second);
+    }
+
+    @Test
+    void findLinesByOrderIdsUsesOneRepositoryQueryAndGroupsLinesByOrder() {
+        CheckoutOrderLineRecord first = checkoutLine(101L, 1L, 2, "cart:42:pay:101");
+        CheckoutOrderLineRecord second = checkoutLine(202L, 2L, 3, "cart:42:pay:202");
+        CheckoutOrderLineRecord third = checkoutLine(303L, 3L, 1, "cart:42:pay:303");
+        when(orderLineRepository.findByOrderIdInOrderByOrderIdAscIdAsc(List.of(10L, 20L)))
+                .thenReturn(List.of(
+                        OrderLineEntity.from(10L, first),
+                        OrderLineEntity.from(10L, second),
+                        OrderLineEntity.from(20L, third)));
+
+        Map<Long, List<CheckoutOrderLineRecord>> result = store.findLinesByOrderIds(List.of(10L, 20L));
+
+        assertThat(result).containsEntry(10L, List.of(first, second)).containsEntry(20L, List.of(third));
+        verify(orderLineRepository).findByOrderIdInOrderByOrderIdAscIdAsc(List.of(10L, 20L));
     }
 
     @Test

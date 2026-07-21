@@ -372,6 +372,9 @@ const messages = {
       hint: 'Share the product and fulfillment experience for this order.',
       composeTitle: 'Write your review',
       composeHint: 'Rate the full experience and add details that help other shoppers.',
+      productLabel: 'Product to review',
+      productPlaceholder: 'Choose an item from this order',
+      productOption: '{name} - {count} items',
       ratingLabel: 'Overall rating',
       ratingSummary: '{rating} out of 5',
       imageHint: 'Add clear photos of the product or delivery condition.',
@@ -1576,6 +1579,9 @@ const messages = {
       composeTitle: '\u5199\u4e0b\u8bc4\u4ef7',
       composeHint:
         '\u4e3a\u6574\u4f53\u4f53\u9a8c\u6253\u5206\uff0c\u5e76\u8865\u5145\u80fd\u5e2e\u52a9\u5176\u4ed6\u8d2d\u7269\u8005\u7684\u7ec6\u8282\u3002',
+      productLabel: '\u9009\u62e9\u8981\u8bc4\u4ef7\u7684\u5546\u54c1',
+      productPlaceholder: '\u8bf7\u9009\u62e9\u672c\u8ba2\u5355\u4e2d\u7684\u5546\u54c1',
+      productOption: '{name} \u00b7 {count} \u4ef6',
       ratingLabel: '\u7efc\u5408\u8bc4\u5206',
       ratingSummary: '5 \u5206\u5236\u4e2d\u7684 {rating} \u5206',
       imageHint:

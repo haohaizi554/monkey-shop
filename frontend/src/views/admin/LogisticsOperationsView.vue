@@ -16,6 +16,7 @@ import type { LogisticsCarrier, OrderShipment, OrderShipmentRequest } from '@/ty
 import { hasAdminOrderAction, normalizeAdminOrderStatus } from '@/utils/adminOrderActions'
 import { dateTime } from '@/utils/format'
 import { getIdempotencyIntent } from '@/utils/idempotencyIntent'
+import { shipmentLinesForOrder } from '@/utils/orderLineContract'
 
 defineOptions({ name: 'LogisticsOperationsView' })
 
@@ -85,14 +86,7 @@ async function createShipment() {
   const payload: OrderShipmentRequest = {
     carrier: carrier.value,
     trackingNo: trackingNo.value.trim(),
-    lines: [
-      {
-        skuId: order.productId,
-        productName: order.productName,
-        quantity: 1,
-        orderedQuantity: 1,
-      },
-    ],
+    lines: shipmentLinesForOrder(order),
   }
   createPending.value = true
   try {

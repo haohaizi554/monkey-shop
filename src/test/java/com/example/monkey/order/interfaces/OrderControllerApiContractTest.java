@@ -1,6 +1,8 @@
 package com.example.monkey.order.interfaces;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -17,6 +19,7 @@ import com.example.monkey.order.application.dto.OrderResponseDto;
 import com.example.monkey.order.domain.OrderStatus;
 import com.example.monkey.risk.application.RiskApplicationService;
 import com.example.monkey.shared.application.dto.PageResponseDto;
+import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.interfaces.web.GlobalExceptionHandler;
@@ -111,6 +114,20 @@ class OrderControllerApiContractTest {
                 .andExpect(jsonPath("$.data.totalPages").value(3))
                 .andExpect(jsonPath("$.data.first").value(true))
                 .andExpect(jsonPath("$.data.last").value(false));
+    }
+
+    @Test
+    void ownedOrderDetailExposesCanonicalOrderLines() throws Exception {
+        when(orderApplicationService.findOrder(nullable(SessionUser.class), eq(11L)))
+                .thenReturn(response());
+
+        mockMvc.perform(get("/api/v1/orders/11").header("X-Trace-Id", "trace-order-detail"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.id").value(11))
+                .andExpect(jsonPath("$.data.lines.length()").value(1))
+                .andExpect(jsonPath("$.data.lines[0].skuId").value(7))
+                .andExpect(jsonPath("$.data.lines[0].quantity").value(1));
     }
 
     @Test

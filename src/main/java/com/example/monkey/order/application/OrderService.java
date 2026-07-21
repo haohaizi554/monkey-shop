@@ -48,8 +48,12 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.regex.Pattern;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -161,9 +165,8 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public List<OrderResponseDto> findOrdersForUser(Long userId) {
-        return orderStore.findVisibleByUser(userId, LEGACY_ORDER_LIST_REQUEST).content().stream()
-                .map(OrderDtoAssembler::toResponse)
-                .toList();
+        return toOrderResponses(
+                orderStore.findVisibleByUser(userId, LEGACY_ORDER_LIST_REQUEST).content());
     }
 
     @Transactional(readOnly = true)
@@ -173,10 +176,13 @@ public class OrderService {
     }
 
     @Transactional(readOnly = true)
+    public OrderResponseDto findOrderForUser(Long orderId, Long userId) {
+        return toOrderResponse(requireOwnedOrder(orderId, userId));
+    }
+
+    @Transactional(readOnly = true)
     public List<OrderResponseDto> findAllOrders() {
-        return orderStore.findAll(LEGACY_ORDER_LIST_REQUEST).content().stream()
-                .map(OrderDtoAssembler::toResponse)
-                .toList();
+        return toOrderResponses(orderStore.findAll(LEGACY_ORDER_LIST_REQUEST).content());
     }
 
     @Transactional(readOnly = true)
@@ -237,7 +243,7 @@ public class OrderService {
         orderIdempotencyService.complete(userId, normalizedIdempotencyKey, completedOrder.id());
         businessMetricsService.recordOrderCreated();
         auditOrderCreated(completedOrder, userId);
-        return OrderDtoAssembler.toResponse(completedOrder);
+        return toOrderResponse(completedOrder);
     }
 
     private void ensureOrderPlaceable(Long userId, BuyerRecord buyer, ProductRecord product, AddressRecord address) {
@@ -255,7 +261,7 @@ public class OrderService {
     public OrderResponseDto shipOrder(Long orderId) {
         OrderRecord order = requireOrder(orderId);
         ShipmentResult result = shipOrderBatch(order, new OrderShipmentRequestDto(null, null, List.of()));
-        return OrderDtoAssembler.toResponse(order.withStatus(result.nextStatus(), result.shippingTime()));
+        return toOrderResponse(order.withStatus(result.nextStatus(), result.shippingTime()));
     }
 
     @WithSpan("order.shipment.create")
@@ -278,7 +284,7 @@ public class OrderService {
                     order = requireOwnedOrder(orderId, userId);
                 }
             }
-            return OrderDtoAssembler.toResponse(requireOwnedOrder(orderId, userId));
+            return toOrderResponse(requireOwnedOrder(orderId, userId));
         }
         return transitionAndMap(order, OrderEvent.RECEIVE, null, userId, USER_ROLE);
     }
@@ -316,7 +322,7 @@ public class OrderService {
         if (!OrderStatus.COMPLETED.equals(statusOf(order))) {
             throw new BusinessException(ErrorCode.CONFLICT, "Order must be completed before review");
         }
-        Long skuId = request.skuId() == null ? order.productId() : request.skuId();
+        Long skuId = resolveReviewSku(order, request.skuId());
         if (fulfillmentStore.hasReview(order.id(), userId, skuId)) {
             throw new BusinessException(ErrorCode.CONFLICT, "Order line has already been reviewed");
         }
@@ -527,6 +533,13 @@ public class OrderService {
     }
 
     private List<ShipmentPlanLine> shipmentPlan(OrderRecord order, List<OrderShipmentLineRequestDto> requestedLines) {
+        List<CheckoutOrderLineRecord> checkoutLines = order.id() == null ? List.of() : orderStore.findLines(order.id());
+        if (!checkoutLines.isEmpty()) {
+            return checkoutShipmentPlan(order, checkoutLines, requestedLines);
+        }
+        if (order.checkoutId() != null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Checkout order lines are missing");
+        }
         if (requestedLines == null || requestedLines.isEmpty()) {
             OrderFulfillmentItem item = ensureFulfillmentItem(order, order.productId(), order.productName(), 1);
             return List.of(new ShipmentPlanLine(item, item.unshippedQuantity()));
@@ -543,6 +556,49 @@ public class OrderService {
             planLines.add(new ShipmentPlanLine(item, line.quantity()));
         }
         return planLines;
+    }
+
+    private List<ShipmentPlanLine> checkoutShipmentPlan(
+            OrderRecord order,
+            List<CheckoutOrderLineRecord> checkoutLines,
+            List<OrderShipmentLineRequestDto> requestedLines) {
+        if (requestedLines == null || requestedLines.isEmpty()) {
+            List<ShipmentPlanLine> planLines = checkoutLines.stream()
+                    .map(line -> checkoutShipmentPlanLine(order, line, 0))
+                    .filter(plan -> plan.quantity() > 0)
+                    .toList();
+            if (planLines.isEmpty()) {
+                throw new BusinessException(ErrorCode.CONFLICT, "No unshipped order lines remain");
+            }
+            return planLines;
+        }
+
+        Set<Long> requestedSkuIds = new HashSet<>();
+        List<ShipmentPlanLine> planLines = new ArrayList<>();
+        for (OrderShipmentLineRequestDto requestedLine : requestedLines) {
+            Long skuId = requestedLine.skuId();
+            if (skuId == null || !requestedSkuIds.add(skuId)) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Shipment lines contain an invalid SKU");
+            }
+            CheckoutOrderLineRecord checkoutLine = checkoutLines.stream()
+                    .filter(line -> Objects.equals(line.skuId(), skuId))
+                    .findFirst()
+                    .orElseThrow(() ->
+                            new BusinessException(ErrorCode.VALIDATION_ERROR, "Shipment SKU does not belong to order"));
+            planLines.add(checkoutShipmentPlanLine(order, checkoutLine, requestedLine.quantity()));
+        }
+        return planLines;
+    }
+
+    private ShipmentPlanLine checkoutShipmentPlanLine(
+            OrderRecord order, CheckoutOrderLineRecord checkoutLine, int requestedQuantity) {
+        OrderFulfillmentItem item =
+                ensureFulfillmentItem(order, checkoutLine.skuId(), checkoutLine.productName(), checkoutLine.quantity());
+        if (item.orderedQuantity() != checkoutLine.quantity()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Fulfillment quantity does not match order snapshot");
+        }
+        int quantity = requestedQuantity > 0 ? requestedQuantity : item.unshippedQuantity();
+        return new ShipmentPlanLine(item, quantity);
     }
 
     private static void assertShippingAllowed(OrderStatus currentStatus) {
@@ -598,7 +654,7 @@ public class OrderService {
                     .findById(record.orderId())
                     .orElseThrow(() ->
                             new BusinessException(ErrorCode.CONFLICT, "Idempotency record references a missing order"));
-            return OrderDtoAssembler.toResponse(order);
+            return toOrderResponse(order);
         }
         throw new BusinessException(ErrorCode.CONFLICT, "Duplicate order request is already in progress");
     }
@@ -624,7 +680,7 @@ public class OrderService {
         }
         OrderRecord transitionedOrder = order.withStatus(nextStatus, shippingTime);
         auditOrderTransition(transitionedOrder, event, currentStatus, nextStatus, actorUserId, actorRole);
-        return OrderDtoAssembler.toResponse(transitionedOrder);
+        return toOrderResponse(transitionedOrder);
     }
 
     private void auditOrderCreated(OrderRecord order, Long actorUserId) {
@@ -715,15 +771,63 @@ public class OrderService {
         return new SortOrder(sortOrder.property(), direction);
     }
 
-    private static PageResponseDto<OrderResponseDto> toPageResponse(OrderPage page) {
+    private PageResponseDto<OrderResponseDto> toPageResponse(OrderPage page) {
         return PageResponseDto.from(
-                page.content().stream().map(OrderDtoAssembler::toResponse).toList(),
+                toOrderResponses(page.content()),
                 page.page(),
                 page.size(),
                 page.totalElements(),
                 page.totalPages(),
                 page.first(),
                 page.last());
+    }
+
+    private List<OrderResponseDto> toOrderResponses(List<OrderRecord> orders) {
+        if (orders == null || orders.isEmpty()) {
+            return List.of();
+        }
+        List<Long> orderIds = orders.stream()
+                .map(OrderRecord::id)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<Long, List<CheckoutOrderLineRecord>> linesByOrderId =
+                orderIds.isEmpty() ? Map.of() : orderStore.findLinesByOrderIds(orderIds);
+        Map<Long, List<CheckoutOrderLineRecord>> resolvedLines = linesByOrderId == null ? Map.of() : linesByOrderId;
+        return orders.stream()
+                .map(order -> OrderDtoAssembler.toResponse(order, resolvedLines.getOrDefault(order.id(), List.of())))
+                .toList();
+    }
+
+    private OrderResponseDto toOrderResponse(OrderRecord order) {
+        List<CheckoutOrderLineRecord> lines = order.id() == null ? List.of() : orderStore.findLines(order.id());
+        return OrderDtoAssembler.toResponse(order, lines);
+    }
+
+    private Long resolveReviewSku(OrderRecord order, Long requestedSkuId) {
+        List<CheckoutOrderLineRecord> checkoutLines = order.id() == null ? List.of() : orderStore.findLines(order.id());
+        if (checkoutLines.isEmpty()) {
+            if (order.checkoutId() != null) {
+                throw new BusinessException(ErrorCode.CONFLICT, "Checkout order lines are missing");
+            }
+            Long legacySkuId = order.productId();
+            if (legacySkuId == null || (requestedSkuId != null && !Objects.equals(requestedSkuId, legacySkuId))) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Review SKU does not belong to order");
+            }
+            return legacySkuId;
+        }
+        if (requestedSkuId == null) {
+            if (checkoutLines.size() != 1) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "skuId is required for multi-item orders");
+            }
+            return checkoutLines.get(0).skuId();
+        }
+        return checkoutLines.stream()
+                .map(CheckoutOrderLineRecord::skuId)
+                .filter(skuId -> Objects.equals(skuId, requestedSkuId))
+                .findFirst()
+                .orElseThrow(
+                        () -> new BusinessException(ErrorCode.VALIDATION_ERROR, "Review SKU does not belong to order"));
     }
 
     private static String normalizeIdempotencyKey(String idempotencyKey) {

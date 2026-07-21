@@ -1,10 +1,10 @@
 import { computed, onMounted } from 'vue'
 import { allOrders } from '@/api/orders'
+import type { OrderSummary } from '@/api/orders'
 import { useAsyncState } from '@/composables/useAsyncState'
-import type { Order } from '@/types'
 
 export function useAdminOrders() {
-  const resource = useAsyncState<Order[]>({ preserveData: true })
+  const resource = useAsyncState<OrderSummary[]>({ preserveData: true })
   const orders = computed(() => resource.data.value ?? [])
 
   async function loadOrders() {
@@ -14,7 +14,7 @@ export function useAdminOrders() {
     })
   }
 
-  function patchOrder(order: Order) {
+  function patchOrder(order: OrderSummary) {
     const rows = resource.data.value
     if (!rows) {
       return

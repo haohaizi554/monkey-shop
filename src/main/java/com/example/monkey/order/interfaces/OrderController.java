@@ -80,6 +80,12 @@ public class OrderController {
         return Result.success(orderApplicationService.findOrders(currentUser, toOrderPageQuery(pageable)));
     }
 
+    @GetMapping("/{id}")
+    @PreAuthorize("hasAuthority('ORDER_READ_OWN') and @orderOwnership.isOwner(#id, authentication)")
+    public Result<OrderResponseDto> order(@PathVariable Long id, @AuthenticationPrincipal SessionUser currentUser) {
+        return Result.success(orderApplicationService.findOrder(currentUser, id));
+    }
+
     @GetMapping("/all")
     @PreAuthorize("hasAuthority('ORDER_MANAGE')")
     public Result<PageResponseDto<OrderResponseDto>> getAllOrders(

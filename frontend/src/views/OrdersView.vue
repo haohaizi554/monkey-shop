@@ -61,6 +61,14 @@ const filterOptions = computed(() => [
 ])
 const filteredOrders = computed(() => orders.value.filter(matchesActiveFilter))
 
+function openReview(order: OrderSummary) {
+  const skuId = order.lines?.[0]?.skuId ?? order.productId
+  void router.push({
+    path: `/orders/${order.id}/review`,
+    query: { skuId: String(skuId) },
+  })
+}
+
 function matchesActiveFilter(order: OrderSummary): boolean {
   const status = normalizeConsumerOrderStatus(order.status)
   if (activeFilter.value === 'payment') {
@@ -370,7 +378,7 @@ onMounted(() => {
                   plain
                   :icon="Star"
                   :disabled="isOrderUpdating(order.id)"
-                  @click="router.push(`/orders/${order.id}/review`)"
+                  @click="openReview(order)"
                 >
                   {{ $t('common.review') }}
                 </el-button>

@@ -5,6 +5,7 @@ import com.example.monkey.shared.domain.exception.ErrorCode;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -26,6 +27,10 @@ public interface OrderStore {
 
     default List<CheckoutOrderLineRecord> findLines(Long orderId) {
         return List.of();
+    }
+
+    default Map<Long, List<CheckoutOrderLineRecord>> findLinesByOrderIds(List<Long> orderIds) {
+        return Map.of();
     }
 
     default List<OrderRecord> saveCheckoutOrders(List<CheckoutOrderRecord> orders) {

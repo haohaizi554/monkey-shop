@@ -33,6 +33,10 @@ public class OrderApplicationService {
         return orderService.findOrdersForUser(requireUserId(currentUser), pageQuery);
     }
 
+    public OrderResponseDto findOrder(SessionUser currentUser, Long orderId) {
+        return orderService.findOrderForUser(orderId, requireUserId(currentUser));
+    }
+
     public OrderResponseDto receiveOrder(SessionUser currentUser, Long orderId) {
         return orderService.receiveOrder(orderId, requireUserId(currentUser));
     }

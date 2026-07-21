@@ -10,9 +10,12 @@ import com.example.monkey.shared.infrastructure.persistence.JpaPageRequests;
 import com.example.monkey.shared.infrastructure.persistence.JpaSorts;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -88,6 +91,18 @@ public class JpaOrderStore implements OrderStore {
         return orderLineRepository.findByOrderIdOrderByIdAsc(orderId).stream()
                 .map(OrderLineEntity::toRecord)
                 .toList();
+    }
+
+    @Override
+    public Map<Long, List<OrderStore.CheckoutOrderLineRecord>> findLinesByOrderIds(List<Long> orderIds) {
+        if (orderLineRepository == null || orderIds == null || orderIds.isEmpty()) {
+            return Map.of();
+        }
+        return orderLineRepository.findByOrderIdInOrderByOrderIdAscIdAsc(orderIds).stream()
+                .collect(Collectors.groupingBy(
+                        OrderLineEntity::getOrderId,
+                        LinkedHashMap::new,
+                        Collectors.mapping(OrderLineEntity::toRecord, Collectors.toUnmodifiableList())));
     }
 
     @Override

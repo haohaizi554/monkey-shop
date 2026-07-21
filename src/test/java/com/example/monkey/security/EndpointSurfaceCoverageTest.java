@@ -58,6 +58,7 @@ class EndpointSurfaceCoverageTest {
             "OrderController#createOrder",
             "OrderController#hideOrder",
             "OrderController#myOrders",
+            "OrderController#order",
             "OrderController#receiveOrder",
             "OrderController#receiveShipment",
             "OrderController#reviewOrder",
@@ -182,7 +183,7 @@ class EndpointSurfaceCoverageTest {
         Files.createDirectories(report.getParent());
         Files.writeString(report, renderReport(endpoints, classifications), StandardCharsets.UTF_8);
 
-        assertThat(endpoints).hasSize(123);
+        assertThat(endpoints).hasSize(124);
         assertThat(classifications.values()).contains(Surface.CONSUMER_UI, Surface.ADMIN_UI, Surface.MACHINE_ONLY);
     }
 

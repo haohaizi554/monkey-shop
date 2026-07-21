@@ -119,6 +119,22 @@ const order = {
   shippingTime: now,
   status: 'COMPLETED',
   createTime: now,
+  lines: [
+    {
+      checkoutLineId: 1,
+      skuId: product.id,
+      shopId: 1,
+      categoryId: 1,
+      productName: product.name,
+      productImage: product.imageUrl,
+      quantity: 1,
+      unitPrice: product.price,
+      originalAmount: product.price,
+      discountAmount: 0,
+      payableAmount: product.price,
+      couponCodes: [],
+    },
+  ],
 }
 
 const stock = {
@@ -489,6 +505,7 @@ function apiFixture(pathname, method, authenticated) {
   if (pathname.startsWith('/catalog/spus/')) return catalogSpu()
   if (pathname === '/stats/data') return stats()
   if (pathname === '/orders/my' || pathname === '/orders/all') return [order]
+  if (/^\/orders\/\d+$/.test(pathname)) return order
   if (pathname.startsWith('/orders/review/')) {
     return method === 'GET'
       ? [

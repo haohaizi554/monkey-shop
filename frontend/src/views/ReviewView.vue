@@ -4,7 +4,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { uploadImage } from '@/api/catalog'
-import { orderReviews, reviewOrder } from '@/api/orders'
+import { myOrder, orderReviews, reviewOrder } from '@/api/orders'
+import type { OrderSummary } from '@/api/orders'
 import MascotState from '@/components/mascot/MascotState.vue'
 import ProductImage from '@/components/ProductImage.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
@@ -14,12 +15,14 @@ import { useAsyncState } from '@/composables/useAsyncState'
 import { useNotify } from '@/composables/useNotify'
 import type { OrderReview } from '@/types'
 import { dateTime } from '@/utils/format'
+import { orderDisplayLines } from '@/utils/orderLineContract'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const notify = useNotify()
 const reviewResource = useAsyncState<OrderReview[]>({ timeoutMs: 20000 })
+const orderResource = useAsyncState<OrderSummary>({ timeoutMs: 20000 })
 
 const uploadPending = ref(false)
 const uploadProgress = ref(0)
@@ -37,6 +40,19 @@ const form = reactive({
 
 const orderId = computed(() => Number(route.params.id))
 const reviews = computed(() => reviewResource.data.value ?? [])
+const orderLines = computed(() => {
+  const order = orderResource.data.value
+  return order ? orderDisplayLines(order) : []
+})
+
+async function loadOrder() {
+  await orderResource.load(() => myOrder(orderId.value))
+  const requestedSkuId = Number(
+    Array.isArray(route.query.skuId) ? route.query.skuId[0] : route.query.skuId,
+  )
+  const requestedLine = orderLines.value.find((line) => line.skuId === requestedSkuId)
+  form.skuId = requestedLine?.skuId ?? orderLines.value[0]?.skuId
+}
 
 async function loadReviews() {
   await reviewResource.load(() => orderReviews(orderId.value), {
@@ -74,7 +90,7 @@ function removeImage(index: number) {
 }
 
 async function submitReview() {
-  if (submitPending.value || uploadPending.value) return
+  if (submitPending.value || uploadPending.value || !form.skuId) return
 
   submitPending.value = true
   submitError.value = ''
@@ -97,7 +113,7 @@ async function submitReview() {
 }
 
 onMounted(() => {
-  void loadReviews()
+  void Promise.all([loadOrder(), loadReviews()])
 })
 </script>
 
@@ -122,6 +138,28 @@ onMounted(() => {
         </header>
 
         <form class="review-form" @submit.prevent="submitReview">
+          <div class="review-field">
+            <span id="review-product-label">
+              {{ $t('reviews.productLabel') }}
+            </span>
+            <el-select
+              id="review-product"
+              v-model="form.skuId"
+              :placeholder="$t('reviews.productPlaceholder')"
+              :disabled="submitPending || orderResource.status.value === 'loading'"
+              aria-labelledby="review-product-label"
+            >
+              <el-option
+                v-for="line in orderLines"
+                :key="line.checkoutLineId ?? line.skuId"
+                :label="
+                  $t('reviews.productOption', { name: line.productName, count: line.quantity })
+                "
+                :value="line.skuId"
+              />
+            </el-select>
+          </div>
+
           <div class="review-field review-rating">
             <span id="review-rating-label">{{ $t('reviews.ratingLabel') }}</span>
             <el-rate
@@ -207,7 +245,7 @@ onMounted(() => {
               type="primary"
               native-type="submit"
               :loading="submitPending"
-              :disabled="submitPending || uploadPending"
+              :disabled="submitPending || uploadPending || !form.skuId"
             >
               {{ $t('common.submitReview') }}
             </el-button>
