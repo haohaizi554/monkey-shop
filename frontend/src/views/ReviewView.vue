@@ -138,15 +138,15 @@ onMounted(() => {
 
         <form class="review-form" @submit.prevent="submitReview">
           <div class="review-field">
-            <label id="review-product-label" for="review-product">
+            <span id="review-product-label">
               {{ $t('reviews.productLabel') }}
-            </label>
+            </span>
             <el-select
               id="review-product"
               v-model="form.skuId"
               :placeholder="$t('reviews.productPlaceholder')"
               :disabled="submitPending || orderResource.status.value === 'loading'"
-              aria-labelledby="review-product-label"
+              :aria-label="$t('reviews.productLabel')"
             >
               <el-option
                 v-for="line in orderLines"
