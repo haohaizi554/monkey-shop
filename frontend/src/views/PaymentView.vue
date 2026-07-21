@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CreditCard, Money, RefreshRight, Search, Wallet } from '@element-plus/icons-vue'
+import { CreditCard, Money, Position, RefreshRight, Search, Wallet } from '@element-plus/icons-vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -14,6 +14,7 @@ import { useNotify } from '@/composables/useNotify'
 import type { PaymentMethod, PaymentResponse, PaymentStatus } from '@/types'
 import { dateTime, money } from '@/utils/format'
 import { getIdempotencyIntent } from '@/utils/idempotencyIntent'
+import { navigateToPaymentProvider, resolvePaymentRedirectUrl } from '@/utils/paymentRedirect'
 
 const route = useRoute()
 const router = useRouter()
@@ -23,6 +24,8 @@ const paymentResource = useAsyncState<PaymentResponse | null>({ timeoutMs: 20000
 
 const createPending = ref(false)
 const createError = ref('')
+const redirectPending = ref(false)
+const redirectError = ref('')
 const refundPending = ref(false)
 const refundError = ref('')
 const refundAmount = ref(0)
@@ -37,7 +40,9 @@ const form = reactive({
 })
 
 const payment = computed(() => paymentResource.data.value)
-const fundsOperationPending = computed(() => createPending.value || refundPending.value)
+const fundsOperationPending = computed(
+  () => createPending.value || redirectPending.value || refundPending.value,
+)
 const paymentControlsLocked = computed(
   () => fundsOperationPending.value || paymentResource.isLoading.value,
 )
@@ -47,6 +52,18 @@ const refundable = computed(() => {
   }
   return Math.max(0, Number(payment.value.paidAmount) - Number(payment.value.refundedAmount))
 })
+const paymentRedirectUrl = computed(() => {
+  if (payment.value?.status !== 'PENDING') {
+    return null
+  }
+  return resolvePaymentRedirectUrl(payment.value.paymentUrl, window.location.href)
+})
+const paymentRedirectRejected = computed(
+  () =>
+    payment.value?.status === 'PENDING' &&
+    Boolean(payment.value.paymentUrl?.trim()) &&
+    paymentRedirectUrl.value === null,
+)
 const isChinese = computed(() => locale.value === 'zh')
 const paymentPose = computed<MascotPose>(() => {
   if (!payment.value) {
@@ -88,6 +105,9 @@ const paymentStateHint = computed(() => {
     return t('payment.paymentSuccessfulHint')
   }
   if (status === 'PENDING') {
+    if (paymentRedirectUrl.value) {
+      return t('payment.paymentPendingRedirectHint')
+    }
     return t('payment.paymentPendingHint')
   }
   if (status === 'FAILED') {
@@ -216,6 +236,7 @@ async function selectOrder(orderId: number) {
   }
   form.orderId = orderId
   createError.value = ''
+  redirectError.value = ''
   refundError.value = ''
   refundAmount.value = 0
   refundReason.value = ''
@@ -235,6 +256,22 @@ async function setCurrentPayment(result: PaymentResponse) {
   })
 }
 
+function openPaymentProvider(destination = paymentRedirectUrl.value) {
+  if (!destination || redirectPending.value) {
+    return
+  }
+
+  redirectPending.value = true
+  redirectError.value = ''
+  try {
+    navigateToPaymentProvider(destination)
+  } catch {
+    redirectError.value = t('payment.redirectUnavailable')
+  } finally {
+    redirectPending.value = false
+  }
+}
+
 async function submitPayment() {
   if (!form.orderId || paymentControlsLocked.value || !paymentCreationAllowed.value) {
     return
@@ -248,12 +285,12 @@ async function submitPayment() {
   }
   createPending.value = true
   createError.value = ''
+  redirectError.value = ''
   try {
     paymentResource.cancel()
     const intent = getIdempotencyIntent('payment:create', payload)
     const created = await paymentsApi.createPayment(payload, intent.key)
     intent.complete()
-    createPending.value = false
     await setCurrentPayment(created)
     if (created.status === 'PAID') {
       notify.success(t('payment.paymentSuccessful'), {
@@ -263,6 +300,14 @@ async function submitPayment() {
       notify.info(t('payment.paymentPending'), {
         key: `payment:${payload.orderId}:pending`,
       })
+      if (created.status === 'PENDING') {
+        const destination = resolvePaymentRedirectUrl(created.paymentUrl, window.location.href)
+        if (destination) {
+          openPaymentProvider(destination)
+        } else if (created.paymentUrl?.trim()) {
+          redirectError.value = t('payment.redirectUnavailable')
+        }
+      }
     }
   } catch {
     createError.value = t('payment.createFailed')
@@ -485,6 +530,17 @@ onMounted(() => {
                     {{ safePaymentStatus(payment.status) }}
                   </el-tag>
                   <el-button
+                    v-if="paymentRedirectUrl"
+                    data-testid="payment-provider-continue"
+                    type="primary"
+                    :icon="Position"
+                    :loading="redirectPending"
+                    :disabled="paymentControlsLocked"
+                    @click="openPaymentProvider()"
+                  >
+                    {{ $t('payment.continueAtProvider') }}
+                  </el-button>
+                  <el-button
                     v-if="providerResultPending"
                     :icon="RefreshRight"
                     :loading="paymentResource.status.value === 'updating'"
@@ -494,6 +550,14 @@ onMounted(() => {
                     {{ $t('payment.checkStatus') }}
                   </el-button>
                 </div>
+                <p
+                  v-if="redirectError || paymentRedirectRejected"
+                  data-testid="payment-redirect-error"
+                  class="payment-redirect-error"
+                  role="alert"
+                >
+                  {{ redirectError || $t('payment.redirectUnavailable') }}
+                </p>
               </div>
             </div>
 
@@ -741,6 +805,12 @@ onMounted(() => {
   align-items: center;
   gap: var(--space-2);
   margin-top: var(--space-1);
+}
+
+.payment-redirect-error {
+  margin: var(--space-1) 0 0;
+  color: var(--color-danger);
+  font-size: var(--text-sm);
 }
 
 .payment-task__heading {

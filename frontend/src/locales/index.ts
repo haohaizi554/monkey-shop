@@ -336,6 +336,9 @@ const messages = {
       submitPayment: 'Submit payment',
       paymentCreated: 'Payment order created',
       paymentPending: 'Payment request submitted. Confirm the provider result before leaving.',
+      continueAtProvider: 'Continue to payment provider',
+      redirectUnavailable:
+        'The payment provider returned an unsafe or unavailable address. Check the status instead.',
       existingPaymentLock:
         'This order already has a payment record. Use the current payment status instead of creating another.',
       createFailed: 'Unable to create payment order',
@@ -356,6 +359,8 @@ const messages = {
       paymentPendingTitle: 'Waiting for provider confirmation',
       paymentPendingHint:
         'Do not pay again while this request is pending. Check the status instead.',
+      paymentPendingRedirectHint:
+        'Complete payment on the provider page, then return here to check the final status.',
       paymentFailedTitle: 'Payment was not completed',
       paymentFailedHint: 'Review the method and verification details before trying again.',
       paymentHeldTitle: 'Payment is under review',
@@ -1026,6 +1031,7 @@ const messages = {
       exportOrders: 'Orders',
       exportUsers: 'Users',
       exportSubmitted: 'Export submitted',
+      downloadExport: 'Download export',
       exportSubmitFailed: 'Unable to submit export',
       type: 'Type',
       updatedAt: 'Updated at',
@@ -1540,6 +1546,9 @@ const messages = {
       paymentCreated: '\u652f\u4ed8\u5355\u5df2\u521b\u5efa',
       paymentPending:
         '\u652f\u4ed8\u8bf7\u6c42\u5df2\u63d0\u4ea4\uff0c\u79bb\u5f00\u524d\u8bf7\u5148\u786e\u8ba4\u6e20\u9053\u7ed3\u679c\u3002',
+      continueAtProvider: '\u524d\u5f80\u652f\u4ed8\u6e20\u9053',
+      redirectUnavailable:
+        '\u652f\u4ed8\u6e20\u9053\u8fd4\u56de\u7684\u5730\u5740\u4e0d\u5b89\u5168\u6216\u6682\u4e0d\u53ef\u7528\uff0c\u8bf7\u6539\u4e3a\u67e5\u8be2\u652f\u4ed8\u72b6\u6001\u3002',
       existingPaymentLock:
         '\u8be5\u8ba2\u5355\u5df2\u6709\u652f\u4ed8\u8bb0\u5f55\uff0c\u8bf7\u67e5\u770b\u5f53\u524d\u72b6\u6001\uff0c\u4e0d\u8981\u91cd\u590d\u521b\u5efa\u652f\u4ed8\u3002',
       createFailed: '\u65e0\u6cd5\u521b\u5efa\u652f\u4ed8\u5355',
@@ -1561,6 +1570,8 @@ const messages = {
       paymentPendingTitle: '\u7b49\u5f85\u6e20\u9053\u786e\u8ba4',
       paymentPendingHint:
         '\u7ed3\u679c\u672a\u786e\u5b9a\u65f6\u8bf7\u52ff\u91cd\u590d\u652f\u4ed8\uff0c\u53ef\u624b\u52a8\u67e5\u8be2\u72b6\u6001\u3002',
+      paymentPendingRedirectHint:
+        '\u8bf7\u5728\u652f\u4ed8\u6e20\u9053\u9875\u9762\u5b8c\u6210\u652f\u4ed8\uff0c\u518d\u8fd4\u56de\u6b64\u5904\u67e5\u8be2\u6700\u7ec8\u72b6\u6001\u3002',
       paymentFailedTitle: '\u652f\u4ed8\u672a\u5b8c\u6210',
       paymentFailedHint:
         '\u8bf7\u68c0\u67e5\u652f\u4ed8\u65b9\u5f0f\u4e0e\u9a8c\u8bc1\u4fe1\u606f\u540e\u91cd\u8bd5\u3002',
@@ -2278,6 +2289,7 @@ const messages = {
       exportOrders: '\u8ba2\u5355',
       exportUsers: '\u7528\u6237',
       exportSubmitted: '\u5bfc\u51fa\u4efb\u52a1\u5df2\u63d0\u4ea4',
+      downloadExport: '\u4e0b\u8f7d\u5bfc\u51fa\u6587\u4ef6',
       exportSubmitFailed: '\u5bfc\u51fa\u4efb\u52a1\u63d0\u4ea4\u5931\u8d25',
       type: '\u7c7b\u578b',
       updatedAt: '\u66f4\u65b0\u65f6\u95f4',
