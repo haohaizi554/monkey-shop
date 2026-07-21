@@ -164,7 +164,13 @@ if (Test-LocalRuntimeHttp -Uri $backendHealthUrl) {
     $backendError = Join-Path $logsPath "backend.err.log"
     $backend = Start-Process `
         -FilePath $maven `
-        -ArgumentList @("-B", "-DskipTests", "spring-boot:run") `
+        -ArgumentList @(
+            "-B",
+            "-Dmaven.test.skip=true",
+            "-Dspotless.check.skip=true",
+            "-Dcheckstyle.skip=true",
+            "spring-boot:run"
+        ) `
         -WorkingDirectory $Script:LocalRuntimeRepoRoot `
         -RedirectStandardOutput $backendOutput `
         -RedirectStandardError $backendError `
