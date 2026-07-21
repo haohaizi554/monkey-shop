@@ -549,7 +549,7 @@ test('quick checkout freezes the selected address while risk assessment is pendi
   const riskGate = new Promise<void>((resolve) => {
     releaseRisk = resolve
   })
-  let orderAddressId: number | null = null
+  let checkoutAddressId: number | null = null
 
   await page.route('**/api/v1/addresses**', async (route) => {
     if (route.request().method() !== 'GET') {
@@ -585,9 +585,9 @@ test('quick checkout freezes the selected address while risk assessment is pendi
     await riskGate
     await fulfillJson(route, { decision: 'ALLOW', score: 0, signals: [] })
   })
-  await page.route('**/api/v1/orders/create', async (route) => {
-    orderAddressId = (route.request().postDataJSON() as { addressId: number }).addressId
-    await fulfillJson(route, { id: 91, status: 'PAID' })
+  await page.route('**/api/v1/cart/checkout/direct', async (route) => {
+    checkoutAddressId = (route.request().postDataJSON() as { addressId: number }).addressId
+    await fulfillJson(route, { orderIds: [91], subOrders: [] })
   })
 
   await page.goto('/shop/1')
@@ -600,5 +600,5 @@ test('quick checkout freezes the selected address while risk assessment is pendi
   await expect(dialog.getByRole('textbox', { name: /Receiver/ })).toBeDisabled()
   await expect(dialog.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
   releaseRisk()
-  await expect.poll(() => orderAddressId).toBe(1)
+  await expect.poll(() => checkoutAddressId).toBe(1)
 })

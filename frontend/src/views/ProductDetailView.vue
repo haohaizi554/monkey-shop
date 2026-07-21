@@ -5,7 +5,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { addCartItem } from '@/api/cart'
-import { getCatalogPrice, getCatalogSpu, listMonkeys } from '@/api/catalog'
+import { getCatalogPrice, getCatalogSpu } from '@/api/catalog'
 import { inventoryStocks } from '@/api/inventory'
 import { quoteMarketingPrice } from '@/api/marketing'
 import {
@@ -58,11 +58,11 @@ const collectionBusy = ref(false)
 const savedCollection = ref<MemberCollection | null>(null)
 const addressFormRef = ref<FormInstance>()
 let recordedBrowseProductId: number | null = null
-const productId = computed(() => Number(route.params.productId))
+const productId = computed(() => String(route.params.productId))
 const product = computed(() => productState.data.value)
 const skuOptions = computed(() => product.value?.skus?.filter((sku) => sku.active) ?? [])
 const selectedSku = computed(
-  () => skuOptions.value.find((sku) => sku.id === selectedSkuId.value) ?? skuOptions.value[0],
+  () => skuOptions.value.find((sku) => sameId(sku.id, selectedSkuId.value)) ?? skuOptions.value[0],
 )
 const displayPrice = computed(
   () =>
@@ -121,6 +121,10 @@ const addressRules = computed<FormRules<AddressRequest>>(() => ({
 
 useJsonLd('monkeyshop-product-jsonld', productStructuredData)
 
+function sameId(left: unknown, right: unknown): boolean {
+  return String(left) === String(right)
+}
+
 function showNotice(level: NoticeLevel, message: string) {
   if (level === 'error') {
     notify.error(t('feedback.requestFailed'), { key: 'product-detail:checkout-error' })
@@ -144,7 +148,7 @@ const {
 } = useCheckout({ notify: showNotice })
 
 async function loadProduct() {
-  await productState.load(() => loadCatalogProduct(), {
+  await productState.load(({ signal }) => loadCatalogProduct(signal), {
     isEmpty: (loadedProduct) => loadedProduct === null,
     preserveData: false,
   })
@@ -162,8 +166,8 @@ function resetProductContext() {
 }
 
 async function loadPricingContext(loadedProduct: Monkey) {
-  const quote = await priceState.load(() =>
-    getCatalogPrice(productId.value, auth.isLoggedIn ? 'MEMBER' : 'ANONYMOUS'),
+  const quote = await priceState.load(({ signal }) =>
+    getCatalogPrice(productId.value, auth.isLoggedIn ? 'MEMBER' : 'ANONYMOUS', '', signal),
   )
   if (!auth.isLoggedIn || !quote) {
     marketingState.reset()
@@ -187,7 +191,8 @@ async function loadMembershipContext(loadedProduct: Monkey) {
   }
   const dashboard = await membershipState.load(() => membershipDashboard())
   savedCollection.value =
-    dashboard?.collections.find((collection) => collection.productId === loadedProduct.id) ?? null
+    dashboard?.collections.find((collection) => sameId(collection.productId, loadedProduct.id)) ??
+    null
 }
 
 async function loadInventoryContext(skuId: number | null) {
@@ -202,7 +207,7 @@ async function loadInventoryContext(skuId: number | null) {
 }
 
 function recordProductBrowse(loadedProduct: Monkey) {
-  if (!auth.isLoggedIn || recordedBrowseProductId === loadedProduct.id) {
+  if (!auth.isLoggedIn || sameId(recordedBrowseProductId, loadedProduct.id)) {
     return
   }
   recordedBrowseProductId = loadedProduct.id
@@ -211,30 +216,23 @@ function recordProductBrowse(loadedProduct: Monkey) {
   })
 }
 
-async function loadCatalogProduct(): Promise<Monkey | null> {
-  const catalog = await listMonkeys()
-  try {
-    const spu = await getCatalogSpu(productId.value)
-    return catalogSpuToMonkey(spu, catalog)
-  } catch {
-    return catalog.find((item) => item.id === productId.value) ?? null
-  }
+async function loadCatalogProduct(signal: AbortSignal): Promise<Monkey> {
+  const spu = await getCatalogSpu(productId.value, signal)
+  return catalogSpuToMonkey(spu)
 }
 
-function catalogSpuToMonkey(spu: CatalogSpu, catalog: Monkey[]): Monkey {
+function catalogSpuToMonkey(spu: CatalogSpu): Monkey {
   const firstSku = spu.skus.find((sku) => sku.active) ?? spu.skus[0]
   const description =
     typeof spu.attributes.description === 'string' ? spu.attributes.description : spu.title
-  // The order pipeline still resolves stock through the purchasable monkey row.
-  const purchasableMonkey = catalog.find((item) => item.name === spu.name) ?? null
   return {
-    id: purchasableMonkey?.id ?? spu.id,
+    id: spu.id,
     name: spu.name,
     breed: spu.title,
     price: firstSku?.memberPrice ?? spu.memberPrice ?? firstSku?.originalPrice ?? spu.originalPrice,
     description,
-    imageUrl: spu.imageUrl || purchasableMonkey?.imageUrl || '/images/default_product.jpg',
-    stock: purchasableMonkey?.stock ?? spu.skus.filter((sku) => sku.active).length,
+    imageUrl: spu.imageUrl || '/images/default_product.jpg',
+    stock: spu.skus.filter((sku) => sku.active).length,
     categoryId: spu.categoryId,
     status: spu.status,
     memberPrice: spu.memberPrice,
@@ -483,7 +481,7 @@ watch(selectedSkuId, (skuId) => {
               <el-button
                 class="purchase-action"
                 type="primary"
-                :loading="openingCheckoutId === product.id"
+                :loading="sameId(openingCheckoutId, product.id)"
                 :disabled="soldOut || openingCheckoutId !== null"
                 @click="buyCurrentProduct"
               >

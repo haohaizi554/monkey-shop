@@ -40,17 +40,19 @@ export function flattenCategoryTree(nodes: CategoryNode[]): CategoryNode[] {
   return nodes.flatMap((node) => [node, ...flattenCategoryTree(node.children ?? [])])
 }
 
-export function getCatalogSpu(spuId: number): Promise<CatalogSpu> {
-  return request<CatalogSpu>({ url: `/catalog/spus/${spuId}` })
+export function getCatalogSpu(spuId: string | number, signal?: AbortSignal): Promise<CatalogSpu> {
+  return request<CatalogSpu>({ url: `/catalog/spus/${spuId}`, signal })
 }
 
 export function getCatalogPrice(
-  spuId: number,
+  spuId: string | number,
   identity = 'ANONYMOUS',
   region = '',
+  signal?: AbortSignal,
 ): Promise<CatalogPriceQuote> {
   return request<CatalogPriceQuote>({
     url: `/catalog/spus/${spuId}/price`,
     params: { identity, region },
+    signal,
   })
 }
