@@ -41,7 +41,10 @@ class Ws6PaymentWorkflowTest {
         assertThat(service).contains("userMfaVerifier.verifyCode", "payment-query-timeout-orders");
         assertThat(controller).contains("/pay", "/callback", "/refund", "/reconciliation");
         assertThat(store).contains("piiCryptoService.encrypt", "piiCryptoService.blindIndex");
-        assertThat(replayGuard).contains("setIfAbsent", "PaymentCallbackLogRepository");
+        assertThat(replayGuard)
+                .contains("PaymentCallbackLogRepository", "callbackLogRepository.reserve", "publishAfterCommit")
+                .contains("opsForValue().set")
+                .doesNotContain("setIfAbsent");
         assertThat(stateMachine).contains("REFUND_PARTIAL", "SUSPEND");
         assertThat(rateLimit).contains("PAYMENT(\"payment\", 5");
         assertThat(audit).contains("PAYMENT_CREATED", "PAYMENT_RECONCILED");

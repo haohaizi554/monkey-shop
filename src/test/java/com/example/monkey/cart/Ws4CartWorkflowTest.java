@@ -26,6 +26,7 @@ class Ws4CartWorkflowTest {
         String rateLimit = read("src/main/java/com/example/monkey/shared/interfaces/security/ApiRateLimitFilter.java");
         String frontendApi = read("frontend/src/api/cart.ts");
         String cartView = read("frontend/src/views/CartView.vue");
+        String productDetailView = read("frontend/src/views/ProductDetailView.vue");
         String checkoutView = read("frontend/src/views/CheckoutView.vue");
 
         assertThat(docs).contains("cross-shop cart", "Idempotency-Key");
@@ -44,7 +45,8 @@ class Ws4CartWorkflowTest {
         assertThat(lock).contains("cart:checkout:", "TenantContext.currentTenantIdOrDefault()", "tryLock");
         assertThat(rateLimit).contains("ApiRateLimitOperation.CART", "isCartPath", "startsWith(\"/api/cart/\")");
         assertThat(frontendApi).contains("checkoutCart", "Idempotency-Key");
-        assertThat(cartView).contains("addCartItem", "selectCartItem");
+        assertThat(cartView).contains("selectCartItem");
+        assertThat(productDetailView).contains("addCartItem", "addCurrentSkuToCart");
         assertThat(checkoutView).contains("previewCartCheckout", "checkoutCart");
     }
 

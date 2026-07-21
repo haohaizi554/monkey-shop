@@ -457,28 +457,30 @@
                         <param>com.example.monkey.shared.*</param>
                     </targetClasses>
                     <targetTests>
-                        <param>com.example.monkey.security.*Test</param>
-                        <param>com.example.monkey.service.*Test</param>
-                        <param>com.example.monkey.shared.*Test</param>
+                        <param>com.example.monkey.*Test</param>
                     </targetTests>
                     <excludedClasses>
-                        <param>com.example.monkey.service.MinioObjectStorageService</param>
+                        <param>com.example.monkey.shared.infrastructure.storage.MinioObjectStorageService</param>
                         <!-- External adapters and thin transport wrappers are covered by unit/contract tests; mutate core policy and domain services. -->
-                        <param>com.example.monkey.security.ConfigurablePasswordResetDeliveryService*</param>
-                        <param>com.example.monkey.security.PwnedPasswordChecker*</param>
-                        <param>com.example.monkey.security.TurnstileVerifier$RestClientSiteverifyClient</param>
-                        <param>com.example.monkey.service.ClamAvVirusScanner</param>
-                        <param>com.example.monkey.service.ImageVariantService*</param>
-                        <param>com.example.monkey.service.AuthResponseService</param>
-                        <param>com.example.monkey.security.AuthPrincipal</param>
-                        <param>com.example.monkey.shared.api.ErrorCode</param>
-                        <param>com.example.monkey.shared.api.Result</param>
-                        <param>com.example.monkey.shared.web.ProblemDetails</param>
-                        <param>com.example.monkey.shared.web.TraceIdFilter</param>
-                        <param>com.example.monkey.shared.web.TraceIds</param>
+                        <param>com.example.monkey.user.infrastructure.ConfigurablePasswordResetDeliveryService*</param>
+                        <param>com.example.monkey.user.infrastructure.PwnedPasswordChecker*</param>
+                        <param>com.example.monkey.user.infrastructure.TurnstileVerifier$RestClientSiteverifyClient</param>
+                        <param>com.example.monkey.shared.infrastructure.storage.ClamAvVirusScanner</param>
+                        <param>com.example.monkey.shared.application.storage.ImageVariantService*</param>
+                        <param>com.example.monkey.user.application.AuthResponseService</param>
+                        <param>com.example.monkey.user.domain.AuthPrincipal</param>
+                        <param>com.example.monkey.shared.domain.exception.ErrorCode</param>
+                        <param>com.example.monkey.shared.interfaces.dto.Result</param>
+                        <param>com.example.monkey.shared.interfaces.web.ProblemDetails</param>
+                        <param>com.example.monkey.shared.interfaces.web.TraceIdFilter</param>
+                        <param>com.example.monkey.shared.application.observability.TraceIds</param>
                     </excludedClasses>
                     <excludedTestClasses>
                         <param>com.example.monkey.*IT</param>
+                        <param>com.example.monkey.*WorkflowTest</param>
+                        <param>com.example.monkey.architecture.*Test</param>
+                        <param>com.example.monkey.security.RepositoryHygieneTest</param>
+                        <param>com.example.monkey.security.StaticAssetIntegrityTest</param>
                     </excludedTestClasses>
                     <mutationThreshold>85</mutationThreshold>
                     <coverageThreshold>80</coverageThreshold>

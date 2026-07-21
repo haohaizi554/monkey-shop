@@ -37,7 +37,7 @@ class Ws2InventoryWorkflowTest {
                 .contains("name = \"inventory-release-expired-reservations\"");
         assertThat(controller)
                 .contains("@RequestMapping({\"/api/inventory\", \"/api/v1/inventory\"})")
-                .contains("hasAuthority('ORDER_CREATE')")
+                .contains("hasAnyAuthority('ORDER_CREATE', 'ORDER_MANAGE', 'PRODUCT_MANAGE')")
                 .contains("hasAuthority('ORDER_MANAGE')");
         assertThat(lock)
                 .contains("inventory:sku:")

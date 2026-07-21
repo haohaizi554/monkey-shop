@@ -7,10 +7,13 @@ import jakarta.servlet.FilterChain;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
@@ -116,6 +119,75 @@ class ClientIpsTest {
         filter.doFilter(request, response, chain);
 
         assertThat(downstreamIp[0]).isEqualTo("198.51.100.7");
+    }
+
+    @Test
+    void usesValidatedRealIpOnlyWhenForwardingHeadersAreAbsent() {
+        MockHttpServletRequest request = requestFrom("10.0.0.10");
+        request.addHeader("X-Real-IP", "198.51.100.7:443");
+
+        assertThat(ClientIps.resolve(request, trusts("10.0.0.10"))).isEqualTo("198.51.100.7");
+
+        request = requestFrom("10.0.0.10");
+        request.addHeader("X-Real-IP", "[2001:db8::7]:8443");
+        assertThat(ClientIps.resolve(request, trusts("10.0.0.10"))).isEqualTo(canonical("2001:db8::7"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "198.51.100.7:",
+                "198.51.100.7:0",
+                "198.51.100.7:65536",
+                "198.51.100.7:100000",
+                "198.51.100.7:https",
+                "[2001:db8::7]8443",
+                "[2001:db8::7]:0",
+                "unknown",
+                "_hidden"
+            })
+    void rejectsInvalidRealIpNodeIdentifiers(String realIp) {
+        MockHttpServletRequest request = requestFrom("10.0.0.10");
+        request.addHeader("X-Real-IP", realIp);
+
+        assertThat(ClientIps.resolve(request, trusts("10.0.0.10"))).isEqualTo("10.0.0.10");
+    }
+
+    @Test
+    void acceptsQuotedForwardedNodesAndRejectsMalformedQuotes() {
+        MockHttpServletRequest quoted = requestFrom("10.0.0.10");
+        quoted.addHeader("Forwarded", "for=\"198.51.100.7:443\"");
+        assertThat(ClientIps.resolve(quoted, trusts("10.0.0.10"))).isEqualTo("198.51.100.7");
+
+        for (String malformed :
+                List.of("for=\"", "for=\"198.51.100.7", "for=198.51.100.7\"", "for=\"198.51\\.100.7\"")) {
+            MockHttpServletRequest request = requestFrom("10.0.0.10");
+            request.addHeader("Forwarded", malformed);
+            assertThat(ClientIps.resolve(request, trusts("10.0.0.10"))).isEqualTo("10.0.0.10");
+        }
+    }
+
+    @Test
+    void failsClosedForBlankHeadersAndUnparseableDirectPeers() {
+        MockHttpServletRequest blankHeader = requestFrom("10.0.0.10");
+        blankHeader.addHeader("X-Real-IP", " ");
+        assertThat(ClientIps.resolve(blankHeader, trusts("10.0.0.10"))).isEqualTo("10.0.0.10");
+
+        MockHttpServletRequest blankPeer = requestFrom(" ");
+        blankPeer.addHeader("X-Forwarded-For", "198.51.100.7");
+        assertThat(ClientIps.resolve(blankPeer, address -> true)).isEqualTo("unknown");
+
+        MockHttpServletRequest invalidPeer = requestFrom("not-an-ip");
+        assertThat(ClientIps.resolve(invalidPeer, null)).isEqualTo("not-an-ip");
+    }
+
+    @Test
+    void returnsLeftmostAddressWhenEveryProxyInTheChainIsTrusted() {
+        MockHttpServletRequest request = requestFrom("10.0.0.10");
+        request.addHeader("X-Forwarded-For", "10.0.0.7, 10.0.0.8, 10.0.0.9");
+
+        assertThat(ClientIps.resolve(request, trusts("10.0.0.7", "10.0.0.8", "10.0.0.9", "10.0.0.10")))
+                .isEqualTo("10.0.0.7");
     }
 
     private static MockHttpServletRequest requestFrom(String remoteAddress) {

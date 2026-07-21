@@ -50,7 +50,6 @@ class RepositoryHygieneTest {
     private static final List<String> FORBIDDEN_TRACKED_PATH_FRAGMENTS = List.of(
             "code.txt",
             "app.jar",
-            ".env",
             ".pem",
             ".key",
             "uploads/",
@@ -99,6 +98,12 @@ class RepositoryHygieneTest {
         for (String forbiddenPath : FORBIDDEN_TRACKED_PATH_FRAGMENTS) {
             assertThat(trackedFiles).doesNotContain(forbiddenPath);
         }
+        assertThat(trackedFiles
+                        .lines()
+                        .filter(RepositoryHygieneTest::isTrackedEnvironmentSecret)
+                        .toList())
+                .as("tracked environment secret files")
+                .isEmpty();
     }
 
     @Test
@@ -138,5 +143,10 @@ class RepositoryHygieneTest {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    private static boolean isTrackedEnvironmentSecret(String path) {
+        String fileName = Path.of(path).getFileName().toString();
+        return fileName.equals(".env") || (fileName.startsWith(".env.") && !fileName.endsWith(".example"));
     }
 }

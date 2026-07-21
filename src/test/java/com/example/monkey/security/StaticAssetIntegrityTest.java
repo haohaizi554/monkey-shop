@@ -280,7 +280,7 @@ class StaticAssetIntegrityTest {
                 .contains("productJsonLd(checkoutProduct.value)")
                 .contains("selectedSkuId: selectedSku.value?.id")
                 .contains("useCheckout({ notify: showNotice })")
-                .contains("listMonkeys()");
+                .contains("getCatalogSpu(productId.value, signal)");
         assertThat(productJsonLd)
                 .contains("'@context': 'https://schema.org'")
                 .contains("'@type': 'Product'")
@@ -343,6 +343,8 @@ class StaticAssetIntegrityTest {
     void ciRunsFrontendAccessibilityAndLighthouseGates() throws IOException {
         String workflow = Files.readString(Path.of(".github/workflows/ci.yaml"), StandardCharsets.UTF_8);
         String lighthouse = Files.readString(Path.of("frontend/scripts/lighthouse.mjs"), StandardCharsets.UTF_8);
+        String lighthouseGate =
+                Files.readString(Path.of("frontend/scripts/lighthouse-gate.mjs"), StandardCharsets.UTF_8);
         String packageJson = Files.readString(Path.of("frontend/package.json"), StandardCharsets.UTF_8);
         String ws5Verifier = Files.readString(Path.of("scripts/verify-ws5-frontend.ps1"), StandardCharsets.UTF_8);
         String readme = Files.readString(Path.of("README.md"), StandardCharsets.UTF_8);
@@ -359,8 +361,11 @@ class StaticAssetIntegrityTest {
                 .contains("frontend/lighthouse-report.json");
         assertThat(lighthouse)
                 .contains("chromePath: process.env.CHROME_PATH || undefined")
-                .contains("score < 0.95")
-                .contains("lcp > 2500");
+                .contains("collectLighthouseFailures(report)");
+        assertThat(lighthouseGate)
+                .contains("minimumScore = 0.95", "maximumLcp = 2500")
+                .contains("(category.score ?? 0) < minimumScore")
+                .contains("lcp > maximumLcp");
         assertThat(packageJson)
                 .contains("\"audit\": \"npm audit --audit-level=high --registry=https://registry.npmjs.org\"");
         assertThat(ws5Verifier)
