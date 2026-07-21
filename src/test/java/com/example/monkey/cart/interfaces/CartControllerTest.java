@@ -25,15 +25,13 @@ class CartControllerTest {
         CartController controller = new CartController(cartApplicationService, riskApplicationService);
         HttpServletRequest httpRequest = mock(HttpServletRequest.class);
         SessionUser currentUser = new SessionUser(7L, "USER");
-        CartDirectCheckoutRequestDto request =
-                new CartDirectCheckoutRequestDto(1002L, 9L, 3, 5L, "CN-BJ", List.of());
+        CartDirectCheckoutRequestDto request = new CartDirectCheckoutRequestDto(1002L, 9L, 3, 5L, "CN-BJ", List.of());
         CartCheckoutResponseDto response = mock(CartCheckoutResponseDto.class);
         when(httpRequest.getRemoteAddr()).thenReturn("127.0.0.1");
         when(cartApplicationService.directCheckout(currentUser, request, "direct-key"))
                 .thenReturn(response);
 
-        var result =
-                controller.directCheckout("direct-key", "device-1", request, currentUser, httpRequest);
+        var result = controller.directCheckout("direct-key", "device-1", request, currentUser, httpRequest);
 
         assertThat(result.data()).isSameAs(response);
         verify(riskApplicationService)

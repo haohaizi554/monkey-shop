@@ -8,14 +8,14 @@ import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
 import java.time.Duration;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
-import org.springframework.stereotype.Component;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 @Component
 @ConditionalOnProperty(name = "app.payment.callback-guard", havingValue = "redis", matchIfMissing = true)
@@ -62,11 +62,7 @@ public class RedisPaymentCallbackReplayGuard implements PaymentCallbackReplayGua
     }
 
     private void publishAfterCommit(
-            long tenantId,
-            PaymentMethod provider,
-            String paymentNo,
-            String callbackId,
-            Duration ttl) {
+            long tenantId, PaymentMethod provider, String paymentNo, String callbackId, Duration ttl) {
         if (redisTemplate == null
                 || !TransactionSynchronizationManager.isActualTransactionActive()
                 || !TransactionSynchronizationManager.isSynchronizationActive()) {

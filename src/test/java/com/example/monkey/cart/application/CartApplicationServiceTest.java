@@ -204,9 +204,7 @@ class CartApplicationServiceTest {
         CartSnapshot existingCart = fixture.cartStore.findCart(USER.id());
 
         var checkout = fixture.service.directCheckout(
-                USER,
-                new CartDirectCheckoutRequestDto(1002L, 9L, 3, 9L, "CN-BJ", List.of()),
-                "direct-key-1");
+                USER, new CartDirectCheckoutRequestDto(1002L, 9L, 3, 9L, "CN-BJ", List.of()), "direct-key-1");
 
         assertThat(checkout.subOrders()).singleElement().satisfies(subOrder -> {
             assertThat(subOrder.shopId()).isEqualTo(9L);

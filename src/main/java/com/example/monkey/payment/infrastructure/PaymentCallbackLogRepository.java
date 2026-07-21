@@ -28,10 +28,8 @@ public interface PaymentCallbackLogRepository extends JpaRepository<PaymentCallb
             @Param("paymentNo") String paymentNo,
             @Param("callbackId") String callbackId);
 
-    default Optional<PaymentCallbackLogEntity> findByProviderAndCallbackId(
-            PaymentMethod provider, String callbackId) {
-        return findByTenantIdAndProviderAndCallbackId(
-                TenantContext.currentTenantIdOrDefault(), provider, callbackId);
+    default Optional<PaymentCallbackLogEntity> findByProviderAndCallbackId(PaymentMethod provider, String callbackId) {
+        return findByTenantIdAndProviderAndCallbackId(TenantContext.currentTenantIdOrDefault(), provider, callbackId);
     }
 
     Optional<PaymentCallbackLogEntity> findByTenantIdAndProviderAndCallbackId(

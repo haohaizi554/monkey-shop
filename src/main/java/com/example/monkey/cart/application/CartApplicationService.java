@@ -240,8 +240,8 @@ public class CartApplicationService {
         return lockManager.withCheckoutLock(
                 userId,
                 key,
-                () -> transactions.execute(() -> CartDtoAssembler.toResponse(checkoutLocked(
-                        userId, request, key, () -> selectedCheckoutInputLines(userId), true))));
+                () -> transactions.execute(() -> CartDtoAssembler.toResponse(
+                        checkoutLocked(userId, request, key, () -> selectedCheckoutInputLines(userId), true))));
     }
 
     @WithSpan("cart.checkout.direct")
@@ -254,8 +254,8 @@ public class CartApplicationService {
         return lockManager.withCheckoutLock(
                 userId,
                 key,
-                () -> transactions.execute(() -> CartDtoAssembler.toResponse(checkoutLocked(
-                        userId, checkoutRequest, key, () -> directCheckoutInputLines(request), false))));
+                () -> transactions.execute(() -> CartDtoAssembler.toResponse(
+                        checkoutLocked(userId, checkoutRequest, key, () -> directCheckoutInputLines(request), false))));
     }
 
     private CheckoutOrder checkoutLocked(
@@ -709,8 +709,7 @@ public class CartApplicationService {
 
     private List<CheckoutInputLine> directCheckoutInputLines(CartDirectCheckoutRequestDto request) {
         LocalDateTime timestamp = now();
-        CartItem item =
-                new CartItem(request.skuId(), request.shopId(), request.quantity(), true, timestamp, timestamp);
+        CartItem item = new CartItem(request.skuId(), request.shopId(), request.quantity(), true, timestamp, timestamp);
         return List.of(new CheckoutInputLine(item, requireSku(item.skuId())));
     }
 
