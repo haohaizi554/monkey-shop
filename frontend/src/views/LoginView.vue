@@ -18,6 +18,11 @@ type RegisterStep = 'account' | 'contact' | 'complete'
 type PasswordResetStage = 'identity' | 'challenge'
 type NoticeSeverity = 'info' | 'success' | 'warning' | 'danger'
 type RegisterField = 'username' | 'password' | 'phone' | 'email' | 'captcha' | 'avatarFile'
+interface AuthNotice {
+  severity: NoticeSeverity
+  message: string
+  pose?: MascotPose
+}
 
 const FALLBACK_PASSWORD_POLICY: PasswordPolicy = {
   minLength: 8,
@@ -40,7 +45,11 @@ const REGISTER_FIELDS = new Set<RegisterField>([
 const auth = useAuthStore()
 const { t } = useI18n()
 const passwordPolicyController = usePasswordPolicy()
-const retryCountdown = useRetryCountdown()
+const retryCountdowns: Record<AuthMode, ReturnType<typeof useRetryCountdown>> = {
+  login: useRetryCountdown(),
+  register: useRetryCountdown(),
+  reset: useRetryCountdown(),
+}
 
 const activeMode = ref<AuthMode>('login')
 const registerStep = ref<RegisterStep>('account')
@@ -73,19 +82,20 @@ const loginFormRef = ref<FormInstance>()
 const registerFormRef = ref<FormInstance>()
 const resetFormRef = ref<FormInstance>()
 
-const authNotice = ref<{
-  severity: NoticeSeverity
-  message: string
-  pose?: MascotPose
-} | null>(null)
+const authNotices = reactive<Record<AuthMode, AuthNotice | null>>({
+  login: null,
+  register: null,
+  reset: null,
+})
+const authNotice = computed(() => authNotices[activeMode.value])
 const effectivePasswordPolicy = computed(
   () => passwordPolicyController.policy.value ?? FALLBACK_PASSWORD_POLICY,
 )
 const passwordEvaluation = computed(() =>
   evaluatePassword(registerForm.password, effectivePasswordPolicy.value),
 )
-const retryActive = retryCountdown.isActive
-const retrySeconds = retryCountdown.remainingSeconds
+const retryActive = computed(() => retryCountdowns[activeMode.value].isActive.value)
+const retrySeconds = computed(() => retryCountdowns[activeMode.value].remainingSeconds.value)
 const submitBlocked = computed(() => submitting.value || retryActive.value)
 const resetRequestBlocked = computed(() => resetRequestPending.value || retryActive.value)
 
@@ -199,12 +209,17 @@ async function handleModeKeydown(event: KeyboardEvent) {
   document.querySelector<HTMLElement>(`[data-testid="${nextMode}-tab"]`)?.focus()
 }
 
-function showAuthNotice(severity: NoticeSeverity, message: string, pose?: MascotPose) {
-  authNotice.value = { severity, message, pose }
+function showAuthNotice(
+  severity: NoticeSeverity,
+  message: string,
+  pose?: MascotPose,
+  mode: AuthMode = activeMode.value,
+) {
+  authNotices[mode] = { severity, message, pose }
 }
 
-function clearAuthNotice() {
-  authNotice.value = null
+function clearAuthNotice(mode: AuthMode = activeMode.value) {
+  authNotices[mode] = null
 }
 
 async function loadAuthMetadata() {
@@ -267,14 +282,14 @@ function authErrorMessage(error: unknown, fallbackKey: string): string {
   return t(fallbackKey)
 }
 
-function handleAuthError(error: unknown, fallbackKey: string) {
+function handleAuthError(error: unknown, fallbackKey: string, mode: AuthMode) {
   if (error instanceof ApiError && error.status === 429) {
-    retryCountdown.start(error)
-    showAuthNotice('warning', t('feedback.rateLimited'), 'hourglass')
+    retryCountdowns[mode].start(error)
+    showAuthNotice('warning', t('feedback.rateLimited'), 'hourglass', mode)
     return
   }
   const pose: MascotPose = error instanceof ApiError && error.status === 403 ? 'shield' : 'warning'
-  showAuthNotice('danger', authErrorMessage(error, fallbackKey), pose)
+  showAuthNotice('danger', authErrorMessage(error, fallbackKey), pose, mode)
 }
 
 function clearRegisterFieldError(field: RegisterField) {
@@ -298,17 +313,17 @@ function applyRegisterFieldErrors(error: unknown): boolean {
 }
 
 async function submitLogin() {
-  if (retryActive.value) return
+  if (retryCountdowns.login.isActive.value) return
   if ((showLoginCaptcha.value || turnstileEnabled.value) && !loginForm.captcha) {
-    showAuthNotice('warning', t('auth.captchaRequired'), 'shield')
+    showAuthNotice('warning', t('auth.captchaRequired'), 'shield', 'login')
     return
   }
   if (!(await loginFormRef.value?.validate().catch(() => false))) return
-  clearAuthNotice()
+  clearAuthNotice('login')
   submitting.value = true
   try {
     await auth.login(loginForm)
-    retryCountdown.clear()
+    retryCountdowns.login.clear()
   } catch (error) {
     const challenge = authChallenge(error instanceof Error ? error.message : '')
     showAdminMfa.value = challenge === 'admin mfa required' || challenge === 'admin mfa invalid'
@@ -317,7 +332,7 @@ async function submitLogin() {
       challenge === 'captcha required' ||
       challenge === 'captcha incorrect'
     if (showLoginCaptcha.value && !turnstileEnabled.value) refreshCaptcha('login')
-    handleAuthError(error, 'auth.signInFailed')
+    handleAuthError(error, 'auth.signInFailed', 'login')
   } finally {
     submitting.value = false
   }
@@ -328,11 +343,11 @@ async function continueRegistration() {
     return
   }
   registerStep.value = 'contact'
-  clearAuthNotice()
+  clearAuthNotice('register')
 }
 
 async function submitRegister() {
-  if (retryActive.value) return
+  if (retryCountdowns.register.isActive.value) return
   if (!registerForm.username.trim() || !meetsPasswordPolicy(registerForm.password)) {
     registerStep.value = 'account'
     await nextTick()
@@ -341,23 +356,25 @@ async function submitRegister() {
   }
   if (!(await registerFormRef.value?.validate().catch(() => false))) return
 
-  clearAuthNotice()
+  clearAuthNotice('register')
   clearRegisterFieldErrors()
   submitting.value = true
   try {
     await auth.register({ ...registerForm, avatarFile: avatarFile.value })
-    retryCountdown.clear()
+    retryCountdowns.register.clear()
     loginForm.username = registerForm.username
     registerStep.value = 'complete'
-    showAuthNotice('success', t('auth.registrationComplete'), 'celebrate')
+    showAuthNotice('success', t('auth.registrationComplete'), 'celebrate', 'register')
   } catch (error) {
-    if (!turnstileEnabled.value) refreshCaptcha('register')
+    if (!turnstileEnabled.value) {
+      refreshCaptcha('register')
+    }
     if (applyRegisterFieldErrors(error)) {
       registerStep.value =
         registerFieldErrors.username || registerFieldErrors.password ? 'account' : 'contact'
-      showAuthNotice('danger', t('auth.fixHighlightedFields'), 'shield')
+      showAuthNotice('danger', t('auth.fixHighlightedFields'), 'shield', 'register')
     } else {
-      handleAuthError(error, 'auth.registrationFailed')
+      handleAuthError(error, 'auth.registrationFailed', 'register')
     }
   } finally {
     submitting.value = false
@@ -367,55 +384,52 @@ async function submitRegister() {
 function finishRegistration() {
   registerStep.value = 'account'
   activeMode.value = 'login'
-  clearAuthNotice()
+  clearAuthNotice('register')
 }
 
 async function requestResetCode() {
-  if (retryActive.value) return
+  if (retryCountdowns.reset.isActive.value) return
   if (!(await resetFormRef.value?.validateField(['username', 'phone']).catch(() => false))) return
   if (turnstileEnabled.value && !resetRequestCaptcha.value) {
-    showAuthNotice('warning', t('auth.captchaRequired'), 'shield')
+    showAuthNotice('warning', t('auth.captchaRequired'), 'shield', 'reset')
     return
   }
-  clearAuthNotice()
+  clearAuthNotice('reset')
   resetRequestPending.value = true
   try {
     await authApi.requestPasswordReset({ ...resetForm, captcha: resetRequestCaptcha.value })
-    retryCountdown.clear()
+    retryCountdowns.reset.clear()
     resetStage.value = 'challenge'
-    showAuthNotice('success', t('auth.resetChallengeSent'), 'shield')
+    showAuthNotice('success', t('auth.resetChallengeSent'), 'shield', 'reset')
   } catch (error) {
-    handleAuthError(error, 'auth.requestFailed')
+    handleAuthError(error, 'auth.requestFailed', 'reset')
   } finally {
     resetRequestPending.value = false
   }
 }
 
 async function submitReset() {
-  if (retryActive.value) return
+  if (retryCountdowns.reset.isActive.value) return
   if (!(await resetFormRef.value?.validate().catch(() => false))) return
   if (turnstileEnabled.value && !resetForm.captcha) {
-    showAuthNotice('warning', t('auth.captchaRequired'), 'shield')
+    showAuthNotice('warning', t('auth.captchaRequired'), 'shield', 'reset')
     return
   }
-  clearAuthNotice()
+  clearAuthNotice('reset')
   submitting.value = true
   try {
     await authApi.resetPassword(resetForm)
-    retryCountdown.clear()
+    retryCountdowns.reset.clear()
     resetStage.value = 'identity'
     activeMode.value = 'login'
-    showAuthNotice('success', t('auth.passwordResetComplete'), 'celebrate')
+    showAuthNotice('success', t('auth.passwordResetComplete'), 'celebrate', 'login')
   } catch (error) {
-    handleAuthError(error, 'auth.passwordResetFailed')
+    handleAuthError(error, 'auth.passwordResetFailed', 'reset')
   } finally {
     submitting.value = false
   }
 }
 
-watch(activeMode, () => {
-  if (!retryActive.value) clearAuthNotice()
-})
 watch(
   () => registerForm.username,
   () => clearRegisterFieldError('username'),

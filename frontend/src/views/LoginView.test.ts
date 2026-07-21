@@ -73,6 +73,18 @@ async function fill(host: HTMLElement, selector: string, value: string) {
   await nextTick()
 }
 
+async function submitValidRegistration(host: HTMLElement, captcha = '1234') {
+  await fill(host, '[data-testid="register-username"]', 'member')
+  await fill(host, '[data-testid="register-password"]', 'ValidPass!1')
+  await click(host, '[data-testid="register-next"]')
+  await vi.waitFor(() =>
+    expect(host.querySelector('[data-testid="register-contact-step"]')).not.toBeNull(),
+  )
+  await fill(host, '[data-testid="register-phone"]', '13800138000')
+  await fill(host, '[data-testid="register-captcha"]', captcha)
+  await click(host, '[data-testid="register-submit"]')
+}
+
 beforeEach(() => {
   i18n.global.locale.value = 'zh'
   vi.mocked(authApi.captchaConfig).mockResolvedValue({ provider: 'local', siteKey: '' })
@@ -172,5 +184,109 @@ describe('LoginView retry state', () => {
       false,
     )
     expect(host.textContent).not.toContain('Too many requests')
+  })
+
+  it('keeps a login 429 out of registration and handles captcha 422 without a countdown', async () => {
+    vi.mocked(authApi.login).mockRejectedValue(
+      new ApiError('Too many requests', 429, 'trace-login', 'RATE_LIMIT', {
+        retryAfterSeconds: 10,
+      }),
+    )
+    vi.mocked(authApi.register).mockRejectedValue(
+      new ApiError('captcha incorrect', 422, 'trace-register', 'VALIDATION_FAILED'),
+    )
+    const { host } = await mountLogin()
+
+    await fill(host, '[data-testid="login-username"]', 'member')
+    await fill(host, '[data-testid="login-password"]', 'bad-password')
+    await click(host, '[data-testid="login-submit"]')
+    await vi.waitFor(() =>
+      expect(host.querySelector('[data-testid="retry-countdown"]')?.textContent).toContain('10'),
+    )
+
+    vi.mocked(authApi.captchaUrl).mockClear()
+    await click(host, '[data-testid="register-tab"]')
+    expect(host.querySelector('[data-testid="retry-countdown"]')).toBeNull()
+    expect(host.querySelector<HTMLButtonElement>('[data-testid="register-next"]')?.disabled).toBe(
+      false,
+    )
+
+    await submitValidRegistration(host, 'wrong-code')
+
+    await vi.waitFor(() => expect(authApi.register).toHaveBeenCalledOnce())
+    await vi.waitFor(() => {
+      const captchaField = host.querySelector<HTMLElement>('[data-testid="register-captcha"]')
+      const captchaInput =
+        captchaField instanceof HTMLInputElement
+          ? captchaField
+          : captchaField?.querySelector<HTMLInputElement>('input')
+      expect(captchaInput?.value).toBe('')
+    })
+    expect(authApi.captchaUrl).toHaveBeenCalledOnce()
+    expect(authApi.captchaUrl).toHaveBeenCalledWith('auth')
+    expect(host.querySelector('[data-testid="retry-countdown"]')).toBeNull()
+    expect(host.textContent).toContain(i18n.global.t('auth.captchaIncorrect'))
+    expect(host.textContent).not.toContain('captcha incorrect')
+
+    await click(host, '[data-testid="login-tab"]')
+    expect(host.querySelector('[data-testid="retry-countdown"]')).not.toBeNull()
+    expect(host.textContent).not.toContain(i18n.global.t('auth.captchaIncorrect'))
+    expect(host.textContent).not.toContain('Too many requests')
+
+    await click(host, '[data-testid="register-tab"]')
+    expect(host.textContent).toContain(i18n.global.t('auth.captchaIncorrect'))
+  })
+
+  it('disables registration only when registration receives a 429', async () => {
+    vi.mocked(authApi.register).mockRejectedValue(
+      new ApiError('Operation is not permitted', 429, 'trace-register', 'RATE_LIMIT', {
+        retryAfterSeconds: 10,
+      }),
+    )
+    const { host } = await mountLogin()
+
+    await click(host, '[data-testid="register-tab"]')
+    await submitValidRegistration(host)
+
+    await vi.waitFor(() =>
+      expect(host.querySelector('[data-testid="retry-countdown"]')?.textContent).toContain('10'),
+    )
+    expect(host.querySelector<HTMLButtonElement>('[data-testid="register-submit"]')?.disabled).toBe(
+      true,
+    )
+    expect(host.textContent).not.toContain('Operation is not permitted')
+
+    await click(host, '[data-testid="login-tab"]')
+    expect(host.querySelector('[data-testid="retry-countdown"]')).toBeNull()
+    expect(host.querySelector<HTMLButtonElement>('[data-testid="login-submit"]')?.disabled).toBe(
+      false,
+    )
+
+    await click(host, '[data-testid="register-tab"]')
+    expect(host.querySelector('[data-testid="retry-countdown"]')).not.toBeNull()
+    expect(host.querySelector<HTMLButtonElement>('[data-testid="register-submit"]')?.disabled).toBe(
+      true,
+    )
+  })
+
+  it('refreshes a one-time local captcha after a non-validation registration failure', async () => {
+    vi.mocked(authApi.register).mockRejectedValue(
+      new ApiError('Service unavailable', 503, 'trace-register', 'SERVICE_UNAVAILABLE'),
+    )
+    const { host } = await mountLogin()
+
+    await click(host, '[data-testid="register-tab"]')
+    vi.mocked(authApi.captchaUrl).mockClear()
+    await submitValidRegistration(host)
+
+    await vi.waitFor(() => expect(authApi.register).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(authApi.captchaUrl).toHaveBeenCalledWith('auth'))
+    const captchaField = host.querySelector<HTMLElement>('[data-testid="register-captcha"]')
+    const captchaInput =
+      captchaField instanceof HTMLInputElement
+        ? captchaField
+        : captchaField?.querySelector<HTMLInputElement>('input')
+    expect(captchaInput?.value).toBe('')
+    expect(host.querySelector('[data-testid="retry-countdown"]')).toBeNull()
   })
 })
