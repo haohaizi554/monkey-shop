@@ -2,12 +2,18 @@ package com.example.monkey.shared.infrastructure.id;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.lang.reflect.Modifier;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 class SnowflakeLeaseSchedulingConfigurationTest {
+
+    @Test
+    void scheduledIdentityRemainsProxyableBySpring() {
+        assertThat(Modifier.isFinal(SnowflakeNodeIdentity.class.getModifiers())).isFalse();
+    }
 
     @Test
     void renewalRunsOnAnIsolatedScheduler() throws NoSuchMethodException {

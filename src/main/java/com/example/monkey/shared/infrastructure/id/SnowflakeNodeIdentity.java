@@ -21,7 +21,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Component
-public final class SnowflakeNodeIdentity {
+public class SnowflakeNodeIdentity {
 
     private static final Logger log = LoggerFactory.getLogger(SnowflakeNodeIdentity.class);
     private static final int NODE_ID_BITS = 10;
