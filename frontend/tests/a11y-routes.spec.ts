@@ -645,6 +645,16 @@ for (const routeCase of consumerRoutes) {
   })
 }
 
+test('not found route presents branded recovery actions', async ({ page }) => {
+  const unhandled = await installApiMocks(page, 'user')
+  await settleRoute(page, consumerRoute('not found'))
+
+  await expect(page.locator('img.mascot-state[data-pose="warning"]')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Back', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Shop', exact: true })).toBeVisible()
+  expect(unhandled).toEqual([])
+})
+
 for (const routeCase of adminRoutes) {
   test(`admin route: ${routeCase.name} passes Axe in a real rendered state`, async ({ page }) => {
     const unhandled = await installApiMocks(page, 'admin')
@@ -804,6 +814,7 @@ test.describe('visual route baselines', () => {
       consumerRoute('cart'),
       consumerRoute('checkout form'),
       consumerRoute('profile forms'),
+      consumerRoute('not found'),
     ]) {
       await settleRoute(page, routeCase)
       await expectVisualBaseline(

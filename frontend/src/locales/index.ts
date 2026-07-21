@@ -151,6 +151,7 @@ const messages = {
       loadFailed: 'Failed to load',
       notFound: 'Page not found',
       notFoundHint: 'The page you are looking for does not exist or has been moved.',
+      notFoundMascotAlt: 'MonkeyShop guide holding a warning sign',
       operationSuccess: 'Operation succeeded',
       operationFailed: 'Operation failed',
       noData: 'No data',
@@ -1359,6 +1360,7 @@ const messages = {
       notFound: '\u9875\u9762\u4e0d\u5b58\u5728',
       notFoundHint:
         '\u4f60\u8bbf\u95ee\u7684\u9875\u9762\u4e0d\u5b58\u5728\u6216\u5df2\u88ab\u79fb\u52a8\u3002',
+      notFoundMascotAlt: 'MonkeyShop \u5f15\u5bfc\u5458\u624b\u6301\u8b66\u793a\u724c',
       operationSuccess: '\u64cd\u4f5c\u6210\u529f',
       operationFailed: '\u64cd\u4f5c\u5931\u8d25',
       noData: '\u6682\u65e0\u6570\u636e',
