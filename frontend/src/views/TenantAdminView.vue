@@ -331,7 +331,12 @@ function tenantStatusType(status: TenantStatus): 'success' | 'warning' | 'danger
 }
 
 function statusIcon(status: string): Component {
-  if (status === 'ACTIVE' || status === 'SUCCEEDED' || status === 'COMPLETED' || status === 'RECONCILED') {
+  if (
+    status === 'ACTIVE' ||
+    status === 'SUCCEEDED' ||
+    status === 'COMPLETED' ||
+    status === 'RECONCILED'
+  ) {
     return CircleCheck
   }
   if (status === 'TRIAL' || status === 'QUEUED' || status === 'RUNNING' || status === 'GENERATED') {
@@ -359,9 +364,7 @@ function isPending(key: string): boolean {
 }
 
 function isLifecyclePending(tenantId: number): boolean {
-  return (
-    isPending(`tenant:${tenantId}:renew`) || isPending(`tenant:${tenantId}:downgrade`)
-  )
+  return isPending(`tenant:${tenantId}:renew`) || isPending(`tenant:${tenantId}:downgrade`)
 }
 
 function setPending(key: string, value: boolean) {
@@ -587,11 +590,7 @@ async function saveConfig() {
       renderConfigDraft(tenantId, configType, savedDraft)
     }
     if (selectedTenantId.value === tenantId) {
-      await commitResourceRow(
-        configState,
-        saved,
-        (row) => row.configType === saved.configType,
-      )
+      await commitResourceRow(configState, saved, (row) => row.configType === saved.configType)
     }
     notify.success(t('tenant.configSaved'), { key: 'tenant:config:success' })
   } catch (error) {
@@ -999,12 +998,7 @@ onMounted(loadTenantList)
                   </div>
                   <DataTableShell :empty="exports.length === 0" :aria-label="t('tenant.export')">
                     <template #empty>{{ t('tenant.noExports') }}</template>
-                    <el-table
-                      :data="exports"
-                      row-key="id"
-                      size="small"
-                      :scrollbar-tabindex="0"
-                    >
+                    <el-table :data="exports" row-key="id" size="small" :scrollbar-tabindex="0">
                       <el-table-column :label="t('tenant.type')" width="120">
                         <template #default="{ row }">{{
                           exportTypeLabel(row.exportType)

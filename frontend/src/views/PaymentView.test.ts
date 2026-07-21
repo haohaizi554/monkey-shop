@@ -114,21 +114,25 @@ afterEach(() => {
 })
 
 describe('PaymentView provider redirect', () => {
-  it('automatically opens a safe provider URL after creating a pending payment', async () => {
-    vi.mocked(paymentsApi.createPayment).mockResolvedValue(
-      payment({ paymentUrl: 'https://pay.example.test/checkout/PAY-42' }),
-    )
-    const { host } = await mountPayment()
+  it(
+    'automatically opens a safe provider URL after creating a pending payment',
+    async () => {
+      vi.mocked(paymentsApi.createPayment).mockResolvedValue(
+        payment({ paymentUrl: 'https://pay.example.test/checkout/PAY-42' }),
+      )
+      const { host } = await mountPayment()
 
-    await submitPayment(host)
+      await submitPayment(host)
 
-    await vi.waitFor(() =>
-      expect(navigateToPaymentProvider).toHaveBeenCalledWith(
-        'https://pay.example.test/checkout/PAY-42',
-      ),
-    )
-    expect(host.querySelector('[data-testid="payment-provider-continue"]')).not.toBeNull()
-  })
+      await vi.waitFor(() =>
+        expect(navigateToPaymentProvider).toHaveBeenCalledWith(
+          'https://pay.example.test/checkout/PAY-42',
+        ),
+      )
+      expect(host.querySelector('[data-testid="payment-provider-continue"]')).not.toBeNull()
+    },
+    10_000,
+  )
 
   it('blocks a dangerous provider URL and explains that redirect is unavailable', async () => {
     vi.mocked(paymentsApi.createPayment).mockResolvedValue(

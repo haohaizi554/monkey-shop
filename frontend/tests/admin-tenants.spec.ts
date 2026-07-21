@@ -443,7 +443,9 @@ test('tenant exports render localized types instead of internal enum tokens', as
   const downloadLink = exportTable.getByRole('link', { name: 'Download export' })
   await expect(downloadLink).toHaveAttribute('href', '/api/v1/tenants/1/exports/91/artifact')
   await expect(downloadLink).toHaveAttribute('download', '')
-  await expect(exportTable.getByText('tenant export provider failed', { exact: true })).toHaveCount(0)
+  await expect(exportTable.getByText('tenant export provider failed', { exact: true })).toHaveCount(
+    0,
+  )
 })
 
 test('an unavailable export response never announces a successful submission', async ({ page }) => {

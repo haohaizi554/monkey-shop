@@ -87,7 +87,8 @@ function sourceLabel(value: string): string {
 }
 
 function pageLabel(value: string): string {
-  if (value.includes('INTERNAL_PAGE_TOKEN') || value.startsWith('/internal/')) return t('common.unknown')
+  if (value.includes('INTERNAL_PAGE_TOKEN') || value.startsWith('/internal/'))
+    return t('common.unknown')
   if (value === '/dashboard') return t('dashboard.pageDashboard')
   if (value === '/shop') return t('dashboard.pageShop')
   if (value === '/search') return t('dashboard.pageSearch')
@@ -254,7 +255,8 @@ onMounted(() => {
     >
       <p
         v-if="dashboardLastSuccessAt"
-        class="data-freshness" data-testid="dashboard-last-success"
+        class="data-freshness"
+        data-testid="dashboard-last-success"
         :class="{ 'is-stale': dashboardState.status.value === 'error' }"
       >
         {{

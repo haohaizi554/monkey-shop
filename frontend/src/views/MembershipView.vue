@@ -60,8 +60,8 @@ const nextLevel = computed(() => {
   const current = profile.value?.level ?? 'BASIC'
   return levels[levels.indexOf(current) + 1]
 })
-const canVerify = computed(
-  () => Boolean(identityForm.realName.trim() && identityForm.idCardNo.trim()),
+const canVerify = computed(() =>
+  Boolean(identityForm.realName.trim() && identityForm.idCardNo.trim()),
 )
 const canRedeem = computed(() => {
   const points = redeemForm.points
@@ -215,12 +215,7 @@ onMounted(() => {
     >
       <section class="member-hero" :aria-label="$t('membership.center')">
         <div class="member-hero__mascot">
-          <MascotState
-            pose="celebrate"
-            size="sm"
-            eager
-            :alt="$t('membership.heroMascotAlt')"
-          />
+          <MascotState pose="celebrate" size="sm" eager :alt="$t('membership.heroMascotAlt')" />
         </div>
 
         <div class="member-progress">
@@ -251,7 +246,9 @@ onMounted(() => {
             <dt>{{ $t('membership.pointsBalance') }}</dt>
             <dd>
               <strong>{{ wallet?.balance ?? 0 }}</strong>
-              <small>{{ $t('membership.moneyEquivalent', { amount: wallet?.moneyEquivalent ?? 0 }) }}</small>
+              <small>{{
+                $t('membership.moneyEquivalent', { amount: wallet?.moneyEquivalent ?? 0 })
+              }}</small>
             </dd>
           </div>
           <div>
@@ -403,7 +400,11 @@ onMounted(() => {
         <DataTableShell :aria-label="$t('membership.priceWatch')" :empty="collections.length === 0">
           <template #empty>
             <div class="collection-empty">
-              <MascotState pose="shoppingBag" size="sm" :alt="$t('membership.emptyWatchMascotAlt')" />
+              <MascotState
+                pose="shoppingBag"
+                size="sm"
+                :alt="$t('membership.emptyWatchMascotAlt')"
+              />
               <p>{{ $t('membership.emptyWatch') }}</p>
             </div>
           </template>
@@ -417,10 +418,16 @@ onMounted(() => {
               </div>
               <div class="collection-row__target">
                 <span>{{ $t('membership.targetPrice') }}</span>
-                <strong>{{ item.targetPrice === undefined ? '-' : money(item.targetPrice) }}</strong>
+                <strong>{{
+                  item.targetPrice === undefined ? '-' : money(item.targetPrice)
+                }}</strong>
               </div>
               <el-tag :type="item.priceDropNotified ? 'success' : 'info'" disable-transitions>
-                {{ item.priceDropNotified ? $t('membership.notifiedYes') : $t('membership.notifiedNo') }}
+                {{
+                  item.priceDropNotified
+                    ? $t('membership.notifiedYes')
+                    : $t('membership.notifiedNo')
+                }}
               </el-tag>
               <el-button
                 type="danger"
@@ -469,10 +476,17 @@ onMounted(() => {
           </div>
         </header>
 
-        <DataTableShell :aria-label="$t('membership.browseHistory')" :empty="browseHistory.length === 0">
+        <DataTableShell
+          :aria-label="$t('membership.browseHistory')"
+          :empty="browseHistory.length === 0"
+        >
           <template #empty>{{ $t('membership.noHistory') }}</template>
           <div class="history-list">
-            <article v-for="item in browseHistory" :key="`${item.productId}:${item.viewedAt}`" class="history-row">
+            <article
+              v-for="item in browseHistory"
+              :key="`${item.productId}:${item.viewedAt}`"
+              class="history-row"
+            >
               <ProductImage :src="item.productImage" :alt="item.productName" />
               <strong>{{ item.productName }}</strong>
               <div>
@@ -526,9 +540,7 @@ onMounted(() => {
 }
 
 .member-hero__mascot :deep(.mascot-state) {
-  filter: drop-shadow(
-    0 8px 12px color-mix(in srgb, var(--color-text) 14%, transparent)
-  );
+  filter: drop-shadow(0 8px 12px color-mix(in srgb, var(--color-text) 14%, transparent));
 }
 
 .member-progress {

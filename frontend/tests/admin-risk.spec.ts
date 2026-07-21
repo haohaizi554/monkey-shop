@@ -354,7 +354,19 @@ test('risk ignores a stale refresh after a decision, then accepts a later author
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(ok([{ id: 101, userId: 7, type: 'PRICE_ANOMALY', score: 88, status, detail: 'price changed quickly', createdAt: '2026-07-12T08:00:00' }])),
+      body: JSON.stringify(
+        ok([
+          {
+            id: 101,
+            userId: 7,
+            type: 'PRICE_ANOMALY',
+            score: 88,
+            status,
+            detail: 'price changed quickly',
+            createdAt: '2026-07-12T08:00:00',
+          },
+        ]),
+      ),
     })
   })
   await page.route('**/api/v1/risk/reviews/101/resolve', async (route) => {
@@ -364,7 +376,18 @@ test('risk ignores a stale refresh after a decision, then accepts a later author
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(ok({ id: 101, userId: 7, type: 'PRICE_ANOMALY', score: 88, status: body.status, detail: 'price changed quickly', resolution: body.resolution, createdAt: '2026-07-12T08:00:00' })),
+      body: JSON.stringify(
+        ok({
+          id: 101,
+          userId: 7,
+          type: 'PRICE_ANOMALY',
+          score: 88,
+          status: body.status,
+          detail: 'price changed quickly',
+          resolution: body.resolution,
+          createdAt: '2026-07-12T08:00:00',
+        }),
+      ),
     })
   })
 
@@ -388,12 +411,29 @@ test('risk ignores a stale refresh after a decision, then accepts a later author
   await expect(page.locator('tbody').getByText('Rejected', { exact: true }).first()).toBeVisible()
 })
 
-test('risk BLOCK confirmation locks duplicate saves, cancels cleanly, and can be retried', async ({ page }) => {
+test('risk BLOCK confirmation locks duplicate saves, cancels cleanly, and can be retried', async ({
+  page,
+}) => {
   let resolveCalls = 0
   await installRiskMocks(page)
   await page.route('**/api/v1/risk/reviews/101/resolve', async (route) => {
     resolveCalls += 1
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ok({ id: 101, userId: 7, type: 'PRICE_ANOMALY', score: 88, status: 'BLOCKED', detail: 'price changed quickly', resolution: 'blocked', createdAt: '2026-07-12T08:00:00' })) })
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        ok({
+          id: 101,
+          userId: 7,
+          type: 'PRICE_ANOMALY',
+          score: 88,
+          status: 'BLOCKED',
+          detail: 'price changed quickly',
+          resolution: 'blocked',
+          createdAt: '2026-07-12T08:00:00',
+        }),
+      ),
+    })
   })
 
   await page.goto('/risk')
@@ -415,28 +455,86 @@ test('risk BLOCK confirmation locks duplicate saves, cancels cleanly, and can be
   await expect(page.locator('tbody').getByText('Blocked', { exact: true })).toBeVisible()
 })
 
-test('risk rejects with a verified payload and retries another case after a local failure', async ({ page }) => {
+test('risk rejects with a verified payload and retries another case after a local failure', async ({
+  page,
+}) => {
   let retryCalls = 0
   const bodies: Array<{ status: string; resolution: string }> = []
   await installRiskMocks(page)
   await page.route('**/api/v1/risk/reviews', async (route) => {
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ok([
-      { id: 101, userId: 7, type: 'PRICE_ANOMALY', score: 88, status: 'PENDING', detail: 'price changed quickly', createdAt: '2026-07-12T08:00:00' },
-      { id: 103, userId: 9, type: 'SELF_BUY', score: 66, status: 'PENDING', detail: 'manual review needed', createdAt: '2026-07-12T08:00:00' },
-    ])) })
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        ok([
+          {
+            id: 101,
+            userId: 7,
+            type: 'PRICE_ANOMALY',
+            score: 88,
+            status: 'PENDING',
+            detail: 'price changed quickly',
+            createdAt: '2026-07-12T08:00:00',
+          },
+          {
+            id: 103,
+            userId: 9,
+            type: 'SELF_BUY',
+            score: 66,
+            status: 'PENDING',
+            detail: 'manual review needed',
+            createdAt: '2026-07-12T08:00:00',
+          },
+        ]),
+      ),
+    })
   })
   await page.route('**/api/v1/risk/reviews/101/resolve', async (route) => {
     const body = route.request().postDataJSON() as { status: string; resolution: string }
     bodies.push(body)
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ok({ id: 101, userId: 7, type: 'PRICE_ANOMALY', score: 88, status: body.status, detail: 'price changed quickly', resolution: body.resolution, createdAt: '2026-07-12T08:00:00' })) })
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        ok({
+          id: 101,
+          userId: 7,
+          type: 'PRICE_ANOMALY',
+          score: 88,
+          status: body.status,
+          detail: 'price changed quickly',
+          resolution: body.resolution,
+          createdAt: '2026-07-12T08:00:00',
+        }),
+      ),
+    })
   })
   await page.route('**/api/v1/risk/reviews/103/resolve', async (route) => {
     retryCalls += 1
     if (retryCalls === 1) {
-      await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ code: 'FAILED', message: 'backend failure' }) })
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 'FAILED', message: 'backend failure' }),
+      })
       return
     }
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ok({ id: 103, userId: 9, type: 'SELF_BUY', score: 66, status: 'APPROVED', detail: 'manual review needed', resolution: 'verified', createdAt: '2026-07-12T08:00:00' })) })
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        ok({
+          id: 103,
+          userId: 9,
+          type: 'SELF_BUY',
+          score: 66,
+          status: 'APPROVED',
+          detail: 'manual review needed',
+          resolution: 'verified',
+          createdAt: '2026-07-12T08:00:00',
+        }),
+      ),
+    })
   })
 
   await page.goto('/risk')

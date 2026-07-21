@@ -82,11 +82,7 @@ describe('commerce UI primitives', () => {
           resolveAction = resolve
         }),
     )
-    const host = mount(
-      ConfirmAction,
-      { content: '确认删除？', action },
-      { default: () => '删除' },
-    )
+    const host = mount(ConfirmAction, { content: '确认删除？', action }, { default: () => '删除' })
     const button = host.querySelector<HTMLButtonElement>('button')
     button?.focus()
     button?.click()

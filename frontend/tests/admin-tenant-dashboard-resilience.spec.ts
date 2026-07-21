@@ -368,8 +368,7 @@ test('profile labels use known localizations and safe fallbacks for unknown trac
     if (pathname === '/tracking/profile/me') {
       await fulfill(route, {
         userId: 1,
-        profileSummary:
-          'last=INTERNAL_EVENT_TOKEN,previous=SEARCH,page=/dashboard,source=web',
+        profileSummary: 'last=INTERNAL_EVENT_TOKEN,previous=SEARCH,page=/dashboard,source=web',
         behaviorTags: ['event:INTERNAL_EVENT_TOKEN', 'page:/dashboard'],
         interestTags: [
           'source:internal_system',
@@ -420,7 +419,9 @@ test('profile labels use known localizations and safe fallbacks for unknown trac
     await expect(page.locator('body')).not.toContainText(rawToken)
   }
 })
-test('product ID validation blocks invalid requests and clears after a valid selection', async ({ page }) => {
+test('product ID validation blocks invalid requests and clears after a valid selection', async ({
+  page,
+}) => {
   await useEnglishAdmin(page)
   let productRequests = 0
 

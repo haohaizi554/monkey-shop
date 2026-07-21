@@ -1,11 +1,5 @@
 export type ConsumerOrderAction =
-  | 'pay'
-  | 'receive'
-  | 'requestReturn'
-  | 'review'
-  | 'logistics'
-  | 'shipReturn'
-  | 'hide'
+  'pay' | 'receive' | 'requestReturn' | 'review' | 'logistics' | 'shipReturn' | 'hide'
 
 export type ConsumerOrderStatus =
   | 'PAYMENT_PENDING'
