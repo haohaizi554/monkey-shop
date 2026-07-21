@@ -1,4 +1,5 @@
 import { request } from './http'
+import type { ApiId } from './ids'
 import type {
   AddressParseRequest,
   FreightQuoteRequest,
@@ -7,7 +8,7 @@ import type {
   ParsedAddress,
 } from '@/types'
 
-export function logisticsForOrder(orderId: number): Promise<LogisticsTracking> {
+export function logisticsForOrder(orderId: ApiId): Promise<LogisticsTracking> {
   return request<LogisticsTracking>({ url: `/logistics/orders/${orderId}` })
 }
 

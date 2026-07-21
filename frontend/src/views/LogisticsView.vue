@@ -3,6 +3,7 @@ import { Location, RefreshRight, Search, Van } from '@element-plus/icons-vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
+import { isPositiveApiId, normalizeApiId } from '@/api/ids'
 import * as logisticsApi from '@/api/logistics'
 import MascotState from '@/components/mascot/MascotState.vue'
 import OrderStatusTimeline from '@/components/order/OrderStatusTimeline.vue'
@@ -28,7 +29,7 @@ const quotePending = ref(false)
 const quoteError = ref('')
 
 const form = reactive({
-  orderId: Number(route.params.orderId ?? route.query.orderId ?? 0),
+  orderId: normalizeApiId(route.params.orderId || route.query.orderId),
   carrier: 'SF' as LogisticsCarrier,
   province: '',
   city: '',
@@ -62,7 +63,7 @@ function safeCarrier(carrier: string): string {
 
 async function loadByOrder() {
   if (lookupPending.value) return
-  if (!form.orderId) {
+  if (!isPositiveApiId(form.orderId)) {
     trackingResource.reset()
     return
   }
@@ -88,7 +89,7 @@ async function loadByTrackingNo() {
     },
   )
   if (result) {
-    form.orderId = result.orderId
+    form.orderId = normalizeApiId(result.orderId)
   }
 }
 
@@ -165,10 +166,9 @@ onMounted(() => {
 
       <div class="lookup-grid">
         <form class="lookup-form" @submit.prevent="loadByOrder">
-          <el-input-number
+          <el-input
             v-model="form.orderId"
-            :min="1"
-            controls-position="right"
+            inputmode="numeric"
             :disabled="lookupPending"
             :aria-label="$t('logistics.orderId')"
             :placeholder="$t('logistics.orderId')"
@@ -308,12 +308,7 @@ onMounted(() => {
               :placeholder="$t('logistics.itemCount')"
             />
           </div>
-          <el-button
-            plain
-            native-type="submit"
-            :loading="quotePending"
-            :disabled="quotePending"
-          >
+          <el-button plain native-type="submit" :loading="quotePending" :disabled="quotePending">
             {{ $t('common.quote') }}
           </el-button>
           <p v-if="quoteError" class="task-error" role="alert">{{ quoteError }}</p>
@@ -387,7 +382,9 @@ onMounted(() => {
             </header>
             <p class="tracking-address">
               <el-icon aria-hidden="true"><Location /></el-icon>
-              {{ [tracking.province, tracking.city, tracking.district].filter(Boolean).join(' / ') }}
+              {{
+                [tracking.province, tracking.city, tracking.district].filter(Boolean).join(' / ')
+              }}
             </p>
             <OrderStatusTimeline
               :current-status="tracking.status"

@@ -4,6 +4,8 @@ import { resolve } from 'node:path'
 
 type ApiHandler = (route: Route, pathname: string) => Promise<boolean>
 
+const SNOWFLAKE_ID = '338329504114688001'
+
 function ok(data: unknown) {
   return { code: 'OK', message: 'ok', data, traceId: 'fulfillment-test' }
 }
@@ -123,7 +125,9 @@ test('orders localize fulfillment states and confirm a single return request', a
   const paidOrder = page.locator('.order-row').filter({ hasText: 'Paid monkey' })
   await expect(paidOrder.getByRole('button', { name: 'Ship', exact: true })).toHaveCount(0)
   const returningOrder = page.locator('.order-row').filter({ hasText: 'Returning monkey' })
-  await expect(returningOrder.getByRole('button', { name: 'Ship return', exact: true })).toBeVisible()
+  await expect(
+    returningOrder.getByRole('button', { name: 'Ship return', exact: true }),
+  ).toBeVisible()
   await expect(page.getByRole('button', { name: 'Approve return', exact: true })).toHaveCount(0)
 
   const completedOrder = page.locator('.order-row').filter({ hasText: 'Completed monkey' })
@@ -507,6 +511,54 @@ test('logistics localizes tracking and isolates quote errors from shipment data'
   await expect(page.getByRole('button', { name: 'Parse address', exact: true })).toBeEnabled()
 })
 
+test('logistics keeps a Snowflake order ID exact from route and text input to request URL', async ({
+  page,
+}) => {
+  const lookups: string[] = []
+  const tracking = {
+    id: SNOWFLAKE_ID,
+    trackingNo: 'SF-SNOWFLAKE',
+    orderId: SNOWFLAKE_ID,
+    userId: '7',
+    carrier: 'SF',
+    status: 'IN_TRANSIT',
+    province: 'Zhejiang',
+    city: 'Hangzhou',
+    district: 'Xihu',
+    freightAmount: '12.00',
+    etaHours: 12,
+    createTime: '2026-07-12T08:30:00Z',
+    updateTime: '2026-07-12T10:00:00Z',
+    events: [],
+  }
+
+  await installFulfillmentMocks(page, async (route, pathname) => {
+    if (pathname.startsWith('/logistics/orders/')) {
+      lookups.push(pathname)
+      await fulfillOk(route, tracking)
+      return true
+    }
+    return false
+  })
+
+  await page.goto(`/logistics/${SNOWFLAKE_ID}`)
+
+  await expect.poll(() => lookups).toEqual([`/logistics/orders/${SNOWFLAKE_ID}`])
+  const orderIdInput = page.getByRole('textbox', { name: 'Order ID' })
+  await expect(orderIdInput).toHaveValue(SNOWFLAKE_ID)
+  await expect(page.getByRole('spinbutton', { name: 'Order ID' })).toHaveCount(0)
+
+  await orderIdInput.fill(SNOWFLAKE_ID)
+  await page
+    .locator('.lookup-form')
+    .first()
+    .getByRole('button', { name: 'Search', exact: true })
+    .click()
+  await expect
+    .poll(() => lookups)
+    .toEqual([`/logistics/orders/${SNOWFLAKE_ID}`, `/logistics/orders/${SNOWFLAKE_ID}`])
+})
+
 test('address parsing freezes its input snapshot until the response is applied', async ({
   page,
 }) => {
@@ -543,7 +595,9 @@ test('address parsing freezes its input snapshot until the response is applied',
   await expect(page.getByPlaceholder('Province')).toHaveValue('Zhejiang')
 })
 
-test('consumer logistics never exposes shipment creation or webhook simulation', async ({ page }) => {
+test('consumer logistics never exposes shipment creation or webhook simulation', async ({
+  page,
+}) => {
   await installFulfillmentMocks(page, async (route, pathname) => {
     if (pathname === '/logistics/orders/101') {
       await fulfillOk(route, null)
@@ -638,6 +692,89 @@ test('review upload leaves content editable and review submission is single-flig
 
   releaseReview()
   await expect(page).toHaveURL(/\/orders$/)
+})
+
+test('review keeps Snowflake route and sku query IDs exact through selection and request body', async ({
+  page,
+}) => {
+  const orderReads: string[] = []
+  const reviewReads: string[] = []
+  const reviewWrites: Array<{ pathname: string; body: unknown }> = []
+  const reviewOrder = {
+    ...order(101, 'COMPLETED', 'Fallback product'),
+    id: SNOWFLAKE_ID,
+    orderNo: `ORDER-${SNOWFLAKE_ID}`,
+    lines: [
+      {
+        checkoutLineId: 1,
+        skuId: 101,
+        productName: 'Small SKU',
+        productImage: '/images/small.svg',
+        quantity: 1,
+        unitPrice: '88.00',
+        originalAmount: '88.00',
+        discountAmount: '0.00',
+        payableAmount: '88.00',
+        couponCodes: [],
+      },
+      {
+        checkoutLineId: 2,
+        skuId: SNOWFLAKE_ID,
+        productName: 'Snowflake SKU',
+        productImage: '/images/snowflake.svg',
+        quantity: 1,
+        unitPrice: '188.00',
+        originalAmount: '188.00',
+        discountAmount: '0.00',
+        payableAmount: '188.00',
+        couponCodes: [],
+      },
+    ],
+  }
+
+  await installFulfillmentMocks(page, async (route, pathname) => {
+    const method = route.request().method()
+    if (pathname.startsWith('/orders/review/') && method === 'GET') {
+      reviewReads.push(pathname)
+      await fulfillOk(route, [])
+      return true
+    }
+    if (pathname.startsWith('/orders/review/') && method === 'POST') {
+      reviewWrites.push({ pathname, body: route.request().postDataJSON() })
+      await fulfillOk(route, {
+        id: SNOWFLAKE_ID,
+        orderId: SNOWFLAKE_ID,
+        userId: '7',
+        skuId: SNOWFLAKE_ID,
+        rating: 5,
+        imageUrls: [],
+        anonymous: false,
+        createTime: '2026-07-12T11:00:00Z',
+      })
+      return true
+    }
+    if (/^\/orders\/[^/]+$/.test(pathname) && method === 'GET') {
+      orderReads.push(pathname)
+      await fulfillOk(route, reviewOrder)
+      return true
+    }
+    return false
+  })
+
+  await page.goto(`/orders/${SNOWFLAKE_ID}/review?skuId=${SNOWFLAKE_ID}`)
+  const submit = page.getByRole('button', { name: 'Submit review', exact: true })
+  await expect(submit).toBeEnabled()
+  await submit.click()
+  await expect.poll(() => reviewWrites.length).toBe(1)
+
+  expect(orderReads).toEqual([`/orders/${SNOWFLAKE_ID}`])
+  expect(reviewReads.every((pathname) => pathname === `/orders/review/${SNOWFLAKE_ID}`)).toBe(true)
+  expect(reviewWrites).toEqual([
+    {
+      pathname: `/orders/review/${SNOWFLAKE_ID}`,
+      body: expect.objectContaining({ skuId: SNOWFLAKE_ID }),
+    },
+  ])
 })
 
 test('fulfillment views use shared surfaces and app feedback only', async () => {

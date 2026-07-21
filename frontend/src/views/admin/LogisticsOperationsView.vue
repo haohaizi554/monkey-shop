@@ -3,7 +3,9 @@ import { Plus, RefreshRight } from '@element-plus/icons-vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
+import { isPositiveApiId, normalizeApiId, sameApiId, type ApiId } from '@/api/ids'
 import * as ordersApi from '@/api/orders'
+import type { OrderShipmentPayload } from '@/api/orders'
 import AdminCommerceNav from '@/components/admin/AdminCommerceNav.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import DataTableShell from '@/components/ui/DataTableShell.vue'
@@ -12,7 +14,7 @@ import StatusTag from '@/components/ui/StatusTag.vue'
 import { useAdminOrders } from '@/composables/useAdminOrders'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { useNotify } from '@/composables/useNotify'
-import type { LogisticsCarrier, OrderShipment, OrderShipmentRequest } from '@/types'
+import type { LogisticsCarrier, OrderShipment } from '@/types'
 import { hasAdminOrderAction, normalizeAdminOrderStatus } from '@/utils/adminOrderActions'
 import { dateTime } from '@/utils/format'
 import { getIdempotencyIntent } from '@/utils/idempotencyIntent'
@@ -26,7 +28,7 @@ const router = useRouter()
 const notify = useNotify()
 const { orders, status: orderStatus, error: orderError, loadOrders } = useAdminOrders()
 const shipmentState = useAsyncState<OrderShipment[]>({ preserveData: true })
-const selectedOrderId = ref<number>()
+const selectedOrderId = ref<ApiId>()
 const carrier = ref<LogisticsCarrier>('SF')
 const trackingNo = ref('')
 const createPending = ref(false)
@@ -39,7 +41,7 @@ const logisticsOrders = computed(() =>
   ),
 )
 const selectedOrder = computed(() =>
-  orders.value.find((order) => order.id === selectedOrderId.value),
+  orders.value.find((order) => sameApiId(order.id, selectedOrderId.value)),
 )
 const shipments = computed(() => shipmentState.data.value ?? [])
 const canCreate = computed(
@@ -50,19 +52,20 @@ const canCreate = computed(
     !createPending.value,
 )
 
-async function loadShipments(orderId = selectedOrderId.value) {
-  if (!orderId) {
+async function loadShipments(orderId: ApiId | undefined = selectedOrderId.value) {
+  const normalizedOrderId = normalizeApiId(orderId)
+  if (!isPositiveApiId(normalizedOrderId)) {
     shipmentState.reset()
     return
   }
-  await shipmentState.load(() => ordersApi.adminOrderShipments(orderId), {
+  await shipmentState.load(() => ordersApi.adminOrderShipments(normalizedOrderId), {
     preserveData: true,
     isEmpty: (rows) => rows.length === 0,
   })
 }
 
-async function selectOrder(orderId: number | undefined) {
-  if (!orderId) {
+async function selectOrder(orderId: ApiId | undefined) {
+  if (!isPositiveApiId(orderId)) {
     selectedOrderId.value = undefined
     shipmentState.reset()
     await router.replace({ query: {} })
@@ -83,7 +86,7 @@ async function createShipment() {
     return
   }
 
-  const payload: OrderShipmentRequest = {
+  const payload: OrderShipmentPayload = {
     carrier: carrier.value,
     trackingNo: trackingNo.value.trim(),
     lines: shipmentLinesForOrder(order),
@@ -111,9 +114,8 @@ async function createShipment() {
 watch(
   () => route.query.orderId,
   (value) => {
-    const raw = Array.isArray(value) ? value[0] : value
-    const id = Number(raw)
-    if (Number.isInteger(id) && id > 0) {
+    const id = normalizeApiId(value)
+    if (isPositiveApiId(id)) {
       selectedOrderId.value = id
       void loadShipments(id)
     }

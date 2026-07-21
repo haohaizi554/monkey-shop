@@ -4,6 +4,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { uploadImage } from '@/api/catalog'
+import { normalizeApiId, sameApiId, type ApiId } from '@/api/ids'
 import { myOrder, orderReviews, reviewOrder } from '@/api/orders'
 import type { OrderSummary } from '@/api/orders'
 import MascotState from '@/components/mascot/MascotState.vue'
@@ -31,14 +32,14 @@ const submitPending = ref(false)
 const submitError = ref('')
 
 const form = reactive({
-  skuId: undefined as number | undefined,
+  skuId: undefined as ApiId | undefined,
   rating: 5,
   content: '',
   imageUrls: [] as string[],
   anonymous: false,
 })
 
-const orderId = computed(() => Number(route.params.id))
+const orderId = computed(() => normalizeApiId(route.params.id))
 const reviews = computed(() => reviewResource.data.value ?? [])
 const orderLines = computed(() => {
   const order = orderResource.data.value
@@ -47,10 +48,8 @@ const orderLines = computed(() => {
 
 async function loadOrder() {
   await orderResource.load(() => myOrder(orderId.value))
-  const requestedSkuId = Number(
-    Array.isArray(route.query.skuId) ? route.query.skuId[0] : route.query.skuId,
-  )
-  const requestedLine = orderLines.value.find((line) => line.skuId === requestedSkuId)
+  const requestedSkuId = normalizeApiId(route.query.skuId)
+  const requestedLine = orderLines.value.find((line) => sameApiId(line.skuId, requestedSkuId))
   form.skuId = requestedLine?.skuId ?? orderLines.value[0]?.skuId
 }
 

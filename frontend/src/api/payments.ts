@@ -1,4 +1,5 @@
 import { request } from './http'
+import type { ApiId } from './ids'
 import type {
   PaymentCreateRequest,
   PaymentReconciliationRequest,
@@ -9,7 +10,7 @@ import type {
 } from '@/types'
 
 export function createPayment(
-  payload: PaymentCreateRequest,
+  payload: Omit<PaymentCreateRequest, 'orderId'> & { orderId: ApiId },
   idempotencyKey?: string,
 ): Promise<PaymentResponse> {
   return request<PaymentResponse>({
@@ -20,11 +21,11 @@ export function createPayment(
   })
 }
 
-export function paymentForOrder(orderId: number): Promise<PaymentResponse> {
+export function paymentForOrder(orderId: ApiId): Promise<PaymentResponse> {
   return request<PaymentResponse>({ url: `/payments/orders/${orderId}` })
 }
 
-export function adminPaymentForOrder(orderId: number): Promise<PaymentResponse> {
+export function adminPaymentForOrder(orderId: ApiId): Promise<PaymentResponse> {
   return request<PaymentResponse>({ url: `/payments/admin/orders/${orderId}` })
 }
 

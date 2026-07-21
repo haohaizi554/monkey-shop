@@ -3,6 +3,7 @@ import { Delete, Plus, RefreshRight, Search, Wallet } from '@element-plus/icons-
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
+import { isPositiveApiId, normalizeApiId, sameApiId, type ApiId } from '@/api/ids'
 import { adminPaymentForOrder, adminRefundPayment, reconcilePayment } from '@/api/payments'
 import AdminCommerceNav from '@/components/admin/AdminCommerceNav.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
@@ -41,7 +42,7 @@ const paymentState = useAsyncState<PaymentResponse>({ preserveData: true })
 const reconciliationState = useAsyncState<PaymentReconciliationResponse>({
   preserveData: true,
 })
-const orderId = ref<number>()
+const orderId = ref('')
 const refundAmount = ref('')
 const refundReason = ref('')
 const refundPending = ref(false)
@@ -55,9 +56,10 @@ const reconciliation = computed(() => reconciliationState.data.value)
 const loadedPaymentReady = computed(
   () =>
     Boolean(payment.value) &&
-    payment.value?.orderId === Number(orderId.value) &&
+    sameApiId(payment.value?.orderId, orderId.value) &&
     !paymentState.isLoading.value,
 )
+const orderIdValid = computed(() => isPositiveApiId(orderId.value))
 const remainingRefund = computed(() => {
   if (!payment.value) {
     return 0
@@ -88,7 +90,7 @@ const canReconcile = computed(
     ),
 )
 
-async function loadPayment(id: number) {
+async function loadPayment(id: ApiId) {
   const result = await paymentState.load(() => adminPaymentForOrder(id), {
     preserveData: true,
   })
@@ -102,11 +104,11 @@ async function loadPayment(id: number) {
 }
 
 async function submitPaymentLookup() {
-  const id = Number(orderId.value)
-  if (!Number.isInteger(id) || id <= 0) {
+  const id = normalizeApiId(orderId.value)
+  if (!isPositiveApiId(id)) {
     return
   }
-  const queryId = String(id)
+  const queryId = id
   if (route.query.orderId !== queryId) {
     await router.replace({ query: { ...route.query, orderId: queryId } })
     return
@@ -189,8 +191,8 @@ watch(
   () => route.query.orderId,
   (value) => {
     const raw = Array.isArray(value) ? value[0] : value
-    const id = Number(raw)
-    if (Number.isInteger(id) && id > 0) {
+    const id = normalizeApiId(raw)
+    if (isPositiveApiId(id)) {
       orderId.value = id
       void loadPayment(id)
     }
@@ -219,12 +221,10 @@ watch(
       <div class="commerce-form-grid">
         <div class="commerce-field">
           <span>{{ t('adminCommerce.orderId') }}</span>
-          <el-input-number
+          <el-input
             id="payment-order-id"
             v-model="orderId"
-            :min="1"
-            :step="1"
-            controls-position="right"
+            inputmode="numeric"
             :aria-label="t('adminCommerce.orderId')"
             @keyup.enter="submitPaymentLookup"
           />
@@ -234,7 +234,7 @@ watch(
             type="primary"
             :icon="Search"
             :loading="paymentState.isLoading.value"
-            :disabled="!orderId"
+            :disabled="!orderIdValid"
             @click="submitPaymentLookup"
           >
             {{ t('adminCommerce.loadPayment') }}

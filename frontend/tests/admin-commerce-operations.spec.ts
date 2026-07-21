@@ -1,5 +1,7 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 
+const SNOWFLAKE_ID = '338329504114688001'
+
 function ok(data: unknown) {
   return { code: 'OK', message: 'ok', data, traceId: 'admin-commerce-test' }
 }
@@ -131,13 +133,55 @@ test('refund stays disabled while a different order payment is loading', async (
   const refundButton = page.getByRole('button', { name: 'Issue refund', exact: true })
   await expect(refundButton).toBeEnabled()
 
-  await page.getByRole('spinbutton', { name: 'Order ID' }).fill('12')
+  await page.getByRole('textbox', { name: 'Order ID' }).fill('12')
   await page.getByRole('button', { name: 'Load payment', exact: true }).click()
   await expect.poll(() => lookupCalls).toBe(1)
   await expect(refundButton).toBeDisabled()
 
   releaseLookup()
   await expect(page.getByText('PAY-12', { exact: true })).toBeVisible()
+})
+
+test('payment lookup keeps a Snowflake order ID exact in query, input, URL, and comparison', async ({
+  page,
+}) => {
+  const lookups: string[] = []
+
+  await installAdminMocks(page)
+  await page.route('**/api/v1/payments/admin/orders/*', async (route) => {
+    const pathname = new URL(route.request().url()).pathname.replace('/api/v1', '')
+    const requestedId = pathname.split('/').at(-1) ?? ''
+    lookups.push(pathname)
+    await fulfillOk(route, {
+      id: `PAYMENT-${requestedId}`,
+      paymentNo: `PAY-${requestedId}`,
+      orderId: requestedId,
+      userId: '7',
+      method: 'WECHAT',
+      amount: '128.00',
+      paidAmount: '128.00',
+      refundedAmount: '0.00',
+      status: 'PAID',
+      providerTradeNo: `PROVIDER-${requestedId}`,
+      paidAt: '2026-07-12T09:00:00',
+      createTime: '2026-07-12T08:30:00',
+    })
+  })
+
+  await page.goto(`/admin/payments?orderId=${SNOWFLAKE_ID}`)
+
+  await expect.poll(() => lookups).toEqual([`/payments/admin/orders/${SNOWFLAKE_ID}`])
+  const orderIdInput = page.getByRole('textbox', { name: 'Order ID' })
+  await expect(orderIdInput).toHaveValue(SNOWFLAKE_ID)
+  await expect(page.getByRole('spinbutton', { name: 'Order ID' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Issue refund', exact: true })).toBeEnabled()
+
+  await orderIdInput.fill('12')
+  await page.getByRole('button', { name: 'Load payment', exact: true }).click()
+  await expect(page).toHaveURL(/orderId=12/)
+  await expect
+    .poll(() => lookups)
+    .toEqual([`/payments/admin/orders/${SNOWFLAKE_ID}`, '/payments/admin/orders/12'])
 })
 
 test('logistics creation is scoped to one paid order and blocks duplicate submission', async ({

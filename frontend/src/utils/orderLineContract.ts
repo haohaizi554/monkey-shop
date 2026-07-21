@@ -1,5 +1,4 @@
-import type { OrderLineSummary, OrderSummary } from '@/api/orders'
-import type { OrderShipmentLineRequest } from '@/types'
+import type { OrderLineSummary, OrderShipmentLinePayload, OrderSummary } from '@/api/orders'
 
 export function orderDisplayLines(order: OrderSummary): OrderLineSummary[] {
   if (order.lines?.length) {
@@ -21,7 +20,7 @@ export function orderDisplayLines(order: OrderSummary): OrderLineSummary[] {
   ]
 }
 
-export function shipmentLinesForOrder(order: OrderSummary): OrderShipmentLineRequest[] {
+export function shipmentLinesForOrder(order: OrderSummary): OrderShipmentLinePayload[] {
   return orderDisplayLines(order).map((line) => ({
     skuId: line.skuId,
     productName: line.productName,
