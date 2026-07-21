@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 
 import com.example.monkey.cart.application.dto.CartAddItemRequestDto;
 import com.example.monkey.cart.application.dto.CartCheckoutRequestDto;
+import com.example.monkey.cart.application.dto.CartDirectCheckoutRequestDto;
 import com.example.monkey.cart.application.dto.CartSelectItemRequestDto;
 import com.example.monkey.cart.application.dto.CartUpdateItemRequestDto;
 import com.example.monkey.cart.domain.CartCheckoutStore;
@@ -194,6 +195,31 @@ class CartApplicationServiceTest {
         transactionOrder
                 .verify(fixture.marketingApplicationService)
                 .redeemForCheckout(eq(USER.id()), eq(checkout.id()), eq(List.of("SHOP-10", "PLATFORM-20")));
+    }
+
+    @Test
+    void directCheckoutUsesRequestedSkuAndQuantityWithoutChangingTheCart() {
+        Fixture fixture = new Fixture();
+        fixture.seedSelectedCart();
+        CartSnapshot existingCart = fixture.cartStore.findCart(USER.id());
+
+        var checkout = fixture.service.directCheckout(
+                USER,
+                new CartDirectCheckoutRequestDto(1002L, 9L, 3, 9L, "CN-BJ", List.of()),
+                "direct-key-1");
+
+        assertThat(checkout.subOrders()).singleElement().satisfies(subOrder -> {
+            assertThat(subOrder.shopId()).isEqualTo(9L);
+            assertThat(subOrder.lines()).singleElement().satisfies(line -> {
+                assertThat(line.skuId()).isEqualTo(1002L);
+                assertThat(line.quantity()).isEqualTo(3);
+                assertThat(line.originalAmount()).isEqualByComparingTo("90.00");
+            });
+        });
+        assertThat(fixture.cartStore.findCart(USER.id())).isEqualTo(existingCart);
+        verify(fixture.inventoryApplicationService)
+                .reserve(new InventoryReserveRequestDto(
+                        1002L, null, "CN-BJ", checkout.id(), 3, "cart:7:direct-key-1:1002"));
     }
 
     @Test

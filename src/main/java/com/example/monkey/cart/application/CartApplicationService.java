@@ -5,6 +5,7 @@ import static com.example.monkey.shared.application.security.AuthenticatedPrinci
 import com.example.monkey.cart.application.dto.CartAddItemRequestDto;
 import com.example.monkey.cart.application.dto.CartCheckoutRequestDto;
 import com.example.monkey.cart.application.dto.CartCheckoutResponseDto;
+import com.example.monkey.cart.application.dto.CartDirectCheckoutRequestDto;
 import com.example.monkey.cart.application.dto.CartResponseDto;
 import com.example.monkey.cart.application.dto.CartSelectItemRequestDto;
 import com.example.monkey.cart.application.dto.CartUpdateItemRequestDto;
@@ -54,6 +55,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -238,10 +240,30 @@ public class CartApplicationService {
         return lockManager.withCheckoutLock(
                 userId,
                 key,
-                () -> transactions.execute(() -> CartDtoAssembler.toResponse(checkoutLocked(userId, request, key))));
+                () -> transactions.execute(() -> CartDtoAssembler.toResponse(checkoutLocked(
+                        userId, request, key, () -> selectedCheckoutInputLines(userId), true))));
     }
 
-    private CheckoutOrder checkoutLocked(Long userId, CartCheckoutRequestDto request, String idempotencyKey) {
+    @WithSpan("cart.checkout.direct")
+    public CartCheckoutResponseDto directCheckout(
+            SessionUser currentUser, CartDirectCheckoutRequestDto request, String idempotencyKey) {
+        Long userId = requireUserId(currentUser);
+        String key = normalizeIdempotencyKey(idempotencyKey);
+        CartCheckoutRequestDto checkoutRequest =
+                new CartCheckoutRequestDto(request.addressId(), request.province(), request.couponCodes());
+        return lockManager.withCheckoutLock(
+                userId,
+                key,
+                () -> transactions.execute(() -> CartDtoAssembler.toResponse(checkoutLocked(
+                        userId, checkoutRequest, key, () -> directCheckoutInputLines(request), false))));
+    }
+
+    private CheckoutOrder checkoutLocked(
+            Long userId,
+            CartCheckoutRequestDto request,
+            String idempotencyKey,
+            Supplier<List<CheckoutInputLine>> inputLineSupplier,
+            boolean cleanupCart) {
         CartCheckoutRequestDto effectiveRequest = normalizeCheckoutRequest(request);
         Optional<CheckoutOrder> existing = checkoutStore.findByUserIdAndIdempotencyKey(userId, idempotencyKey);
         if (existing.isPresent()
@@ -252,7 +274,7 @@ public class CartApplicationService {
 
         List<CheckoutInputLine> inputLines;
         try {
-            inputLines = selectedCheckoutInputLines(userId);
+            inputLines = inputLineSupplier.get();
         } catch (BusinessException exception) {
             if (existing.isPresent() && exception.errorCode() == ErrorCode.NOT_FOUND) {
                 throw idempotencyConflict();
@@ -274,11 +296,13 @@ public class CartApplicationService {
         List<Long> orderIds = formalOrderCreator.create(toOrderCommand(persisted));
         marketingApplicationService.redeemForCheckout(userId, persisted.id(), appliedCouponCodes(persisted));
         CheckoutOrder saved = checkoutStore.save(persisted.confirmed(orderIds));
-        cartCleanupScheduler.schedule(
-                saved.id(),
-                userId,
-                inputLines.stream().map(CheckoutInputLine::item).toList(),
-                cartTtl);
+        if (cleanupCart) {
+            cartCleanupScheduler.schedule(
+                    saved.id(),
+                    userId,
+                    inputLines.stream().map(CheckoutInputLine::item).toList(),
+                    cartTtl);
+        }
         audit(
                 AuditService.CART_CHECKOUT_CREATED,
                 userId,
@@ -681,6 +705,13 @@ public class CartApplicationService {
         return cartStore.findCart(userId).selectedItems().stream()
                 .map(item -> new CheckoutInputLine(item, requireSku(item.skuId())))
                 .toList();
+    }
+
+    private List<CheckoutInputLine> directCheckoutInputLines(CartDirectCheckoutRequestDto request) {
+        LocalDateTime timestamp = now();
+        CartItem item =
+                new CartItem(request.skuId(), request.shopId(), request.quantity(), true, timestamp, timestamp);
+        return List.of(new CheckoutInputLine(item, requireSku(item.skuId())));
     }
 
     private static List<FingerprintLine> fingerprintLines(List<CheckoutInputLine> inputLines) {

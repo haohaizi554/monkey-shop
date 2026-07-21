@@ -33,6 +33,7 @@ class EndpointSurfaceCoverageTest {
             "CartController#addItem",
             "CartController#cart",
             "CartController#checkout",
+            "CartController#directCheckout",
             "CartController#previewCheckout",
             "CartController#removeItem",
             "CartController#selectItem",
@@ -181,7 +182,7 @@ class EndpointSurfaceCoverageTest {
         Files.createDirectories(report.getParent());
         Files.writeString(report, renderReport(endpoints, classifications), StandardCharsets.UTF_8);
 
-        assertThat(endpoints).hasSize(122);
+        assertThat(endpoints).hasSize(123);
         assertThat(classifications.values()).contains(Surface.CONSUMER_UI, Surface.ADMIN_UI, Surface.MACHINE_ONLY);
     }
 

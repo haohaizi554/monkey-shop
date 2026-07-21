@@ -1,6 +1,7 @@
 import { reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
+import { directCheckoutCart, type CartDirectCheckoutRequest } from '@/api/cart'
 import { browserDeviceFingerprint } from '@/api/http'
 import { createOrder } from '@/api/orders'
 import { assessRisk } from '@/api/risk'
@@ -15,6 +16,12 @@ type NoticeLevel = 'error' | 'success' | 'warning'
 interface CheckoutOptions {
   afterOrderCreated?: () => Promise<void> | void
   notify?: (level: NoticeLevel, message: string) => void
+}
+
+export interface DirectPurchaseSelection {
+  skuId: number
+  shopId: number
+  quantity: number
 }
 
 class CheckoutRiskError extends Error {
@@ -77,6 +84,19 @@ export function checkoutOrderIds(checkout: CheckoutOrderReference): number[] {
   )
 }
 
+export function buildDirectCheckoutIntent(
+  selection: DirectPurchaseSelection,
+  addressId: number,
+): CartDirectCheckoutRequest {
+  return {
+    skuId: selection.skuId,
+    shopId: selection.shopId,
+    quantity: Math.max(1, Math.trunc(selection.quantity)),
+    addressId,
+    couponCodes: [],
+  }
+}
+
 export function useCheckout(options: CheckoutOptions = {}) {
   const router = useRouter()
   const auth = useAuthStore()
@@ -88,6 +108,7 @@ export function useCheckout(options: CheckoutOptions = {}) {
   const checkoutOpen = ref(false)
   const addresses = ref<Address[]>([])
   const selectedMonkey = ref<Monkey | null>(null)
+  const selectedDirectPurchase = ref<DirectPurchaseSelection | null>(null)
   const selectedAddressId = ref<number | null>(null)
   const newAddress = reactive<AddressRequest>({
     receiverName: '',
@@ -111,7 +132,7 @@ export function useCheckout(options: CheckoutOptions = {}) {
     appNotify.fromApiError(error, fallbackKey)
   }
 
-  async function openCheckout(monkey: Monkey) {
+  async function openCheckout(monkey: Monkey, directPurchase?: DirectPurchaseSelection) {
     if (!auth.isLoggedIn) {
       await router.push('/login')
       return
@@ -122,6 +143,7 @@ export function useCheckout(options: CheckoutOptions = {}) {
     openingCheckoutId.value = monkey.id
     try {
       selectedMonkey.value = monkey
+      selectedDirectPurchase.value = directPurchase ? { ...directPurchase } : null
       addresses.value = await fetchAddresses()
       selectedAddressId.value =
         addresses.value.find((item) => item.isDefault === 1)?.id ?? addresses.value[0]?.id ?? null
@@ -163,13 +185,21 @@ export function useCheckout(options: CheckoutOptions = {}) {
     }
     submittingOrder.value = true
     try {
-      const payload = { monkeyId: monkey.id, addressId }
-      await ensureRiskAllowed(payload.monkeyId)
-      const intent = getIdempotencyIntent('order:create', payload)
-      await createOrder(payload.monkeyId, payload.addressId, intent.key)
-      intent.complete()
+      await ensureRiskAllowed(monkey.id)
+      if (selectedDirectPurchase.value) {
+        const payload = buildDirectCheckoutIntent(selectedDirectPurchase.value, addressId)
+        const intent = getIdempotencyIntent('cart:checkout:direct', payload)
+        await directCheckoutCart(payload, intent.key)
+        intent.complete()
+      } else {
+        const payload = { monkeyId: monkey.id, addressId }
+        const intent = getIdempotencyIntent('order:create', payload)
+        await createOrder(payload.monkeyId, payload.addressId, intent.key)
+        intent.complete()
+      }
       notify('success', t('checkout.orderCreated'))
       checkoutOpen.value = false
+      selectedDirectPurchase.value = null
       await options.afterOrderCreated?.()
       await router.push('/orders')
     } catch (error) {

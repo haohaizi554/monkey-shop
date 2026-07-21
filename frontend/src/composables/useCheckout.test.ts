@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  buildDirectCheckoutIntent,
   checkoutDiscountTotals,
   checkoutOrderIds,
   normalizeCartCheckoutIntent,
@@ -61,5 +62,24 @@ describe('cart checkout flow helpers', () => {
         subOrders: [{ formalOrderId: 701 }, { formalOrderId: 702 }, { formalOrderId: 701 }],
       }),
     ).toEqual([701, 702])
+  })
+
+  it('preserves the selected sku and quantity in a direct checkout intent', () => {
+    expect(
+      buildDirectCheckoutIntent(
+        {
+          skuId: 1002,
+          shopId: 9,
+          quantity: 3,
+        },
+        22,
+      ),
+    ).toEqual({
+      skuId: 1002,
+      shopId: 9,
+      quantity: 3,
+      addressId: 22,
+      couponCodes: [],
+    })
   })
 })

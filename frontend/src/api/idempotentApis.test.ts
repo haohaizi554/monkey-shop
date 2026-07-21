@@ -7,6 +7,7 @@ vi.mock('@/api/http', () => ({
 }))
 
 import { createOrder, createShipment as createOrderShipment } from '@/api/orders'
+import { directCheckoutCart } from '@/api/cart'
 import { adminEarnPoints, checkIn, redeemPoints } from '@/api/membership'
 import {
   adminPaymentForOrder,
@@ -25,6 +26,22 @@ describe('business API idempotency keys', () => {
     expect(requestMock).toHaveBeenLastCalledWith(
       expect.objectContaining({ headers: { 'Idempotency-Key': 'order-key' } }),
     )
+
+    const directCheckout = {
+      skuId: 101,
+      shopId: 9,
+      quantity: 3,
+      addressId: 22,
+      province: 'CN-BJ',
+      couponCodes: [],
+    }
+    await directCheckoutCart(directCheckout, 'direct-checkout-key')
+    expect(requestMock).toHaveBeenLastCalledWith({
+      url: '/cart/checkout/direct',
+      method: 'POST',
+      headers: { 'Idempotency-Key': 'direct-checkout-key' },
+      data: directCheckout,
+    })
 
     await createPayment({ orderId: 11, method: 'WECHAT' }, 'payment-key')
     expect(requestMock).toHaveBeenLastCalledWith(

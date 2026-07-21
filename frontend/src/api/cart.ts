@@ -20,6 +20,12 @@ export interface CartCheckoutResult extends Omit<CartCheckout, 'subOrders'> {
   orderIds: number[]
 }
 
+export interface CartDirectCheckoutRequest extends CartCheckoutRequest {
+  skuId: number
+  shopId: number
+  quantity: number
+}
+
 export function getCart(): Promise<Cart> {
   return request<Cart>({ url: '/cart' })
 }
@@ -69,6 +75,20 @@ export function checkoutCart(
 ): Promise<CartCheckoutResult> {
   return request<CartCheckoutResult>({
     url: '/cart/checkout',
+    method: 'POST',
+    headers: {
+      'Idempotency-Key': idempotencyKey,
+    },
+    data: requestBody,
+  })
+}
+
+export function directCheckoutCart(
+  requestBody: CartDirectCheckoutRequest,
+  idempotencyKey: string,
+): Promise<CartCheckoutResult> {
+  return request<CartCheckoutResult>({
+    url: '/cart/checkout/direct',
     method: 'POST',
     headers: {
       'Idempotency-Key': idempotencyKey,

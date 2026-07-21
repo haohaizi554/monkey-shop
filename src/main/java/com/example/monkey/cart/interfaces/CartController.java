@@ -4,6 +4,7 @@ import com.example.monkey.cart.application.CartApplicationService;
 import com.example.monkey.cart.application.dto.CartAddItemRequestDto;
 import com.example.monkey.cart.application.dto.CartCheckoutRequestDto;
 import com.example.monkey.cart.application.dto.CartCheckoutResponseDto;
+import com.example.monkey.cart.application.dto.CartDirectCheckoutRequestDto;
 import com.example.monkey.cart.application.dto.CartResponseDto;
 import com.example.monkey.cart.application.dto.CartSelectItemRequestDto;
 import com.example.monkey.cart.application.dto.CartUpdateItemRequestDto;
@@ -99,5 +100,22 @@ public class CartController {
                 ClientIps.resolve(httpRequest),
                 "cart.checkout");
         return Result.success(cartApplicationService.checkout(currentUser, request, idempotencyKey));
+    }
+
+    @PostMapping("/checkout/direct")
+    @PreAuthorize("hasAuthority('ORDER_CREATE')")
+    public Result<CartCheckoutResponseDto> directCheckout(
+            @RequestHeader(value = "Idempotency-Key") @NotBlank String idempotencyKey,
+            @RequestHeader(value = "X-Device-Fingerprint", required = false) String deviceFingerprint,
+            @Valid @RequestBody CartDirectCheckoutRequestDto request,
+            @AuthenticationPrincipal SessionUser currentUser,
+            HttpServletRequest httpRequest) {
+        riskApplicationService.requireAllowed(
+                currentUser,
+                new RiskAssessmentRequestDto(
+                        null, deviceFingerprint, null, request.skuId(), null, null, null, null, null, null),
+                ClientIps.resolve(httpRequest),
+                "cart.checkout.direct");
+        return Result.success(cartApplicationService.directCheckout(currentUser, request, idempotencyKey));
     }
 }

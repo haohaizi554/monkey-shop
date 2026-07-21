@@ -310,8 +310,13 @@ async function addCurrentSkuToCart() {
 }
 
 async function buyCurrentProduct() {
-  if (checkoutProduct.value && (await requireLogin())) {
-    await openCheckout(checkoutProduct.value)
+  const sku = selectedSku.value
+  if (checkoutProduct.value && sku && (await requireLogin())) {
+    await openCheckout(checkoutProduct.value, {
+      skuId: sku.id,
+      shopId: resolvedShopId.value,
+      quantity: Math.max(1, Math.trunc(quantity.value)),
+    })
   }
 }
 
