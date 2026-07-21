@@ -276,22 +276,81 @@ jobs:
           IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
         run: cosign sign --yes "${IMAGE_URI}@${IMAGE_DIGEST}"
 
-      - name: Update production image digest
+      - name: Validate production release inputs
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        shell: bash
         env:
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.uri }}
           IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
         run: |
-          sed -i -E "s#^  digest:.*#  digest: ${IMAGE_DIGEST}#" helm/monkeyshop/values-prod.yaml
-
-      - name: Commit production image digest
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        run: |
-          if git diff --quiet -- helm/monkeyshop/values-prod.yaml; then
-            echo "Production image digest is already current."
-            exit 0
+          set -euo pipefail
+          if [[ ! "${IMAGE_REPOSITORY}" =~ ^[a-z0-9.-]+(:[0-9]+)?/[a-z0-9._/-]+$ ]] || [[ "${IMAGE_REPOSITORY}" == *"@"* ]]; then
+            echo "::error::Production image repository is missing or invalid."
+            exit 1
           fi
+          if [[ ! "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Production image digest must be a lowercase sha256 digest."
+            exit 1
+          fi
+          if [[ "${IMAGE_DIGEST}" =~ ^sha256:0{64}$ ]]; then
+            echo "::error::Production image digest must not be an all-zero placeholder."
+            exit 1
+          fi
+
+      - name: Update production release manifests
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        id: production-release
+        shell: bash
+        env:
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.uri }}
+          IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          values_file="helm/monkeyshop/values-prod.yaml"
+          application_file="deploy/argocd/applications/monkeyshop-prod.yaml"
+
+          if [[ "$(grep -Ec '^  repository:' "${values_file}")" -ne 1 ]] || [[ "$(grep -Ec '^  digest:' "${values_file}")" -ne 1 ]]; then
+            echo "::error::Production values must contain exactly one image repository and digest field."
+            exit 1
+          fi
+
+          sed -i -E "s#^  repository:.*#  repository: ${IMAGE_REPOSITORY}#" "${values_file}"
+          sed -i -E "s#^  digest:.*#  digest: ${IMAGE_DIGEST}#" "${values_file}"
+          grep -Fqx "  repository: ${IMAGE_REPOSITORY}" "${values_file}"
+          grep -Fqx "  digest: ${IMAGE_DIGEST}" "${values_file}"
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add helm/monkeyshop/values-prod.yaml
-          git commit -m "ci: update production image digest"
-          git push
+          if ! git diff --quiet -- "${values_file}"; then
+            git add "${values_file}"
+            git commit -m "ci: publish production image ${IMAGE_DIGEST} [skip ci]"
+          fi
+
+          release_revision="$(git rev-parse HEAD)"
+          if [[ ! "${release_revision}" =~ ^[0-9a-f]{40}$ ]] || [[ "${release_revision}" =~ ^0{40}$ ]]; then
+            echo "::error::Production release revision must be a non-zero 40-character Git SHA."
+            exit 1
+          fi
+          if [[ "$(grep -Ec '^[[:space:]]*targetRevision:' "${application_file}")" -ne 1 ]]; then
+            echo "::error::Production Argo CD Application must contain exactly one targetRevision."
+            exit 1
+          fi
+
+          sed -i -E "s#^([[:space:]]*targetRevision:).*#\1 ${release_revision}#" "${application_file}"
+          grep -Eq "^[[:space:]]*targetRevision:[[:space:]]+${release_revision}$" "${application_file}"
+          git show "${release_revision}:${values_file}" | grep -Fqx "  repository: ${IMAGE_REPOSITORY}"
+          git show "${release_revision}:${values_file}" | grep -Fqx "  digest: ${IMAGE_DIGEST}"
+
+          if ! git diff --quiet -- "${application_file}"; then
+            git add "${application_file}"
+            git commit -m "ci: pin production release ${release_revision} [skip ci]"
+          fi
+
+          echo "release_revision=${release_revision}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "### Production GitOps release"
+            echo "- Repository: \`${IMAGE_REPOSITORY}\`"
+            echo "- Digest: \`${IMAGE_DIGEST}\`"
+            echo "- Revision: \`${release_revision}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+          git push origin HEAD:main

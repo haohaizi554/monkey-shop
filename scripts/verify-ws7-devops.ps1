@@ -151,6 +151,34 @@ function Invoke-Helm {
     return ($output -join [Environment]::NewLine)
 }
 
+function Assert-HelmFailure {
+    param(
+        [string]$Helm,
+        [string[]]$Arguments,
+        [string]$Name,
+        [string]$Pattern,
+        [string]$Message
+    )
+
+    Write-Host "==> $Name"
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $output = & $Helm @Arguments 2>&1
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    $text = $output -join [Environment]::NewLine
+    if ($exitCode -eq 0) {
+        Add-Failure "${Name}: $Message"
+        return
+    }
+    if ($text -notmatch $Pattern) {
+        Add-Failure "${Name}: failed closed for an unexpected reason`n$text"
+    }
+}
+
 function Assert-RequiredSecretKeys {
     param(
         [string]$Name,
@@ -327,6 +355,8 @@ Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "grafanaDashboa
 
 Assert-Match -Name "_pod.tpl" -Text $podTemplate -Pattern "automountServiceAccountToken:\s+false" -Message "must disable automatic service account tokens"
 Assert-Match -Name "_pod.tpl" -Text $podTemplate -Pattern "image\.digest is required for prod releases" -Message "must fail closed when prod app digest is missing"
+Assert-Match -Name "_pod.tpl" -Text $podTemplate -Pattern "\^sha256:\[a-f0-9\]\{64\}\$" -Message "must validate the production app digest format"
+Assert-Match -Name "_pod.tpl" -Text $podTemplate -Pattern "\^sha256:0\{64\}\$" -Message "must reject all-zero production app digest placeholders"
 Assert-Match -Name "_pod.tpl" -Text $podTemplate -Pattern "image:\s+`"{{\s*\.Values\.image\.repository\s*}}@{{\s*\.Values\.image\.digest\s*}}`"" -Message "must render digest-pinned images when image.digest is set"
 Assert-Match -Name "_pod.tpl" -Text $podTemplate -Pattern "initContainers:\s*\r?\n\s+-\s+name:\s+wait-for-mysql" -Message "must include the MySQL wait init container"
 Assert-Match -Name "_pod.tpl" -Text $podTemplate -Pattern "secretRef:\s*\r?\n\s+name:\s+{{\s*include\s+`"monkeyshop\.secretName`"" -Message "must inject runtime secrets through envFrom secretRef"
@@ -404,10 +434,14 @@ $vmPasswordCanary = "12" + "3456"
 Assert-NotMatch -Name "Runtime image supply-chain gate" -Text $runtimeImageGate -Pattern $vmPasswordCanary -Message "must not store VM passwords"
 
 Assert-Match -Name "ci.yaml" -Text $ciWorkflow -Pattern "contents:\s+write" -Message "must be allowed to write the production digest back to Git"
-Assert-Match -Name "ci.yaml" -Text $ciWorkflow -Pattern "Update production image digest" -Message "must update values-prod.yaml with the pushed image digest"
+Assert-Match -Name "ci.yaml" -Text $ciWorkflow -Pattern "Validate production release inputs" -Message "must reject invalid production release inputs"
+Assert-Match -Name "ci.yaml" -Text $ciWorkflow -Pattern "Update production release manifests" -Message "must update the production GitOps release"
 Assert-Match -Name "ci.yaml" -Text $ciWorkflow -Pattern "sed -i -E" -Message "must rewrite the production image digest field after image push"
 Assert-Match -Name "ci.yaml" -Text $ciWorkflow -Pattern "helm/monkeyshop/values-prod\.yaml" -Message "must commit the production digest values file"
-Assert-Match -Name "ci.yaml" -Text $ciWorkflow -Pattern "git commit -m `"ci: update production image digest`"" -Message "must commit the production digest update for GitOps"
+Assert-Match -Name "ci.yaml" -Text $ciWorkflow -Pattern "IMAGE_REPOSITORY" -Message "must write the pushed image repository into production values"
+Assert-Match -Name "ci.yaml" -Text $ciWorkflow -Pattern "release_revision=.+git rev-parse HEAD" -Message "must derive the immutable GitOps release revision"
+Assert-Match -Name "ci.yaml" -Text $ciWorkflow -Pattern "deploy/argocd/applications/monkeyshop-prod\.yaml" -Message "must pin the production Argo CD Application"
+Assert-Match -Name "ci.yaml" -Text $ciWorkflow -Pattern "git push origin HEAD:main" -Message "must explicitly push release commits from detached HEAD"
 
 Assert-Match -Name "Argo CD runtime GitOps gate" -Text $gitOpsRuntimeGate -Pattern "argocd app wait" -Message "must wait for Argo CD applications"
 Assert-Match -Name "Argo CD runtime GitOps gate" -Text $gitOpsRuntimeGate -Pattern "Synced" -Message "must verify sync status"
@@ -450,8 +484,14 @@ foreach ($environment in @("dev", "staging", "prod")) {
     $app = Read-RequiredFile -Path "deploy/argocd/applications/monkeyshop-$environment.yaml"
     Assert-Match -Name "ArgoCD $environment" -Text $app -Pattern "repoURL:\s+$([regex]::Escape($GitOpsRepoUrl))" -Message "must point to the real MonkeyShop GitOps repository"
     Assert-NotMatch -Name "ArgoCD $environment" -Text $app -Pattern "github\.com/example/" -Message "must not use placeholder GitOps repository URLs"
-    Assert-Match -Name "ArgoCD $environment" -Text $app -Pattern "targetRevision:\s+main" -Message "must sync from a stable branch revision"
-    Assert-NotMatch -Name "ArgoCD $environment" -Text $app -Pattern "targetRevision:\s+HEAD" -Message "must not sync from floating HEAD"
+    if ($environment -eq "prod") {
+        Assert-Match -Name "ArgoCD prod" -Text $app -Pattern "targetRevision:\s+[a-f0-9]{40}" -Message "must sync from an auditable immutable Git revision"
+        Assert-NotMatch -Name "ArgoCD prod" -Text $app -Pattern "targetRevision:\s+(?:HEAD|main)" -Message "must not sync from a floating branch revision"
+        Assert-NotMatch -Name "ArgoCD prod" -Text $app -Pattern "targetRevision:\s+0{40}" -Message "must not use an all-zero revision placeholder"
+    } else {
+        Assert-Match -Name "ArgoCD $environment" -Text $app -Pattern "targetRevision:\s+main" -Message "must sync from a stable branch revision"
+        Assert-NotMatch -Name "ArgoCD $environment" -Text $app -Pattern "targetRevision:\s+HEAD" -Message "must not sync from floating HEAD"
+    }
     Assert-Match -Name "ArgoCD $environment" -Text $app -Pattern "path:\s+helm/monkeyshop" -Message "must point to the MonkeyShop Helm chart"
     Assert-Match -Name "ArgoCD $environment" -Text $app -Pattern "values-$environment\.yaml" -Message "must use values-$environment.yaml"
     Assert-Match -Name "ArgoCD $environment" -Text $app -Pattern "namespace:\s+monkeyshop-$environment" -Message "must target monkeyshop-$environment namespace"
@@ -531,6 +571,17 @@ if (-not $helm) {
     Assert-NotMatch -Name "rendered prod" -Text $rendered.prod -Pattern "image:\s+`"?harbor\.example\.com/monkeyshop/monkeyshop:prod`"?" -Message "prod must not render a mutable tag image"
     Assert-Match -Name "rendered prod" -Text $rendered.prod -Pattern "image:\s+`"?busybox@sha256:[a-f0-9]{64}`"?" -Message "prod init containers must render digest-pinned images"
     Assert-NotMatch -Name "rendered prod" -Text $rendered.prod -Pattern "image:\s+`"?busybox:1\.37`"?" -Message "prod init containers must not render mutable tag images"
+    Assert-HelmFailure -Helm $helm -Name "helm template prod with all-zero digest" -Arguments @(
+        "template",
+        "monkeyshop",
+        $ChartDir,
+        "--namespace",
+        "monkeyshop-prod",
+        "-f",
+        (Join-Path $ChartDir "values-prod.yaml"),
+        "--set",
+        "image.digest=sha256:$('0' * 64)"
+    ) -Pattern "image\.digest must not use an all-zero placeholder" -Message "must reject an all-zero production app digest"
 }
 
 if ($Failures.Count -gt 0) {

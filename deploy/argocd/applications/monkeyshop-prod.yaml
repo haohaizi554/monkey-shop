@@ -10,7 +10,8 @@ spec:
   project: default
   source:
     repoURL: https://github.com/haohaizi554/monkey-shop.git
-    targetRevision: main
+    # Bootstrap fail-closed pin. CI replaces this with the release commit that contains the signed image digest.
+    targetRevision: 62dbf68f2a3d9be9d5bb1c25d81d342acc1dfb57
     path: helm/monkeyshop
     helm:
       releaseName: monkeyshop

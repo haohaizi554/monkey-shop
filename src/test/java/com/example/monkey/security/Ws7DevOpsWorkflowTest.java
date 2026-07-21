@@ -116,24 +116,40 @@ class Ws7DevOpsWorkflowTest {
         String podTemplate = read("helm/monkeyshop/templates/_pod.tpl");
         String workflow = read(".github/workflows/ci.yaml");
         String script = read("scripts/verify-ws7-devops.ps1");
+        String prodApplication = read("deploy/argocd/applications/monkeyshop-prod.yaml");
 
         assertThat(prod)
                 .contains("digest: \"\"")
                 .contains("busybox@sha256:9532d8c39891ca2ecde4d30d7710e01fb739c87a8b9299685c63704296b16028")
                 .doesNotContain("sha256:0000000000000000000000000000000000000000000000000000000000000000");
-        assertThat(podTemplate).contains("image.digest is required for prod releases");
+        assertThat(podTemplate)
+                .contains("image.digest is required for prod releases")
+                .contains("^sha256:[a-f0-9]{64}$")
+                .contains("^sha256:0{64}$");
         assertThat(workflow)
                 .contains("contents: write")
-                .contains("Update production image digest")
+                .contains("IMAGE_REPOSITORY: ${{ steps.image.outputs.uri }}")
+                .contains("Validate production release inputs")
+                .contains("Update production release manifests")
                 .contains("sed -i -E")
-                .contains("git commit -m \"ci: update production image digest\"");
+                .contains("release_revision=\"$(git rev-parse HEAD)\"")
+                .contains("deploy/argocd/applications/monkeyshop-prod.yaml")
+                .contains("git push origin HEAD:main")
+                .contains("[skip ci]");
         assertThat(script)
                 .contains("ProductionImageDigestFixture")
                 .contains("must not use all-zero digest placeholders")
-                .contains("targetRevision:\\s+main")
-                .contains("targetRevision:\\s+HEAD");
+                .contains("must reject an all-zero production app digest")
+                .contains("targetRevision:\\s+[a-f0-9]{40}")
+                .contains("targetRevision:\\s+(?:HEAD|main)");
 
-        for (String environment : new String[] {"dev", "staging", "prod"}) {
+        assertThat(prodApplication)
+                .containsPattern("(?m)^\\s*targetRevision:\\s+[a-f0-9]{40}\\s*$")
+                .doesNotContain("targetRevision: HEAD")
+                .doesNotContain("targetRevision: main")
+                .doesNotContain("targetRevision: 0000000000000000000000000000000000000000");
+
+        for (String environment : new String[] {"dev", "staging"}) {
             String application = read("deploy/argocd/applications/monkeyshop-" + environment + ".yaml");
             assertThat(application).contains("targetRevision: main").doesNotContain("targetRevision: HEAD");
         }

@@ -1,9 +1,19 @@
 {{- define "monkeyshop.podTemplate" -}}
-{{- if and (eq .Values.global.environment "prod") (not .Values.image.digest) -}}
+{{- $imageDigest := default "" .Values.image.digest -}}
+{{- if eq .Values.global.environment "prod" -}}
+{{- if not $imageDigest -}}
 {{- fail "image.digest is required for prod releases; CI/CD must write the signed image digest before sync" -}}
+{{- else if not (regexMatch "^sha256:[a-f0-9]{64}$" $imageDigest) -}}
+{{- fail "image.digest must be a lowercase sha256 digest for prod releases" -}}
+{{- else if regexMatch "^sha256:0{64}$" $imageDigest -}}
+{{- fail "image.digest must not use an all-zero placeholder for prod releases" -}}
 {{- end -}}
-{{- if and (eq .Values.global.environment "prod") (not (contains "@sha256:" .Values.initContainers.waitForMysql.image)) -}}
+{{- $mysqlWaitImage := default "" .Values.initContainers.waitForMysql.image -}}
+{{- if not (regexMatch "@sha256:[a-f0-9]{64}$" $mysqlWaitImage) -}}
 {{- fail "initContainers.waitForMysql.image must be digest-pinned for prod releases" -}}
+{{- else if regexMatch "@sha256:0{64}$" $mysqlWaitImage -}}
+{{- fail "initContainers.waitForMysql.image must not use an all-zero placeholder for prod releases" -}}
+{{- end -}}
 {{- end -}}
 metadata:
   labels:
