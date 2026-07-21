@@ -434,6 +434,54 @@ test('checkout renders real address choices and separates discount allocations',
   await expect(page.locator('.checkout-summary')).toContainText('Freight')
 })
 
+test('checkout requests one bounded address page at a time', async ({ page }) => {
+  const queries: Array<{ page: string | null; size: string | null; sort: string | null }> = []
+  await page.route('**/api/v1/addresses**', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fallback()
+      return
+    }
+    const url = new URL(route.request().url())
+    const pageNumber = Number(url.searchParams.get('page') ?? 0)
+    queries.push({
+      page: url.searchParams.get('page'),
+      size: url.searchParams.get('size'),
+      sort: url.searchParams.get('sort'),
+    })
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        ok({
+          content: [
+            {
+              id: 100 + pageNumber,
+              receiverName: `Checkout receiver ${pageNumber + 1}`,
+              phone: '13800000001',
+              detailAddress: `Checkout address page ${pageNumber + 1}`,
+              isDefault: pageNumber === 0 ? 1 : 0,
+            },
+          ],
+          page: pageNumber,
+          size: 6,
+          totalElements: 13,
+          totalPages: 3,
+          first: pageNumber === 0,
+          last: pageNumber === 2,
+        }),
+      ),
+    })
+  })
+
+  await page.goto('/checkout')
+  await expect(page.getByText('Checkout address page 1', { exact: true })).toBeVisible()
+  expect(queries).toEqual([{ page: '0', size: '6', sort: 'isDefault,desc' }])
+
+  await page.locator('.checkout-address-pagination .btn-next').click()
+  await expect(page.getByText('Checkout address page 2', { exact: true })).toBeVisible()
+  expect(queries.at(-1)).toEqual({ page: '1', size: '6', sort: 'isDefault,desc' })
+})
+
 test('empty cart uses the cart mascot instead of a generic text placeholder', async ({ page }) => {
   await page.route('**/api/v1/cart', async (route) => {
     await route.fulfill({

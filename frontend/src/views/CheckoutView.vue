@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { Check, Location, Plus, Refresh, Tickets } from '@element-plus/icons-vue'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { checkoutCart, getCart, previewCartCheckout, type CartCheckoutResult } from '@/api/cart'
-import { addresses as fetchAddresses } from '@/api/user'
+import { addressPage as fetchAddressPage } from '@/api/user'
 import MascotState from '@/components/mascot/MascotState.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import DataTableShell from '@/components/ui/DataTableShell.vue'
@@ -25,6 +25,9 @@ const notify = useNotify()
 const cart = ref<Cart | null>(null)
 const preview = ref<CartCheckoutResult | null>(null)
 const addresses = ref<Address[]>([])
+const addressPageNumber = ref(0)
+const addressPageSize = 6
+const addressTotal = ref(0)
 const addressId = ref<number | null>(null)
 const province = ref('')
 const couponText = ref('')
@@ -38,6 +41,8 @@ const submitting = ref(false)
 const activePreviewRequestId = ref<number | null>(null)
 const previewSnapshotKey = ref<string | null>(null)
 let previewRequestSequence = 0
+let addressRequestSequence = 0
+let addressController: AbortController | null = null
 
 interface CheckoutInputSnapshot {
   addressId: number | null
@@ -128,19 +133,34 @@ async function loadCart() {
   }
 }
 
-async function loadAddresses() {
+async function loadAddresses(pageNumber = addressPageNumber.value) {
+  const requestId = ++addressRequestSequence
+  addressController?.abort()
+  const requestController = new AbortController()
+  addressController = requestController
   const hadAddresses = addresses.value.length > 0
   addressStatus.value = hadAddresses ? 'updating' : 'loading'
   addressError.value = null
   try {
-    const result = await fetchAddresses()
-    addresses.value = result
-    if (!result.some((address) => address.id === addressId.value)) {
+    const result = await fetchAddressPage({
+      page: pageNumber,
+      size: addressPageSize,
+      sort: 'isDefault,desc',
+      signal: requestController.signal,
+    })
+    if (requestId !== addressRequestSequence) return
+    addressPageNumber.value = result.page
+    addressTotal.value = result.totalElements
+    addresses.value = result.content
+    if (!result.content.some((address) => address.id === addressId.value)) {
       addressId.value =
-        result.find((address) => address.isDefault === 1)?.id ?? result[0]?.id ?? null
+        result.content.find((address) => address.isDefault === 1)?.id ??
+        result.content[0]?.id ??
+        null
     }
-    addressStatus.value = result.length > 0 ? 'success' : 'empty'
+    addressStatus.value = result.content.length > 0 ? 'success' : 'empty'
   } catch (error) {
+    if (requestId !== addressRequestSequence) return
     if (hadAddresses) {
       addressStatus.value = 'success'
       notify.fromApiError(error, 'checkout.loadAddressesFailed')
@@ -148,7 +168,16 @@ async function loadAddresses() {
       addressStatus.value = 'error'
       addressError.value = 'checkout.loadAddressesFailed'
     }
+  } finally {
+    if (requestId === addressRequestSequence && addressController === requestController) {
+      addressController = null
+    }
   }
+}
+
+function changeAddressPage(pageNumber: number) {
+  if (submitting.value || previewPending.value) return
+  void loadAddresses(pageNumber - 1)
 }
 
 async function runPreview() {
@@ -239,6 +268,12 @@ async function submitCheckout() {
 onMounted(() => {
   void Promise.all([loadCart(), loadAddresses()])
 })
+
+onBeforeUnmount(() => {
+  addressRequestSequence += 1
+  addressController?.abort()
+  addressController = null
+})
 </script>
 
 <template>
@@ -316,6 +351,18 @@ onMounted(() => {
                   </span>
                 </el-radio>
               </el-radio-group>
+
+              <el-pagination
+                v-if="addressTotal > addressPageSize"
+                class="checkout-address-pagination"
+                background
+                layout="prev, pager, next, total"
+                :current-page="addressPageNumber + 1"
+                :page-size="addressPageSize"
+                :total="addressTotal"
+                :disabled="submitting || previewPending || addressStatus === 'updating'"
+                @current-change="changeAddressPage"
+              />
             </AsyncStateView>
           </section>
 
@@ -658,6 +705,11 @@ onMounted(() => {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: var(--space-3);
   width: 100%;
+}
+
+.checkout-address-pagination {
+  justify-self: center;
+  margin-top: var(--space-4);
 }
 
 .address-option.el-radio {

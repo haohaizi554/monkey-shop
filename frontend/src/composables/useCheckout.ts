@@ -1,11 +1,11 @@
-import { reactive, ref } from 'vue'
+import { onScopeDispose, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { directCheckoutCart, type CartDirectCheckoutRequest } from '@/api/cart'
 import { browserDeviceFingerprint } from '@/api/http'
 import { createOrder } from '@/api/orders'
 import { assessRisk } from '@/api/risk'
-import { addAddress, addresses as fetchAddresses } from '@/api/user'
+import { addAddress, addressPage as fetchAddressPage } from '@/api/user'
 import { useNotify } from '@/composables/useNotify'
 import { useAuthStore } from '@/stores/auth'
 import type { Address, AddressRequest, CartCheckoutRequest, Monkey, RiskDecision } from '@/types'
@@ -105,8 +105,12 @@ export function useCheckout(options: CheckoutOptions = {}) {
   const openingCheckoutId = ref<number | null>(null)
   const submittingOrder = ref(false)
   const savingAddress = ref(false)
+  const loadingAddresses = ref(false)
   const checkoutOpen = ref(false)
   const addresses = ref<Address[]>([])
+  const addressPageNumber = ref(0)
+  const addressPageSize = 6
+  const addressTotal = ref(0)
   const selectedMonkey = ref<Monkey | null>(null)
   const selectedDirectPurchase = ref<DirectPurchaseSelection | null>(null)
   const selectedAddressId = ref<number | null>(null)
@@ -115,6 +119,8 @@ export function useCheckout(options: CheckoutOptions = {}) {
     phone: '',
     detailAddress: '',
   })
+  let addressRequestSequence = 0
+  let addressController: AbortController | null = null
 
   function notify(level: NoticeLevel, message: string) {
     if (options.notify) {
@@ -132,6 +138,51 @@ export function useCheckout(options: CheckoutOptions = {}) {
     appNotify.fromApiError(error, fallbackKey)
   }
 
+  async function loadCheckoutAddresses(
+    pageNumber = addressPageNumber.value,
+    preferredAddressId: number | null = selectedAddressId.value,
+  ): Promise<boolean> {
+    const requestId = ++addressRequestSequence
+    addressController?.abort()
+    const requestController = new AbortController()
+    addressController = requestController
+    loadingAddresses.value = true
+    try {
+      const result = await fetchAddressPage({
+        page: pageNumber,
+        size: addressPageSize,
+        sort: 'isDefault,desc',
+        signal: requestController.signal,
+      })
+      if (requestId !== addressRequestSequence) return false
+
+      addressPageNumber.value = result.page
+      addressTotal.value = result.totalElements
+      addresses.value = result.content
+      selectedAddressId.value = result.content.some((item) => item.id === preferredAddressId)
+        ? preferredAddressId
+        : (result.content.find((item) => item.isDefault === 1)?.id ?? result.content[0]?.id ?? null)
+      return true
+    } catch (error) {
+      if (requestId !== addressRequestSequence) return false
+      throw error
+    } finally {
+      if (requestId === addressRequestSequence) {
+        loadingAddresses.value = false
+        if (addressController === requestController) addressController = null
+      }
+    }
+  }
+
+  async function changeAddressPage(pageNumber: number) {
+    if (submittingOrder.value || savingAddress.value || loadingAddresses.value) return
+    try {
+      await loadCheckoutAddresses(pageNumber - 1)
+    } catch (error) {
+      notifyApiError(error, 'checkout.openFailed')
+    }
+  }
+
   async function openCheckout(monkey: Monkey, directPurchase?: DirectPurchaseSelection) {
     if (!auth.isLoggedIn) {
       await router.push('/login')
@@ -144,9 +195,7 @@ export function useCheckout(options: CheckoutOptions = {}) {
     try {
       selectedMonkey.value = monkey
       selectedDirectPurchase.value = directPurchase ? { ...directPurchase } : null
-      addresses.value = await fetchAddresses()
-      selectedAddressId.value =
-        addresses.value.find((item) => item.isDefault === 1)?.id ?? addresses.value[0]?.id ?? null
+      await loadCheckoutAddresses(0, null)
       checkoutOpen.value = true
     } catch (error) {
       notifyApiError(error, 'checkout.openFailed')
@@ -163,7 +212,10 @@ export function useCheckout(options: CheckoutOptions = {}) {
     savingAddress.value = true
     try {
       const saved = await addAddress(payload)
-      addresses.value = await fetchAddresses()
+      await loadCheckoutAddresses(0, saved.id)
+      if (!addresses.value.some((address) => address.id === saved.id)) {
+        addresses.value = [saved, ...addresses.value].slice(0, addressPageSize)
+      }
       selectedAddressId.value = saved.id
       Object.assign(newAddress, { receiverName: '', phone: '', detailAddress: '' })
     } catch (error) {
@@ -237,16 +289,27 @@ export function useCheckout(options: CheckoutOptions = {}) {
     await doSubmitOrder()
   }
 
+  onScopeDispose(() => {
+    addressRequestSequence += 1
+    addressController?.abort()
+    addressController = null
+  })
+
   return {
     openingCheckoutId,
     submittingOrder,
     savingAddress,
+    loadingAddresses,
     checkoutOpen,
     addresses,
+    addressPageNumber,
+    addressPageSize,
+    addressTotal,
     selectedMonkey,
     selectedAddressId,
     newAddress,
     openCheckout,
+    changeAddressPage,
     saveAddress,
     submitOrder,
   }

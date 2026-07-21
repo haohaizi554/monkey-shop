@@ -591,6 +591,50 @@ test('store checkout address controls expose explicit accessible names', async (
   await expect(dialog.getByRole('textbox', { name: 'Address', exact: true })).toBeVisible()
 })
 
+test('quick checkout requests one bounded address page at a time', async ({ page }) => {
+  const queries: Array<{ page: string | null; size: string | null; sort: string | null }> = []
+  await page.route('**/api/v1/addresses**', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fallback()
+      return
+    }
+    const url = new URL(route.request().url())
+    const pageNumber = Number(url.searchParams.get('page') ?? 0)
+    queries.push({
+      page: url.searchParams.get('page'),
+      size: url.searchParams.get('size'),
+      sort: url.searchParams.get('sort'),
+    })
+    await fulfillJson(route, {
+      content: [
+        {
+          id: 200 + pageNumber,
+          receiverName: `Quick receiver ${pageNumber + 1}`,
+          phone: '13800138000',
+          detailAddress: `Quick address page ${pageNumber + 1}`,
+          isDefault: pageNumber === 0 ? 1 : 0,
+        },
+      ],
+      page: pageNumber,
+      size: 6,
+      totalElements: 13,
+      totalPages: 3,
+      first: pageNumber === 0,
+      last: pageNumber === 2,
+    })
+  })
+
+  await page.goto('/shop/1')
+  await page.getByRole('button', { name: 'Buy now', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Checkout' })
+  await expect(dialog.getByRole('radio', { name: /Quick address page 1/ })).toBeVisible()
+  expect(queries).toEqual([{ page: '0', size: '6', sort: 'isDefault,desc' }])
+
+  await dialog.locator('.quick-checkout-address-pagination .btn-next').click()
+  await expect(dialog.getByRole('radio', { name: /Quick address page 2/ })).toBeVisible()
+  expect(queries.at(-1)).toEqual({ page: '1', size: '6', sort: 'isDefault,desc' })
+})
+
 test('quick checkout freezes the selected address while risk assessment is pending', async ({
   page,
 }) => {

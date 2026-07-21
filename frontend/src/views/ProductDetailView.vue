@@ -137,12 +137,17 @@ const {
   openingCheckoutId,
   submittingOrder,
   savingAddress,
+  loadingAddresses,
   checkoutOpen,
   addresses,
+  addressPageNumber,
+  addressPageSize,
+  addressTotal,
   selectedMonkey,
   selectedAddressId,
   newAddress,
   openCheckout,
+  changeAddressPage,
   saveAddress,
   submitOrder,
 } = useCheckout({ notify: showNotice })
@@ -539,12 +544,24 @@ watch(selectedSkuId, (skuId) => {
       <el-radio-group
         v-model="selectedAddressId"
         class="address-list"
-        :disabled="submittingOrder || savingAddress"
+        :disabled="submittingOrder || savingAddress || loadingAddresses"
       >
         <el-radio v-for="address in addresses" :key="address.id" :value="address.id" border>
           {{ address.receiverName }} - {{ address.phone }} - {{ address.detailAddress }}
         </el-radio>
       </el-radio-group>
+
+      <el-pagination
+        v-if="addressTotal > addressPageSize"
+        class="quick-checkout-address-pagination"
+        background
+        layout="prev, pager, next, total"
+        :current-page="addressPageNumber + 1"
+        :page-size="addressPageSize"
+        :total="addressTotal"
+        :disabled="submittingOrder || savingAddress || loadingAddresses"
+        @current-change="changeAddressPage"
+      />
 
       <el-divider>{{ $t('shop.addAddress') }}</el-divider>
       <el-form
@@ -793,6 +810,11 @@ watch(selectedSkuId, (skuId) => {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-3);
+}
+
+.quick-checkout-address-pagination {
+  justify-content: center;
+  margin-top: var(--space-3);
 }
 
 .address-form__save {

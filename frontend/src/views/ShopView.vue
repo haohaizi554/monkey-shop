@@ -99,12 +99,17 @@ const {
   openingCheckoutId,
   submittingOrder,
   savingAddress,
+  loadingAddresses,
   checkoutOpen,
   addresses,
+  addressPageNumber,
+  addressPageSize,
+  addressTotal,
   selectedMonkey,
   selectedAddressId,
   newAddress,
   openCheckout,
+  changeAddressPage,
   saveAddress,
   submitOrder,
 } = useCheckout({ afterOrderCreated: loadMonkeys, notify: showNotice })
@@ -275,12 +280,24 @@ onMounted(() => {
       <el-radio-group
         v-model="selectedAddressId"
         class="address-list"
-        :disabled="submittingOrder || savingAddress"
+        :disabled="submittingOrder || savingAddress || loadingAddresses"
       >
         <el-radio v-for="address in addresses" :key="address.id" :value="address.id" border>
           {{ addressLabel(address) }}
         </el-radio>
       </el-radio-group>
+
+      <el-pagination
+        v-if="addressTotal > addressPageSize"
+        class="quick-checkout-address-pagination"
+        background
+        layout="prev, pager, next, total"
+        :current-page="addressPageNumber + 1"
+        :page-size="addressPageSize"
+        :total="addressTotal"
+        :disabled="submittingOrder || savingAddress || loadingAddresses"
+        @current-change="changeAddressPage"
+      />
 
       <el-divider>{{ $t('shop.addAddress') }}</el-divider>
       <div class="inline-form">
@@ -345,6 +362,11 @@ onMounted(() => {
   justify-content: center;
   overflow-x: auto;
   padding-block: var(--space-2);
+}
+
+.quick-checkout-address-pagination {
+  justify-content: center;
+  margin-top: var(--space-3);
 }
 
 .category-rail {
