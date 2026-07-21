@@ -6,6 +6,7 @@ import { useRouter } from 'vue-router'
 import { flattenCategoryTree, getCategoryTree, listMonkeyPage } from '@/api/catalog'
 import type { PageEnvelope } from '@/api/page'
 import ProductImage from '@/components/ProductImage.vue'
+import MascotState from '@/components/mascot/MascotState.vue'
 import ProductCard from '@/components/product/ProductCard.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -148,7 +149,15 @@ onMounted(() => {
 
 <template>
   <div class="route-view shop-view">
-    <PageHeader :title="$t('shop.title')" :description="$t('shop.subtitle')" />
+    <PageHeader
+      :title="$t('shop.title')"
+      :description="$t('shop.subtitle')"
+      :eyebrow="$t('nav.discover')"
+    >
+      <template #visual>
+        <MascotState pose="shoppingBag" size="sm" decorative eager />
+      </template>
+    </PageHeader>
 
     <nav v-if="categories.length" class="category-rail" :aria-label="$t('shop.browseCategories')">
       <div class="category-rail__heading">

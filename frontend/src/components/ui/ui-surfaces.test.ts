@@ -42,6 +42,21 @@ describe('PageHeader', () => {
     expect(host.querySelector('.page-header__actions button')?.textContent).toBe('Refresh')
     expect(host.querySelector('.page-header')?.classList.contains('card')).toBe(false)
   })
+
+  it('keeps an optional brand visual outside the title and action regions', () => {
+    const host = mount(
+      PageHeader,
+      { title: 'Discover' },
+      {
+        actions: () => h('button', 'Refresh'),
+        visual: () => h('img', { src: '/mascot.webp', alt: '' }),
+      },
+    )
+
+    expect(host.querySelectorAll('h1')).toHaveLength(1)
+    expect(host.querySelector('.page-header__actions button')?.textContent).toBe('Refresh')
+    expect(host.querySelector('.page-header__visual img')?.getAttribute('alt')).toBe('')
+  })
 })
 
 describe('AsyncStateView', () => {

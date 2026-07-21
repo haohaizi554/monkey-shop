@@ -77,6 +77,8 @@ const actionDisabled = computed(() => props.disabled || props.pending || soldOut
 
 <style scoped>
 .product-card {
+  --product-accent: var(--color-primary);
+
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
@@ -85,6 +87,29 @@ const actionDisabled = computed(() => props.disabled || props.pending || soldOut
   border-radius: var(--radius-surface);
   background: var(--color-surface);
   box-shadow: var(--shadow-card);
+  transition:
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast),
+    transform var(--motion-fast);
+}
+
+.product-card:nth-child(4n + 2) {
+  --product-accent: var(--color-cobalt);
+}
+
+.product-card:nth-child(4n + 3) {
+  --product-accent: var(--color-coral);
+}
+
+.product-card:nth-child(4n + 4) {
+  --product-accent: var(--color-honey);
+}
+
+.product-card:hover,
+.product-card:focus-within {
+  border-color: color-mix(in srgb, var(--product-accent) 55%, var(--color-line));
+  box-shadow: var(--shadow-control);
+  transform: translateY(-2px);
 }
 
 .product-card__media {
@@ -131,6 +156,7 @@ const actionDisabled = computed(() => props.disabled || props.pending || soldOut
 .product-card__body {
   grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
+  border-top: 3px solid var(--product-accent);
 }
 
 .product-card__heading {
@@ -174,7 +200,7 @@ const actionDisabled = computed(() => props.disabled || props.pending || soldOut
 
 .product-card__price {
   flex: 0 0 auto;
-  color: var(--color-text);
+  color: var(--color-honey);
   white-space: nowrap;
 }
 
@@ -209,6 +235,18 @@ const actionDisabled = computed(() => props.disabled || props.pending || soldOut
   .product-card__primary {
     width: 100%;
     margin-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .product-card,
+  .product-card__media :deep(.product-image) {
+    transition: none;
+  }
+
+  .product-card:hover,
+  .product-card:focus-within {
+    transform: none;
   }
 }
 </style>

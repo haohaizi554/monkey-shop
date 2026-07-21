@@ -1338,6 +1338,37 @@ html.dark .el-message--success {
   min-width: 0;
 }
 
+.page-header__palette {
+  display: none;
+}
+
+.app-shell[data-area='consumer'] .page-header__palette {
+  display: grid;
+  grid-template-columns: repeat(4, 12px);
+  gap: var(--space-1);
+  width: max-content;
+  margin-bottom: var(--space-2);
+}
+
+.page-header__palette i {
+  width: 12px;
+  height: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--color-primary);
+}
+
+.page-header__palette i:nth-child(2) {
+  background: var(--color-cobalt);
+}
+
+.page-header__palette i:nth-child(3) {
+  background: var(--color-coral);
+}
+
+.page-header__palette i:nth-child(4) {
+  background: var(--color-honey);
+}
+
 .page-header__breadcrumbs {
   display: flex;
   align-items: center;
@@ -1376,6 +1407,28 @@ html.dark .el-message--success {
   justify-content: flex-end;
   gap: var(--space-2);
   min-width: 0;
+}
+
+.page-header__aside {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.page-header__visual {
+  display: grid;
+  width: 116px;
+  height: 112px;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: visible;
+}
+
+.page-header__visual .mascot-state {
+  width: 112px;
 }
 
 .async-state-view,
@@ -1537,6 +1590,25 @@ html.dark .el-message--success {
     min-height: 44px;
   }
 
+  .page-header:has(.page-header__visual) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 84px;
+    align-items: center;
+  }
+
+  .page-header__aside:has(.page-header__visual) {
+    width: 84px;
+  }
+
+  .page-header__visual {
+    width: 84px;
+    height: 88px;
+  }
+
+  .page-header__visual .mascot-state {
+    width: 84px;
+  }
+
   .data-table-shell__toolbar,
   .data-table-shell__footer {
     flex-wrap: wrap;
@@ -1664,6 +1736,26 @@ html.dark .el-message--success {
 
   .metric-strip__item + .metric-strip__item {
     border-top: 1px solid var(--color-line);
+  }
+}
+
+@media (max-width: 360px) {
+  .page-header:has(.page-header__visual) {
+    grid-template-columns: minmax(0, 1fr) 64px;
+    gap: var(--space-2);
+  }
+
+  .page-header__aside:has(.page-header__visual),
+  .page-header__visual {
+    width: 64px;
+  }
+
+  .page-header__visual {
+    height: 72px;
+  }
+
+  .page-header__visual .mascot-state {
+    width: 64px;
   }
 }
 

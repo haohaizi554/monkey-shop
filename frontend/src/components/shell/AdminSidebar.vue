@@ -4,7 +4,6 @@ import {
   CreditCard,
   DataAnalysis,
   Discount,
-  Goods,
   List,
   OfficeBuilding,
   RefreshLeft,
@@ -16,6 +15,7 @@ import {
 import { useEventListener, useMediaQuery } from '@vueuse/core'
 import { computed, nextTick, ref, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
+import BrandMascot from '@/components/mascot/BrandMascot.vue'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
@@ -125,7 +125,7 @@ useEventListener(window, 'keydown', onKeydown)
     :aria-label="$t('nav.adminNavigation')"
   >
     <RouterLink class="admin-brand" to="/admin" :aria-label="$t('nav.admin')">
-      <span class="brand-mark" aria-hidden="true"><Goods /></span>
+      <BrandMascot variant="admin" />
       <span class="admin-brand__copy">
         <strong>MonkeyShop</strong>
         <small>{{ $t('nav.operationsWorkspace') }}</small>

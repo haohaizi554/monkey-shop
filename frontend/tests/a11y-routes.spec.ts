@@ -196,7 +196,11 @@ const apiFixtures: Record<string, unknown> = {
     first: true,
     last: true,
   },
-  'GET /catalog/categories/tree': [],
+  'GET /catalog/categories/tree': [
+    { id: 7, name: 'Companions', children: [] },
+    { id: 8, name: 'Golden coats', children: [] },
+    { id: 9, name: 'Gentle temperaments', children: [] },
+  ],
   'GET /catalog/spus/1': catalogSpu,
   'GET /catalog/spus/1/price': {
     spuId: 1,
@@ -268,6 +272,7 @@ const apiFixtures: Record<string, unknown> = {
     first: true,
     last: true,
   },
+  'GET /orders/101': order,
   'GET /orders/review/101': [],
   'GET /payments/orders/101': payment,
   'GET /logistics/orders/101': logisticsTracking,

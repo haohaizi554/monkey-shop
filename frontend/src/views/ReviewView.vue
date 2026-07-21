@@ -138,9 +138,9 @@ onMounted(() => {
 
         <form class="review-form" @submit.prevent="submitReview">
           <div class="review-field">
-            <span id="review-product-label">
+            <label id="review-product-label" for="review-product">
               {{ $t('reviews.productLabel') }}
-            </span>
+            </label>
             <el-select
               id="review-product"
               v-model="form.skuId"

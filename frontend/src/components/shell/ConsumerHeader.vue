@@ -14,6 +14,7 @@ import {
 } from '@element-plus/icons-vue'
 import { computed, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
+import BrandMascot from '@/components/mascot/BrandMascot.vue'
 import { useNotify } from '@/composables/useNotify'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
@@ -61,7 +62,7 @@ async function logout() {
 <template>
   <header class="app-header consumer-header" :data-compact="props.compact">
     <RouterLink class="brand" to="/shop" :aria-label="$t('nav.homeLabel')">
-      <span class="brand-mark" aria-hidden="true"><Goods /></span>
+      <BrandMascot />
       <span>MonkeyShop</span>
     </RouterLink>
 
