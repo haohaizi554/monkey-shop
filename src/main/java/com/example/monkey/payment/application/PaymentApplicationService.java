@@ -372,15 +372,30 @@ public class PaymentApplicationService {
     @Transactional
     public PaymentResponseDto handleCallback(PaymentCallbackRequestDto request, String sourceIp) {
         verifySignature(request);
-        PaymentOrder payment = requirePayment(request.paymentNo());
+        return paymentStore
+                .withLockedPayment(request.paymentNo(), payment -> handleLockedCallback(request, sourceIp, payment))
+                .map(PaymentDtoAssembler::toResponse)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Payment order does not exist"));
+    }
+
+    private PaymentOrder handleLockedCallback(
+            PaymentCallbackRequestDto request, String sourceIp, PaymentOrder payment) {
         if (!callbackReplayGuard.reserve(request.provider(), request.paymentNo(), request.callbackId(), callbackTtl)) {
-            return PaymentDtoAssembler.toResponse(payment);
+            return payment;
         }
         if (PaymentStatus.PAID.equals(payment.status())) {
-            return PaymentDtoAssembler.toResponse(payment);
+            return payment;
         }
         assertAmountMatches(payment.amount(), request.amount());
-        PaymentOrder updated = "SUCCESS".equalsIgnoreCase(request.status())
+        boolean successful = "SUCCESS".equalsIgnoreCase(request.status());
+        if (successful && PaymentStatus.FAILED.equals(payment.status())) {
+            throw new BusinessException(
+                    ErrorCode.CONFLICT, "Successful callback contradicts a failed payment; reconciliation is required");
+        }
+        if (!PaymentStatus.PENDING.equals(payment.status())) {
+            return payment;
+        }
+        PaymentOrder updated = successful
                 ? confirmPayment(payment, request.providerTradeNo(), request.callbackId())
                 : failPayment(payment, request.callbackId());
         audit(
@@ -389,7 +404,7 @@ public class PaymentApplicationService {
                 updated.paymentNo(),
                 sourceIp,
                 "status=" + request.status() + ",callbackId=" + request.callbackId());
-        return PaymentDtoAssembler.toResponse(updated);
+        return updated;
     }
 
     @WithSpan("payment.refund")

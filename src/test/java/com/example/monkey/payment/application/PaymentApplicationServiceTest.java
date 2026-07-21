@@ -1154,6 +1154,31 @@ class PaymentApplicationServiceTest {
     }
 
     @Test
+    void callbackUpdatesPaymentWhileHoldingThePaymentLock() {
+        paymentStore.savePayment(pendingPayment());
+        paymentStore.requirePaymentLockForStateUpdate = true;
+        when(orderStore.transitionStatus(10L, OrderStatus.PENDING_PAYMENT.label(), OrderStatus.PAID.label(), null))
+                .thenReturn(1);
+        when(idGenerator.nextId()).thenReturn(2000L);
+
+        PaymentResponseDto response =
+                service.handleCallback(callback("cb-locked", "SUCCESS", new BigDecimal("100.00")), "127.0.0.1");
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.PAID);
+    }
+
+    @Test
+    void successfulCallbackConflictsWithAnAlreadyFailedPayment() {
+        paymentStore.savePayment(pendingPayment().fail(LocalDateTime.parse("2026-07-04T08:20:00")));
+
+        assertThatThrownBy(() -> service.handleCallback(
+                        callback("cb-after-failure", "SUCCESS", new BigDecimal("100.00")), "127.0.0.1"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+    }
+
+    @Test
     void successfulCallbackDeductsEveryPersistedCheckoutReservationExactlyOnce() {
         paymentStore.savePayment(pendingPayment());
         when(orderStore.transitionStatus(10L, OrderStatus.PENDING_PAYMENT.label(), OrderStatus.PAID.label(), null))
@@ -2477,6 +2502,7 @@ class PaymentApplicationServiceTest {
         private volatile DataIntegrityViolationException nextPaymentReservationFailure;
         private volatile DataIntegrityViolationException nextRefundReservationFailure;
         private volatile boolean requirePaymentLockForCompletion;
+        private volatile boolean requirePaymentLockForStateUpdate;
         private final Set<Long> failingRecoveryTenantIds = ConcurrentHashMap.newKeySet();
         private final List<Long> recoveryTenantQueries = new CopyOnWriteArrayList<>();
         private final Map<Long, List<PaymentOrder>> queryPaymentsByTenant = new ConcurrentHashMap<>();
@@ -2655,6 +2681,11 @@ class PaymentApplicationServiceTest {
             recordBoundary("payment-update");
             if (failNextPaymentUpdate) {
                 failNextPaymentUpdate = false;
+                throw new LocalCompletionFailure();
+            }
+            if (requirePaymentLockForStateUpdate
+                    && !PaymentStatus.PENDING.equals(payment.status())
+                    && !paymentLockHeld.get()) {
                 throw new LocalCompletionFailure();
             }
             payments.put(payment.id(), payment);

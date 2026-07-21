@@ -7,11 +7,19 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "payment_callback_log")
+@Table(
+        name = "payment_callback_log",
+        uniqueConstraints =
+                @UniqueConstraint(
+                        name = "uk_payment_callback_provider_id",
+                        columnNames = {"tenant_id", "provider", "callback_id"}),
+        indexes = @Index(name = "idx_payment_callback_payment", columnList = "payment_no"))
 public class PaymentCallbackLogEntity extends TenantScopedJpaEntity {
 
     @Id
