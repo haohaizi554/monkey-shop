@@ -265,13 +265,14 @@ const messages = {
       emptyDescription: 'Try changing the search terms or clearing filters.',
     },
     cart: {
+      subtitle: 'Review selected products and quantities before checkout.',
       skuPlaceholder: 'SKU',
       shopPlaceholder: 'Shop',
       selected: 'Selected',
       selectedItems: 'Selected items',
       selectedAmount: 'Selected amount',
       checkout: 'Checkout',
-      emptyHint: 'Browse the shop to add products, or use the SKU above to add quickly.',
+      emptyHint: 'Browse the shop and add products when you are ready.',
       emptyMascotAlt: 'Monkey mascot holding an empty shopping cart',
       loadFailed: 'Unable to load cart',
       updated: 'Cart updated',
@@ -1471,6 +1472,8 @@ const messages = {
         '\u53ef\u4ee5\u8c03\u6574\u641c\u7d22\u6761\u4ef6\uff0c\u6216\u6e05\u7a7a\u5f53\u524d\u7b5b\u9009\u3002',
     },
     cart: {
+      subtitle:
+        '\u7ed3\u7b97\u524d\u6838\u5bf9\u5df2\u9009\u5546\u54c1\u3001\u6570\u91cf\u548c\u91d1\u989d\u3002',
       skuPlaceholder: 'SKU',
       shopPlaceholder: '\u5e97\u94fa',
       selected: '\u5df2\u9009',
@@ -1478,7 +1481,7 @@ const messages = {
       selectedAmount: '\u5df2\u9009\u91d1\u989d',
       checkout: '\u53bb\u7ed3\u7b97',
       emptyHint:
-        '\u5148\u53bb\u5546\u57ce\u9009\u62e9\u5546\u54c1\uff0c\u6216\u7528\u4e0a\u65b9 SKU \u5feb\u901f\u52a0\u5165\u3002',
+        '\u53bb\u5546\u57ce\u6311\u9009\u559c\u6b22\u7684\u5546\u54c1\uff0c\u51c6\u5907\u597d\u540e\u518d\u52a0\u5165\u8d2d\u7269\u8f66\u3002',
       emptyMascotAlt: '\u62b1\u7740\u7a7a\u8d2d\u7269\u8f66\u7684\u7334\u5b50\u5409\u7965\u7269',
       loadFailed: '\u65e0\u6cd5\u52a0\u8f7d\u8d2d\u7269\u8f66',
       updated: '\u8d2d\u7269\u8f66\u5df2\u66f4\u65b0',

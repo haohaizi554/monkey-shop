@@ -79,6 +79,7 @@ const cart = {
       skuId: 101,
       shopId: 11,
       productName: monkey.name,
+      productImage: monkey.imageUrl,
       unitPrice: monkey.price,
       quantity: 1,
       selected: true,

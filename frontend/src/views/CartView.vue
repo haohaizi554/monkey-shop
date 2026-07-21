@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { Delete, Refresh, ShoppingCart } from '@element-plus/icons-vue'
+import { Delete, Refresh } from '@element-plus/icons-vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { addCartItem, getCart, removeCartItem, selectCartItem, updateCartItem } from '@/api/cart'
+import { getCart, removeCartItem, selectCartItem, updateCartItem } from '@/api/cart'
 import MascotState from '@/components/mascot/MascotState.vue'
+import ProductImage from '@/components/ProductImage.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import DataTableShell from '@/components/ui/DataTableShell.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -16,18 +17,13 @@ const notify = useNotify()
 const cart = ref<Cart | null>(null)
 const cartStatus = ref<AsyncStatus>('idle')
 const cartError = ref<string | null>(null)
-const adding = ref(false)
 const pendingMutations = reactive(new Set<string>())
 const pendingRows = reactive(new Set<number>())
 const rowErrors = reactive(new Map<number, string>())
-const skuId = ref<number | null>(null)
-const shopId = ref<number | null>(1)
-const quantity = ref(1)
-const selected = ref(true)
 const cartReadPending = computed(
   () => cartStatus.value === 'loading' || cartStatus.value === 'updating',
 )
-const cartBusy = computed(() => cartReadPending.value || adding.value || pendingMutations.size > 0)
+const cartBusy = computed(() => cartReadPending.value || pendingMutations.size > 0)
 let mutationQueue: Promise<void> = Promise.resolve()
 
 type MutationAction = 'quantity' | 'select' | 'remove'
@@ -60,7 +56,7 @@ function replaceCart(nextCart: Cart) {
 }
 
 async function loadCart() {
-  if (cartReadPending.value || adding.value || pendingMutations.size > 0) {
+  if (cartReadPending.value || pendingMutations.size > 0) {
     return
   }
   const hadCart = cart.value !== null
@@ -79,34 +75,12 @@ async function loadCart() {
   }
 }
 
-async function addCurrentItem() {
-  if (!skuId.value || !shopId.value || cartBusy.value) {
-    return
-  }
-  const payload = {
-    skuId: skuId.value,
-    shopId: shopId.value,
-    quantity: quantity.value,
-    selected: selected.value,
-  }
-  adding.value = true
-  try {
-    await enqueueCartMutation(async () => replaceCart(await addCartItem(payload)))
-    notify.success(t('cart.updated'), { key: 'cart:updated' })
-  } catch (error) {
-    notify.fromApiError(error, 'cart.updateFailed')
-  } finally {
-    adding.value = false
-  }
-}
-
 async function updateQuantity(rowSkuId: number, nextQuantity: number) {
   const key = mutationKey('quantity', rowSkuId)
   const currentRow = cart.value?.items.find((item) => item.skuId === rowSkuId)
   if (
     !currentRow ||
     cartReadPending.value ||
-    adding.value ||
     rowMutationPending(rowSkuId) ||
     currentRow.quantity === nextQuantity
   ) {
@@ -144,7 +118,6 @@ async function updateSelection(rowSkuId: number, nextSelected: boolean) {
   if (
     !currentRow ||
     cartReadPending.value ||
-    adding.value ||
     rowMutationPending(rowSkuId) ||
     currentRow.selected === nextSelected
   ) {
@@ -178,7 +151,7 @@ async function updateSelection(rowSkuId: number, nextSelected: boolean) {
 
 async function removeItem(rowSkuId: number) {
   const key = mutationKey('remove', rowSkuId)
-  if (cartReadPending.value || adding.value || rowMutationPending(rowSkuId)) {
+  if (cartReadPending.value || rowMutationPending(rowSkuId)) {
     return
   }
 
@@ -207,7 +180,7 @@ onMounted(loadCart)
 <template>
   <div class="route-view">
     <section class="cart-layout">
-      <PageHeader :title="t('nav.cart')">
+      <PageHeader :title="t('nav.cart')" :description="t('cart.subtitle')">
         <template #actions>
           <el-button
             :icon="Refresh"
@@ -241,48 +214,6 @@ onMounted(loadCart)
       </div>
 
       <DataTableShell :aria-label="t('nav.cart')" :busy="cartBusy" :empty="cartStatus === 'empty'">
-        <template #toolbar>
-          <div class="cart-toolbar">
-            <el-input-number
-              v-model="skuId"
-              :min="1"
-              :disabled="cartBusy"
-              controls-position="right"
-              :placeholder="$t('cart.skuPlaceholder')"
-            />
-            <el-input-number
-              v-model="shopId"
-              :min="1"
-              :disabled="cartBusy"
-              controls-position="right"
-              :placeholder="$t('cart.shopPlaceholder')"
-            />
-            <el-input-number
-              v-model="quantity"
-              :aria-label="$t('common.quantity')"
-              :min="1"
-              :max="999"
-              :disabled="cartBusy"
-              controls-position="right"
-            />
-            <el-switch
-              v-model="selected"
-              :aria-label="$t('cart.selected')"
-              :active-text="$t('cart.selected')"
-              :disabled="cartBusy"
-            />
-            <el-button
-              type="primary"
-              :icon="ShoppingCart"
-              :loading="adding"
-              :disabled="cartBusy || !skuId || !shopId"
-              @click="addCurrentItem"
-            >
-              {{ $t('common.addToCart') }}
-            </el-button>
-          </div>
-        </template>
-
         <template #empty>
           <div class="cart-empty">
             <MascotState pose="cart" size="md" :alt="$t('cart.emptyMascotAlt')" />
@@ -301,12 +232,19 @@ onMounted(loadCart)
                 <el-switch
                   :model-value="row.selected"
                   :aria-label="`${t('cart.selected')} ${row.productName}`"
-                  :disabled="cartReadPending || adding || rowMutationPending(row.skuId)"
+                  :disabled="cartReadPending || rowMutationPending(row.skuId)"
                   @change="(value: boolean) => updateSelection(row.skuId, value)"
                 />
               </template>
             </el-table-column>
-            <el-table-column prop="productName" :label="$t('common.productName')" min-width="180" />
+            <el-table-column :label="$t('common.productName')" min-width="240">
+              <template #default="{ row }">
+                <div class="cart-product-cell">
+                  <ProductImage :src="row.productImage" :alt="row.productName" />
+                  <strong>{{ row.productName }}</strong>
+                </div>
+              </template>
+            </el-table-column>
             <el-table-column prop="skuId" label="SKU" min-width="100" />
             <el-table-column prop="shopId" :label="$t('cart.shopPlaceholder')" min-width="100" />
             <el-table-column prop="unitPrice" :label="$t('common.price')" min-width="100" />
@@ -318,7 +256,7 @@ onMounted(loadCart)
                     :aria-label="`${t('common.quantity')} ${row.productName}`"
                     :min="1"
                     :max="999"
-                    :disabled="cartReadPending || adding || rowMutationPending(row.skuId)"
+                    :disabled="cartReadPending || rowMutationPending(row.skuId)"
                     controls-position="right"
                     @change="(value: number | undefined) => updateQuantity(row.skuId, value ?? 1)"
                   />
@@ -335,7 +273,7 @@ onMounted(loadCart)
                   :aria-label="`${t('common.delete')} ${row.productName}`"
                   :icon="Delete"
                   :loading="mutationPending('remove', row.skuId)"
-                  :disabled="cartReadPending || adding || rowMutationPending(row.skuId)"
+                  :disabled="cartReadPending || rowMutationPending(row.skuId)"
                   circle
                   text
                   type="danger"
@@ -348,12 +286,15 @@ onMounted(loadCart)
           <div class="cart-mobile-list">
             <article v-for="row in cart?.items ?? []" :key="row.skuId" class="cart-mobile-item">
               <header class="cart-mobile-item__header">
-                <strong>{{ row.productName }}</strong>
+                <div class="cart-mobile-item__identity">
+                  <ProductImage :src="row.productImage" :alt="row.productName" />
+                  <strong>{{ row.productName }}</strong>
+                </div>
                 <el-button
                   :aria-label="`${t('common.delete')} ${row.productName}`"
                   :icon="Delete"
                   :loading="mutationPending('remove', row.skuId)"
-                  :disabled="cartReadPending || adding || rowMutationPending(row.skuId)"
+                  :disabled="cartReadPending || rowMutationPending(row.skuId)"
                   circle
                   text
                   type="danger"
@@ -384,7 +325,7 @@ onMounted(loadCart)
                   <el-switch
                     :model-value="row.selected"
                     :aria-label="`${t('cart.selected')} ${row.productName}`"
-                    :disabled="cartReadPending || adding || rowMutationPending(row.skuId)"
+                    :disabled="cartReadPending || rowMutationPending(row.skuId)"
                     @change="(value: boolean) => updateSelection(row.skuId, value)"
                   />
                 </div>
@@ -395,7 +336,7 @@ onMounted(loadCart)
                     :aria-label="`${t('common.quantity')} ${row.productName}`"
                     :min="1"
                     :max="999"
-                    :disabled="cartReadPending || adding || rowMutationPending(row.skuId)"
+                    :disabled="cartReadPending || rowMutationPending(row.skuId)"
                     controls-position="right"
                     @change="(value: number | undefined) => updateQuantity(row.skuId, value ?? 1)"
                   />
@@ -419,31 +360,25 @@ onMounted(loadCart)
   min-width: 0;
 }
 
-.cart-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-}
-
-.cart-toolbar .el-input-number {
-  max-width: 160px;
-}
-
 .cart-summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: var(--space-3);
   align-items: stretch;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-surface);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-surface);
 }
 
 .cart-summary__metric,
 .checkout-link {
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-surface);
   padding: var(--space-3);
-  background: var(--color-surface);
+}
+
+.cart-summary__metric + .cart-summary__metric,
+.checkout-link {
+  border-left: 1px solid var(--color-line);
 }
 
 .cart-summary span {
@@ -462,13 +397,15 @@ onMounted(loadCart)
   display: grid;
   place-items: center;
   min-height: 48px;
-  color: var(--color-brand);
+  color: var(--color-text-inverse);
+  background: var(--color-brand);
   font-weight: 700;
   text-decoration: none;
 }
 
 .checkout-link.is-disabled {
   color: var(--el-text-color-disabled);
+  background: var(--color-surface-subtle);
   cursor: not-allowed;
   opacity: 0.6;
 }
@@ -476,6 +413,29 @@ onMounted(loadCart)
 .cart-table {
   width: 100%;
   min-width: 940px;
+}
+
+.cart-product-cell,
+.cart-mobile-item__identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.cart-product-cell .product-image,
+.cart-mobile-item__identity .product-image {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-control);
+  object-fit: cover;
+}
+
+.cart-product-cell strong,
+.cart-mobile-item__identity strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .cart-quantity-cell {
@@ -570,21 +530,6 @@ onMounted(loadCart)
     text-align: center;
   }
 
-  .cart-toolbar {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .cart-toolbar .el-input-number {
-    width: 100%;
-    max-width: none;
-  }
-
-  .cart-toolbar .el-button {
-    grid-column: 1 / -1;
-    min-height: 44px;
-  }
-
   .cart-table {
     display: none;
   }
@@ -616,6 +561,11 @@ onMounted(loadCart)
   .cart-mobile-item__header strong {
     min-width: 0;
     overflow-wrap: anywhere;
+  }
+
+  .cart-mobile-item__identity .product-image {
+    width: 64px;
+    height: 64px;
   }
 
   .cart-mobile-item__facts {

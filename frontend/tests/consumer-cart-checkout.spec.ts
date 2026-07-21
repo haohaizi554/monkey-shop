@@ -7,6 +7,7 @@ const cart = {
       skuId: 101,
       shopId: 11,
       productName: 'Curious Capuchin',
+      productImage: '/images/default_product.jpg',
       unitPrice: '48.00',
       quantity: 2,
       selected: true,
@@ -17,6 +18,7 @@ const cart = {
       skuId: 202,
       shopId: 22,
       productName: 'Gentle Macaque',
+      productImage: '/images/default_product.jpg',
       unitPrice: '32.00',
       quantity: 1,
       selected: true,
@@ -315,7 +317,6 @@ test('cart blocks writes while a refresh snapshot is in flight', async ({ page }
   })
 
   await page.goto('/cart')
-  await page.getByPlaceholder('SKU').fill('303')
   await page.getByRole('button', { name: 'Refresh', exact: true }).click()
   await expect.poll(() => getCalls).toBe(2)
 
@@ -324,8 +325,22 @@ test('cart blocks writes while a refresh snapshot is in flight', async ({ page }
     .filter({ hasText: 'Curious Capuchin' })
   await expect(firstRow.getByRole('spinbutton')).toBeDisabled()
   await expect(firstRow.getByRole('switch')).toBeDisabled()
-  await expect(page.getByRole('button', { name: 'Add to cart', exact: true })).toBeDisabled()
+  await expect(page.getByRole('link', { name: 'Checkout', exact: true })).toHaveAttribute(
+    'aria-disabled',
+    'true',
+  )
   releaseRefresh()
+})
+
+test('cart presents product rows without raw SKU add controls', async ({ page }) => {
+  await page.goto('/cart')
+
+  const firstRow = page
+    .locator('.cart-table .el-table__row')
+    .filter({ hasText: 'Curious Capuchin' })
+  await expect(firstRow.locator('img.product-image')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Add to cart', exact: true })).toHaveCount(0)
+  await expect(page.getByPlaceholder('SKU')).toHaveCount(0)
 })
 
 test('checkout sends one request while submit is pending', async ({ page }) => {
