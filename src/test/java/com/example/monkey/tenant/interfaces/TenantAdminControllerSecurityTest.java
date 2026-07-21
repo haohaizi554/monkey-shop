@@ -19,7 +19,7 @@ import com.example.monkey.shared.application.tenant.PermissiveTenantAccessTestCo
 import com.example.monkey.shared.infrastructure.config.SecurityConfig;
 import com.example.monkey.shared.interfaces.web.VisitInterceptor;
 import com.example.monkey.tenant.application.TenantApplicationService;
-import com.example.monkey.tenant.domain.TenantExportProvider;
+import com.example.monkey.tenant.application.dto.TenantExportArtifactDto;
 import com.example.monkey.user.domain.UserAccountStore;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -72,7 +72,7 @@ class TenantAdminControllerSecurityTest {
     void tenantAdminCanDownloadCompletedArtifact() throws Exception {
         byte[] archive = "encrypted-tenant-export".getBytes(StandardCharsets.UTF_8);
         when(tenantApplicationService.downloadExportArtifact(200L, 2200L))
-                .thenReturn(new TenantExportProvider.ExportArtifact(new ByteArrayInputStream(archive), archive.length));
+                .thenReturn(new TenantExportArtifactDto(new ByteArrayInputStream(archive), archive.length));
 
         MvcResult streamingResponse = mockMvc.perform(
                         get("/api/v1/tenants/200/exports/2200/artifact").with(adminWith("TENANT_ADMIN")))

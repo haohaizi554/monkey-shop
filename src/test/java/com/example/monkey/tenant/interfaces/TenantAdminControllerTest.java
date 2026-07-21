@@ -11,7 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.monkey.tenant.application.TenantApplicationService;
-import com.example.monkey.tenant.domain.TenantExportProvider;
+import com.example.monkey.tenant.application.dto.TenantExportArtifactDto;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
@@ -27,7 +27,7 @@ class TenantAdminControllerTest {
         TenantApplicationService service = mock(TenantApplicationService.class);
         byte[] encryptedArchive = "encrypted-tenant-export".getBytes(StandardCharsets.UTF_8);
         when(service.downloadExportArtifact(200L, 2200L))
-                .thenReturn(new TenantExportProvider.ExportArtifact(
+                .thenReturn(new TenantExportArtifactDto(
                         new ByteArrayInputStream(encryptedArchive), encryptedArchive.length));
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new TenantAdminController(service))
                 .build();

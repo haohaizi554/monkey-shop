@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import com.example.monkey.order.application.OrderApplicationService;
 import com.example.monkey.order.application.OrderService;
 import com.example.monkey.order.application.dto.OrderPageQuery;
+import com.example.monkey.order.interfaces.dto.OrderPageRequestDto;
 import com.example.monkey.risk.application.RiskApplicationService;
 import com.example.monkey.shared.application.dto.PageResponseDto;
 import com.example.monkey.shared.application.security.SessionUser;
@@ -48,7 +49,7 @@ class OrderControllerPaginationTest {
         when(orderApplicationService.findOrders(any(SessionUser.class), any(OrderPageQuery.class)))
                 .thenReturn(new PageResponseDto<>(List.of(), 2, 10, 0, 0, false, true));
 
-        controller.myOrders(List.of("PAID"), " Momo ", pageable, user);
+        controller.myOrders(new OrderPageRequestDto(List.of("PAID"), " Momo "), pageable, user);
 
         ArgumentCaptor<OrderPageQuery> query = ArgumentCaptor.forClass(OrderPageQuery.class);
         verify(orderApplicationService).findOrders(eq(user), query.capture());
@@ -64,7 +65,7 @@ class OrderControllerPaginationTest {
         when(orderService.findAllOrders(any(OrderPageQuery.class)))
                 .thenReturn(new PageResponseDto<>(List.of(), 0, 25, 0, 0, true, true));
 
-        controller.getAllOrders(List.of(), " ORD-42 ", pageable);
+        controller.getAllOrders(new OrderPageRequestDto(List.of(), " ORD-42 "), pageable);
 
         ArgumentCaptor<OrderPageQuery> query = ArgumentCaptor.forClass(OrderPageQuery.class);
         verify(orderService).findAllOrders(query.capture());

@@ -11,6 +11,7 @@ import com.example.monkey.product.application.dto.MonkeyResponseDto;
 import com.example.monkey.product.application.dto.ProductPageQuery;
 import com.example.monkey.product.application.dto.ProductPageQuery.SortOrder;
 import com.example.monkey.product.application.dto.ProductPageQuery.SortOrder.Direction;
+import com.example.monkey.product.interfaces.dto.MonkeyPageRequestDto;
 import com.example.monkey.shared.application.dto.PageResponseDto;
 import com.example.monkey.shared.interfaces.dto.Result;
 import java.math.BigDecimal;
@@ -44,7 +45,8 @@ class MonkeyControllerTest {
         PageResponseDto<MonkeyResponseDto> page = new PageResponseDto<>(List.of(monkey), 0, 20, 1, 1, true, true);
         when(monkeyService.findMonkeys(any(ProductPageQuery.class))).thenReturn(page);
 
-        Result<PageResponseDto<MonkeyResponseDto>> result = controller.getMonkeys(null, null, null, null, pageable);
+        Result<PageResponseDto<MonkeyResponseDto>> result =
+                controller.getMonkeys(new MonkeyPageRequestDto(null, null, null, null), pageable);
 
         assertThat(result.code()).isEqualTo("OK");
         assertThat(result.data()).isSameAs(page);
@@ -60,8 +62,8 @@ class MonkeyControllerTest {
         PageResponseDto<MonkeyResponseDto> page = new PageResponseDto<>(List.of(monkey), 0, 20, 1, 1, true, true);
         when(monkeyService.findMonkeys(any(ProductPageQuery.class))).thenReturn(page);
 
-        Result<PageResponseDto<MonkeyResponseDto>> result =
-                controller.getMonkeys(" golden ", BigDecimal.valueOf(100), BigDecimal.valueOf(300), true, pageable);
+        Result<PageResponseDto<MonkeyResponseDto>> result = controller.getMonkeys(
+                new MonkeyPageRequestDto(" golden ", BigDecimal.valueOf(100), BigDecimal.valueOf(300), true), pageable);
 
         assertThat(result.code()).isEqualTo("OK");
         assertThat(result.data()).isSameAs(page);

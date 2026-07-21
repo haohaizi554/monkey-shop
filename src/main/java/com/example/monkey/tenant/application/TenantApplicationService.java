@@ -14,6 +14,7 @@ import com.example.monkey.tenant.application.dto.TenantConfigRequestDto;
 import com.example.monkey.tenant.application.dto.TenantCreateRequestDto;
 import com.example.monkey.tenant.application.dto.TenantDashboardDto;
 import com.example.monkey.tenant.application.dto.TenantDowngradeRequestDto;
+import com.example.monkey.tenant.application.dto.TenantExportArtifactDto;
 import com.example.monkey.tenant.application.dto.TenantExportJobDto;
 import com.example.monkey.tenant.application.dto.TenantExportRequestDto;
 import com.example.monkey.tenant.application.dto.TenantRenewRequestDto;
@@ -246,7 +247,7 @@ public class TenantApplicationService {
 
     @WithSpan("tenant.export-download")
     @Transactional(readOnly = true)
-    public TenantExportProvider.ExportArtifact downloadExportArtifact(Long tenantId, Long exportJobId) {
+    public TenantExportArtifactDto downloadExportArtifact(Long tenantId, Long exportJobId) {
         requireTenant(tenantId);
         TenantDataExportJob exportJob = tenantStore
                 .findExportJob(tenantId, exportJobId)
@@ -259,7 +260,7 @@ public class TenantApplicationService {
             if (artifact == null) {
                 throw new IllegalStateException("tenant export provider returned no artifact");
             }
-            return artifact;
+            return new TenantExportArtifactDto(artifact.content(), artifact.contentLength());
         } catch (RuntimeException exception) {
             LOGGER.warn("Tenant export artifact for job {} is temporarily unavailable", exportJobId);
             throw new BusinessException(

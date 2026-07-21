@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.example.monkey.order.application.dto.OrderLineResponseDto;
 import com.example.monkey.order.application.dto.OrderPageQuery;
 import com.example.monkey.order.application.dto.OrderResponseDto;
 import com.example.monkey.order.application.observability.BusinessMetricsService;
@@ -842,6 +843,25 @@ class OrderServiceTest {
                 "Hangzhou",
                 LocalDateTime.of(2026, 6, 28, 15, 0),
                 OrderStatus.PAID.label(),
-                LocalDateTime.of(2026, 6, 28, 14, 0));
+                LocalDateTime.of(2026, 6, 28, 14, 0),
+                null,
+                null,
+                null,
+                BigDecimal.valueOf(199.99),
+                BigDecimal.ZERO,
+                null,
+                List.of(new OrderLineResponseDto(
+                        null,
+                        7L,
+                        null,
+                        null,
+                        "Momo",
+                        "/images/product/momo.png",
+                        1,
+                        BigDecimal.valueOf(199.99),
+                        BigDecimal.valueOf(199.99),
+                        BigDecimal.ZERO,
+                        BigDecimal.valueOf(199.99),
+                        List.of())));
     }
 }

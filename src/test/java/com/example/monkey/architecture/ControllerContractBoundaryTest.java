@@ -25,6 +25,7 @@ import jakarta.validation.Valid;
 import java.io.IOException;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
+import java.lang.reflect.ParameterizedType;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -37,6 +38,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
 import org.springframework.core.type.filter.AnnotationTypeFilter;
+import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -48,6 +50,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 class ControllerContractBoundaryTest {
 
@@ -342,9 +345,16 @@ class ControllerContractBoundaryTest {
     }
 
     private static boolean isExplicitStreamEndpoint(Method method) {
-        return Void.TYPE.equals(method.getReturnType())
+        if (Void.TYPE.equals(method.getReturnType())
                 && hasParameterType(method, HttpServletResponse.class)
-                && method.getName().endsWith("Captcha");
+                && method.getName().endsWith("Captcha")) {
+            return true;
+        }
+        if (!ResponseEntity.class.equals(method.getReturnType())
+                || !(method.getGenericReturnType() instanceof ParameterizedType responseType)) {
+            return false;
+        }
+        return Stream.of(responseType.getActualTypeArguments()).anyMatch(StreamingResponseBody.class::equals);
     }
 
     private static boolean hasParameterType(Method method, Class<?> expectedType) {

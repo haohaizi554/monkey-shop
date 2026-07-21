@@ -6,6 +6,7 @@ import com.example.monkey.product.application.dto.MonkeyResponseDto;
 import com.example.monkey.product.application.dto.ProductPageQuery;
 import com.example.monkey.product.application.dto.ProductPageQuery.SortOrder;
 import com.example.monkey.product.application.dto.ProductPageQuery.SortOrder.Direction;
+import com.example.monkey.product.interfaces.dto.MonkeyPageRequestDto;
 import com.example.monkey.shared.application.dto.PageResponseDto;
 import com.example.monkey.shared.interfaces.dto.Result;
 import jakarta.validation.Valid;
@@ -18,11 +19,11 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -38,14 +39,11 @@ public class MonkeyController {
     @GetMapping
     @PreAuthorize("permitAll()")
     public Result<PageResponseDto<MonkeyResponseDto>> getMonkeys(
-            @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) BigDecimal minPrice,
-            @RequestParam(required = false) BigDecimal maxPrice,
-            @RequestParam(required = false) Boolean inStock,
+            @ParameterObject @Valid @ModelAttribute MonkeyPageRequestDto request,
             @ParameterObject @PageableDefault(size = 20, sort = "id", direction = Sort.Direction.ASC)
                     Pageable pageable) {
-        return Result.success(
-                monkeyService.findMonkeys(toProductPageQuery(pageable, keyword, minPrice, maxPrice, inStock)));
+        return Result.success(monkeyService.findMonkeys(toProductPageQuery(
+                pageable, request.keyword(), request.minPrice(), request.maxPrice(), request.inStock())));
     }
 
     @PostMapping("/add")

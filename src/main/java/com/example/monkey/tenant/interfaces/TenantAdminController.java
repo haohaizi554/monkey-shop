@@ -10,6 +10,7 @@ import com.example.monkey.tenant.application.dto.TenantConfigRequestDto;
 import com.example.monkey.tenant.application.dto.TenantCreateRequestDto;
 import com.example.monkey.tenant.application.dto.TenantDashboardDto;
 import com.example.monkey.tenant.application.dto.TenantDowngradeRequestDto;
+import com.example.monkey.tenant.application.dto.TenantExportArtifactDto;
 import com.example.monkey.tenant.application.dto.TenantExportJobDto;
 import com.example.monkey.tenant.application.dto.TenantExportRequestDto;
 import com.example.monkey.tenant.application.dto.TenantRenewRequestDto;
@@ -125,10 +126,10 @@ public class TenantAdminController {
     }
 
     @GetMapping("/{tenantId}/exports/{exportJobId}/artifact")
-    @PreAuthorize("hasRole('ADMIN') and hasAuthority('TENANT_ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN') and hasAuthority('TENANT_ADMIN')")
     public ResponseEntity<StreamingResponseBody> downloadExportArtifact(
             @PathVariable Long tenantId, @PathVariable Long exportJobId) {
-        var artifact = tenantApplicationService.downloadExportArtifact(tenantId, exportJobId);
+        TenantExportArtifactDto artifact = tenantApplicationService.downloadExportArtifact(tenantId, exportJobId);
         String filename = "tenant-" + tenantId + "-export-" + exportJobId + ".tink";
         StreamingResponseBody responseBody = outputStream -> {
             try (artifact) {

@@ -22,6 +22,7 @@ import com.example.monkey.shared.domain.id.IdGenerator;
 import com.example.monkey.tenant.application.dto.TenantBillGenerateRequestDto;
 import com.example.monkey.tenant.application.dto.TenantConfigRequestDto;
 import com.example.monkey.tenant.application.dto.TenantCreateRequestDto;
+import com.example.monkey.tenant.application.dto.TenantExportArtifactDto;
 import com.example.monkey.tenant.application.dto.TenantExportRequestDto;
 import com.example.monkey.tenant.domain.Tenant;
 import com.example.monkey.tenant.domain.TenantConfig;
@@ -430,7 +431,7 @@ class TenantApplicationServiceTest {
                 .thenReturn(new TenantExportProvider.ExportArtifact(
                         new ByteArrayInputStream(encryptedArchive), encryptedArchive.length));
 
-        try (TenantExportProvider.ExportArtifact artifact = service.downloadExportArtifact(200L, 2300L)) {
+        try (TenantExportArtifactDto artifact = service.downloadExportArtifact(200L, 2300L)) {
             assertThat(artifact.content().readAllBytes()).isEqualTo(encryptedArchive);
             assertThat(artifact.contentLength()).isEqualTo(encryptedArchive.length);
         }

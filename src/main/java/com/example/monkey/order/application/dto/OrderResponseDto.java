@@ -79,7 +79,7 @@ public record OrderResponseDto(
                 originalAmount,
                 discountAmount,
                 checkoutIdempotencyKey,
-                legacyLines(productId, shopId, productName, productImage, price, originalAmount, discountAmount));
+                List.of());
     }
 
     public OrderResponseDto(
@@ -122,34 +122,5 @@ public record OrderResponseDto(
                 price,
                 BigDecimal.ZERO,
                 null);
-    }
-
-    private static List<OrderLineResponseDto> legacyLines(
-            Long productId,
-            Long shopId,
-            String productName,
-            String productImage,
-            BigDecimal price,
-            BigDecimal originalAmount,
-            BigDecimal discountAmount) {
-        if (productId == null) {
-            return List.of();
-        }
-        BigDecimal payable = price == null ? BigDecimal.ZERO : price;
-        BigDecimal original = originalAmount == null ? payable : originalAmount;
-        BigDecimal discount = discountAmount == null ? BigDecimal.ZERO : discountAmount;
-        return List.of(new OrderLineResponseDto(
-                null,
-                productId,
-                shopId,
-                null,
-                productName,
-                productImage,
-                1,
-                payable,
-                original,
-                discount,
-                payable,
-                List.of()));
     }
 }

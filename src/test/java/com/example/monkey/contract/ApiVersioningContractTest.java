@@ -120,7 +120,7 @@ class ApiVersioningContractTest {
                         .equals(parameter.getAnnotation(RequestHeader.class).value()))
                 .toList();
 
-        assertThat(headers).hasSize(10).allSatisfy(parameter -> {
+        assertThat(headers).hasSize(11).allSatisfy(parameter -> {
             assertThat(parameter.getAnnotation(RequestHeader.class).required()).isTrue();
             assertThat(parameter.getAnnotation(NotBlank.class)).isNotNull();
         });

@@ -11,6 +11,7 @@ import com.example.monkey.order.application.dto.OrderReviewResponseDto;
 import com.example.monkey.order.application.dto.OrderShipmentRequestDto;
 import com.example.monkey.order.application.dto.OrderShipmentResponseDto;
 import com.example.monkey.order.interfaces.dto.CreateOrderRequestDto;
+import com.example.monkey.order.interfaces.dto.OrderPageRequestDto;
 import com.example.monkey.risk.application.RiskApplicationService;
 import com.example.monkey.risk.application.dto.RiskAssessmentRequestDto;
 import com.example.monkey.shared.application.dto.PageResponseDto;
@@ -29,12 +30,12 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -75,17 +76,16 @@ public class OrderController {
     @GetMapping("/my")
     @PreAuthorize("hasAuthority('ORDER_READ_OWN')")
     public Result<PageResponseDto<OrderResponseDto>> myOrders(
-            @RequestParam(name = "status", required = false) List<String> statuses,
-            @RequestParam(required = false) String keyword,
+            @ParameterObject @Valid @ModelAttribute OrderPageRequestDto request,
             @ParameterObject @PageableDefault(size = 20, sort = "createTime", direction = Sort.Direction.DESC)
                     Pageable pageable,
             @AuthenticationPrincipal SessionUser currentUser) {
-        return Result.success(
-                orderApplicationService.findOrders(currentUser, toOrderPageQuery(pageable, statuses, keyword)));
+        return Result.success(orderApplicationService.findOrders(
+                currentUser, toOrderPageQuery(pageable, request.statuses(), request.keyword())));
     }
 
     public Result<PageResponseDto<OrderResponseDto>> myOrders(Pageable pageable, SessionUser currentUser) {
-        return myOrders(List.of(), null, pageable, currentUser);
+        return myOrders(new OrderPageRequestDto(List.of(), null), pageable, currentUser);
     }
 
     @GetMapping("/{id}")
@@ -97,15 +97,15 @@ public class OrderController {
     @GetMapping("/all")
     @PreAuthorize("hasAuthority('ORDER_MANAGE')")
     public Result<PageResponseDto<OrderResponseDto>> getAllOrders(
-            @RequestParam(name = "status", required = false) List<String> statuses,
-            @RequestParam(required = false) String keyword,
+            @ParameterObject @Valid @ModelAttribute OrderPageRequestDto request,
             @ParameterObject @PageableDefault(size = 20, sort = "createTime", direction = Sort.Direction.DESC)
                     Pageable pageable) {
-        return Result.success(orderService.findAllOrders(toOrderPageQuery(pageable, statuses, keyword)));
+        return Result.success(
+                orderService.findAllOrders(toOrderPageQuery(pageable, request.statuses(), request.keyword())));
     }
 
     public Result<PageResponseDto<OrderResponseDto>> getAllOrders(Pageable pageable) {
-        return getAllOrders(List.of(), null, pageable);
+        return getAllOrders(new OrderPageRequestDto(List.of(), null), pageable);
     }
 
     @PostMapping("/ship/{id}")
