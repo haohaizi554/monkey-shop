@@ -803,6 +803,7 @@ test.describe('visual route baselines', () => {
       consumerRoute('shop'),
       consumerRoute('cart'),
       consumerRoute('checkout form'),
+      consumerRoute('profile forms'),
     ]) {
       await settleRoute(page, routeCase)
       await expectVisualBaseline(

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, Edit, Lock, Location, Refresh, Upload } from '@element-plus/icons-vue'
+import { Check, Edit, Iphone, Lock, Location, Refresh, Upload, User } from '@element-plus/icons-vue'
 import type { FormInstance, FormRules } from 'element-plus'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { onBeforeRouteLeave, useRouter } from 'vue-router'
@@ -88,14 +88,20 @@ const phoneLabel = computed(() => {
   if (profile.value.maskedPhone === 'not bound') return t('auth.phoneNotBound')
   return profile.value.maskedPhone || t('auth.phoneNotBound')
 })
+const identityLabel = computed(() =>
+  profile.value.identity === 'ADMIN'
+    ? t('nav.admin')
+    : profile.value.identity === 'USER'
+      ? t('profile.memberAccount')
+      : profile.value.identity || t('profile.accountPending'),
+)
+const securityLabel = computed(() =>
+  profile.value.passwordChangeRequired
+    ? t('profile.securityActionRequired')
+    : t('profile.securityProtected'),
+)
 const profileMeta = computed(() => {
-  const identityLabel =
-    profile.value.identity === 'ADMIN'
-      ? t('nav.admin')
-      : profile.value.identity === 'USER'
-        ? t('profile.memberAccount')
-        : profile.value.identity
-  const meta = [identityLabel, phoneLabel.value].filter(Boolean)
+  const meta = [identityLabel.value, phoneLabel.value].filter(Boolean)
   return meta.length ? meta.join(' / ') : t('profile.accountPending')
 })
 const passwordButtonLabel = computed(() =>
@@ -475,42 +481,81 @@ onBeforeUnmount(() => {
           :disabled="profile.passwordChangeRequired"
         >
           <section class="profile-section identity-section" data-account-section="identity">
-            <div class="identity-summary">
-              <img
-                :src="profile.avatar || defaultAvatar"
-                :alt="$t('auth.avatar')"
-                @error="onAvatarError"
-              />
-              <div>
-                <span>{{ $t('profile.memberAccount') }}</span>
-                <h2>{{ profile.username || $t('nav.profile') }}</h2>
-                <p>{{ profileMeta }}</p>
+            <div class="identity-band">
+              <div class="identity-main">
+                <div class="identity-summary">
+                  <img
+                    :src="profile.avatar || defaultAvatar"
+                    :alt="$t('auth.avatar')"
+                    @error="onAvatarError"
+                  />
+                  <div>
+                    <span>{{ $t('profile.memberAccount') }}</span>
+                    <h2>{{ profile.username || $t('nav.profile') }}</h2>
+                    <p>{{ profileMeta }}</p>
+                  </div>
+                </div>
+
+                <div class="identity-actions">
+                  <label
+                    class="file-picker"
+                    :class="{ 'is-disabled': pending.avatar || profile.passwordChangeRequired }"
+                    for="profile-avatar-input"
+                    :aria-disabled="pending.avatar || profile.passwordChangeRequired"
+                  >
+                    <el-icon aria-hidden="true"><Upload /></el-icon>
+                    <span>{{
+                      pending.avatar ? $t('common.loading') : $t('profile.changeAvatar')
+                    }}</span>
+                    <input
+                      id="profile-avatar-input"
+                      type="file"
+                      accept="image/png,image/jpeg"
+                      :disabled="pending.avatar || profile.passwordChangeRequired"
+                      @change="changeAvatar"
+                    />
+                  </label>
+                  <RouterLink class="secondary-button" to="/membership">
+                    {{ $t('profile.openMembership') }}
+                  </RouterLink>
+                </div>
+              </div>
+
+              <div class="identity-companion">
+                <MascotState pose="support" size="sm" decorative />
               </div>
             </div>
 
-            <div class="identity-actions">
-              <label
-                class="file-picker"
-                :class="{ 'is-disabled': pending.avatar || profile.passwordChangeRequired }"
-                for="profile-avatar-input"
-                :aria-disabled="pending.avatar || profile.passwordChangeRequired"
-              >
-                <el-icon aria-hidden="true"><Upload /></el-icon>
-                <span>{{
-                  pending.avatar ? $t('common.loading') : $t('profile.changeAvatar')
-                }}</span>
-                <input
-                  id="profile-avatar-input"
-                  type="file"
-                  accept="image/png,image/jpeg"
-                  :disabled="pending.avatar || profile.passwordChangeRequired"
-                  @change="changeAvatar"
-                />
-              </label>
-              <RouterLink class="secondary-button" to="/membership">
-                {{ $t('profile.openMembership') }}
-              </RouterLink>
-            </div>
+            <dl class="identity-facts">
+              <div class="identity-fact" data-tone="brand">
+                <dt>
+                  <el-icon aria-hidden="true"><User /></el-icon>
+                  {{ $t('profile.accountType') }}
+                </dt>
+                <dd>{{ identityLabel }}</dd>
+              </div>
+              <div class="identity-fact" data-tone="cobalt">
+                <dt>
+                  <el-icon aria-hidden="true"><Iphone /></el-icon>
+                  {{ $t('profile.contactStatus') }}
+                </dt>
+                <dd>{{ phoneLabel }}</dd>
+              </div>
+              <div class="identity-fact" data-tone="honey">
+                <dt>
+                  <el-icon aria-hidden="true"><Location /></el-icon>
+                  {{ $t('profile.deliveryBook') }}
+                </dt>
+                <dd>{{ $t('profile.addressCount', { count: addressCount }) }}</dd>
+              </div>
+              <div class="identity-fact" data-tone="success">
+                <dt>
+                  <el-icon aria-hidden="true"><Lock /></el-icon>
+                  {{ $t('profile.securityStatus') }}
+                </dt>
+                <dd>{{ securityLabel }}</dd>
+              </div>
+            </dl>
           </section>
         </el-tab-pane>
 
@@ -825,6 +870,7 @@ onBeforeUnmount(() => {
 .profile-page :deep(.async-state-view__content),
 .profile-section,
 .section-heading > div,
+.identity-main,
 .identity-summary > div,
 .address-list,
 .address-item__identity,
@@ -883,8 +929,24 @@ onBeforeUnmount(() => {
 }
 
 .identity-section {
+  gap: var(--space-4);
+}
+
+.identity-band {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 152px;
+  align-items: center;
+  gap: var(--space-5);
+  min-width: 0;
+  padding: var(--space-5) var(--space-6);
+  border-block: 1px solid var(--color-line);
+  background: var(--color-brand-soft);
+}
+
+.identity-main {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+  gap: var(--space-5);
 }
 
 .identity-summary {
@@ -929,11 +991,80 @@ onBeforeUnmount(() => {
   font-size: var(--text-xl);
 }
 
+.identity-band .identity-summary span,
+.identity-band .identity-summary p {
+  color: var(--color-text);
+}
+
 .identity-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--space-2);
+}
+
+.identity-companion {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  border-left: 1px solid var(--color-line-strong);
+}
+
+.identity-companion :deep(.mascot-state) {
+  filter: drop-shadow(0 8px 12px color-mix(in srgb, var(--color-text) 12%, transparent));
+}
+
+.identity-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-surface);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-surface);
+}
+
+.identity-fact {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-4);
+}
+
+.identity-fact + .identity-fact {
+  border-left: 1px solid var(--color-line);
+}
+
+.identity-fact dt {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.identity-fact dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 800;
+}
+
+.identity-fact[data-tone='brand'] .el-icon {
+  color: var(--color-brand);
+}
+
+.identity-fact[data-tone='cobalt'] .el-icon {
+  color: var(--color-cobalt);
+}
+
+.identity-fact[data-tone='honey'] .el-icon {
+  color: var(--color-honey);
+}
+
+.identity-fact[data-tone='success'] .el-icon {
+  color: var(--color-success);
 }
 
 .file-picker {
@@ -1158,7 +1289,7 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 900px) {
-  .identity-section,
+  .identity-main,
   .address-form,
   .password-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1179,6 +1310,18 @@ onBeforeUnmount(() => {
     grid-template-columns: 128px minmax(0, 1fr);
     padding-inline: var(--space-5);
   }
+
+  .identity-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .identity-fact:nth-child(3) {
+    border-left: 0;
+  }
+
+  .identity-fact:nth-child(n + 3) {
+    border-top: 1px solid var(--color-line);
+  }
 }
 
 @media (max-width: 640px) {
@@ -1198,11 +1341,24 @@ onBeforeUnmount(() => {
     min-width: max-content;
   }
 
-  .identity-section,
+  .identity-band,
+  .identity-main,
   .address-form,
   .password-form,
   .privacy-layout {
     grid-template-columns: 1fr;
+  }
+
+  .identity-band {
+    padding: var(--space-4);
+  }
+
+  .identity-actions {
+    grid-column: auto;
+  }
+
+  .identity-companion {
+    display: none;
   }
 
   .privacy-layout {

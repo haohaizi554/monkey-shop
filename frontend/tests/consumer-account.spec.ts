@@ -349,6 +349,21 @@ test('required password updates use a blocking alert with a direct focus action'
   ])
 })
 
+test('profile identity summarizes account readiness without exposing raw pii', async ({ page }) => {
+  await installAccountMocks(page)
+  await page.goto('/profile')
+
+  const identity = page.locator('[data-account-section="identity"]')
+  await expect(identity.locator('img.mascot-state[data-pose="support"]')).toBeVisible()
+  await expect(identity.locator('.identity-fact')).toHaveCount(4)
+  await expect(identity).toContainText('Member account')
+  await expect(identity).toContainText('138****8000')
+  await expect(identity).toContainText('1 saved')
+  await expect(identity).toContainText('Protected')
+  await expect(identity.getByRole('link', { name: 'Open membership' })).toBeVisible()
+  await expect(page.locator('body')).not.toContainText(rawPhone)
+})
+
 test('profile masks address data and validates the edit dialog before restoring focus', async ({
   page,
 }) => {
