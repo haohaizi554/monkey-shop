@@ -44,7 +44,8 @@ public class JpaCatalogStore implements CatalogStore {
 
     @Override
     public CatalogSpu save(CatalogSpu spu) {
-        ProductSpu entity = spuRepository.findById(spu.id()).orElseGet(() -> new ProductSpu(spu.id()));
+        Optional<ProductSpu> existing = spuRepository.findById(spu.id());
+        ProductSpu entity = existing.orElseGet(() -> new ProductSpu(spu.id()));
         ProductPriceBook priceBook = spu.priceBook();
         entity.setCategoryId(spu.categoryId());
         entity.setName(spu.name());
@@ -60,9 +61,10 @@ public class JpaCatalogStore implements CatalogStore {
         entity.setImageUrl(spu.imageUrl());
         ProductSpu savedSpu = spuRepository.save(entity);
 
-        skuRepository.deleteBySpuId(spu.id());
-        skuRepository.flush();
-        skuRepository.saveAll(spu.skus().stream().map(JpaCatalogStore::toEntity).toList());
+        if (existing.isEmpty()) {
+            skuRepository.saveAll(
+                    spu.skus().stream().map(JpaCatalogStore::toEntity).toList());
+        }
         List<ProductSku> savedSkus = skuRepository.findBySpuIdAndActiveTrueOrderByIdAsc(spu.id());
         return toDomain(savedSpu, savedSkus);
     }
