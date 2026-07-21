@@ -388,7 +388,56 @@ test('profile masks address data and validates the edit dialog before restoring 
   await expect(editButton).toBeFocused()
 })
 
-test('profile confirms route changes when an address edit has unsaved changes', async ({ page }) => {
+test('profile requests one bounded address page at a time', async ({ page }) => {
+  const queries: Array<{ page: string | null; size: string | null; sort: string | null }> = []
+  await installAccountMocks(page)
+  await page.route('**/api/v1/addresses**', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fallback()
+      return
+    }
+    const url = new URL(route.request().url())
+    const pageNumber = Number(url.searchParams.get('page') ?? 0)
+    queries.push({
+      page: url.searchParams.get('page'),
+      size: url.searchParams.get('size'),
+      sort: url.searchParams.get('sort'),
+    })
+    await fulfillJson(
+      route,
+      ok({
+        content: [
+          {
+            id: 100 + pageNumber,
+            receiverName: `Receiver ${pageNumber + 1}`,
+            phone: '13800138000',
+            detailAddress: `Address page ${pageNumber + 1}`,
+            isDefault: pageNumber === 0 ? 1 : 0,
+          },
+        ],
+        page: pageNumber,
+        size: 8,
+        totalElements: 17,
+        totalPages: 3,
+        first: pageNumber === 0,
+        last: pageNumber === 2,
+      }),
+    )
+  })
+
+  await page.goto('/profile')
+  await page.getByRole('tab', { name: 'Addresses' }).click()
+  await expect(page.getByText('Address page 1', { exact: true })).toBeVisible()
+  expect(queries).toEqual([{ page: '0', size: '8', sort: 'isDefault,desc' }])
+
+  await page.locator('.profile-address-pagination .btn-next').click()
+  await expect(page.getByText('Address page 2', { exact: true })).toBeVisible()
+  expect(queries.at(-1)).toEqual({ page: '1', size: '8', sort: 'isDefault,desc' })
+})
+
+test('profile confirms route changes when an address edit has unsaved changes', async ({
+  page,
+}) => {
   await installAccountMocks(page)
   await page.goto('/profile')
   await page.getByRole('tab', { name: 'Addresses' }).click()

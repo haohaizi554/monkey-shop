@@ -6,6 +6,7 @@ import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { captchaConfig as loadCaptchaConfig, captchaUrl } from '@/api/auth'
 import { uploadImage } from '@/api/catalog'
+import type { PageEnvelope } from '@/api/page'
 import * as userApi from '@/api/user'
 import HumanVerification from '@/components/HumanVerification.vue'
 import MascotState from '@/components/mascot/MascotState.vue'
@@ -17,11 +18,6 @@ import { useAuthStore } from '@/stores/auth'
 import type { Address, CaptchaConfig, UserProfile } from '@/types'
 
 type ProfileTab = 'identity' | 'addresses' | 'security' | 'privacy'
-
-interface AccountData {
-  profile: UserProfile
-  addresses: Address[]
-}
 
 const FORGET_PHRASE = 'FORGET'
 const defaultAvatar = '/images/default_avatar.jpg'
@@ -56,11 +52,18 @@ const { t } = useI18n()
 const router = useRouter()
 const auth = useAuthStore()
 const notify = useNotify()
-const accountResource = useAsyncState<AccountData>({ timeoutMs: 20000 })
+const profileResource = useAsyncState<UserProfile>({ timeoutMs: 20000 })
+const addressResource = useAsyncState<PageEnvelope<Address>>({
+  timeoutMs: 20000,
+  preserveData: true,
+})
+const addressPageNumber = ref(0)
+const addressPageSize = 8
 
-const account = accountResource.data
-const profile = computed<UserProfile>(() => account.value?.profile ?? {})
-const addresses = computed<Address[]>(() => account.value?.addresses ?? [])
+const profile = computed<UserProfile>(() => profileResource.data.value ?? {})
+const addressPage = computed(() => addressResource.data.value)
+const addresses = computed<Address[]>(() => addressPage.value?.content ?? [])
+const addressCount = computed(() => addressPage.value?.totalElements ?? 0)
 const turnstileEnabled = computed(() => captchaConfig.value.provider === 'turnstile')
 const addressRules = computed<FormRules>(() => ({
   receiverName: [{ required: true, message: t('common.receiverRequired'), trigger: 'blur' }],
@@ -159,21 +162,41 @@ async function validateForm(form: FormInstance | undefined): Promise<boolean> {
 }
 
 async function loadAccount() {
-  await accountResource.load(
-    async () => {
-      const nextProfile = await userApi.profile()
-      const nextAddresses = nextProfile.passwordChangeRequired ? [] : await userApi.addresses()
-      if (nextProfile.passwordChangeRequired) activeTab.value = 'security'
-      return { profile: nextProfile, addresses: nextAddresses }
+  const nextProfile = await profileResource.load(({ signal }) => userApi.profile(signal), {
+    preserveData: true,
+  })
+  if (!nextProfile) return
+  if (nextProfile.passwordChangeRequired) {
+    activeTab.value = 'security'
+    addressResource.reset()
+    return
+  }
+  await loadAddresses(addressPageNumber.value)
+}
+
+async function loadAddresses(pageNumber = addressPageNumber.value) {
+  addressPageNumber.value = pageNumber
+  return addressResource.load(
+    ({ signal }) =>
+      userApi.addressPage({
+        page: pageNumber,
+        size: addressPageSize,
+        sort: 'isDefault,desc',
+        signal,
+      }),
+    {
+      preserveData: true,
+      isEmpty: (page) => page.content.length === 0,
     },
-    { preserveData: true },
   )
 }
 
-async function refreshAddresses() {
-  if (!account.value) return
-  const nextAddresses = await userApi.addresses()
-  account.value = { ...account.value, addresses: nextAddresses }
+async function refreshAddresses(pageNumber = addressPageNumber.value) {
+  return loadAddresses(pageNumber)
+}
+
+function changeAddressPage(pageNumber: number) {
+  void loadAddresses(pageNumber - 1)
 }
 
 async function changeAvatar(event: Event) {
@@ -252,7 +275,9 @@ async function submitEditAddress() {
     await userApi.updateAddress(editingAddressId.value, { ...editForm })
     await refreshAddresses()
     editSnapshot.value = serializeAddressForm(editForm)
-    notify.success(t('common.updated'), { key: `profile:address:${editingAddressId.value}:updated` })
+    notify.success(t('common.updated'), {
+      key: `profile:address:${editingAddressId.value}:updated`,
+    })
     editDialogOpen.value = false
   } catch (caught) {
     notify.fromApiError(caught, 'common.operationFailed')
@@ -267,7 +292,7 @@ async function saveAddress() {
   pending.addressCreate = true
   try {
     await userApi.addAddress({ ...addressForm })
-    await refreshAddresses()
+    await refreshAddresses(0)
     notify.success(t('common.updated'), { key: 'profile:address:created' })
     Object.assign(addressForm, { receiverName: '', phone: '', detailAddress: '' })
     addressFormRef.value?.clearValidate()
@@ -289,7 +314,10 @@ async function removeAddress(id: number) {
   deletingAddressIds.add(id)
   try {
     await userApi.deleteAddress(id)
-    await refreshAddresses()
+    const refreshed = await refreshAddresses()
+    if (refreshed?.content.length === 0 && addressPageNumber.value > 0) {
+      await refreshAddresses(addressPageNumber.value - 1)
+    }
     notify.success(t('common.updated'), { key: `profile:address:${id}:deleted` })
   } catch (caught) {
     notify.fromApiError(caught, 'common.operationFailed')
@@ -304,7 +332,7 @@ async function setDefaultAddress(id: number, enabled: boolean) {
   defaultAddressIds.add(id)
   try {
     await userApi.setDefaultAddress(id)
-    await refreshAddresses()
+    await refreshAddresses(0)
     notify.success(t('common.updated'), { key: `profile:address:${id}:default` })
   } catch (caught) {
     notify.fromApiError(caught, 'common.operationFailed')
@@ -400,6 +428,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload)
+  profileResource.cancel()
+  addressResource.cancel()
 })
 </script>
 
@@ -413,8 +443,8 @@ onBeforeUnmount(() => {
     />
 
     <AsyncStateView
-      :status="accountResource.status.value"
-      :error="accountResource.error.value"
+      :status="profileResource.status.value"
+      :error="profileResource.error.value"
       @retry="loadAccount"
     >
       <section
@@ -439,7 +469,11 @@ onBeforeUnmount(() => {
       </section>
 
       <el-tabs v-model="activeTab" class="profile-tabs">
-        <el-tab-pane :label="$t('profile.tabs.identity')" name="identity" :disabled="profile.passwordChangeRequired">
+        <el-tab-pane
+          :label="$t('profile.tabs.identity')"
+          name="identity"
+          :disabled="profile.passwordChangeRequired"
+        >
           <section class="profile-section identity-section" data-account-section="identity">
             <div class="identity-summary">
               <img
@@ -462,7 +496,9 @@ onBeforeUnmount(() => {
                 :aria-disabled="pending.avatar || profile.passwordChangeRequired"
               >
                 <el-icon aria-hidden="true"><Upload /></el-icon>
-                <span>{{ pending.avatar ? $t('common.loading') : $t('profile.changeAvatar') }}</span>
+                <span>{{
+                  pending.avatar ? $t('common.loading') : $t('profile.changeAvatar')
+                }}</span>
                 <input
                   id="profile-avatar-input"
                   type="file"
@@ -478,7 +514,11 @@ onBeforeUnmount(() => {
           </section>
         </el-tab-pane>
 
-        <el-tab-pane :label="$t('profile.tabs.addresses')" name="addresses" :disabled="profile.passwordChangeRequired">
+        <el-tab-pane
+          :label="$t('profile.tabs.addresses')"
+          name="addresses"
+          :disabled="profile.passwordChangeRequired"
+        >
           <section class="profile-section" data-account-section="addresses">
             <header class="section-heading">
               <div>
@@ -488,7 +528,7 @@ onBeforeUnmount(() => {
                 </h2>
                 <p>{{ $t('profile.addressesHint') }}</p>
               </div>
-              <span>{{ $t('profile.addressCount', { count: addresses.length }) }}</span>
+              <span>{{ $t('profile.addressCount', { count: addressCount }) }}</span>
             </header>
 
             <el-form
@@ -519,46 +559,68 @@ onBeforeUnmount(() => {
               </el-button>
             </el-form>
 
-            <div v-if="addresses.length" class="address-list">
-              <article v-for="address in addresses" :key="address.id" class="address-item">
-                <div class="address-item__identity">
-                  <strong>{{ maskName(address.receiverName) }}</strong>
-                  <span>{{ maskPhone(address.phone) }}</span>
-                </div>
-                <p>{{ address.detailAddress }}</p>
-                <div class="address-item__default">
-                  <span>{{ $t('common.default') }}</span>
-                  <el-switch
-                    :model-value="address.isDefault === 1"
-                    :aria-label="`${$t('common.default')} ${maskName(address.receiverName)}`"
-                    :loading="defaultAddressIds.has(address.id)"
-                    :disabled="defaultAddressIds.has(address.id)"
-                    @update:model-value="(value: boolean) => setDefaultAddress(address.id, value)"
-                  />
-                </div>
-                <div class="address-item__actions">
-                  <el-button
-                    plain
-                    :icon="Edit"
-                    :data-address-edit="address.id"
-                    :disabled="deletingAddressIds.has(address.id)"
-                    @click="openEditDialog(address, $event)"
-                  >
-                    {{ $t('common.edit') }}
-                  </el-button>
-                  <el-button
-                    type="danger"
-                    plain
-                    :loading="deletingAddressIds.has(address.id)"
-                    :disabled="deletingAddressIds.has(address.id)"
-                    @click="removeAddress(address.id)"
-                  >
-                    {{ $t('common.delete') }}
-                  </el-button>
-                </div>
-              </article>
-            </div>
-            <p v-else class="address-empty" role="status">{{ $t('profile.noAddresses') }}</p>
+            <AsyncStateView
+              :status="addressResource.status.value"
+              mode="grid"
+              :error="addressResource.error.value"
+              preserve-content-on-error
+              @retry="loadAddresses()"
+            >
+              <template #empty>
+                <p class="address-empty" role="status">{{ $t('profile.noAddresses') }}</p>
+              </template>
+
+              <div class="address-list">
+                <article v-for="address in addresses" :key="address.id" class="address-item">
+                  <div class="address-item__identity">
+                    <strong>{{ maskName(address.receiverName) }}</strong>
+                    <span>{{ maskPhone(address.phone) }}</span>
+                  </div>
+                  <p>{{ address.detailAddress }}</p>
+                  <div class="address-item__default">
+                    <span>{{ $t('common.default') }}</span>
+                    <el-switch
+                      :model-value="address.isDefault === 1"
+                      :aria-label="`${$t('common.default')} ${maskName(address.receiverName)}`"
+                      :loading="defaultAddressIds.has(address.id)"
+                      :disabled="defaultAddressIds.has(address.id)"
+                      @update:model-value="(value: boolean) => setDefaultAddress(address.id, value)"
+                    />
+                  </div>
+                  <div class="address-item__actions">
+                    <el-button
+                      plain
+                      :icon="Edit"
+                      :data-address-edit="address.id"
+                      :disabled="deletingAddressIds.has(address.id)"
+                      @click="openEditDialog(address, $event)"
+                    >
+                      {{ $t('common.edit') }}
+                    </el-button>
+                    <el-button
+                      type="danger"
+                      plain
+                      :loading="deletingAddressIds.has(address.id)"
+                      :disabled="deletingAddressIds.has(address.id)"
+                      @click="removeAddress(address.id)"
+                    >
+                      {{ $t('common.delete') }}
+                    </el-button>
+                  </div>
+                </article>
+              </div>
+
+              <el-pagination
+                v-if="addressCount > addressPageSize"
+                class="profile-address-pagination"
+                background
+                layout="prev, pager, next, total"
+                :current-page="addressPageNumber + 1"
+                :page-size="addressPageSize"
+                :total="addressCount"
+                @current-change="changeAddressPage"
+              />
+            </AsyncStateView>
           </section>
         </el-tab-pane>
 
@@ -645,7 +707,11 @@ onBeforeUnmount(() => {
           </section>
         </el-tab-pane>
 
-        <el-tab-pane :label="$t('profile.tabs.privacy')" name="privacy" :disabled="profile.passwordChangeRequired">
+        <el-tab-pane
+          :label="$t('profile.tabs.privacy')"
+          name="privacy"
+          :disabled="profile.passwordChangeRequired"
+        >
           <section class="profile-section privacy-section" data-account-section="privacy">
             <header class="section-heading">
               <div>
@@ -656,11 +722,7 @@ onBeforeUnmount(() => {
 
             <div class="privacy-layout">
               <div class="privacy-visual">
-                <MascotState
-                  pose="shield"
-                  size="sm"
-                  :alt="$t('profile.privacyMascotAlt')"
-                />
+                <MascotState pose="shield" size="sm" :alt="$t('profile.privacyMascotAlt')" />
               </div>
               <div class="privacy-impact">
                 <strong>{{ $t('profile.irreversibleTitle') }}</strong>
@@ -838,7 +900,9 @@ onBeforeUnmount(() => {
   border: 1px solid var(--color-line);
   border: 3px solid var(--color-surface);
   border-radius: var(--radius-circle);
-  box-shadow: 0 0 0 1px var(--color-line-strong), var(--shadow-surface);
+  box-shadow:
+    0 0 0 1px var(--color-line-strong),
+    var(--shadow-surface);
   object-fit: cover;
 }
 
@@ -952,6 +1016,10 @@ onBeforeUnmount(() => {
   gap: var(--space-3);
 }
 
+.profile-address-pagination {
+  justify-self: center;
+}
+
 .address-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1061,9 +1129,7 @@ onBeforeUnmount(() => {
 }
 
 .privacy-visual :deep(.mascot-state) {
-  filter: drop-shadow(
-    0 8px 12px color-mix(in srgb, var(--color-text) 14%, transparent)
-  );
+  filter: drop-shadow(0 8px 12px color-mix(in srgb, var(--color-text) 14%, transparent));
 }
 
 .privacy-impact {

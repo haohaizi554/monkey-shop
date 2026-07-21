@@ -6,8 +6,8 @@ export function me(): Promise<UserProfile> {
   return request<UserProfile>({ url: '/users/me' })
 }
 
-export function profile(): Promise<UserProfile> {
-  return request<UserProfile>({ url: '/users/profile' })
+export function profile(signal?: AbortSignal): Promise<UserProfile> {
+  return request<UserProfile>({ url: '/users/profile', signal })
 }
 
 export function addresses(): Promise<Address[]> {
@@ -17,6 +17,7 @@ export function addresses(): Promise<Address[]> {
 export interface AddressPageQuery {
   page: number
   size: number
+  sort?: string
   signal?: AbortSignal
 }
 
