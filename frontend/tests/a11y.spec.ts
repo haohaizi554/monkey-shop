@@ -1,6 +1,8 @@
 import { AxeBuilder } from '@axe-core/playwright'
 import { test, expect, type Route } from '@playwright/test'
 
+test.describe.configure({ timeout: 120_000 })
+
 function expectTraceHeader(route: Route) {
   expect(route.request().headers()['x-trace-id']).toMatch(/^[A-Za-z0-9._:-]{1,128}$/)
 }

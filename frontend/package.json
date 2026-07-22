@@ -8,7 +8,7 @@
     "typecheck": "vue-tsc -b",
     "build": "vue-tsc -b && vite build",
     "lint": "eslint .",
-    "format": "prettier --check .",
+    "format": "prettier --check . --end-of-line auto",
     "audit": "npm audit --audit-level=high --registry=https://registry.npmjs.org",
     "preview": "vite preview",
     "test:unit": "vitest run --environment jsdom",

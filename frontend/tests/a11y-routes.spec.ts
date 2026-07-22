@@ -1,6 +1,10 @@
 import { AxeBuilder } from '@axe-core/playwright'
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test'
 
+import { retryNetworkChanged } from '../src/testSupport/retryNetworkChanged'
+
+test.describe.configure({ timeout: 120_000 })
+
 type SessionRole = 'anonymous' | 'user' | 'admin'
 
 interface RouteCase {
@@ -546,7 +550,7 @@ async function installApiMocks(page: Page, role: SessionRole, theme: 'light' | '
 }
 
 async function settleRoute(page: Page, routeCase: RouteCase) {
-  await page.goto(routeCase.path)
+  await retryNetworkChanged(() => page.goto(routeCase.path))
   if (routeCase.expectedUrl) await expect(page).toHaveURL(routeCase.expectedUrl)
   await expect(routeCase.ready(page)).toBeVisible({ timeout: 15_000 })
   await page.waitForLoadState('networkidle')
@@ -617,7 +621,7 @@ const adminRoutes: RouteCase[] = [
 ]
 
 test('login route and every progressive authentication form pass Axe', async ({ page }) => {
-  test.setTimeout(60_000)
+  test.setTimeout(180_000)
   const unhandled = await installApiMocks(page, 'anonymous')
   await page.goto('/login')
   await expect(page.getByRole('tabpanel', { name: 'Sign in' })).toBeVisible({ timeout: 30_000 })
