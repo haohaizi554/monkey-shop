@@ -211,7 +211,11 @@ config:
   APP_AUTH_CAPTCHA_PROVIDER: local
   APP_UPLOAD_VIRUS_SCAN_ENABLED: "false"
   APP_STORAGE_PROVIDER: local
-  APP_PII_ENCRYPTION_ENABLED: "false"
+  APP_PII_ENCRYPTION_ENABLED: "true"
+  APP_PII_KEY_PROVIDER: env
+  APP_PII_ALLOW_PLAINTEXT_READ: "false"
+  APP_PII_BACKFILL_ENABLED: "false"
+  APP_PII_ROTATION_ENFORCE: "false"
   OTEL_TRACES_EXPORTER: none
   SENTRY_TRACES_SAMPLE_RATE: "0.0"
 
@@ -455,6 +459,24 @@ YAML
   pod-security.kubernetes.io/warn=restricted \
   --overwrite
 
+APP_SECRET_NAME="${ReleaseName}-runtime"
+PII_AES_KEY_BASE64="`$(`$K -n $Namespace get secret "`$APP_SECRET_NAME" -o jsonpath='{.data.APP_PII_AES_KEY_BASE64}' 2>/dev/null | base64 -d || true)"
+PII_HMAC_KEY_BASE64="`$(`$K -n $Namespace get secret "`$APP_SECRET_NAME" -o jsonpath='{.data.APP_PII_HMAC_KEY_BASE64}' 2>/dev/null | base64 -d || true)"
+PII_KEY_VERSION="`$(`$K -n $Namespace get secret "`$APP_SECRET_NAME" -o jsonpath='{.data.APP_PII_KEY_VERSION}' 2>/dev/null | base64 -d || true)"
+PII_KEY_CREATED_AT="`$(`$K -n $Namespace get secret "`$APP_SECRET_NAME" -o jsonpath='{.data.APP_PII_KEY_CREATED_AT}' 2>/dev/null | base64 -d || true)"
+if [ -z "`$PII_AES_KEY_BASE64" ]; then
+  PII_AES_KEY_BASE64="`$(openssl rand -base64 32 | tr -d '\n')"
+fi
+if [ -z "`$PII_HMAC_KEY_BASE64" ]; then
+  PII_HMAC_KEY_BASE64="`$(openssl rand -base64 32 | tr -d '\n')"
+fi
+if [ -z "`$PII_KEY_VERSION" ]; then
+  PII_KEY_VERSION="v1"
+fi
+if [ -z "`$PII_KEY_CREATED_AT" ]; then
+  PII_KEY_CREATED_AT="`$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+fi
+
 `$K -n $Namespace create secret generic ${ReleaseName}-runtime \
   --from-literal=DB_PASSWORD="`$DB_PASSWORD_VALUE" \
   --from-literal=ADMIN_INIT_PASSWORD="`$ADMIN_PASSWORD_VALUE" \
@@ -462,12 +484,25 @@ YAML
   --from-literal=APP_JWT_SECRET="`$JWT_SECRET_VALUE" \
   --from-literal=APP_PAYMENT_CALLBACK_SECRET="`$PAYMENT_CALLBACK_SECRET_VALUE" \
   --from-literal=APP_LOGISTICS_WEBHOOK_SECRET="`$LOGISTICS_WEBHOOK_SECRET_VALUE" \
+  --from-literal=APP_PII_AES_KEY_BASE64="`$PII_AES_KEY_BASE64" \
+  --from-literal=APP_PII_HMAC_KEY_BASE64="`$PII_HMAC_KEY_BASE64" \
+  --from-literal=APP_PII_KEY_VERSION="`$PII_KEY_VERSION" \
+  --from-literal=APP_PII_KEY_CREATED_AT="`$PII_KEY_CREATED_AT" \
   --dry-run=client -o yaml | `$K apply -f -
 
 `$H upgrade --install $ReleaseName $remoteChartDir \
   -n $Namespace \
   -f $remoteValuesPath \
   --wait --timeout ${TimeoutSeconds}s
+
+PII_RUNTIME_ENCRYPTION="`$(`$K -n $Namespace exec deployment/$ReleaseName -- printenv APP_PII_ENCRYPTION_ENABLED)"
+PII_RUNTIME_PLAINTEXT="`$(`$K -n $Namespace exec deployment/$ReleaseName -- printenv APP_PII_ALLOW_PLAINTEXT_READ)"
+PII_RUNTIME_BACKFILL="`$(`$K -n $Namespace exec deployment/$ReleaseName -- printenv APP_PII_BACKFILL_ENABLED)"
+PII_RUNTIME_KEY_VERSION="`$(`$K -n $Namespace exec deployment/$ReleaseName -- printenv APP_PII_KEY_VERSION)"
+if [ "`$PII_RUNTIME_ENCRYPTION" != "true" ] || [ "`$PII_RUNTIME_PLAINTEXT" != "false" ] || [ "`$PII_RUNTIME_BACKFILL" != "false" ] || [ -z "`$PII_RUNTIME_KEY_VERSION" ]; then
+  echo "MicroK8s PII runtime flags are not fail-closed" >&2
+  exit 1
+fi
 
 NODE_PORT=`$(`$K -n $Namespace get svc $ReleaseName -o jsonpath='{.spec.ports[0].nodePort}')
 echo "NODE_PORT=`$NODE_PORT"

@@ -85,6 +85,8 @@ $requiredFiles = @(
     "src/main/java/com/example/monkey/user/interfaces/AuthController.java",
     "src/main/java/com/example/monkey/user/interfaces/UserController.java",
     "scripts/verify-runtime-data-protection.sh",
+    "scripts/verify-microk8s-dev-runtime.ps1",
+    "scripts/verify-argocd-microk8s-gitops.ps1",
     "src/main/java/com/example/monkey/shared/domain/security/RateLimitPolicy.java",
     "src/main/java/com/example/monkey/shared/domain/security/ApiRateLimiter.java",
     "src/main/java/com/example/monkey/shared/application/security/ApiRateLimitOperation.java",
@@ -131,6 +133,8 @@ $securityConfig = Read-RequiredFile -Path "src/main/java/com/example/monkey/shar
 $authController = Read-RequiredFile -Path "src/main/java/com/example/monkey/user/interfaces/AuthController.java"
 $userController = Read-RequiredFile -Path "src/main/java/com/example/monkey/user/interfaces/UserController.java"
 $runtimeDataProtectionBash = Read-RequiredFile -Path "scripts/verify-runtime-data-protection.sh"
+$microk8sRuntime = Read-RequiredFile -Path "scripts/verify-microk8s-dev-runtime.ps1"
+$microk8sGitopsRuntime = Read-RequiredFile -Path "scripts/verify-argocd-microk8s-gitops.ps1"
 $rateLimitPolicy = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared/domain/security/RateLimitPolicy.java"
 $rateLimitPort = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared/domain/security/ApiRateLimiter.java"
 $rateLimitOperation = Read-RequiredFile -Path "src/main/java/com/example/monkey/shared/application/security/ApiRateLimitOperation.java"
@@ -181,6 +185,22 @@ Assert-Match -Name "verify-runtime-data-protection.sh" -Text $runtimeDataProtect
 Assert-Match -Name "verify-runtime-data-protection.sh" -Text $runtimeDataProtectionBash -Pattern "\^\[0-9a-f\]\{64\}\$" -Message "must verify phone blind indexes on Linux compose hosts"
 Assert-Match -Name "verify-runtime-data-protection.sh" -Text $runtimeDataProtectionBash -Pattern "--require-populated-pii" -Message "must support populated PII evidence on Linux compose hosts"
 Assert-Match -Name "verify-runtime-data-protection.sh" -Text $runtimeDataProtectionBash -Pattern "does not print\s+secrets or raw PII" -Message "must document non-disclosure of secrets and raw PII"
+
+foreach ($runtime in @(
+    @{ Name = "verify-microk8s-dev-runtime.ps1"; Text = $microk8sRuntime },
+    @{ Name = "verify-argocd-microk8s-gitops.ps1"; Text = $microk8sGitopsRuntime }
+)) {
+    Assert-Match -Name $runtime.Name -Text $runtime.Text -Pattern 'APP_PII_ENCRYPTION_ENABLED:\s+"true"' -Message "must keep PII encryption enabled in MicroK8s"
+    Assert-NotMatch -Name $runtime.Name -Text $runtime.Text -Pattern 'APP_PII_ENCRYPTION_ENABLED:\s+"false"' -Message "must not bypass PII encryption in MicroK8s"
+    Assert-Match -Name $runtime.Name -Text $runtime.Text -Pattern 'APP_PII_KEY_PROVIDER:\s+env' -Message "must use the dev Secret-backed PII key provider"
+    Assert-Match -Name $runtime.Name -Text $runtime.Text -Pattern 'APP_PII_ALLOW_PLAINTEXT_READ:\s+"false"' -Message "must reject plaintext PII reads"
+    Assert-Match -Name $runtime.Name -Text $runtime.Text -Pattern 'APP_PII_BACKFILL_ENABLED:\s+"false"' -Message "must keep one-time PII backfill disabled"
+    Assert-Match -Name $runtime.Name -Text $runtime.Text -Pattern "jsonpath='\{\.data\.APP_PII_AES_KEY_BASE64\}'" -Message "must preserve the existing AES key across redeployments"
+    Assert-Match -Name $runtime.Name -Text $runtime.Text -Pattern "jsonpath='\{\.data\.APP_PII_HMAC_KEY_BASE64\}'" -Message "must preserve the existing HMAC key across redeployments"
+    Assert-Match -Name $runtime.Name -Text $runtime.Text -Pattern "openssl rand -base64 32" -Message "must generate 256-bit first-deploy key material"
+    Assert-Match -Name $runtime.Name -Text $runtime.Text -Pattern "printenv APP_PII_ENCRYPTION_ENABLED" -Message "must verify the effective Pod encryption flag"
+    Assert-Match -Name $runtime.Name -Text $runtime.Text -Pattern "printenv APP_PII_ALLOW_PLAINTEXT_READ" -Message "must verify the effective Pod plaintext-read flag"
+}
 
 foreach ($profile in @(@{ Name = "application-staging.yml"; Text = $staging }, @{ Name = "application-prod.yml"; Text = $prod })) {
     Assert-Match -Name $profile.Name -Text $profile.Text -Pattern "require-redis-state:\s+\$\{APP_AUTH_REQUIRE_REDIS_STATE:true\}" -Message "must fail closed for auth state without Redis"

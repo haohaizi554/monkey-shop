@@ -173,6 +173,19 @@ class Ws8SecurityWorkflowTest {
     }
 
     @Test
+    void ws8GateRejectsMicrok8sPiiEncryptionBypasses() throws IOException {
+        String gate = read("scripts/verify-ws8-security.ps1");
+
+        assertThat(gate)
+                .contains("scripts/verify-microk8s-dev-runtime.ps1")
+                .contains("scripts/verify-argocd-microk8s-gitops.ps1")
+                .contains("APP_PII_ENCRYPTION_ENABLED")
+                .contains("APP_PII_AES_KEY_BASE64")
+                .contains("APP_PII_HMAC_KEY_BASE64")
+                .contains("printenv APP_PII_ENCRYPTION_ENABLED");
+    }
+
+    @Test
     void composePublishesLocalDependencyPortsForIdeAcceptance() throws IOException {
         String compose = read("docker-compose.yml");
         String readme = read("README.md");

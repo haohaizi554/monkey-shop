@@ -21,13 +21,14 @@ Run `scripts/verify-ws1-ws8-acceptance.ps1 -IncludeRuntimeDataProtection` for th
 - [x] Stage 11-6: fetch the trusted remote and verify that all five delivery targets plus the one-commit UI follow-up are present through `d6a0b99d` (69 incremental commits from `6a7a7ce4`).
 - [x] Stage 11-7: commit the post-delivery UI, account-security, asset-provenance, runtime, and CI-trigger audit patch as `9866c1db`.
 - [x] Stage 11-8: make the aggregate local acceptance gate deterministic under Clash, native Windows services, and expected negative Helm checks; then run the complete local umbrella gate without manual skips.
-- [ ] Stage 11-9: push the two local post-delivery audit commits and verify their newly enabled branch CI workflows on GitHub.
+- [x] Stage 11-9: remove the PII-encryption bypass from both MicroK8s acceptance paths, preserve development key material across redeployments, and guard the effective Pod flags through the WS8 gate.
+- [ ] Stage 11-10: push the three local post-delivery audit commits and verify their newly enabled branch CI workflows on GitHub.
 
 ## Current Local Evidence
 
 ### Backend Quality
 
-- The full umbrella run's Maven `verify` completed successfully. The current Surefire report set contains 1,716 tests, 0 failures, 0 errors, and 41 skipped tests across 246 suites.
+- The full umbrella run's Maven `verify` completed successfully. The current Surefire report set contains 1,718 tests, 0 failures, 0 errors, and 41 skipped tests across 246 suites.
 - `scripts/verify-quality-reports.ps1 -RequireDependencyCheckReport` passed:
   - JaCoCo line coverage: 84.88% (13,958/16,444).
   - PITest mutation coverage: 85.36% (1,102/1,291).
@@ -74,6 +75,7 @@ Run `scripts/verify-ws1-ws8-acceptance.ps1 -IncludeRuntimeDataProtection` for th
 - `scripts/verify-kyverno-supply-chain.ps1` passed.
 - `scripts/verify-ws8-security.ps1` passed.
 - Main, dev, staging, and production configuration now default PII encryption on and legacy plaintext reads off. Backfill remains disabled by default.
+- Both direct Helm and Argo CD MicroK8s development verifiers now enable PII encryption, generate first-deploy 256-bit AES/HMAC keys, preserve the Secret-backed keys/version/timestamp across redeployments, and reject Pods whose effective encryption/plaintext/backfill flags are not fail-closed. The generated Bash scripts passed `bash -n`, and both generated values files passed Helm rendering without contacting a real host.
 - Eager first-viewport mascot assets now advertise high fetch priority; the regression is covered by the mascot component test and the Lighthouse gate.
 
 ## Local Runtime Evidence
@@ -94,7 +96,7 @@ The current workstation deployment is direct, not Docker-based:
 - a real Chromium storefront render and bootstrap-admin authentication;
 - strict authenticated PII ciphertext validation through `scripts/verify-local-data-protection.ps1 -RequirePopulatedPii`.
 
-The aggregate command `scripts/verify-ws1-ws8-acceptance.ps1 -RuntimeBaseUrl http://127.0.0.1:8888 -IncludeRuntimeDataProtection` also completed with exit code 0 on 2026-07-22 in 943.9 seconds. It ran backend Maven verification, quality reports, WS1 scanners, WS5, WS6, WS7, WS8, Kyverno, runtime smoke/API checks, and the populated local PII audit without Docker or manual skip flags. Its retained workstation log is `target/ws1-ws8-full-acceptance.log`; VM, runtime-image, public-edge, and Sonar proof were explicitly reported as open rather than silently treated as passed.
+The aggregate command `scripts/verify-ws1-ws8-acceptance.ps1 -RuntimeBaseUrl http://127.0.0.1:8888 -IncludeRuntimeDataProtection` completed again with exit code 0 on 2026-07-22 in 1,257.8 seconds after the MicroK8s hardening. It ran backend Maven verification, quality reports, WS1 scanners, WS5, WS6, WS7, WS8, Kyverno, runtime smoke/API checks, and the populated local PII audit without Docker or manual skip flags. Its retained workstation log is `target/batch9-full-acceptance.log`; VM, runtime-image, public-edge, and Sonar proof were explicitly reported as open rather than silently treated as passed.
 
 ### Local PII Migration
 
@@ -115,12 +117,14 @@ The aggregate command `scripts/verify-ws1-ws8-acceptance.ps1 -RuntimeBaseUrl htt
 | WS4 | concurrency/idempotency/precision/migration/upload tests | production-scale load and rollback exercise |
 | WS5 | build, lint, contracts, unit, axe, visual, responsive, i18n, dark mode, Lighthouse | public CSP/TLS deployment check |
 | WS6 | JSON logs, trace IDs, metrics, audit persistence, Helm dashboards/alerts | live Loki, Tempo/Jaeger, Sentry, and 30-day SLO evidence |
-| WS7 | Docker/Helm/Argo/Kyverno artifacts and rendered manifests | real staging/prod reconciliation, pushed digest, cosign signature, canary rollback drill |
-| WS8 | local 429 probe, encrypted database, blind indexes, key-rotation tests | live Turnstile, Vault/KMS, WAF/bot provider, TDE/backup-key integration |
+| WS7 | Docker/Helm/Argo/Kyverno artifacts, rendered manifests, and fail-closed MicroK8s generation paths | real staging/prod reconciliation, pushed digest, cosign signature, canary rollback drill |
+| WS8 | local 429 probe, encrypted database, blind indexes, key-rotation tests, and MicroK8s Pod flag contracts | live Turnstile, Vault/KMS, WAF/bot provider, TDE/backup-key integration |
 
 ## Open External Proof
 
 The following configuration is absent from the current workstation environment: `MONKEYSHOP_PUBLIC_URL`, `SONAR_TOKEN`, `SONAR_HOST_URL`, `SENTRY_DSN`, `APP_TURNSTILE_SECRET_KEY`, `APP_PII_VAULT_TOKEN`, and `OTEL_EXPORTER_OTLP_ENDPOINT`.
+
+The previously supplied VM addresses `192.168.147.128` and `192.168.119.129` both timed out on TCP/22 during the latest check, so the hardened MicroK8s scripts could not be executed against a real cluster. The configured GitHub CLI token is also invalid, and a fresh fetch still leaves the trusted remote at `d6a0b99d`.
 
 Therefore these claims remain open and must not be represented as complete:
 
@@ -132,4 +136,4 @@ Therefore these claims remain open and must not be represented as complete:
 
 ## Acceptance Verdict
 
-The workstation build is ready for local acceptance and the repeatable local gates are green. The initial staged delivery is present on the trusted remote through `d6a0b99d`; a fresh fetch on 2026-07-22 still leaves the local branch ahead, so the post-delivery audit commits and their remote CI evidence remain pending. The original production Definition of Done remains incomplete until the external proof above is supplied and executed.
+The workstation build is ready for local acceptance and the repeatable local gates are green. The initial staged delivery is present on the trusted remote through `d6a0b99d`; a fresh fetch on 2026-07-22 still leaves the local branch ahead, so the three post-delivery audit commits and their remote CI evidence remain pending. The original production Definition of Done remains incomplete until the external proof above is supplied and executed.

@@ -168,7 +168,11 @@ config:
   APP_AUTH_CAPTCHA_PROVIDER: local
   APP_UPLOAD_VIRUS_SCAN_ENABLED: "false"
   APP_STORAGE_PROVIDER: local
-  APP_PII_ENCRYPTION_ENABLED: "false"
+  APP_PII_ENCRYPTION_ENABLED: "true"
+  APP_PII_KEY_PROVIDER: env
+  APP_PII_ALLOW_PLAINTEXT_READ: "false"
+  APP_PII_BACKFILL_ENABLED: "false"
+  APP_PII_ROTATION_ENFORCE: "false"
   OTEL_TRACES_EXPORTER: none
   SENTRY_TRACES_SAMPLE_RATE: "0.0"
 
@@ -498,6 +502,23 @@ fi
   pod-security.kubernetes.io/audit=restricted \
   pod-security.kubernetes.io/warn=restricted \
   --overwrite
+APP_SECRET_NAME="`$RELEASE-runtime"
+PII_AES_KEY_BASE64="`$(`$K -n "`$APP_NS" get secret "`$APP_SECRET_NAME" -o jsonpath='{.data.APP_PII_AES_KEY_BASE64}' 2>/dev/null | base64 -d || true)"
+PII_HMAC_KEY_BASE64="`$(`$K -n "`$APP_NS" get secret "`$APP_SECRET_NAME" -o jsonpath='{.data.APP_PII_HMAC_KEY_BASE64}' 2>/dev/null | base64 -d || true)"
+PII_KEY_VERSION="`$(`$K -n "`$APP_NS" get secret "`$APP_SECRET_NAME" -o jsonpath='{.data.APP_PII_KEY_VERSION}' 2>/dev/null | base64 -d || true)"
+PII_KEY_CREATED_AT="`$(`$K -n "`$APP_NS" get secret "`$APP_SECRET_NAME" -o jsonpath='{.data.APP_PII_KEY_CREATED_AT}' 2>/dev/null | base64 -d || true)"
+if [ -z "`$PII_AES_KEY_BASE64" ]; then
+  PII_AES_KEY_BASE64="`$(openssl rand -base64 32 | tr -d '\n')"
+fi
+if [ -z "`$PII_HMAC_KEY_BASE64" ]; then
+  PII_HMAC_KEY_BASE64="`$(openssl rand -base64 32 | tr -d '\n')"
+fi
+if [ -z "`$PII_KEY_VERSION" ]; then
+  PII_KEY_VERSION="v1"
+fi
+if [ -z "`$PII_KEY_CREATED_AT" ]; then
+  PII_KEY_CREATED_AT="`$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+fi
 `$K -n "`$APP_NS" create secret generic "`$RELEASE-runtime" \
   --from-literal=DB_PASSWORD="`$DB_PASSWORD_VALUE" \
   --from-literal=ADMIN_INIT_PASSWORD="`$ADMIN_PASSWORD_VALUE" \
@@ -505,6 +526,10 @@ fi
   --from-literal=APP_JWT_SECRET="`$JWT_SECRET_VALUE" \
   --from-literal=APP_PAYMENT_CALLBACK_SECRET="`$PAYMENT_CALLBACK_SECRET_VALUE" \
   --from-literal=APP_LOGISTICS_WEBHOOK_SECRET="`$LOGISTICS_WEBHOOK_SECRET_VALUE" \
+  --from-literal=APP_PII_AES_KEY_BASE64="`$PII_AES_KEY_BASE64" \
+  --from-literal=APP_PII_HMAC_KEY_BASE64="`$PII_HMAC_KEY_BASE64" \
+  --from-literal=APP_PII_KEY_VERSION="`$PII_KEY_VERSION" \
+  --from-literal=APP_PII_KEY_CREATED_AT="`$PII_KEY_CREATED_AT" \
   --dry-run=client -o yaml | `$K apply -f -
 
 cat <<ARGO_APP | `$K apply -f -
@@ -556,6 +581,15 @@ health=`$(`$K -n argocd get application "`$APP_NAME" -o jsonpath='{.status.healt
 revision=`$(`$K -n argocd get application "`$APP_NAME" -o jsonpath='{.status.sync.revision}')
 if [ "`$sync" != "Synced" ] || [ "`$health" != "Healthy" ] || [ "`$revision" != "`$TARGET_REVISION" ]; then
   `$K -n argocd describe application "`$APP_NAME" || true
+  exit 1
+fi
+
+PII_RUNTIME_ENCRYPTION="`$(`$K -n "`$APP_NS" exec deployment/"`$RELEASE" -- printenv APP_PII_ENCRYPTION_ENABLED)"
+PII_RUNTIME_PLAINTEXT="`$(`$K -n "`$APP_NS" exec deployment/"`$RELEASE" -- printenv APP_PII_ALLOW_PLAINTEXT_READ)"
+PII_RUNTIME_BACKFILL="`$(`$K -n "`$APP_NS" exec deployment/"`$RELEASE" -- printenv APP_PII_BACKFILL_ENABLED)"
+PII_RUNTIME_KEY_VERSION="`$(`$K -n "`$APP_NS" exec deployment/"`$RELEASE" -- printenv APP_PII_KEY_VERSION)"
+if [ "`$PII_RUNTIME_ENCRYPTION" != "true" ] || [ "`$PII_RUNTIME_PLAINTEXT" != "false" ] || [ "`$PII_RUNTIME_BACKFILL" != "false" ] || [ -z "`$PII_RUNTIME_KEY_VERSION" ]; then
+  echo "Argo CD PII runtime flags are not fail-closed" >&2
   exit 1
 fi
 

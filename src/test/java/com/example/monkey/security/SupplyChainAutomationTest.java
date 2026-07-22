@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class SupplyChainAutomationTest {
@@ -331,6 +332,32 @@ class SupplyChainAutomationTest {
                 .contains("image: redis:7-alpine")
                 .contains("rollout status deployment/redis")
                 .doesNotContain("scale deployment argocd-redis --replicas=0");
+    }
+
+    @Test
+    void microk8sRuntimeGatesKeepPiiEncryptionEnabledWithStableKeyMaterial() throws IOException {
+        String directRuntime =
+                Files.readString(Path.of("scripts/verify-microk8s-dev-runtime.ps1"), StandardCharsets.UTF_8);
+        String gitopsRuntime =
+                Files.readString(Path.of("scripts/verify-argocd-microk8s-gitops.ps1"), StandardCharsets.UTF_8);
+
+        for (String runtime : List.of(directRuntime, gitopsRuntime)) {
+            assertThat(runtime)
+                    .contains("APP_PII_ENCRYPTION_ENABLED: \"true\"")
+                    .contains("APP_PII_KEY_PROVIDER: env")
+                    .contains("APP_PII_ALLOW_PLAINTEXT_READ: \"false\"")
+                    .contains("APP_PII_BACKFILL_ENABLED: \"false\"")
+                    .contains("APP_PII_AES_KEY_BASE64")
+                    .contains("APP_PII_HMAC_KEY_BASE64")
+                    .contains("APP_PII_KEY_VERSION")
+                    .contains("APP_PII_KEY_CREATED_AT")
+                    .contains("jsonpath='{.data.APP_PII_AES_KEY_BASE64}'")
+                    .contains("jsonpath='{.data.APP_PII_HMAC_KEY_BASE64}'")
+                    .contains("openssl rand -base64 32")
+                    .contains("printenv APP_PII_ENCRYPTION_ENABLED")
+                    .contains("printenv APP_PII_ALLOW_PLAINTEXT_READ")
+                    .doesNotContain("APP_PII_ENCRYPTION_ENABLED: \"false\"");
+        }
     }
 
     @Test
