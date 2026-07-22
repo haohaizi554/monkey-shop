@@ -59,6 +59,13 @@ class RepositoryHygieneTest {
             "application-staging.properties",
             "application-prod.properties");
 
+    private static final List<Path> DELIVERY_WORKFLOWS = List.of(
+            Path.of(".github/workflows/ci.yaml"),
+            Path.of(".github/workflows/codeql.yml"),
+            Path.of(".github/workflows/snyk.yml"),
+            Path.of(".github/workflows/sonarqube.yml"),
+            Path.of(".github/workflows/ws1-security.yml"));
+
     @Test
     void gitignoreCoversSensitiveLocalArtifacts() throws IOException {
         String gitignore = Files.readString(Path.of(".gitignore"), StandardCharsets.UTF_8);
@@ -135,6 +142,33 @@ class RepositoryHygieneTest {
                 .contains("docs/security/ws1-history-cleanup.md")
                 .contains("target/ws1-security/gitleaks-history.json")
                 .contains("credential rotation ticket references");
+    }
+
+    @Test
+    void monkeyImageDownloaderIsPortableAndPreservesAttribution() throws IOException {
+        String script = Files.readString(Path.of("scripts/download-monkey-images.ps1"), StandardCharsets.UTF_8);
+        String ci = Files.readString(Path.of(".github/workflows/ci.yaml"), StandardCharsets.UTF_8);
+
+        assertThat(script.toLowerCase()).doesNotContain("d:\\desktop\\project");
+        assertThat(script)
+                .contains("$PSScriptRoot")
+                .contains("New-Item")
+                .contains("Creator")
+                .contains("License")
+                .contains("LicenseUrl")
+                .contains("ForeignLandingUrl")
+                .contains("Get-FileHash")
+                .contains("attribution.json");
+        assertThat(ci).contains(".\\scripts\\tests\\download-monkey-images.Tests.ps1");
+    }
+
+    @Test
+    void deliveryWorkflowsRunForArchitectureUpgradeBranches() throws IOException {
+        for (Path workflow : DELIVERY_WORKFLOWS) {
+            assertThat(Files.readString(workflow, StandardCharsets.UTF_8))
+                    .as("push trigger for %s", workflow)
+                    .contains("- '*Architecture-Upgrade'");
+        }
     }
 
     private static String readProcessOutput(Process process) {

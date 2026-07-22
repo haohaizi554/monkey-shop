@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - 'codex/**'
+      - '*Architecture-Upgrade'
     tags:
       - 'v*'
   pull_request:
@@ -131,6 +132,10 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      - name: Verify image downloader contract
+        shell: pwsh
+        run: .\scripts\tests\download-monkey-images.Tests.ps1
 
       - name: Verify WS7 manifests
         shell: pwsh

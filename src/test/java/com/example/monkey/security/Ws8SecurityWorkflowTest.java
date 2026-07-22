@@ -79,7 +79,11 @@ class Ws8SecurityWorkflowTest {
                 .contains("203.0.113")
                 .contains("Invoke-AnonymousOrdersProbe")
                 .contains("already blocked; retrying anonymous auth probe")
-                .contains("New-ReservedTestIp -Exclude @($honeypotIp)")
+                .contains("Invoke-UnblockedApiProbe")
+                .contains("already blocked; retrying unblocked API probe")
+                .contains("Invoke-RateLimitProbe")
+                .contains("already blocked; retrying rate-limit probe")
+                .contains("-Exclude @($honeypotIp)")
                 .contains("-RunRateLimitProbe")
                 .contains("Runtime API security smoke gate completed successfully");
         assertThat(readme)

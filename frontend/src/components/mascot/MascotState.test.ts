@@ -79,6 +79,13 @@ describe('MascotState', () => {
     expect(image?.getAttribute('aria-hidden')).toBe('true')
   })
 
+  it('gives eagerly loaded mascot assets high fetch priority', () => {
+    const image = mountMascot({ pose: 'shoppingBag', alt: '探索商品', eager: true })
+
+    expect(image?.getAttribute('loading')).toBe('eager')
+    expect(image?.getAttribute('fetchpriority')).toBe('high')
+  })
+
   it('uses the welcome 2x resource without loading a pose sheet', () => {
     const image = mountMascot({ pose: 'welcome', alt: '欢迎来到 MonkeyShop' })
 

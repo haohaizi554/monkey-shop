@@ -65,6 +65,7 @@ function membershipDashboard() {
 
 interface AccountMockOptions {
   passwordChangeRequired?: boolean
+  passwordExpired?: boolean
   checkInGate?: Promise<void>
   failRedeem?: boolean
   emptyCollections?: boolean
@@ -93,6 +94,7 @@ async function installAccountMocks(page: Page, options: AccountMockOptions = {})
     username: 'account-user',
     maskedPhone: '138****8000',
     passwordChangeRequired: options.passwordChangeRequired ?? false,
+    passwordExpired: options.passwordExpired ?? false,
     phone: rawPhone,
     realName: rawRealName,
     idCardNo: rawIdCard,
@@ -349,6 +351,18 @@ test('required password updates use a blocking alert with a direct focus action'
   ])
 })
 
+test('expired passwords use the same blocking security corridor', async ({ page }) => {
+  await installAccountMocks(page, { passwordExpired: true })
+  await page.goto('/profile')
+
+  await expect(page.getByRole('tab', { name: 'Security' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('.el-alert[role="alert"]')).toContainText(
+    'Update your password before continuing',
+  )
+  await expect(page.getByRole('tab', { name: 'Identity' })).toHaveClass(/is-disabled/)
+  await expect(page.getByRole('tab', { name: 'Addresses' })).toHaveClass(/is-disabled/)
+})
+
 test('profile identity summarizes account readiness without exposing raw pii', async ({ page }) => {
   await installAccountMocks(page)
   await page.goto('/profile')
@@ -375,11 +389,14 @@ test('profile masks address data and validates the edit dialog before restoring 
   })
   await page.goto('/profile')
 
-  await expect(page.locator('.async-state-view[data-status="success"]')).toBeVisible()
+  await expect(page.locator('[data-account-section="identity"]')).toBeVisible()
   await expect(page.locator('body')).not.toContainText(rawRealName)
   await expect(page.locator('body')).not.toContainText(rawPhone)
 
   await page.getByRole('tab', { name: 'Addresses' }).click()
+  await expect(
+    page.locator('[data-account-section="addresses"] .async-state-view[data-status="success"]'),
+  ).toBeVisible()
 
   const editButton = page.getByRole('button', { name: 'Edit' }).first()
   await editButton.click()

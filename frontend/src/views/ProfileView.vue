@@ -61,6 +61,9 @@ const addressPageNumber = ref(0)
 const addressPageSize = 8
 
 const profile = computed<UserProfile>(() => profileResource.data.value ?? {})
+const passwordActionRequired = computed(
+  () => profile.value.passwordChangeRequired === true || profile.value.passwordExpired === true,
+)
 const addressPage = computed(() => addressResource.data.value)
 const addresses = computed<Address[]>(() => addressPage.value?.content ?? [])
 const addressCount = computed(() => addressPage.value?.totalElements ?? 0)
@@ -96,7 +99,7 @@ const identityLabel = computed(() =>
       : profile.value.identity || t('profile.accountPending'),
 )
 const securityLabel = computed(() =>
-  profile.value.passwordChangeRequired
+  passwordActionRequired.value
     ? t('profile.securityActionRequired')
     : t('profile.securityProtected'),
 )
@@ -105,9 +108,7 @@ const profileMeta = computed(() => {
   return meta.length ? meta.join(' / ') : t('profile.accountPending')
 })
 const passwordButtonLabel = computed(() =>
-  profile.value.passwordChangeRequired
-    ? t('auth.completePasswordUpdate')
-    : t('auth.updatePassword'),
+  passwordActionRequired.value ? t('auth.completePasswordUpdate') : t('auth.updatePassword'),
 )
 const editDirty = computed(
   () => editDialogOpen.value && serializeAddressForm(editForm) !== editSnapshot.value,
@@ -172,7 +173,7 @@ async function loadAccount() {
     preserveData: true,
   })
   if (!nextProfile) return
-  if (nextProfile.passwordChangeRequired) {
+  if (nextProfile.passwordChangeRequired || nextProfile.passwordExpired) {
     activeTab.value = 'security'
     addressResource.reset()
     return
@@ -208,7 +209,7 @@ function changeAddressPage(pageNumber: number) {
 async function changeAvatar(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
-  if (!file || pending.avatar || profile.value.passwordChangeRequired) return
+  if (!file || pending.avatar || passwordActionRequired.value) return
 
   pending.avatar = true
   try {
@@ -454,7 +455,7 @@ onBeforeUnmount(() => {
       @retry="loadAccount"
     >
       <section
-        v-if="profile.passwordChangeRequired"
+        v-if="passwordActionRequired"
         class="required-password"
         data-account-section="required-password"
       >
@@ -478,7 +479,7 @@ onBeforeUnmount(() => {
         <el-tab-pane
           :label="$t('profile.tabs.identity')"
           name="identity"
-          :disabled="profile.passwordChangeRequired"
+          :disabled="passwordActionRequired"
         >
           <section class="profile-section identity-section" data-account-section="identity">
             <div class="identity-band">
@@ -499,9 +500,9 @@ onBeforeUnmount(() => {
                 <div class="identity-actions">
                   <label
                     class="file-picker"
-                    :class="{ 'is-disabled': pending.avatar || profile.passwordChangeRequired }"
+                    :class="{ 'is-disabled': pending.avatar || passwordActionRequired }"
                     for="profile-avatar-input"
-                    :aria-disabled="pending.avatar || profile.passwordChangeRequired"
+                    :aria-disabled="pending.avatar || passwordActionRequired"
                   >
                     <el-icon aria-hidden="true"><Upload /></el-icon>
                     <span>{{
@@ -511,7 +512,7 @@ onBeforeUnmount(() => {
                       id="profile-avatar-input"
                       type="file"
                       accept="image/png,image/jpeg"
-                      :disabled="pending.avatar || profile.passwordChangeRequired"
+                      :disabled="pending.avatar || passwordActionRequired"
                       @change="changeAvatar"
                     />
                   </label>
@@ -562,7 +563,7 @@ onBeforeUnmount(() => {
         <el-tab-pane
           :label="$t('profile.tabs.addresses')"
           name="addresses"
-          :disabled="profile.passwordChangeRequired"
+          :disabled="passwordActionRequired"
         >
           <section class="profile-section" data-account-section="addresses">
             <header class="section-heading">
@@ -755,7 +756,7 @@ onBeforeUnmount(() => {
         <el-tab-pane
           :label="$t('profile.tabs.privacy')"
           name="privacy"
-          :disabled="profile.passwordChangeRequired"
+          :disabled="passwordActionRequired"
         >
           <section class="profile-section privacy-section" data-account-section="privacy">
             <header class="section-heading">

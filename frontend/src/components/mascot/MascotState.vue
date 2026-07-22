@@ -96,6 +96,7 @@ const alternativeText = computed(() => (props.decorative ? '' : props.alt))
     :alt="alternativeText"
     :aria-hidden="decorative ? 'true' : undefined"
     :loading="eager ? 'eager' : 'lazy'"
+    :fetchpriority="eager ? 'high' : undefined"
     decoding="async"
   />
 </template>

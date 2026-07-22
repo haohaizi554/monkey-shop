@@ -4,6 +4,10 @@ Date: 2026-07-22
 
 This is the current evidence log for the original WS1-WS8 objective. Local repository and workstation acceptance is green. The full production Definition of Done is not yet proven because public-edge, external SaaS, image-signing, and real staging/production-cluster evidence is unavailable.
 
+## Umbrella Acceptance Entry Point
+
+Run `scripts/verify-ws1-ws8-acceptance.ps1 -IncludeRuntimeDataProtection` for the repeatable local repository, frontend, security, runtime, and encrypted-data gates. Public-edge, Sonar, VM, and cluster evidence remains opt-in through the script's explicit external-proof switches and must only be reported when those integrations are available.
+
 ## Delivery Stage Checklist
 
 - [x] Stage 9C-9D: replace the legacy UI with the Vite/Vue/TypeScript application, responsive consumer/admin workspaces, dark mode, i18n, and mascot assets.
@@ -13,14 +17,15 @@ This is the current evidence log for the original WS1-WS8 objective. Local repos
 - [x] Stage 11-3: satisfy local quality, mutation, dependency, and security scanner gates.
 - [x] Stage 11-4: verify the local runtime, accessibility, visual baselines, performance, rate limiting, and encrypted PII.
 - [x] Stage 11-5: refresh this requirement-by-requirement evidence log.
-- [x] Stage 11-5A: map the 68 local commits into five contiguous push batches with per-stage tasks and verification checkpoints in [phased-push-checklist.md](./phased-push-checklist.md).
-- [ ] Stage 11-6: push the local staged commits after the repository owner explicitly confirms the remote is trusted.
+- [x] Stage 11-5A: map the first 68 incremental commits into five contiguous push batches with per-stage tasks and verification checkpoints in [phased-push-checklist.md](./phased-push-checklist.md).
+- [x] Stage 11-6: fetch the trusted remote and verify that all five delivery targets plus the one-commit UI follow-up are present through `d6a0b99d` (69 incremental commits from `6a7a7ce4`).
+- [ ] Stage 11-7: commit and push the post-delivery audit patch, then verify its newly enabled branch CI workflows on GitHub.
 
 ## Current Local Evidence
 
 ### Backend Quality
 
-- Maven `verify` completed successfully. After the focused acceptance additions, the current Surefire report set contains 1,712 tests, 0 failures, 0 errors, and 41 skipped tests.
+- Maven `test` completed successfully. After the focused acceptance additions, the current Surefire report set contains 1,714 tests, 0 failures, 0 errors, and 41 skipped tests.
 - `scripts/verify-quality-reports.ps1 -RequireDependencyCheckReport` passed:
   - JaCoCo line coverage: 84.88% (13,958/16,444).
   - PITest mutation coverage: 85.36% (1,102/1,291).
@@ -46,7 +51,7 @@ This is the current evidence log for the original WS1-WS8 objective. Local repos
 - npm audit: 0 vulnerabilities. The successful run used the approved Clash proxy at `127.0.0.1:7890` because the WLAN DNS path was unstable.
 - Prettier, TypeScript/Vite production build, ESLint, and the API contract gate passed.
 - API contract coverage: 19 modules and 113 UI-consumed clients.
-- Vitest: 29 files and 150 tests passed.
+- Vitest: 29 files and 151 tests passed.
 - Playwright UI smoke: 57 route/viewport checks passed across desktop, tablet, and mobile.
 - Playwright/axe: 34 WCAG checks passed; the 7 visual-only tests are excluded from the axe run.
 - Visual regression: 7 groups and 33 stored snapshots passed without updating the expected images.
@@ -56,7 +61,7 @@ This is the current evidence log for the original WS1-WS8 objective. Local repos
   - Accessibility: 100.
   - Best practices: 100.
   - SEO: 100.
-  - Largest Contentful Paint: 1,325 ms.
+  - Largest Contentful Paint: 1,336 ms.
 - A finite retry handles only Chromium `net::ERR_NETWORK_CHANGED`. The original failures were correlated with Windows WLAN disconnect/reconnect events; route readiness and snapshot assertions remain unchanged.
 
 ### WS6-WS8 Repository Gates
@@ -66,6 +71,7 @@ This is the current evidence log for the original WS1-WS8 objective. Local repos
 - `scripts/verify-kyverno-supply-chain.ps1` passed.
 - `scripts/verify-ws8-security.ps1` passed.
 - Main, dev, staging, and production configuration now default PII encryption on and legacy plaintext reads off. Backfill remains disabled by default.
+- Eager first-viewport mascot assets now advertise high fetch priority; the regression is covered by the mascot component test and the Lighthouse gate.
 
 ## Local Runtime Evidence
 
@@ -75,8 +81,8 @@ The current workstation deployment is direct, not Docker-based:
 | --- | --- | ---: |
 | MySQL | `127.0.0.1:3306` | 7220 |
 | Redis-compatible service | `127.0.0.1:6379` | 15976 |
-| Spring Boot | `http://127.0.0.1:8888` | 28784 |
-| Vite | `http://127.0.0.1:5173` | 28460 |
+| Spring Boot | `http://127.0.0.1:8888` | 14148 |
+| Vite | `http://127.0.0.1:5173` | 40720 |
 
 `scripts/verify-local-runtime.ps1 -RunRateLimitProbe` passed and proved:
 
@@ -121,4 +127,4 @@ Therefore these claims remain open and must not be represented as complete:
 
 ## Acceptance Verdict
 
-The workstation build is ready for local acceptance and the repeatable local gates are green. The original production Definition of Done remains incomplete until the external proof above is supplied and executed. Remote push also remains pending explicit trust confirmation from the repository owner.
+The workstation build is ready for local acceptance and the repeatable local gates are green. The initial staged delivery is present on the trusted remote through `d6a0b99d`; the post-delivery audit patch and its remote CI evidence are still pending. The original production Definition of Done remains incomplete until the external proof above is supplied and executed.

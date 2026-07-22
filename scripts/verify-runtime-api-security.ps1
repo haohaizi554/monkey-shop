@@ -61,6 +61,36 @@ function Invoke-AnonymousOrdersProbe {
     throw "anonymous orders probe could not find an unblocked synthetic IP after $MaxAttempts attempts; last status $($lastResponse.StatusCode)"
 }
 
+function Invoke-RateLimitProbe {
+    param([int]$MaxIpAttempts = 8)
+
+    $lastResponse = $null
+    for ($ipAttempt = 1; $ipAttempt -le $MaxIpAttempts; $ipAttempt++) {
+        $rateLimitIp = New-ReservedTestIp
+        $blocked = $false
+        for ($attempt = 1; $attempt -le $RateLimitAttempts; $attempt++) {
+            $response = Invoke-ApiSmokeRequest `
+                -Path "/api/monkeys?page=0&size=1" `
+                -Headers @{ "X-Forwarded-For" = $rateLimitIp }
+            if ($response.StatusCode -eq 403) {
+                $lastResponse = $response
+                $blocked = $true
+                Write-Host "    Synthetic IP $rateLimitIp is already blocked; retrying rate-limit probe"
+                break
+            }
+            if ($response.StatusCode -eq 429) {
+                return $response
+            }
+            Assert-Status -Response $response -Expected 200 -Name "rate-limit warmup attempt $attempt"
+        }
+        if (-not $blocked) {
+            throw "search API must return 429 within $RateLimitAttempts attempts"
+        }
+    }
+
+    throw "rate-limit probe could not find an unblocked synthetic IP after $MaxIpAttempts attempts; last status $($lastResponse.StatusCode)"
+}
+
 function Join-ApiSmokeUrl {
     param([string]$Path)
     $base = $BaseUrl.TrimEnd("/")
@@ -112,6 +142,35 @@ function Invoke-ApiSmokeRequest {
     }
 }
 
+function Invoke-UnblockedApiProbe {
+    param(
+        [string]$Path,
+        [hashtable]$Headers = @{},
+        [string[]]$Exclude = @(),
+        [string]$ProbeName = "API",
+        [int]$MaxAttempts = 8
+    )
+
+    $lastResponse = $null
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        $probeIp = New-ReservedTestIp -Exclude $Exclude
+        $requestHeaders = @{}
+        foreach ($entry in $Headers.GetEnumerator()) {
+            $requestHeaders[$entry.Key] = $entry.Value
+        }
+        $requestHeaders["X-Forwarded-For"] = $probeIp
+        $response = Invoke-ApiSmokeRequest -Path $Path -Headers $requestHeaders
+        if ($response.StatusCode -ne 403) {
+            return [pscustomobject]@{ Ip = $probeIp; Response = $response }
+        }
+        $lastResponse = $response
+        Write-Host "    Synthetic IP $probeIp is already blocked; retrying unblocked API probe for $ProbeName"
+    }
+
+    $lastStatus = if ($null -eq $lastResponse) { "none" } else { $lastResponse.StatusCode }
+    throw "$ProbeName could not find an unblocked synthetic IP after $MaxAttempts attempts; last status $lastStatus"
+}
+
 function Get-ApiSmokeHeader {
     param(
         [object]$Response,
@@ -155,9 +214,7 @@ function Assert-Problem {
     Assert-True (-not [string]::IsNullOrWhiteSpace($problem.traceId)) "$Name problem must include traceId"
 }
 
-if ([string]::IsNullOrWhiteSpace($ProbeIp)) {
-    $ProbeIp = New-ReservedTestIp
-} else {
+if (-not [string]::IsNullOrWhiteSpace($ProbeIp)) {
     $script:IssuedProbeIps[$ProbeIp] = $true
 }
 
@@ -167,9 +224,18 @@ $script:HttpClient.Timeout = [TimeSpan]::FromSeconds($TimeoutSeconds)
 try {
     Write-Host "==> Anonymous product API"
     $traceId = [guid]::NewGuid().ToString()
-    $productResponse = Invoke-ApiSmokeRequest `
-        -Path "/api/monkeys?page=0&size=1" `
-        -Headers @{ "X-Forwarded-For" = $ProbeIp; "X-Trace-Id" = $traceId }
+    if ([string]::IsNullOrWhiteSpace($ProbeIp)) {
+        $productProbe = Invoke-UnblockedApiProbe `
+            -Path "/api/monkeys?page=0&size=1" `
+            -Headers @{ "X-Trace-Id" = $traceId } `
+            -ProbeName "product listing"
+        $ProbeIp = $productProbe.Ip
+        $productResponse = $productProbe.Response
+    } else {
+        $productResponse = Invoke-ApiSmokeRequest `
+            -Path "/api/monkeys?page=0&size=1" `
+            -Headers @{ "X-Forwarded-For" = $ProbeIp; "X-Trace-Id" = $traceId }
+    }
     Assert-Status -Response $productResponse -Expected 200 -Name "product listing"
     Assert-True ((Get-ApiSmokeHeader -Response $productResponse -Name "Content-Type").Contains("application/json")) "product listing must return JSON"
     Assert-True ((Get-ApiSmokeHeader -Response $productResponse -Name "X-Trace-Id").Contains($traceId)) "product listing must echo X-Trace-Id"
@@ -179,9 +245,10 @@ try {
     Assert-True ($null -ne $productJson.data.PSObject.Properties["content"]) "product listing page must include content"
 
     Write-Host "==> Captcha configuration"
-    $captchaResponse = Invoke-ApiSmokeRequest `
+    $captchaProbe = Invoke-UnblockedApiProbe `
         -Path "/api/auth/captcha/config" `
-        -Headers @{ "X-Forwarded-For" = (New-ReservedTestIp) }
+        -ProbeName "captcha config"
+    $captchaResponse = $captchaProbe.Response
     Assert-Status -Response $captchaResponse -Expected 200 -Name "captcha config"
     $captchaJson = Read-ApiSmokeJson -Response $captchaResponse
     Assert-True ($captchaJson.code -eq "OK") "captcha config must use Result envelope"
@@ -193,7 +260,12 @@ try {
     Assert-Problem -Response $ordersResponse -ExpectedStatus 401 -ExpectedCode "UNAUTHORIZED" -Name "anonymous orders"
 
     Write-Host "==> Honeypot blocks only the synthetic probe IP"
-    $honeypotIp = New-ReservedTestIp
+    $honeypotPreflight = Invoke-UnblockedApiProbe `
+        -Path "/api/monkeys?page=0&size=1" `
+        -Exclude @($ProbeIp) `
+        -ProbeName "honeypot preflight"
+    Assert-Status -Response $honeypotPreflight.Response -Expected 200 -Name "honeypot preflight"
+    $honeypotIp = $honeypotPreflight.Ip
     $honeypotResponse = Invoke-ApiSmokeRequest `
         -Path "/api/.env" `
         -Headers @{ "X-Forwarded-For" = $honeypotIp }
@@ -202,26 +274,16 @@ try {
         -Path "/api/monkeys?page=0&size=1" `
         -Headers @{ "X-Forwarded-For" = $honeypotIp }
     Assert-Problem -Response $blockedResponse -ExpectedStatus 403 -ExpectedCode "FORBIDDEN" -Name "honeypot block"
-    $controlResponse = Invoke-ApiSmokeRequest `
+    $controlProbe = Invoke-UnblockedApiProbe `
         -Path "/api/monkeys?page=0&size=1" `
-        -Headers @{ "X-Forwarded-For" = (New-ReservedTestIp -Exclude @($honeypotIp)) }
+        -Exclude @($honeypotIp) `
+        -ProbeName "honeypot control"
+    $controlResponse = $controlProbe.Response
     Assert-Status -Response $controlResponse -Expected 200 -Name "honeypot control"
 
     if ($RunRateLimitProbe) {
         Write-Host "==> Optional search rate-limit probe"
-        $rateLimitIp = New-ReservedTestIp
-        $limitedResponse = $null
-        for ($attempt = 1; $attempt -le $RateLimitAttempts; $attempt++) {
-            $response = Invoke-ApiSmokeRequest `
-                -Path "/api/monkeys?page=0&size=1" `
-                -Headers @{ "X-Forwarded-For" = $rateLimitIp }
-            if ($response.StatusCode -eq 429) {
-                $limitedResponse = $response
-                break
-            }
-            Assert-Status -Response $response -Expected 200 -Name "rate-limit warmup attempt $attempt"
-        }
-        Assert-True ($null -ne $limitedResponse) "search API must return 429 within $RateLimitAttempts attempts"
+        $limitedResponse = Invoke-RateLimitProbe
         Assert-Problem -Response $limitedResponse -ExpectedStatus 429 -ExpectedCode "RATE_LIMIT" -Name "search rate limit"
         Assert-True (-not [string]::IsNullOrWhiteSpace((Get-ApiSmokeHeader -Response $limitedResponse -Name "Retry-After"))) "429 response must include Retry-After"
     } else {

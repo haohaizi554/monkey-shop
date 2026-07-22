@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - 'codex/**'
+      - '*Architecture-Upgrade'
   pull_request:
   schedule:
     - cron: '24 19 * * 0'
