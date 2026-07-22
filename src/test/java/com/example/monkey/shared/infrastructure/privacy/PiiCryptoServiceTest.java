@@ -162,7 +162,11 @@ class PiiCryptoServiceTest {
     void genericBlindIndexNormalizesBankCardsAndPlainStrings() {
         PiiCryptoService service = enabledService();
 
-        assertThat(service.blindIndex("6222 0260 0670 5354 210")).isEqualTo(service.blindIndex("6222026006705354210"));
+        String cardIndex = service.blindIndex("6222 0260 0670 5354 210");
+        assertThat(cardIndex)
+                .matches("[0-9a-f]{64}")
+                .isEqualTo(service.blindIndex("6222026006705354210"))
+                .isNotEqualTo(service.blindIndex("4111111111111111"));
         assertThat(service.blindIndex(" Buyer-A ")).isEqualTo(service.blindIndex("buyer-a"));
     }
 

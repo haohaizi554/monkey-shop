@@ -54,6 +54,15 @@ class ApiRateLimitApplicationServiceTest {
         verify(rateLimiter).blockForHoneypot("198.51.100.24");
     }
 
+    @Test
+    void reportsAnUnblockedClient() {
+        when(rateLimiter.isBlocked("198.51.100.25")).thenReturn(false);
+
+        assertThat(service.isBlocked("198.51.100.25")).isFalse();
+
+        verify(rateLimiter).isBlocked("198.51.100.25");
+    }
+
     private static Stream<Arguments> operationMappings() {
         return Stream.of(
                 Arguments.of(ApiRateLimitOperation.LOGIN, RateLimitPolicy.LOGIN),

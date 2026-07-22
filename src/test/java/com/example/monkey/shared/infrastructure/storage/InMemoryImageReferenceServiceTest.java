@@ -39,6 +39,7 @@ class InMemoryImageReferenceServiceTest {
         assertThat(service.referenceCount("/images/default_product.png")).isZero();
         assertThat(service.referenceCount("/images/product/default_catalog.png"))
                 .isZero();
+        assertThat(service.referenceCount(" ")).isZero();
     }
 
     @Test
