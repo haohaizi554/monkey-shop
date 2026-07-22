@@ -24,3 +24,27 @@ The Helm chart renders a PrometheusRule-backed availability SLO for staging and 
 6. Use the dashboard `Audit trace API` link, or call `GET /api/stats/audit-trace?traceId=<traceId>` as an administrator with `ADMIN_DASHBOARD_READ`, to fetch the matching sanitized audit rows.
 
 The audit lookup is intentionally capped in the repository query and returns already-sanitized audit details rather than raw identifiers.
+
+## Dockerless Workstation Stack
+
+The native Windows stack is intentionally separate from the Helm production topology. It gives local acceptance real Collector, Prometheus, Loki, Tempo, and Grafana processes without weakening production defaults.
+
+```powershell
+.\scripts\bootstrap-local-observability.ps1 -ProxyUri http://127.0.0.1:7890
+.\scripts\start-local.ps1 -WithObservability
+.\scripts\verify-local-observability.ps1 -TimeoutSeconds 150
+```
+
+Runtime endpoints:
+
+| Service | Endpoint |
+| --- | --- |
+| OpenTelemetry Collector health | `http://127.0.0.1:13133/` |
+| Prometheus | `http://127.0.0.1:9090` |
+| Loki | `http://127.0.0.1:3100` |
+| Tempo | `http://127.0.0.1:3200` |
+| Grafana | `http://127.0.0.1:3000` |
+
+`status-local-observability.ps1` reports health and listener ownership. `stop-local-observability.ps1` stops only identities recorded in `%LOCALAPPDATA%\MonkeyShop\observability\state.json`. Tools, local TSDB/WAL data, logs, and the generated Grafana admin password stay below `%LOCALAPPDATA%\MonkeyShop` and are never committed.
+
+The verifier sends a real Spring request with `traceparent`; it rejects a stack that lacks a server span, exact TraceQL search result, correlated Loki log, Tempo span metric, or provisioned Grafana data source. Tempo also remote-writes `traces_service_graph_request_total` to Prometheus for Grafana Service Map rendering.

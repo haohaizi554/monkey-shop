@@ -1,0 +1,13 @@
+apiVersion: 1
+
+providers:
+  - name: MonkeyShop local
+    orgId: 1
+    folder: MonkeyShop
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 10
+    allowUiUpdates: false
+    options:
+      path: __MONKEYSHOP_DASHBOARD_PATH__
+      foldersFromFilesStructure: false

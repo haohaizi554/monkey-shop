@@ -120,6 +120,17 @@
 - [ ] 两个历史 VM 地址的 TCP/22 均超时；恢复可达集群后执行真实 MicroK8s/Argo 运行态验收。
 - [ ] 推送批次 7 至批次 9，并取得当前分支 GitHub Actions 的真实绿色结果。
 
+## 批次 10A：原生 Windows 可观测栈（本地待推送）
+
+- [x] 通过 Clash `127.0.0.1:7890` 下载并校验固定版本的 Collector、Prometheus、Loki、Tempo 与 Grafana 官方制品。
+- [x] 所有服务绑定环回地址，运行数据、PID 身份和随机生成的 Grafana 管理密码均保存在仓库外的 `%LOCALAPPDATA%\MonkeyShop`。
+- [x] 修复 Collector 内部指标与 Spring `8888` 端口冲突，以及 Loki 误选虚拟网卡后内部自连超时的问题。
+- [x] 关闭 Grafana 离线本地模式下的更新检查、插件预安装与新闻外呼。
+- [x] 增加 `start-local.ps1 -WithObservability`，在 Spring 启动前接通本地 OTLP；默认开发模式仍保持 exporter 为 `none`。
+- [x] 以真实 Spring `GET /api/v1/monkeys` 请求证明 Tempo Server Span、TraceQL 精确检索、同 Trace ID Loki 日志、Prometheus span metrics 与 Grafana 三数据源联动。
+- [x] Tempo metrics-generator 已向 Prometheus 写入 30 条 span metric 序列与 2 条 service graph 序列。
+- [x] 脚本 AST、Dashboard JSON、Collector/Loki/Tempo/Prometheus 原生配置解析、WS6 门禁与阶段回归均已通过，本批次准备提交。
+- [ ] 推送批次 10A，并取得当前分支 GitHub Actions 的真实绿色结果。
 ## 远端核验
 
 - [x] `git fetch origin` 与 `git ls-remote` 确认初始 69 个增量提交的远端目标仍为 `d6a0b99d`。
@@ -131,4 +142,4 @@
 
 ## 不随代码推送伪装完成的事项
 
-公开 TLS/HSTS、Sonar、Vault/KMS、Turnstile、Sentry、OTel/Loki/Tempo、真实 Argo 集群、镜像签名、灰度回滚以及 30 天 SLO 仍需要外部环境或凭据。它们不会阻止当前本地成果按阶段入库，但在获得真实证据前不得标记为生产验收完成。
+公开 TLS/HSTS、Sonar、Vault/KMS、Turnstile、Sentry、真实 Argo 集群、镜像签名、灰度回滚以及 30 天 SLO 仍需要外部环境或凭据；OTel/Loki/Tempo/Grafana 已在 Windows 本机形成可重复验收栈，但不等同于生产环境证据。它们不会阻止当前本地成果按阶段入库，但在获得真实证据前不得标记为生产验收完成。

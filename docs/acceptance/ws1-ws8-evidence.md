@@ -22,7 +22,8 @@ Run `scripts/verify-ws1-ws8-acceptance.ps1 -IncludeRuntimeDataProtection` for th
 - [x] Stage 11-7: commit the post-delivery UI, account-security, asset-provenance, runtime, and CI-trigger audit patch as `9866c1db`.
 - [x] Stage 11-8: make the aggregate local acceptance gate deterministic under Clash, native Windows services, and expected negative Helm checks; then run the complete local umbrella gate without manual skips.
 - [x] Stage 11-9: remove the PII-encryption bypass from both MicroK8s acceptance paths, preserve development key material across redeployments, and guard the effective Pod flags through the WS8 gate.
-- [ ] Stage 11-10: push the three local post-delivery audit commits and verify their newly enabled branch CI workflows on GitHub.
+- [x] Stage 11-10: deploy the native Windows Collector, Prometheus, Loki, Tempo, and Grafana stack; verify real Spring traces, logs, span metrics, service graphs, and provisioned data sources.
+- [ ] Stage 11-11: push the local post-delivery batches and verify their newly enabled branch CI workflows on GitHub.
 
 ## Current Local Evidence
 
@@ -86,8 +87,13 @@ The current workstation deployment is direct, not Docker-based:
 | --- | --- | ---: |
 | MySQL | `127.0.0.1:3306` | 7220 |
 | Redis-compatible service | `127.0.0.1:6379` | 15976 |
-| Spring Boot | `http://127.0.0.1:8888` | 14148 |
-| Vite | `http://127.0.0.1:5173` | 40720 |
+| Spring Boot | `http://127.0.0.1:8888` | 24380 |
+| Vite | `http://127.0.0.1:5173` | 42780 |
+| OpenTelemetry Collector | `http://127.0.0.1:13133` | 33156 |
+| Prometheus | `http://127.0.0.1:9090` | 33844 |
+| Loki | `http://127.0.0.1:3100` | 48648 |
+| Tempo | `http://127.0.0.1:3200` | 8552 |
+| Grafana | `http://127.0.0.1:3000` | 32736 |
 
 `scripts/verify-local-runtime.ps1 -RunRateLimitProbe` passed and proved:
 
@@ -97,6 +103,12 @@ The current workstation deployment is direct, not Docker-based:
 - strict authenticated PII ciphertext validation through `scripts/verify-local-data-protection.ps1 -RequirePopulatedPii`.
 
 The aggregate command `scripts/verify-ws1-ws8-acceptance.ps1 -RuntimeBaseUrl http://127.0.0.1:8888 -IncludeRuntimeDataProtection` completed again with exit code 0 on 2026-07-22 in 1,257.8 seconds after the MicroK8s hardening. It ran backend Maven verification, quality reports, WS1 scanners, WS5, WS6, WS7, WS8, Kyverno, runtime smoke/API checks, and the populated local PII audit without Docker or manual skip flags. Its retained workstation log is `target/batch9-full-acceptance.log`; VM, runtime-image, public-edge, and Sonar proof were explicitly reported as open rather than silently treated as passed.
+
+### Native Observability Evidence
+
+`scripts/verify-local-observability.ps1 -TimeoutSeconds 150` passed against native Windows processes. The gate propagated one W3C trace ID through a real Spring `GET /api/v1/monkeys` server span and two MySQL client spans, found that trace through exact TraceQL search, found a correlated Loki log, queried the Spring Prometheus target, and verified the provisioned Prometheus/Loki/Tempo Grafana data sources. The accepted trace ID was `9a7a0b9d142b4fe1a169c1143abef71c`.
+
+Tempo metrics-generator remote-write is active: the post-gate Prometheus probe returned 30 `traces_spanmetrics_calls_total` series and 2 `traces_service_graph_request_total` series. Collector internal telemetry uses `127.0.0.1:18888`, avoiding the Spring `8888` listener, and Loki advertises only `127.0.0.1` for its single-process ring.
 
 ### Local PII Migration
 
@@ -116,13 +128,13 @@ The aggregate command `scripts/verify-ws1-ws8-acceptance.ps1 -RuntimeBaseUrl htt
 | WS3 | ArchUnit, Checkstyle, Spotless, SpotBugs, DTO/port boundaries | SonarQube/SonarCloud Quality Gate A |
 | WS4 | concurrency/idempotency/precision/migration/upload tests | production-scale load and rollback exercise |
 | WS5 | build, lint, contracts, unit, axe, visual, responsive, i18n, dark mode, Lighthouse | public CSP/TLS deployment check |
-| WS6 | JSON logs, trace IDs, metrics, audit persistence, Helm dashboards/alerts | live Loki, Tempo/Jaeger, Sentry, and 30-day SLO evidence |
+| WS6 | JSON logs, trace IDs, metrics, audit persistence, Helm dashboards/alerts, plus a live native Collector/Prometheus/Loki/Tempo/Grafana stack with real Spring spans and service graph metrics | live Sentry and 30-day production SLO evidence |
 | WS7 | Docker/Helm/Argo/Kyverno artifacts, rendered manifests, and fail-closed MicroK8s generation paths | real staging/prod reconciliation, pushed digest, cosign signature, canary rollback drill |
 | WS8 | local 429 probe, encrypted database, blind indexes, key-rotation tests, and MicroK8s Pod flag contracts | live Turnstile, Vault/KMS, WAF/bot provider, TDE/backup-key integration |
 
 ## Open External Proof
 
-The following configuration is absent from the current workstation environment: `MONKEYSHOP_PUBLIC_URL`, `SONAR_TOKEN`, `SONAR_HOST_URL`, `SENTRY_DSN`, `APP_TURNSTILE_SECRET_KEY`, `APP_PII_VAULT_TOKEN`, and `OTEL_EXPORTER_OTLP_ENDPOINT`.
+The following external-production configuration is absent from the current workstation environment: `MONKEYSHOP_PUBLIC_URL`, `SONAR_TOKEN`, `SONAR_HOST_URL`, `SENTRY_DSN`, `APP_TURNSTILE_SECRET_KEY`, and `APP_PII_VAULT_TOKEN`. Local OTLP is configured explicitly by `start-local.ps1 -WithObservability`.
 
 The previously supplied VM addresses `192.168.147.128` and `192.168.119.129` both timed out on TCP/22 during the latest check, so the hardened MicroK8s scripts could not be executed against a real cluster. The configured GitHub CLI token is also invalid, and a fresh fetch still leaves the trusted remote at `d6a0b99d`.
 
@@ -130,7 +142,7 @@ Therefore these claims remain open and must not be represented as complete:
 
 1. Public DNS/TLS 1.3, HTTPS redirect, HSTS preload, and SecurityHeaders A+.
 2. Sonar Quality Gate A with 0 new bugs/vulnerabilities and duplication below 3%.
-3. Live Vault/KMS, Turnstile, Sentry, OpenTelemetry collector, Loki, and Tempo/Jaeger integration.
+3. Live Vault/KMS, Turnstile, and Sentry integration; Collector/Loki/Tempo are now locally proven but still require production-environment evidence.
 4. Real staging and production Argo CD reconciliation, signed immutable image admission, and canary rollback.
 5. A measured 99.9% availability window and MTTR drill.
 

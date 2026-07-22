@@ -1,0 +1,48 @@
+server:
+  http_listen_address: 127.0.0.1
+  http_listen_port: 3200
+  grpc_listen_address: 127.0.0.1
+  grpc_listen_port: 19096
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 127.0.0.1:14318
+        grpc:
+          endpoint: 127.0.0.1:14317
+
+ingester:
+  max_block_duration: 1m
+
+compactor:
+  compaction:
+    block_retention: 4320h
+
+metrics_generator:
+  registry:
+    external_labels:
+      cluster: monkeyshop-local
+      source: tempo
+  storage:
+    path: ${MONKEYSHOP_RUNTIME_ROOT}/data/tempo/generator/wal
+    remote_write:
+      - url: http://127.0.0.1:9090/api/v1/write
+        send_exemplars: true
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: ${MONKEYSHOP_RUNTIME_ROOT}/data/tempo/wal
+    local:
+      path: ${MONKEYSHOP_RUNTIME_ROOT}/data/tempo/blocks
+
+usage_report:
+  reporting_enabled: false
+
+overrides:
+  defaults:
+    metrics_generator:
+      processors: [service-graphs, span-metrics]

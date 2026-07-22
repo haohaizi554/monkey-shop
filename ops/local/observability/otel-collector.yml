@@ -1,0 +1,74 @@
+extensions:
+  health_check:
+    endpoint: 127.0.0.1:13133
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 127.0.0.1:4317
+      http:
+        endpoint: 127.0.0.1:4318
+  filelog/monkeyshop:
+    include:
+      - '${env:MONKEYSHOP_LOG_ROOT}/backend.out.log'
+      - '${env:MONKEYSHOP_LOG_ROOT}/backend.err.log'
+    start_at: end
+    include_file_name: true
+    include_file_path: true
+    operators:
+      - type: json_parser
+        id: parse-json-lines
+        if: 'body matches "^\\s*\\{"'
+        parse_from: body
+
+processors:
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 256
+    spike_limit_mib: 64
+  resource/local:
+    attributes:
+      - key: deployment.environment.name
+        value: local
+        action: upsert
+  batch:
+    timeout: 1s
+    send_batch_size: 512
+
+exporters:
+  otlp/tempo:
+    endpoint: 127.0.0.1:14317
+    tls:
+      insecure: true
+  otlphttp/loki:
+    endpoint: http://127.0.0.1:3100/otlp
+  prometheus:
+    endpoint: 127.0.0.1:8889
+    namespace: monkeyshop_otel
+
+service:
+  extensions: [health_check]
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 127.0.0.1
+                port: 18888
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/local, batch]
+      exporters: [otlp/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/local, batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp, filelog/monkeyshop]
+      processors: [memory_limiter, resource/local, batch]
+      exporters: [otlphttp/loki]

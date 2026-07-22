@@ -215,6 +215,144 @@ class Ws6ObservabilityWorkflowTest {
         assertThat(readme).contains(".\\scripts\\verify-ws6-observability.ps1");
     }
 
+    @Test
+    void localObservabilityStackIsDockerlessPinnedAndVerifiable() throws IOException {
+        List<String> requiredFiles = List.of(
+                "scripts/bootstrap-local-observability.ps1",
+                "scripts/start-local-observability.ps1",
+                "scripts/status-local-observability.ps1",
+                "scripts/stop-local-observability.ps1",
+                "scripts/verify-local-observability.ps1",
+                "ops/local/observability/otel-collector.yml",
+                "ops/local/observability/prometheus.yml",
+                "ops/local/observability/loki.yml",
+                "ops/local/observability/tempo.yml",
+                "ops/local/observability/grafana/provisioning/datasources/monkeyshop.yml",
+                "ops/local/observability/grafana/provisioning/dashboards/monkeyshop.yml");
+
+        assertThat(requiredFiles).allSatisfy(path -> assertThat(Path.of(path)).exists());
+
+        String bootstrap = read("scripts/bootstrap-local-observability.ps1");
+        String start = read("scripts/start-local-observability.ps1");
+        String startLocal = read("scripts/start-local.ps1");
+        String status = read("scripts/status-local-observability.ps1");
+        String stop = read("scripts/stop-local-observability.ps1");
+        String stopLocal = read("scripts/stop-local.ps1");
+        String verify = read("scripts/verify-local-observability.ps1");
+        String collector = read("ops/local/observability/otel-collector.yml");
+        String prometheus = read("ops/local/observability/prometheus.yml");
+        String loki = read("ops/local/observability/loki.yml");
+        String tempo = read("ops/local/observability/tempo.yml");
+        String dataSources = read("ops/local/observability/grafana/provisioning/datasources/monkeyshop.yml");
+
+        assertThat(bootstrap)
+                .contains("0.153.0")
+                .contains("3.12.0")
+                .contains("3.7.2")
+                .contains("2.10.5")
+                .contains("13.1.1")
+                .contains("opentelemetry-collector-releases_otelcol-contrib_windows_checksums.txt")
+                .contains("Get-FileHash")
+                .contains("SHA256")
+                .contains("\\s+")
+                .contains("\\b[0-9a-f]{64}\\b")
+                .doesNotContain("\\\\s")
+                .doesNotContain("\\\\b")
+                .contains("Expand-Archive")
+                .doesNotContain("docker");
+        assertThat(start)
+                .contains("otelcol-contrib.exe")
+                .contains("prometheus.exe")
+                .contains("loki-windows-amd64.exe")
+                .contains("tempo.exe")
+                .contains("grafana.exe")
+                .contains("New-LocalRuntimeServiceRecord")
+                .contains("Save-LocalObservabilityState")
+                .contains("RandomNumberGenerator]::Create()")
+                .contains("GetBytes($bytes)")
+                .contains("$process.HasExited")
+                .contains("exited before becoming ready")
+                .contains("GF_ANALYTICS_CHECK_FOR_UPDATES")
+                .contains("GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES")
+                .contains("GF_PLUGINS_PREINSTALL_DISABLED")
+                .contains("GF_PLUGINS_PLUGIN_ADMIN_ENABLED")
+                .contains("alerting", "plugins")
+                .contains("--web.enable-remote-write-receiver")
+                .doesNotContain("RandomNumberGenerator]::Fill")
+                .doesNotContain("grafana-server.exe")
+                .doesNotContain("docker");
+        assertThat(startLocal)
+                .contains("[switch]$WithObservability")
+                .contains("start-local-observability.ps1")
+                .contains("OTEL_TRACES_EXPORTER = \"otlp\"")
+                .contains("OTEL_EXPORTER_OTLP_ENDPOINT = \"http://127.0.0.1:4318\"")
+                .contains("OTEL_TRACES_EXPORTER = \"none\"");
+        assertThat(startLocal.indexOf("$requiredEnvironment"))
+                .isLessThan(startLocal.indexOf("start-local-observability.ps1"));
+        assertThat(status)
+                .contains("http://127.0.0.1:13133/")
+                .contains("http://127.0.0.1:9090/-/ready")
+                .contains("http://127.0.0.1:3100/ready")
+                .contains("http://127.0.0.1:3200/ready")
+                .contains("http://127.0.0.1:3000/api/health");
+        assertThat(stop)
+                .contains("grafana", "prometheus", "otelCollector", "loki", "tempo")
+                .contains("Test-LocalRuntimeProcessIdentity")
+                .contains("AddSeconds(10)")
+                .contains("Start-Sleep -Milliseconds 200");
+        assertThat(stopLocal).contains("AddSeconds(10)").contains("Start-Sleep -Milliseconds 200");
+        assertThat(verify)
+                .contains("api/v1/targets")
+                .contains("api/v1/query")
+                .contains("loki/api/v1/query_range")
+                .contains("api/search")
+                .contains("trace:id")
+                .contains("traces_spanmetrics_calls_total")
+                .contains("api/datasources")
+                .contains("X-Trace-Id")
+                .contains("traceId")
+                .contains("traceparent")
+                .contains("http.server.request")
+                .contains("+ $traceId +")
+                .doesNotContain("-f $traceId")
+                .doesNotContain("/v1/traces");
+        assertThat(collector)
+                .contains("otlp:")
+                .contains("filelog/monkeyshop:")
+                .contains("otlp/tempo:")
+                .contains("otlphttp/loki:")
+                .contains("health_check:")
+                .contains("metrics:\n      readers:")
+                .contains("host: 127.0.0.1")
+                .contains("port: 18888")
+                .doesNotContain("port: 8888");
+        assertThat(prometheus)
+                .contains("127.0.0.1:8888")
+                .contains("/actuator/prometheus")
+                .contains("127.0.0.1:8889");
+        assertThat(loki)
+                .contains("auth_enabled: false")
+                .contains("instance_addr: 127.0.0.1")
+                .contains("retention_period: 4320h")
+                .contains("allow_structured_metadata: true");
+        assertThat(tempo)
+                .contains("http:\n          endpoint: 127.0.0.1:14318")
+                .contains("grpc:\n          endpoint: 127.0.0.1:14317")
+                .doesNotContain("http: 127.0.0.1:14318")
+                .doesNotContain("grpc: 127.0.0.1:14317")
+                .contains("backend: local")
+                .contains("metrics_generator:")
+                .contains("processors: [service-graphs, span-metrics]")
+                .contains("api/v1/write");
+        assertThat(dataSources)
+                .contains("type: prometheus")
+                .contains("type: loki")
+                .contains("type: tempo")
+                .contains("derivedFields:")
+                .contains("tracesToLogsV2:")
+                .contains("tracesToMetrics:");
+    }
+
     private static String read(String path) throws IOException {
         return Files.readString(Path.of(path), StandardCharsets.UTF_8).replace("\r\n", "\n");
     }

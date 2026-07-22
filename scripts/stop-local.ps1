@@ -25,10 +25,14 @@ if ($null -eq $state) {
         }
         Write-Host "Stopping $ServiceName process $processId"
         $null = & taskkill.exe /PID $processId /T /F 2>&1
-        Start-Sleep -Milliseconds 300
-        if (Test-LocalRuntimeProcessIdentity -Identity $Identity) {
-            throw "Failed to stop tracked $ServiceName process $processId"
-        }
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            if (-not (Test-LocalRuntimeProcessIdentity -Identity $Identity)) {
+                return
+            }
+            Start-Sleep -Milliseconds 200
+        } while ([DateTime]::UtcNow -lt $deadline)
+        throw "Failed to stop tracked $ServiceName process $processId"
     }
 
     foreach ($serviceName in @("frontend", "backend", "redis")) {

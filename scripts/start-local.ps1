@@ -6,7 +6,8 @@ param(
     [int]$RedisPort = 6379,
     [int]$BackendPort = 8888,
     [int]$FrontendPort = 5173,
-    [int]$StartupTimeoutSeconds = 120
+    [int]$StartupTimeoutSeconds = 120,
+    [switch]$WithObservability
 )
 
 . (Join-Path $PSScriptRoot "local-runtime-common.ps1")
@@ -19,6 +20,7 @@ if ([string]::IsNullOrWhiteSpace($LocalEnvPath)) {
 }
 Import-LocalRuntimeEnvironment -Path $EnvPath -Required
 Import-LocalRuntimeEnvironment -Path $LocalEnvPath -Required
+
 
 $requiredEnvironment = @(
     "DB_URL",
@@ -42,6 +44,10 @@ $redisHost = [Environment]::GetEnvironmentVariable("SPRING_DATA_REDIS_HOST")
 Assert-LocalRuntime ($env:DB_URL -match "jdbc:mysql://(127\.0\.0\.1|localhost):") "DB_URL must target local MySQL"
 Assert-LocalRuntime ($redisHost -in @("127.0.0.1", "localhost")) "SPRING_DATA_REDIS_HOST must target local Redis"
 
+if ($WithObservability) {
+    & (Join-Path $PSScriptRoot "start-local-observability.ps1") -SkipBootstrap -StartupTimeoutSeconds $StartupTimeoutSeconds
+}
+
 $logsPath = Join-Path $Script:LocalRuntimeRoot "logs"
 $redisDataPath = Join-Path $Script:LocalRuntimeRoot "data\redis"
 $uploadPath = Join-Path $Script:LocalRuntimeRoot "uploads\images"
@@ -59,9 +65,14 @@ $env:APP_RATE_LIMIT_REQUIRE_REDIS_STATE = "true"
 $env:SESSION_COOKIE_SECURE = "false"
 $env:APP_JWT_COOKIE_SECURE = "false"
 $env:APP_AUTH_CAPTCHA_COOKIE_SECURE = "false"
-$env:OTEL_TRACES_EXPORTER = "none"
 $env:OTEL_METRICS_EXPORTER = "none"
 $env:OTEL_LOGS_EXPORTER = "none"
+if ($WithObservability) {
+    $env:OTEL_TRACES_EXPORTER = "otlp"
+    $env:OTEL_EXPORTER_OTLP_ENDPOINT = "http://127.0.0.1:4318"
+} else {
+    $env:OTEL_TRACES_EXPORTER = "none"
+}
 
 $previousState = Read-LocalRuntimeState
 if ($null -ne $previousState) {
@@ -72,6 +83,7 @@ if ($null -ne $previousState) {
 $state = [ordered]@{
     version = 1
     repositoryRoot = $Script:LocalRuntimeRepoRoot
+    observabilityEnabled = [bool]$WithObservability
     updatedAtUtc = [DateTime]::UtcNow.ToString("O")
     services = [ordered]@{}
 }
@@ -155,6 +167,9 @@ if (Test-LocalRuntimeTcp -Address "127.0.0.1" -Port $RedisPort) {
 Write-Host "==> Spring Boot backend"
 $backendHealthUrl = "http://127.0.0.1:$BackendPort/actuator/health"
 if (Test-LocalRuntimeHttp -Uri $backendHealthUrl) {
+    Assert-LocalRuntime `
+        (-not $WithObservability -or ($null -ne $previousState -and [bool]$previousState.observabilityEnabled)) `
+        "Backend is already running without local OTLP export; run scripts/stop-local.ps1 before enabling observability"
     Write-Host "Backend is already healthy at $backendHealthUrl"
     Save-ServiceRecord -Name "backend" -Record (Get-RunningServiceRecord -Name "backend" -Port $BackendPort)
 } else {
