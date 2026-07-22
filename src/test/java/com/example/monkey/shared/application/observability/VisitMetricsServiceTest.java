@@ -5,6 +5,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.example.monkey.shared.domain.observability.VisitLogRecorder;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,12 +24,7 @@ class VisitMetricsServiceTest {
         VisitMetricsService service = new VisitMetricsService(meterRegistry, visitLogRecorder);
         service.recordPageVisit("GET", "/shop.html", "203.0.113.9");
 
-        assertThat(meterRegistry
-                        .find("visit.page.views")
-                        .tag("page", "shop")
-                        .counter()
-                        .count())
-                .isEqualTo(1);
+        assertThat(counterCount(meterRegistry, "shop")).isEqualTo(1);
         verify(visitLogRecorder).recordVisit("203.0.113.9");
     }
 
@@ -48,12 +44,14 @@ class VisitMetricsServiceTest {
         VisitMetricsService service = new VisitMetricsService(meterRegistry, visitLogRecorder);
         service.recordClientPageView("/shop/42", "203.0.113.42");
 
-        assertThat(meterRegistry
-                        .find("visit.page.views")
-                        .tag("page", "shop/42")
-                        .counter()
-                        .count())
-                .isEqualTo(1);
+        assertThat(counterCount(meterRegistry, "shop/42")).isEqualTo(1);
         verify(visitLogRecorder).recordVisit("203.0.113.42");
+    }
+
+    private static double counterCount(SimpleMeterRegistry meterRegistry, String page) {
+        Counter counter =
+                meterRegistry.find("visit.page.views").tag("page", page).counter();
+        assertThat(counter).isNotNull();
+        return counter.count();
     }
 }

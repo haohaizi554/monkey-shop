@@ -58,6 +58,20 @@ public class AddressService {
     }
 
     @Transactional
+    public AddressResponseDto updateAddress(Long userId, Long id, AddressRequestDto request) {
+        AddressRecord existing = requireOwnedAddress(userId, id);
+        AddressRecord updated = new AddressRecord(
+                existing.id(),
+                existing.userId(),
+                request.receiverName(),
+                request.phone(),
+                request.detailAddress(),
+                existing.isDefault());
+        AddressRecord savedAddress = addressBook.save(updated);
+        return AddressDtoAssembler.toResponse(savedAddress != null ? savedAddress : updated);
+    }
+
+    @Transactional
     public AddressResponseDto setDefault(Long userId, Long id) {
         AddressRecord address = requireOwnedAddress(userId, id);
         addressBook.clearDefault(userId);

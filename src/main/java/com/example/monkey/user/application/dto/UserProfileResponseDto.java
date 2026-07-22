@@ -9,4 +9,16 @@ public record UserProfileResponseDto(
         String username,
         String avatar,
         String maskedPhone,
-        Boolean passwordChangeRequired) {}
+        Boolean passwordChangeRequired,
+        Boolean passwordExpired) {
+
+    public UserProfileResponseDto(
+            Boolean isLogin,
+            String identity,
+            String username,
+            String avatar,
+            String maskedPhone,
+            Boolean passwordChangeRequired) {
+        this(isLogin, identity, username, avatar, maskedPhone, passwordChangeRequired, null);
+    }
+}

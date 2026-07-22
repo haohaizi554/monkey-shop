@@ -82,6 +82,7 @@ public class UserController {
                 currentUser,
                 CaptchaHttp.challengeId(request),
                 requestBody.captcha(),
+                requestBody.oldPassword(),
                 requestBody.phone(),
                 requestBody.newPassword(),
                 ClientIps.resolve(request));

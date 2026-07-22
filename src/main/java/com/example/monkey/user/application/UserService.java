@@ -235,6 +235,22 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
+    public boolean verifyCurrentPassword(Long userId, String rawPassword) {
+        if (userId == null || !StringUtils.hasText(rawPassword)) {
+            return false;
+        }
+        UserAccount user = userAccountStore.findById(userId).orElse(null);
+        if (user == null) {
+            return false;
+        }
+        String currentHash = user.passwordHash();
+        if (!StringUtils.hasText(currentHash)) {
+            return false;
+        }
+        return passwordHasher.matches(rawPassword, currentHash);
+    }
+
+    @Transactional(readOnly = true)
     public boolean verifyAdminTotp(Long userId, String totpCode) {
         UserAccount user = userAccountStore.findById(userId).orElse(null);
         return user != null

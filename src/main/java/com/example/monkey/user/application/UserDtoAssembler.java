@@ -2,13 +2,16 @@ package com.example.monkey.user.application;
 
 import com.example.monkey.user.application.dto.UserProfileResponseDto;
 import com.example.monkey.user.domain.UserAccountStore.UserAccount;
+import java.time.LocalDateTime;
 
 public final class UserDtoAssembler {
+
+    private static final int PASSWORD_EXPIRY_DAYS = 90;
 
     private UserDtoAssembler() {}
 
     public static UserProfileResponseDto anonymousProfile() {
-        return new UserProfileResponseDto(false, null, null, null, null, null);
+        return new UserProfileResponseDto(false, null, null, null, null, null, null);
     }
 
     public static UserProfileResponseDto adminProfile(
@@ -19,7 +22,8 @@ public final class UserDtoAssembler {
                 displayName(user),
                 avatarOrDefault(user, defaultAvatar),
                 details ? "admin account" : null,
-                user.passwordChangeRequired());
+                user.passwordChangeRequired(),
+                passwordExpired(user));
     }
 
     public static UserProfileResponseDto userProfile(
@@ -30,7 +34,13 @@ public final class UserDtoAssembler {
                 user.username(),
                 avatarOrDefault(user, defaultAvatar),
                 details ? maskPhone(user.phone()) : null,
-                user.passwordChangeRequired());
+                user.passwordChangeRequired(),
+                passwordExpired(user));
+    }
+
+    private static boolean passwordExpired(UserAccount user) {
+        LocalDateTime lastChanged = user.passwordLastChangedAt();
+        return lastChanged != null && lastChanged.isBefore(LocalDateTime.now().minusDays(PASSWORD_EXPIRY_DAYS));
     }
 
     private static String avatarOrDefault(UserAccount user, String defaultAvatar) {

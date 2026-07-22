@@ -13,6 +13,7 @@ import org.springframework.util.StringUtils;
 public class PasswordChangeApplicationService {
     static final String ACTION_CHANGE_PASSWORD = "change-password";
     static final String CAPTCHA_INVALID = "captcha incorrect";
+    static final String CURRENT_PASSWORD_INVALID = "current password incorrect";
 
     private final UserService userService;
     private final CaptchaService captchaService;
@@ -29,6 +30,7 @@ public class PasswordChangeApplicationService {
             SessionUser currentUser,
             String captchaChallengeId,
             String captcha,
+            String oldPassword,
             String phone,
             String newPassword,
             String clientIp) {
@@ -43,6 +45,17 @@ public class PasswordChangeApplicationService {
                     clientIp,
                     "captcha_invalid");
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, CAPTCHA_INVALID);
+        }
+        if (!userService.verifyCurrentPassword(userId, oldPassword)) {
+            auditService.record(
+                    AuditService.PASSWORD_CHANGE_FAILURE,
+                    AuditService.OUTCOME_DENIED,
+                    userId,
+                    currentUser.role(),
+                    null,
+                    clientIp,
+                    "current_password_invalid");
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, CURRENT_PASSWORD_INVALID);
         }
 
         try {

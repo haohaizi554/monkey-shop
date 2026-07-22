@@ -6,8 +6,10 @@ import com.example.monkey.search.domain.SearchSuggestion;
 import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.lang.NonNull;
 
 class RedisSearchActivityStoreTest {
 
@@ -30,8 +32,8 @@ class RedisSearchActivityStoreTest {
     private static ObjectProvider<StringRedisTemplate> noRedis() {
         return new ObjectProvider<>() {
             @Override
-            public StringRedisTemplate getObject(Object... args) {
-                return null;
+            public StringRedisTemplate getObject(@NonNull Object... args) {
+                throw new NoSuchBeanDefinitionException(StringRedisTemplate.class);
             }
 
             @Override
@@ -46,7 +48,7 @@ class RedisSearchActivityStoreTest {
 
             @Override
             public StringRedisTemplate getObject() {
-                return null;
+                throw new NoSuchBeanDefinitionException(StringRedisTemplate.class);
             }
         };
     }

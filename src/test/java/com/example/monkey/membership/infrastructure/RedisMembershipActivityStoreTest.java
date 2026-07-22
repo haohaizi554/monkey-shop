@@ -7,8 +7,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.lang.NonNull;
 
 class RedisMembershipActivityStoreTest {
 
@@ -16,7 +18,7 @@ class RedisMembershipActivityStoreTest {
     void recordKeepsRecentBrowseHistoryWithFallbackTtl() {
         RedisMembershipActivityStore store =
                 new RedisMembershipActivityStore(noRedis(), new ObjectMapper().findAndRegisterModules());
-        LocalDateTime now = LocalDateTime.of(2026, 7, 4, 10, 0);
+        LocalDateTime now = LocalDateTime.now().minusMinutes(3);
 
         store.record(new BrowseHistoryItem(1L, 9L, 101L, "A", null, now, now.plusDays(7)), Duration.ofDays(7));
         store.record(
@@ -35,8 +37,8 @@ class RedisMembershipActivityStoreTest {
     private static ObjectProvider<StringRedisTemplate> noRedis() {
         return new ObjectProvider<>() {
             @Override
-            public StringRedisTemplate getObject(Object... args) {
-                return null;
+            public StringRedisTemplate getObject(@NonNull Object... args) {
+                throw new NoSuchBeanDefinitionException(StringRedisTemplate.class);
             }
 
             @Override
@@ -51,7 +53,7 @@ class RedisMembershipActivityStoreTest {
 
             @Override
             public StringRedisTemplate getObject() {
-                return null;
+                throw new NoSuchBeanDefinitionException(StringRedisTemplate.class);
             }
         };
     }

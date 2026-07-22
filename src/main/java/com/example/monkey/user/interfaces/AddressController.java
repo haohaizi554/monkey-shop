@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -55,6 +56,15 @@ public class AddressController {
     public Result<AddressResponseDto> setDefault(
             @PathVariable Long id, @AuthenticationPrincipal SessionUser currentUser) {
         return Result.success(addressApplicationService.setDefault(currentUser, id));
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('ADDRESS_MANAGE')")
+    public Result<AddressResponseDto> update(
+            @PathVariable Long id,
+            @Valid @RequestBody AddressRequestDto request,
+            @AuthenticationPrincipal SessionUser currentUser) {
+        return Result.success(addressApplicationService.updateAddress(currentUser, id, request));
     }
 
     @DeleteMapping("/{id}")

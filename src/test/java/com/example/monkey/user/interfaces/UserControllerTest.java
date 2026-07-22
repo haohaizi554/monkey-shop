@@ -124,17 +124,32 @@ class UserControllerTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
         SessionUser currentUser = new SessionUser(7L, "USER");
         when(passwordChangeService.changePassword(
-                        currentUser, CAPTCHA_CHALLENGE_ID, "1234", "18888888888", "StrongPass1!", "203.0.113.10"))
+                        currentUser,
+                        CAPTCHA_CHALLENGE_ID,
+                        "1234",
+                        "OldPass1!",
+                        "18888888888",
+                        "StrongPass1!",
+                        "203.0.113.10"))
                 .thenReturn(new PasswordChangeResult(7L));
 
         Result<Void> result = controller.updatePassword(
-                new PasswordChangeRequestDto("18888888888", "StrongPass1!", "1234"), request, response, currentUser);
+                new PasswordChangeRequestDto("OldPass1!", "18888888888", "StrongPass1!", "1234"),
+                request,
+                response,
+                currentUser);
 
         assertThat(result.code()).isEqualTo("OK");
         assertThat(result.data()).isNull();
         verify(passwordChangeService)
                 .changePassword(
-                        currentUser, CAPTCHA_CHALLENGE_ID, "1234", "18888888888", "StrongPass1!", "203.0.113.10");
+                        currentUser,
+                        CAPTCHA_CHALLENGE_ID,
+                        "1234",
+                        "OldPass1!",
+                        "18888888888",
+                        "StrongPass1!",
+                        "203.0.113.10");
         verify(tokenTransport).revokeUserTokens(7L, response);
     }
 
@@ -145,11 +160,18 @@ class UserControllerTest {
         SessionUser currentUser = new SessionUser(7L, "USER");
         doThrow(new BusinessException(ErrorCode.VALIDATION_ERROR, "captcha incorrect"))
                 .when(passwordChangeService)
-                .changePassword(currentUser, CAPTCHA_CHALLENGE_ID, "bad", "18888888888", "StrongPass1!", "127.0.0.1");
+                .changePassword(
+                        currentUser,
+                        CAPTCHA_CHALLENGE_ID,
+                        "bad",
+                        "OldPass1!",
+                        "18888888888",
+                        "StrongPass1!",
+                        "127.0.0.1");
 
         assertThatExceptionOfType(BusinessException.class)
                 .isThrownBy(() -> controller.updatePassword(
-                        new PasswordChangeRequestDto("18888888888", "StrongPass1!", "bad"),
+                        new PasswordChangeRequestDto("OldPass1!", "18888888888", "StrongPass1!", "bad"),
                         request,
                         response,
                         currentUser))
@@ -164,11 +186,15 @@ class UserControllerTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
         doThrow(new BusinessException(ErrorCode.UNAUTHORIZED, "login required"))
                 .when(passwordChangeService)
-                .changePassword(null, CAPTCHA_CHALLENGE_ID, "1234", "18888888888", "StrongPass1!", "127.0.0.1");
+                .changePassword(
+                        null, CAPTCHA_CHALLENGE_ID, "1234", "OldPass1!", "18888888888", "StrongPass1!", "127.0.0.1");
 
         assertThatExceptionOfType(BusinessException.class)
                 .isThrownBy(() -> controller.updatePassword(
-                        new PasswordChangeRequestDto("18888888888", "StrongPass1!", "1234"), request, response, null))
+                        new PasswordChangeRequestDto("OldPass1!", "18888888888", "StrongPass1!", "1234"),
+                        request,
+                        response,
+                        null))
                 .satisfies(exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.UNAUTHORIZED));
 
         verifyNoInteractions(captchaService, tokenTransport);

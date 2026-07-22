@@ -31,6 +31,10 @@ public class AddressApplicationService {
         return addressService.addAddress(requireUserId(currentUser), request);
     }
 
+    public AddressResponseDto updateAddress(SessionUser currentUser, Long id, AddressRequestDto request) {
+        return addressService.updateAddress(requireUserId(currentUser), id, request);
+    }
+
     public AddressResponseDto setDefault(SessionUser currentUser, Long id) {
         return addressService.setDefault(requireUserId(currentUser), id);
     }

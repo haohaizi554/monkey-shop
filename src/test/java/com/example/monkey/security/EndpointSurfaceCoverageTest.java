@@ -118,6 +118,7 @@ class EndpointSurfaceCoverageTest {
             "TenantAdminController#configs",
             "TenantAdminController#createTenant",
             "TenantAdminController#dashboard",
+            "TenantAdminController#downloadExportArtifact",
             "TenantAdminController#downgradeTenant",
             "TenantAdminController#exports",
             "TenantAdminController#generateBill",
@@ -183,7 +184,7 @@ class EndpointSurfaceCoverageTest {
         Files.createDirectories(report.getParent());
         Files.writeString(report, renderReport(endpoints, classifications), StandardCharsets.UTF_8);
 
-        assertThat(endpoints).hasSize(124);
+        assertThat(endpoints).hasSize(125);
         assertThat(classifications.values()).contains(Surface.CONSUMER_UI, Surface.ADMIN_UI, Surface.MACHINE_ONLY);
     }
 

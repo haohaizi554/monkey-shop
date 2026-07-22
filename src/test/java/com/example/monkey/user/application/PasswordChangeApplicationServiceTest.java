@@ -43,7 +43,7 @@ class PasswordChangeApplicationServiceTest {
 
         assertThatExceptionOfType(BusinessException.class)
                 .isThrownBy(() -> passwordChangeService.changePassword(
-                        user(), "challenge-id", "bad", "18888888888", "StrongPass1!", "127.0.0.1"))
+                        user(), "challenge-id", "bad", "OldPass1!", "18888888888", "StrongPass1!", "127.0.0.1"))
                 .withMessage("captcha incorrect")
                 .satisfies(exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.VALIDATION_ERROR));
 
@@ -63,9 +63,10 @@ class PasswordChangeApplicationServiceTest {
     void changePasswordAuditsSuccessAfterPasswordUpdate() {
         when(captchaService.validate("challenge-id", "1234", "change-password", "203.0.113.10"))
                 .thenReturn(true);
+        when(userService.verifyCurrentPassword(7L, "OldPass1!")).thenReturn(true);
 
         PasswordChangeApplicationService.PasswordChangeResult result = passwordChangeService.changePassword(
-                user(), "challenge-id", "1234", "18888888888", "StrongPass1!", "203.0.113.10");
+                user(), "challenge-id", "1234", "OldPass1!", "18888888888", "StrongPass1!", "203.0.113.10");
 
         assertThat(result.userIdToRevoke()).isEqualTo(7L);
         verify(userService).updatePassword(7L, "18888888888", "StrongPass1!", null);
@@ -84,12 +85,13 @@ class PasswordChangeApplicationServiceTest {
     void changePasswordAuditsApplicationFailureAndRethrows() {
         when(captchaService.validate("challenge-id", "1234", "change-password", "203.0.113.10"))
                 .thenReturn(true);
+        when(userService.verifyCurrentPassword(7L, "OldPass1!")).thenReturn(true);
         BusinessException failure = new BusinessException(ErrorCode.CONFLICT, "password was used recently");
         doThrow(failure).when(userService).updatePassword(7L, "18888888888", "StrongPass1!", null);
 
         assertThatExceptionOfType(BusinessException.class)
                 .isThrownBy(() -> passwordChangeService.changePassword(
-                        user(), "challenge-id", "1234", "18888888888", "StrongPass1!", "203.0.113.10"))
+                        user(), "challenge-id", "1234", "OldPass1!", "18888888888", "StrongPass1!", "203.0.113.10"))
                 .isSameAs(failure);
 
         verify(auditService)

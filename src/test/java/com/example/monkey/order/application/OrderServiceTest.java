@@ -53,6 +53,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.lang.NonNull;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionOperations;
@@ -808,7 +809,7 @@ class OrderServiceTest {
     private static TransactionOperations immediateTransactions() {
         return new TransactionOperations() {
             @Override
-            public <T> T execute(TransactionCallback<T> action) {
+            public <T> T execute(@NonNull TransactionCallback<T> action) {
                 return action.doInTransaction(new SimpleTransactionStatus());
             }
         };

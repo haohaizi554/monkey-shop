@@ -14,6 +14,7 @@ import com.example.monkey.order.application.dto.OrderPageQuery;
 import com.example.monkey.order.application.dto.OrderPageQuery.SortOrder;
 import com.example.monkey.order.application.dto.OrderPageQuery.SortOrder.Direction;
 import com.example.monkey.order.application.dto.OrderResponseDto;
+import com.example.monkey.order.application.dto.OrderShipmentResponseDto;
 import com.example.monkey.order.interfaces.dto.CreateOrderRequestDto;
 import com.example.monkey.risk.application.RiskApplicationService;
 import com.example.monkey.shared.application.dto.PageResponseDto;
@@ -209,6 +210,18 @@ class OrderControllerTest {
 
         assertThat(result.data()).isSameAs(order);
         verify(orderApplicationService).shipReturn(currentUser, 11L);
+    }
+
+    @Test
+    void adminShipmentsDelegateToManagementServiceWithoutCustomerOwnership() {
+        OrderShipmentResponseDto shipment = new OrderShipmentResponseDto(
+                501L, 11L, "SHP501", "SF", "SF501", "SHIPPED", LocalDateTime.of(2026, 6, 28, 16, 0), null, List.of());
+        when(orderService.findShipmentsAsAdmin(11L)).thenReturn(List.of(shipment));
+
+        Result<List<OrderShipmentResponseDto>> result = controller.adminShipments(11L);
+
+        assertThat(result.data()).containsExactly(shipment);
+        verify(orderService).findShipmentsAsAdmin(11L);
     }
 
     private static OrderResponseDto response() {

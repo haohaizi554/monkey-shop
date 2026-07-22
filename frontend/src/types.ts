@@ -44,6 +44,7 @@ export interface UserProfile {
   avatar?: string
   maskedPhone?: string
   passwordChangeRequired?: boolean
+  passwordExpired?: boolean
 }
 
 export interface AvatarUpdateRequest {

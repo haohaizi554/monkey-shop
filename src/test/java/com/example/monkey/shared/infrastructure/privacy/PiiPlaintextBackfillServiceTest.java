@@ -12,6 +12,7 @@ import java.util.Map;
 import javax.crypto.spec.SecretKeySpec;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.lang.NonNull;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.AbstractPlatformTransactionManager;
 import org.springframework.transaction.support.DefaultTransactionStatus;
@@ -218,14 +219,14 @@ class PiiPlaintextBackfillServiceTest {
         }
 
         @Override
-        public List<Map<String, Object>> queryForList(String sql, Object... args) {
+        public List<Map<String, Object>> queryForList(@NonNull String sql, @NonNull Object... args) {
             queries.add(sql);
             queryCalls.add(new QueryCall(sql, Arrays.copyOf(args, args.length)));
             return queryResults.removeFirst();
         }
 
         @Override
-        public int update(String sql, Object... args) {
+        public int update(@NonNull String sql, @NonNull Object... args) {
             updates.add(new Update(sql, Arrays.copyOf(args, args.length)));
             return 1;
         }

@@ -52,7 +52,9 @@ class Ws11DataWorkflowTest {
         assertThat(grafana).contains("5s", "tracking_event_total", "tracking_funnel");
         assertThat(frontendApi).contains("recordTrackingEvent", "trackingDashboard");
         assertThat(trackingSdk).contains("installTracking", "PAGE_VIEW", "CLICK", "PRODUCT_VIEW");
-        assertThat(dashboardView).contains("DashboardView", "实时看板", "转化漏斗");
+        assertThat(dashboardView)
+                .contains("DashboardView", "t('dashboard.title')", "t('dashboard.conversionFunnel')")
+                .contains("usePageVisibility", "visibility.start(loadDashboard, 5000)");
         assertThat(script).contains("TrackingApplicationServiceTest", "WS11 data verification completed successfully");
     }
 
