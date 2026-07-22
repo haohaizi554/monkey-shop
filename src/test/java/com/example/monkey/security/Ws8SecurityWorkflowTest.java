@@ -133,11 +133,15 @@ class Ws8SecurityWorkflowTest {
                 .contains("APP_PII_PREVIOUS_AES_KEYS_BASE64: ${APP_PII_PREVIOUS_AES_KEYS_BASE64:-}")
                 .contains("APP_PII_ALLOW_PLAINTEXT_READ: ${APP_PII_ALLOW_PLAINTEXT_READ:-false}")
                 .contains("APP_PII_BACKFILL_ENABLED: ${APP_PII_BACKFILL_ENABLED:-false}");
-        assertThat(application).contains("enabled: ${APP_PII_ENCRYPTION_ENABLED:true}");
+        assertThat(application)
+                .contains("enabled: ${APP_PII_ENCRYPTION_ENABLED:true}")
+                .contains("allow-plaintext-read: ${APP_PII_ALLOW_PLAINTEXT_READ:false}");
         assertThat(application)
                 .contains("batch-size: ${APP_PII_BACKFILL_BATCH_SIZE:500}")
                 .contains("batch-size: ${APP_PII_CIPHERTEXT_AUDIT_BATCH_SIZE:500}");
-        assertThat(devApplication).contains("enabled: ${APP_PII_ENCRYPTION_ENABLED:true}");
+        assertThat(devApplication)
+                .contains("enabled: ${APP_PII_ENCRYPTION_ENABLED:true}")
+                .contains("allow-plaintext-read: ${APP_PII_ALLOW_PLAINTEXT_READ:false}");
         assertThat(readme)
                 .contains("verify-runtime-data-protection.ps1")
                 .contains("verify-runtime-data-protection.sh")
@@ -145,6 +149,23 @@ class Ws8SecurityWorkflowTest {
                 .contains("--require-populated-pii")
                 .contains("enc:v1:")
                 .contains("without printing secrets or raw PII");
+    }
+
+    @Test
+    void localRuntimeGateRunsStrictAuthenticatedPiiAudit() throws IOException {
+        String verifier = read("scripts/verify-local-data-protection.ps1");
+        String runtimeGate = read("scripts/verify-local-runtime.ps1");
+
+        assertThat(verifier)
+                .contains("Import-LocalRuntimeEnvironment")
+                .contains("APP_PII_ENCRYPTION_ENABLED")
+                .contains("APP_PII_ALLOW_PLAINTEXT_READ")
+                .contains("APP_PII_BACKFILL_ENABLED")
+                .contains("PiiCiphertextAuditCli")
+                .contains("app.pii.ciphertext-audit.require-populated")
+                .contains("Authenticated PII ciphertext audit completed")
+                .contains("Local runtime data-protection gate completed successfully");
+        assertThat(runtimeGate).contains("verify-local-data-protection.ps1").contains("RequirePopulatedPii");
     }
 
     @Test

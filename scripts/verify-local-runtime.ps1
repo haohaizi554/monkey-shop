@@ -26,6 +26,9 @@ if ($RunRateLimitProbe) {
 }
 & (Join-Path $PSScriptRoot "verify-runtime-api-security.ps1") @securityArguments
 
+Write-Host "==> Local data protection"
+& (Join-Path $PSScriptRoot "verify-local-data-protection.ps1") -RequirePopulatedPii
+
 Write-Host "==> OpenAPI surface"
 $openApi = Invoke-RestMethod -Uri "$($BackendBaseUrl.TrimEnd('/'))/api/v1/openapi" -TimeoutSec 30
 $operationNames = @("get", "post", "put", "patch", "delete", "head", "options")

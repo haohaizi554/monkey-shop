@@ -1,153 +1,122 @@
 # WS1-WS8 Acceptance Evidence
 
-Date: 2026-07-03
+Date: 2026-07-22
 
-This file records the current verification evidence for the WS1-WS8 production hardening goal. It is a current-state acceptance log, not a replacement for the full objective. Items that require real public infrastructure or external SaaS gates remain listed as open proof.
+This is the current evidence log for the original WS1-WS8 objective. Local repository and workstation acceptance is green. The full production Definition of Done is not yet proven because public-edge, external SaaS, image-signing, and real staging/production-cluster evidence is unavailable.
 
-## Verified Gates
+## Delivery Stage Checklist
 
-### Umbrella Acceptance Entry Point
+- [x] Stage 9C-9D: replace the legacy UI with the Vite/Vue/TypeScript application, responsive consumer/admin workspaces, dark mode, i18n, and mascot assets.
+- [x] Stage 10: run MySQL, Redis-compatible state, Spring Boot, and Vite directly on the workstation.
+- [x] Stage 11-1: cover the consumer/admin route surface and UI-consumed API clients.
+- [x] Stage 11-2: harden request, authorization, pagination, identifier, streaming, and workflow boundaries.
+- [x] Stage 11-3: satisfy local quality, mutation, dependency, and security scanner gates.
+- [x] Stage 11-4: verify the local runtime, accessibility, visual baselines, performance, rate limiting, and encrypted PII.
+- [x] Stage 11-5: refresh this requirement-by-requirement evidence log.
+- [ ] Stage 11-6: push the local staged commits after the repository owner explicitly confirms the remote is trusted.
 
-- `scripts/verify-ws1-ws8-acceptance.ps1` is the repeatable umbrella gate for WS1-WS8 evidence.
-- By default it runs the local repository gates: Maven verify, quality reports, WS1 scanners, frontend checks, WS6/WS7/WS8 checks, and Kyverno.
-- The VM runtime umbrella path passed with:
-  - `scripts/verify-ws1-ws8-acceptance.ps1 -SkipBackendVerify -SkipFrontend -SkipWs1Scanners -RuntimeBaseUrl http://192.168.119.129:8888 -IncludeVmRuntime -SshTarget lly@192.168.119.129 -IncludeRuntimeImageScan -IncludeRuntimeDataProtection`
-  - Passed gates: WS6, WS7, WS8, Kyverno, Compose runtime smoke/API security, MicroK8s dev runtime, Argo CD MicroK8s GitOps, runtime image supply-chain, and remote runtime data protection.
-  - Backend Maven verify, WS1 scanners, and WS5 frontend were skipped in this umbrella run because their current evidence is recorded separately below.
-- Optional flags attach runtime and external evidence without pretending those systems are always present:
-  - `-RuntimeBaseUrl`
-  - `-IncludeVmRuntime -SshTarget <user@host>`
-  - `-IncludeRuntimeImageScan`
-  - `-IncludeRuntimeDataProtection`
-  - `-IncludePublicEdge -PublicBaseUrl https://...`
-  - `-IncludeSonar`
+## Current Local Evidence
 
-### Backend Quality And Security
+### Backend Quality
 
-- `mvn -DautoUpdate=false verify` passed.
-- JUnit/Surefire total: 964 tests, 0 failures, 0 errors, 0 skipped.
-- JaCoCo report gate passed: 90.86% line coverage, 4525/4980 covered lines.
-- PITest report gate passed: 85.75% mutation coverage, 704/821 killed mutations, 95.37% mutation line coverage.
-- SpotBugs report gate passed: 0 BugInstance entries.
-- OWASP dependency-check report gate passed: 0 blocking HIGH/CRITICAL or CVSS >= 7 findings.
-- `scripts/verify-quality-reports.ps1 -RequireDependencyCheckReport` passed.
+- Maven `verify` completed successfully. After the focused acceptance additions, the current Surefire report set contains 1,712 tests, 0 failures, 0 errors, and 41 skipped tests.
+- `scripts/verify-quality-reports.ps1 -RequireDependencyCheckReport` passed:
+  - JaCoCo line coverage: 84.88% (13,958/16,444).
+  - PITest mutation coverage: 85.36% (1,102/1,291).
+  - PITest mutated-class line coverage: 96.13% (1,241/1,291).
+  - SpotBugs findings: 0.
+  - OWASP dependency-check blocking vulnerabilities: 0.
+- Spring Boot is 3.5.16 and source/bytecode compatibility is Java 21.
 
 ### WS1 Security Baseline
 
-- `scripts/verify-ws1-security.ps1 -SkipMaven -SkipDependencyCheck -SkipTrivyDbUpdate -OutputDir target/ws1-security-final-check` passed.
-- Literal risk pattern scan passed.
-- Security header posture scan passed.
-- Gitleaks current tree scan passed with no leaks.
-- Gitleaks history scan passed across 73 commits with no leaks.
-- Semgrep OWASP and secrets scan passed with 0 findings.
-- Trivy filesystem HIGH/CRITICAL scan passed.
+- `scripts/verify-ws1-security.ps1 -SkipMaven -SkipDependencyCheck -SkipTrivyDbUpdate -OutputDir target/ws1-security-acceptance` passed.
+- The current-tree scanner now snapshots only tracked and non-ignored repository candidates. Ignored workstation secrets, databases, logs, and generated output are not mistaken for committable source.
+- Scanner reports contain:
+  - Gitleaks current-tree findings: 0.
+  - Gitleaks Git-history findings: 0.
+  - Semgrep findings: 0.
+  - Trivy HIGH/CRITICAL vulnerabilities: 0.
+  - Trivy HIGH/CRITICAL misconfigurations: 0.
+  - Trivy secrets: 0.
 
-### WS4 Order Concurrency
+### WS5 Frontend
 
-- `OrderConcurrencyTest` was added to prove the data/transaction acceptance points for order creation concurrency.
-- `concurrentUniqueOrderKeysDoNotOversellAvailableStock` proves concurrent unique idempotency keys cannot create more orders than available stock.
-- `concurrentDuplicateIdempotencyKeyReturnsOneOrderWithoutSecondStockDeduction` proves a concurrent duplicate idempotency key returns one order without a second stock deduction.
-- Focused order verification passed: 49 tests, 0 failures.
-- Full Maven verification also included `OrderConcurrencyTest`: 2 tests, 0 failures.
-
-### WS5 Frontend SPA
-
-- `scripts/verify-ws5-frontend.ps1` passed.
-- npm audit passed with 0 vulnerabilities at audit level high.
-- Prettier format check passed.
-- TypeScript/Vite production build passed.
-- ESLint passed.
-- API contract check passed.
-- Playwright/axe accessibility passed: 3 tests, 0 failures.
+- npm audit: 0 vulnerabilities. The successful run used the approved Clash proxy at `127.0.0.1:7890` because the WLAN DNS path was unstable.
+- Prettier, TypeScript/Vite production build, ESLint, and the API contract gate passed.
+- API contract coverage: 19 modules and 113 UI-consumed clients.
+- Vitest: 29 files and 149 tests passed.
+- Playwright UI smoke: 57 route/viewport checks passed across desktop, tablet, and mobile.
+- Playwright/axe: 34 WCAG checks passed; the 7 visual-only tests are excluded from the axe run.
+- Visual regression: 7 groups and 33 stored snapshots passed without updating the expected images.
 - Lighthouse desktop gate passed:
-  - Performance: 100
-  - Accessibility: 100
-  - Best practices: 100
-  - SEO: 100
-  - Largest Contentful Paint: 594 ms
+  - Performance: 95.
+  - Accessibility: 100.
+  - Best practices: 100.
+  - SEO: 100.
+  - Largest Contentful Paint: 1,405 ms.
+- A finite retry handles only Chromium `net::ERR_NETWORK_CHANGED`. The original failures were correlated with Windows WLAN disconnect/reconnect events; route readiness and snapshot assertions remain unchanged.
 
-### WS6 Observability
+### WS6-WS8 Repository Gates
 
 - `scripts/verify-ws6-observability.ps1` passed.
-- Helm values define a 99.9% availability SLO over 30 days.
-- PrometheusRule includes fast and slow error-budget burn alerts.
-- Grafana dashboard includes SLO availability and error-budget burn-rate panels.
-- Documentation covers the WS6 SLO and burn-rate posture.
-
-### WS7 DevOps And GitOps
-
-- `scripts/verify-ws7-devops.ps1 -RequireHelm -DownloadHelmIfMissing` passed.
-- Helm lint passed.
-- Helm template rendering passed for dev, staging, and production values.
+- `scripts/verify-ws7-devops.ps1 -RequireHelm -DownloadHelmIfMissing` passed, including Helm lint and dev/staging/prod rendering.
 - `scripts/verify-kyverno-supply-chain.ps1` passed.
-- Runtime image supply-chain scan passed:
-  - Command: `scripts/verify-runtime-image-supply-chain.ps1 -SshTarget lly@192.168.119.129 -ImageRef monkey-shop-myshop:latest -SkipDbUpdate`
-  - Exported VM runtime image digest: `85b125f729b92b1331c79dd66eea0af963e2899992416f4dffbf3e4ca0969a8d`
-  - Report: `target/runtime-supply-chain/trivy-runtime-image.json`
-  - Re-verified after VM runtime stabilization; Trivy completed without blocking HIGH/CRITICAL vulnerability, secret, or misconfiguration findings.
-
-### WS8 Anti-Abuse And Data Protection
-
 - `scripts/verify-ws8-security.ps1` passed.
-- Runtime API security smoke passed for Compose at `http://192.168.119.129:8888`.
-- Runtime API security smoke passed for MicroK8s direct NodePort at `http://192.168.119.129:30143`, including the optional rate-limit probe.
-- Runtime API security smoke passed for Argo CD GitOps NodePort at `http://192.168.119.129:30209`, including the optional rate-limit probe.
-- Runtime data-protection gate passed on the VM Compose deployment:
-  - Flyway minimum successful version: 18
-  - `APP_PII_ENCRYPTION_ENABLED=true`
-  - `APP_PII_ALLOW_PLAINTEXT_READ=false`
-  - `APP_PII_BACKFILL_ENABLED=false`
-  - No unprotected populated PII values were found in the checked tables.
-  - Populated phone blind indexes were valid 64-character HMAC values.
+- Main, dev, staging, and production configuration now default PII encryption on and legacy plaintext reads off. Backfill remains disabled by default.
 
-## Runtime Deployment Evidence
+## Local Runtime Evidence
 
-### Docker Compose VM
+The current workstation deployment is direct, not Docker-based:
 
-- SSH target: `lly@192.168.119.129`
-- Docker Compose app container: `monkey-app`, status healthy.
-- Public VM URL: `http://192.168.119.129:8888`
-- Compose configuration renders with a default MySQL URL using `sslMode=REQUIRED`; the dev profile also requires encrypted MySQL transport.
-- `scripts/verify-runtime-smoke.ps1 -BaseUrl http://192.168.119.129:8888` passed.
-- `scripts/verify-runtime-api-security.ps1 -BaseUrl http://192.168.119.129:8888` passed.
+| Service | Endpoint | Current PID |
+| --- | --- | ---: |
+| MySQL | `127.0.0.1:3306` | 7220 |
+| Redis-compatible service | `127.0.0.1:6379` | 15976 |
+| Spring Boot | `http://127.0.0.1:8888` | 28784 |
+| Vite | `http://127.0.0.1:5173` | 28460 |
 
-### MicroK8s Direct Helm Runtime
+`scripts/verify-local-runtime.ps1 -RunRateLimitProbe` passed and proved:
 
-- MicroK8s status: running.
-- Node: `lly-vmware-virtual-platform`, status Ready.
-- Namespace: `monkeyshop-dev`
-- Deployment: `monkeyshop-dev`, 1/1 available.
-- Data namespace `monkeyshop-data` includes in-cluster MySQL and Redis Services; the dev runtime points Redis-backed auth, JWT, and rate-limit state at `redis.monkeyshop-data.svc.cluster.local`.
-- NodePort: `30143`
-- `scripts/verify-microk8s-dev-runtime.ps1 -SshTarget lly@192.168.119.129 -SkipDeploy -RunApiSecurityProbe` passed.
-- `scripts/verify-microk8s-dev-runtime.ps1 -SshTarget lly@192.168.119.129 -RunApiSecurityProbe` also passed after reconciling the runtime to the in-cluster Redis topology.
+- health, SPA/static assets, security headers, trace IDs, Prometheus metrics, anonymous catalog access, protected API rejection, captcha metadata, honeypot isolation, and an actual 429 rate-limit response;
+- 124 OpenAPI operations;
+- a real Chromium storefront render and bootstrap-admin authentication;
+- strict authenticated PII ciphertext validation through `scripts/verify-local-data-protection.ps1 -RequirePopulatedPii`.
 
-### Argo CD GitOps Runtime
+### Local PII Migration
 
-- Application: `monkeyshop-gitops-dev`
-- Sync status: Synced.
-- Health status: Healthy.
-- Synced revision: `efb0627186d1a1ca29e9aa88332bd8923ee49700`
-- NodePort: `30209`
-- `scripts/verify-argocd-microk8s-gitops.ps1 -SshTarget lly@192.168.119.129 -RunApiSecurityProbe` passed.
-- The GitOps runtime also uses `redis.monkeyshop-data.svc.cluster.local` for Redis-backed app state; Argo CD's own Redis runs in-cluster with `imagePullPolicy: IfNotPresent` to avoid Docker Hub pull flakiness on the VM.
+- A pre-migration MySQL backup was created at `C:\Users\MemoryLeak\AppData\Local\MonkeyShop\backups\before-pii-backfill-clean-20260722-100539.sql`.
+- Backup size: 409,765 bytes.
+- Backup SHA-256: `EACB20BBC0A088D137D426A349A2133AC07B962B956AADFA5FE33B3B92DAC4D6`.
+- The controlled one-time backfill rewrote 144 rows: users 2, addresses 42, orders 80, reviews 20.
+- Post-backfill authenticated audit: 349 populated values, 349 authenticated ciphertexts, 0 unprotected values, and 0 blind-index mismatches.
+- The backfill flag is off and plaintext reads fail closed after migration.
+
+## Requirement Status
+
+| Workstream | Locally proven | Still requires external proof |
+| --- | --- | --- |
+| WS1 | repository scanners, dependency gate, security configuration | public TLS 1.3, HSTS preload, and SecurityHeaders A+ |
+| WS2 | centralized authorization and ownership/RBAC/MFA workflow tests | independent penetration test and live provider acceptance |
+| WS3 | ArchUnit, Checkstyle, Spotless, SpotBugs, DTO/port boundaries | SonarQube/SonarCloud Quality Gate A |
+| WS4 | concurrency/idempotency/precision/migration/upload tests | production-scale load and rollback exercise |
+| WS5 | build, lint, contracts, unit, axe, visual, responsive, i18n, dark mode, Lighthouse | public CSP/TLS deployment check |
+| WS6 | JSON logs, trace IDs, metrics, audit persistence, Helm dashboards/alerts | live Loki, Tempo/Jaeger, Sentry, and 30-day SLO evidence |
+| WS7 | Docker/Helm/Argo/Kyverno artifacts and rendered manifests | real staging/prod reconciliation, pushed digest, cosign signature, canary rollback drill |
+| WS8 | local 429 probe, encrypted database, blind indexes, key-rotation tests | live Turnstile, Vault/KMS, WAF/bot provider, TDE/backup-key integration |
 
 ## Open External Proof
 
-These items are not proven by the current local VM and repository evidence, and should not be claimed complete until the relevant external systems are available:
+The following configuration is absent from the current workstation environment: `MONKEYSHOP_PUBLIC_URL`, `SONAR_TOKEN`, `SONAR_HOST_URL`, `SENTRY_DSN`, `APP_TURNSTILE_SECRET_KEY`, `APP_PII_VAULT_TOKEN`, and `OTEL_EXPORTER_OTLP_ENDPOINT`.
 
-The operator has indicated that no additional external resources are available in this thread, so these proof items are blocked until an external DNS/TLS edge, SonarQube/SonarCloud configuration, production-like clusters, and live third-party provider credentials/endpoints exist.
+Therefore these claims remain open and must not be represented as complete:
 
-- Public DNS and TLS edge verification with `scripts/verify-public-edge-security.ps1 -BaseUrl https://<public-domain>`:
-  - HTTPS-only redirect
-  - TLS 1.3 negotiation
-  - HSTS preload posture
-  - SecurityHeaders-style A+ response header posture
-- External SonarQube or SonarCloud Quality Gate A:
-  - Requires configured `SONAR_TOKEN`, project key, and reachable Sonar host.
-  - Manual gate: `scripts/verify-sonarqube-quality-gate.ps1`.
-- Real staging and production cluster reconciliation:
-  - The Helm chart renders staging/prod and GitOps assets exist, but only the VM dev MicroK8s runtime has been live-verified here.
-- Real Vault/KMS, External Secrets, Turnstile, Sentry, OTel collector, Loki, Tempo/Jaeger, and managed database integrations:
-  - Repository config and tests cover the integration posture.
-  - Live third-party provider credentials and production endpoints must be supplied and verified separately.
+1. Public DNS/TLS 1.3, HTTPS redirect, HSTS preload, and SecurityHeaders A+.
+2. Sonar Quality Gate A with 0 new bugs/vulnerabilities and duplication below 3%.
+3. Live Vault/KMS, Turnstile, Sentry, OpenTelemetry collector, Loki, and Tempo/Jaeger integration.
+4. Real staging and production Argo CD reconciliation, signed immutable image admission, and canary rollback.
+5. A measured 99.9% availability window and MTTR drill.
+
+## Acceptance Verdict
+
+The workstation build is ready for local acceptance and the repeatable local gates are green. The original production Definition of Done remains incomplete until the external proof above is supplied and executed. Remote push also remains pending explicit trust confirmation from the repository owner.

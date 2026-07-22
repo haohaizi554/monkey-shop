@@ -44,7 +44,7 @@ app:
   pii:
     encryption:
       enabled: ${APP_PII_ENCRYPTION_ENABLED:true}
-      allow-plaintext-read: true
+      allow-plaintext-read: ${APP_PII_ALLOW_PLAINTEXT_READ:false}
   logistics:
     webhook-secret: ${APP_LOGISTICS_WEBHOOK_SECRET:${random.uuid}}
   payment:

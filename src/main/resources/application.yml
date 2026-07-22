@@ -118,7 +118,7 @@ app:
       previous-aes-keys-base64: ${APP_PII_PREVIOUS_AES_KEYS_BASE64:}
       key-version: ${APP_PII_KEY_VERSION:v1}
       key-created-at: ${APP_PII_KEY_CREATED_AT:}
-      allow-plaintext-read: ${APP_PII_ALLOW_PLAINTEXT_READ:true}
+      allow-plaintext-read: ${APP_PII_ALLOW_PLAINTEXT_READ:false}
       rotation:
         enforce: ${APP_PII_ROTATION_ENFORCE:false}
         max-age: ${APP_PII_ROTATION_MAX_AGE:PT2160H}
