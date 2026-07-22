@@ -13,6 +13,7 @@ This is the current evidence log for the original WS1-WS8 objective. Local repos
 - [x] Stage 11-3: satisfy local quality, mutation, dependency, and security scanner gates.
 - [x] Stage 11-4: verify the local runtime, accessibility, visual baselines, performance, rate limiting, and encrypted PII.
 - [x] Stage 11-5: refresh this requirement-by-requirement evidence log.
+- [x] Stage 11-5A: map the 66 local commits into five contiguous push batches with per-stage tasks and verification checkpoints in [phased-push-checklist.md](./phased-push-checklist.md).
 - [ ] Stage 11-6: push the local staged commits after the repository owner explicitly confirms the remote is trusted.
 
 ## Current Local Evidence
