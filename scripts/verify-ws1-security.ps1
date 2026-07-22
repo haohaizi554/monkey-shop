@@ -263,7 +263,63 @@ function Invoke-SecurityHeaderPostureScan {
     }
 }
 
+function New-GitleaksCurrentTreeSnapshot {
+    param([string]$GitPath)
+
+    $repositoryRoot = (Get-Location).Path
+    $repositoryPrefix = $repositoryRoot + [IO.Path]::DirectorySeparatorChar
+    $snapshotRoot = [IO.Path]::GetFullPath(
+        (Join-Path ([IO.Path]::GetTempPath()) ("monkeyshop-gitleaks-" + [Guid]::NewGuid().ToString("N")))
+    )
+    New-Item -ItemType Directory -Force -Path $snapshotRoot | Out-Null
+
+    try {
+        $candidatePaths = & $GitPath "-c" "core.quotepath=false" ls-files --cached --others --exclude-standard
+        if ($LASTEXITCODE -ne 0) {
+            throw "git ls-files failed with exit code $LASTEXITCODE"
+        }
+
+        foreach ($relativePath in $candidatePaths) {
+            if ([string]::IsNullOrWhiteSpace($relativePath)) {
+                continue
+            }
+            $sourcePath = [IO.Path]::GetFullPath((Join-Path $repositoryRoot $relativePath))
+            if (-not $sourcePath.StartsWith($repositoryPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "Repository candidate escaped the workspace: $relativePath"
+            }
+            if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+                continue
+            }
+            $destinationPath = Join-Path $snapshotRoot $relativePath
+            $destinationDirectory = Split-Path -Parent $destinationPath
+            New-Item -ItemType Directory -Force -Path $destinationDirectory | Out-Null
+            Copy-Item -LiteralPath $sourcePath -Destination $destinationPath
+        }
+        return $snapshotRoot
+    } catch {
+        Remove-GitleaksCurrentTreeSnapshot -Path $snapshotRoot
+        throw
+    }
+}
+
+function Remove-GitleaksCurrentTreeSnapshot {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return
+    }
+    $snapshotRoot = [IO.Path]::GetFullPath($Path)
+    $requiredPrefix = Join-Path ([IO.Path]::GetFullPath([IO.Path]::GetTempPath())) "monkeyshop-gitleaks-"
+    if (-not $snapshotRoot.StartsWith($requiredPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to remove an unexpected gitleaks snapshot path: $snapshotRoot"
+    }
+    if (Test-Path -LiteralPath $snapshotRoot) {
+        Remove-Item -LiteralPath $snapshotRoot -Recurse -Force
+    }
+}
+
 $mvn = if ($SkipMaven) { "" } else { Resolve-GateTool -CommandName "mvn" }
+$git = Resolve-GateTool -CommandName "git"
 $rg = Resolve-GateTool -CommandName "rg"
 $uvx = Resolve-GateTool -CommandName "uvx"
 $gitleaks = Resolve-GateTool `
@@ -297,14 +353,6 @@ Invoke-LiteralRiskScan -RipgrepPath $rg
 Invoke-SecurityHeaderPostureScan
 
 Invoke-GateCommand `
-    -Name "gitleaks current tree" `
-    -FilePath $gitleaks `
-    -Arguments @(
-        "dir", ".", "--redact", "--no-banner", "--exit-code", "1",
-        "--report-format", "json", "--report-path", (Join-Path $OutputDir "gitleaks-current.json")
-    )
-
-Invoke-GateCommand `
     -Name "gitleaks git history" `
     -FilePath $gitleaks `
     -Arguments @(
@@ -312,10 +360,17 @@ Invoke-GateCommand `
         "--report-format", "json", "--report-path", (Join-Path $OutputDir "gitleaks-history.json")
     )
 
-Invoke-GateCommand `
-    -Name "Semgrep OWASP and secrets" `
-    -FilePath $uvx `
-    -Arguments @(
+$currentTreeSnapshot = New-GitleaksCurrentTreeSnapshot -GitPath $git
+try {
+    Invoke-GateCommand `
+        -Name "gitleaks current tree" `
+        -FilePath $gitleaks `
+        -Arguments @(
+            "dir", $currentTreeSnapshot, "--redact", "--no-banner", "--exit-code", "1",
+            "--report-format", "json", "--report-path", (Join-Path $OutputDir "gitleaks-current.json")
+        )
+
+    $semgrepArgs = @(
         "semgrep", "scan",
         "--config", "p/owasp-top-ten",
         "--config", "p/secrets",
@@ -336,42 +391,39 @@ Invoke-GateCommand `
         "--exclude", "*.jpg",
         "--exclude", "*.png",
         "--json",
-        "--output", (Join-Path $OutputDir "semgrep.json")
+        "--output", (Join-Path $OutputDir "semgrep.json"),
+        $currentTreeSnapshot
+    )
+    Invoke-GateCommand `
+        -Name "Semgrep OWASP and secrets" `
+        -FilePath $uvx `
+        -Arguments $semgrepArgs
+
+    $trivyArgs = @("fs", "--timeout", "30m", "--no-progress")
+    foreach ($repository in $TrivyDbRepository) {
+        $trivyArgs += @("--db-repository", $repository)
+    }
+    foreach ($repository in $TrivyJavaDbRepository) {
+        $trivyArgs += @("--java-db-repository", $repository)
+    }
+    if ($SkipTrivyDbUpdate) {
+        $trivyArgs += @("--skip-db-update", "--skip-check-update", "--offline-scan", "--skip-version-check")
+    }
+    $trivyArgs += @(
+        "--scanners", "vuln,secret,misconfig",
+        "--severity", "HIGH,CRITICAL",
+        "--exit-code", "1",
+        "--format", "json",
+        "--output", (Join-Path $OutputDir "trivy.json"),
+        $currentTreeSnapshot
     )
 
-$trivyArgs = @("fs", "--timeout", "30m", "--no-progress")
-foreach ($repository in $TrivyDbRepository) {
-    $trivyArgs += @("--db-repository", $repository)
+    Invoke-GateCommand `
+        -Name "Trivy HIGH/CRITICAL filesystem scan" `
+        -FilePath $trivy `
+        -Arguments $trivyArgs
+} finally {
+    Remove-GitleaksCurrentTreeSnapshot -Path $currentTreeSnapshot
 }
-foreach ($repository in $TrivyJavaDbRepository) {
-    $trivyArgs += @("--java-db-repository", $repository)
-}
-if ($SkipTrivyDbUpdate) {
-    $trivyArgs += @("--skip-db-update", "--skip-check-update", "--offline-scan", "--skip-version-check")
-}
-$trivyArgs += @(
-    "--scanners", "vuln,secret,misconfig",
-    "--severity", "HIGH,CRITICAL",
-    "--exit-code", "1",
-    "--skip-dirs", ".git",
-    "--skip-dirs", "target",
-    "--skip-dirs", "uploads",
-    "--skip-dirs", ".trae",
-    "--skip-dirs", "frontend/node_modules",
-    "--skip-dirs", "frontend/dist",
-    "--skip-dirs", "frontend/dist-ssr",
-    "--skip-dirs", "frontend/test-results",
-    "--skip-dirs", "frontend/playwright-report",
-    "--skip-dirs", "frontend/coverage",
-    "--skip-files", "frontend/lighthouse-report.json",
-    "--format", "json",
-    "--output", (Join-Path $OutputDir "trivy.json"),
-    "."
-)
-
-Invoke-GateCommand `
-    -Name "Trivy HIGH/CRITICAL filesystem scan" `
-    -FilePath $trivy `
-    -Arguments $trivyArgs
 
 Write-Host "WS1 security gate completed successfully. Reports: $OutputDir"

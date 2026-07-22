@@ -8,6 +8,8 @@ frontend/test-results/
 frontend/playwright-report/
 frontend/coverage/
 frontend/lighthouse-report.json
+frontend/.playwright-cli/
+frontend/output/
 
 # IDE/editor state
 .vscode/
@@ -37,6 +39,10 @@ uploads/
 app.jar
 code.txt
 *.jar
+
+# Local-only demo seed material (may contain generated password hashes)
+scripts/generate-seed-data.ps1
+scripts/seed-data.sql
 
 # Secrets and local environment files
 .env

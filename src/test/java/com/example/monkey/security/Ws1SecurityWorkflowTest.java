@@ -60,8 +60,7 @@ class Ws1SecurityWorkflowTest {
         assertThat(script).contains("\"--skip-check-update\"");
         assertThat(script).contains("\"--offline-scan\"");
         assertThat(script).contains("\"--skip-version-check\"");
-        assertThat(script).contains("\"frontend/node_modules\"");
-        assertThat(script).contains("\"frontend/lighthouse-report.json\"");
+        assertThat(script).doesNotContain("\"--skip-dirs\"").doesNotContain("\"--skip-files\"");
     }
 
     @Test
@@ -71,6 +70,8 @@ class Ws1SecurityWorkflowTest {
         assertThat(script)
                 .contains("\"gitleaks current tree\"")
                 .contains("\"gitleaks-current.json\"")
+                .contains("ls-files", "--cached", "--others", "--exclude-standard")
+                .contains("monkeyshop-gitleaks-")
                 .contains("\"gitleaks git history\"")
                 .contains("\"gitleaks-history.json\"")
                 .contains("\"Semgrep OWASP and secrets\"")
