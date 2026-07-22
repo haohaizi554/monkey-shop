@@ -197,6 +197,7 @@ if (Test-LocalRuntimeHttp -Uri $backendHealthUrl) {
         Write-Host "Backend output tail:"
         Get-Content -LiteralPath $backendOutput -Tail 80 -ErrorAction SilentlyContinue
         Get-Content -LiteralPath $backendError -Tail 80 -ErrorAction SilentlyContinue
+        Stop-LocalRuntimeProcessTree -ProcessId $backend.Id -Name "backend launcher"
         throw
     }
     Save-ServiceRecord -Name "backend" -Record (
@@ -233,6 +234,7 @@ if (Test-LocalRuntimeHttp -Uri $frontendUrl) {
         Write-Host "Frontend output tail:"
         Get-Content -LiteralPath $frontendOutput -Tail 80 -ErrorAction SilentlyContinue
         Get-Content -LiteralPath $frontendError -Tail 80 -ErrorAction SilentlyContinue
+        Stop-LocalRuntimeProcessTree -ProcessId $frontend.Id -Name "frontend launcher"
         throw
     }
     Save-ServiceRecord -Name "frontend" -Record (

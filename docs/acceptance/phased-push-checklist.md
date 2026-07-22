@@ -129,6 +129,7 @@
 - [x] 增加 `start-local.ps1 -WithObservability`，在 Spring 启动前接通本地 OTLP；默认开发模式仍保持 exporter 为 `none`。
 - [x] 以真实 Spring `GET /api/v1/monkeys` 请求证明 Tempo Server Span、TraceQL 精确检索、同 Trace ID Loki 日志、Prometheus span metrics 与 Grafana 三数据源联动。
 - [x] Tempo metrics-generator 已向 Prometheus 写入 30 条 span metric 序列与 2 条 service graph 序列。
+- [x] 修复本地启动超时后 Maven/Java 子进程树未回收的问题；1 秒故意超时负例确认 8888 与 MonkeyShop 后端进程均无残留。
 - [x] 脚本 AST、Dashboard JSON、Collector/Loki/Tempo/Prometheus 原生配置解析、WS6 门禁与阶段回归均已通过，本批次准备提交。
 - [ ] 推送批次 10A，并取得当前分支 GitHub Actions 的真实绿色结果。
 ## 远端核验

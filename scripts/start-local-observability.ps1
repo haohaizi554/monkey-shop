@@ -135,6 +135,7 @@ function Start-ObservedService {
     } catch {
         Get-Content -LiteralPath $stdout -Tail 80 -ErrorAction SilentlyContinue
         Get-Content -LiteralPath $stderr -Tail 80 -ErrorAction SilentlyContinue
+        Stop-LocalRuntimeProcessTree -ProcessId $process.Id -Name $Name
         throw
     }
     Save-ServiceRecord -Name $Name -Record (New-LocalRuntimeServiceRecord -Launcher $process -Port $Port -StandardOutput $stdout -StandardError $stderr)

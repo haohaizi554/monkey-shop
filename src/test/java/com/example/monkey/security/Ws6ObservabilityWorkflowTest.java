@@ -235,6 +235,7 @@ class Ws6ObservabilityWorkflowTest {
         String bootstrap = read("scripts/bootstrap-local-observability.ps1");
         String start = read("scripts/start-local-observability.ps1");
         String startLocal = read("scripts/start-local.ps1");
+        String runtimeCommon = read("scripts/local-runtime-common.ps1");
         String status = read("scripts/status-local-observability.ps1");
         String stop = read("scripts/stop-local-observability.ps1");
         String stopLocal = read("scripts/stop-local.ps1");
@@ -271,6 +272,7 @@ class Ws6ObservabilityWorkflowTest {
                 .contains("RandomNumberGenerator]::Create()")
                 .contains("GetBytes($bytes)")
                 .contains("$process.HasExited")
+                .contains("Stop-LocalRuntimeProcessTree -ProcessId $process.Id")
                 .contains("exited before becoming ready")
                 .contains("GF_ANALYTICS_CHECK_FOR_UPDATES")
                 .contains("GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES")
@@ -286,7 +288,16 @@ class Ws6ObservabilityWorkflowTest {
                 .contains("start-local-observability.ps1")
                 .contains("OTEL_TRACES_EXPORTER = \"otlp\"")
                 .contains("OTEL_EXPORTER_OTLP_ENDPOINT = \"http://127.0.0.1:4318\"")
-                .contains("OTEL_TRACES_EXPORTER = \"none\"");
+                .contains("OTEL_TRACES_EXPORTER = \"none\"")
+                .contains("Stop-LocalRuntimeProcessTree -ProcessId $backend.Id")
+                .contains("Stop-LocalRuntimeProcessTree -ProcessId $frontend.Id");
+        assertThat(runtimeCommon)
+                .contains("function Stop-LocalRuntimeProcessTree")
+                .contains("WaitForExit")
+                .contains("TaskkillTimeoutSeconds = 90")
+                .contains("taskkill.exe")
+                .contains("AddSeconds($TimeoutSeconds)")
+                .contains("Start-Sleep -Milliseconds 200");
         assertThat(startLocal.indexOf("$requiredEnvironment"))
                 .isLessThan(startLocal.indexOf("start-local-observability.ps1"));
         assertThat(status)
@@ -298,9 +309,8 @@ class Ws6ObservabilityWorkflowTest {
         assertThat(stop)
                 .contains("grafana", "prometheus", "otelCollector", "loki", "tempo")
                 .contains("Test-LocalRuntimeProcessIdentity")
-                .contains("AddSeconds(10)")
-                .contains("Start-Sleep -Milliseconds 200");
-        assertThat(stopLocal).contains("AddSeconds(10)").contains("Start-Sleep -Milliseconds 200");
+                .contains("Stop-LocalRuntimeProcessTree -ProcessId $processId");
+        assertThat(stopLocal).contains("Stop-LocalRuntimeProcessTree -ProcessId $processId");
         assertThat(verify)
                 .contains("api/v1/targets")
                 .contains("api/v1/query")

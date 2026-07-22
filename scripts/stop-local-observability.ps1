@@ -21,15 +21,7 @@ function Stop-TrackedIdentity {
         return
     }
     Write-Host "Stopping $ServiceName process $processId"
-    $null = & taskkill.exe /PID $processId /T /F 2>&1
-    $deadline = [DateTime]::UtcNow.AddSeconds(10)
-    do {
-        if (-not (Test-LocalRuntimeProcessIdentity -Identity $Identity)) {
-            return
-        }
-        Start-Sleep -Milliseconds 200
-    } while ([DateTime]::UtcNow -lt $deadline)
-    throw "Failed to stop tracked $ServiceName process $processId"
+    Stop-LocalRuntimeProcessTree -ProcessId $processId -Name $ServiceName
 }
 
 foreach ($serviceName in @("grafana", "prometheus", "otelCollector", "loki", "tempo")) {

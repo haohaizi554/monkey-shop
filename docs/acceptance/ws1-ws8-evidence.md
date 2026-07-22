@@ -110,6 +110,8 @@ The aggregate command `scripts/verify-ws1-ws8-acceptance.ps1 -RuntimeBaseUrl htt
 
 Tempo metrics-generator remote-write is active: the post-gate Prometheus probe returned 30 `traces_spanmetrics_calls_total` series and 2 `traces_service_graph_request_total` series. Collector internal telemetry uses `127.0.0.1:18888`, avoiding the Spring `8888` listener, and Loki advertises only `127.0.0.1` for its single-process ring.
 
+The lifecycle negative gate forced a one-second backend startup timeout. The launcher terminated its verified Maven/Java process tree, and a delayed probe found neither an `8888` listener nor a MonkeyShop backend process. The same bounded cleanup helper is used by Vite, each observability component, and both stop scripts.
+
 ### Local PII Migration
 
 - A pre-migration MySQL backup was created at `C:\Users\MemoryLeak\AppData\Local\MonkeyShop\backups\before-pii-backfill-clean-20260722-100539.sql`.

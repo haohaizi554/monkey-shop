@@ -10,6 +10,7 @@ Date: 2026-07-22
 - [x] Disable Grafana update/plugin network calls in offline local mode.
 - [x] Wire `start-local.ps1 -WithObservability` to OTLP before Spring starts.
 - [x] Verify a real Spring server span, exact TraceQL search, correlated Loki log, Prometheus target, span metrics, service graph metrics, and Grafana data sources.
+- [x] Prove timed-out application starts terminate their Maven/Java process tree and cannot become untracked late listeners.
 - [x] Run repository syntax/config/WS6 gates and prepare the Batch 10A commit.
 
 ## Batch 10B: Native Security And Storage

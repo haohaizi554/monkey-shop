@@ -15,6 +15,40 @@ function Assert-LocalRuntime {
     }
 }
 
+function Stop-LocalRuntimeProcessTree {
+    param(
+        [int]$ProcessId,
+        [string]$Name = "process",
+        [int]$TimeoutSeconds = 10,
+        [int]$TaskkillTimeoutSeconds = 90
+    )
+    if ($null -eq (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) {
+        return
+    }
+
+    $taskkill = Start-Process `
+        -FilePath "taskkill.exe" `
+        -ArgumentList @("/PID", [string]$ProcessId, "/T", "/F") `
+        -WindowStyle Hidden `
+        -PassThru
+    if (-not $taskkill.WaitForExit($TaskkillTimeoutSeconds * 1000)) {
+        try {
+            $taskkill.Kill()
+        } catch {
+        }
+        throw "Timed out while terminating $Name process tree $ProcessId"
+    }
+
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        if ($null -eq (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) {
+            return
+        }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "Failed to stop $Name process tree $ProcessId"
+}
+
 function Resolve-LocalRuntimePath {
     param(
         [string]$Path,
