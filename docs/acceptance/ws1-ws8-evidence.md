@@ -13,7 +13,7 @@ This is the current evidence log for the original WS1-WS8 objective. Local repos
 - [x] Stage 11-3: satisfy local quality, mutation, dependency, and security scanner gates.
 - [x] Stage 11-4: verify the local runtime, accessibility, visual baselines, performance, rate limiting, and encrypted PII.
 - [x] Stage 11-5: refresh this requirement-by-requirement evidence log.
-- [x] Stage 11-5A: map the 66 local commits into five contiguous push batches with per-stage tasks and verification checkpoints in [phased-push-checklist.md](./phased-push-checklist.md).
+- [x] Stage 11-5A: map the 68 local commits into five contiguous push batches with per-stage tasks and verification checkpoints in [phased-push-checklist.md](./phased-push-checklist.md).
 - [ ] Stage 11-6: push the local staged commits after the repository owner explicitly confirms the remote is trusted.
 
 ## Current Local Evidence
@@ -46,16 +46,17 @@ This is the current evidence log for the original WS1-WS8 objective. Local repos
 - npm audit: 0 vulnerabilities. The successful run used the approved Clash proxy at `127.0.0.1:7890` because the WLAN DNS path was unstable.
 - Prettier, TypeScript/Vite production build, ESLint, and the API contract gate passed.
 - API contract coverage: 19 modules and 113 UI-consumed clients.
-- Vitest: 29 files and 149 tests passed.
+- Vitest: 29 files and 150 tests passed.
 - Playwright UI smoke: 57 route/viewport checks passed across desktop, tablet, and mobile.
 - Playwright/axe: 34 WCAG checks passed; the 7 visual-only tests are excluded from the axe run.
 - Visual regression: 7 groups and 33 stored snapshots passed without updating the expected images.
+- The design-token contract scans every shared CSS file and every Vue style block; raw color literals are confined to the semantic token registry.
 - Lighthouse desktop gate passed:
-  - Performance: 95.
+  - Performance: 96.
   - Accessibility: 100.
   - Best practices: 100.
   - SEO: 100.
-  - Largest Contentful Paint: 1,405 ms.
+  - Largest Contentful Paint: 1,325 ms.
 - A finite retry handles only Chromium `net::ERR_NETWORK_CHANGED`. The original failures were correlated with Windows WLAN disconnect/reconnect events; route readiness and snapshot assertions remain unchanged.
 
 ### WS6-WS8 Repository Gates

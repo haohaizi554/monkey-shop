@@ -1,10 +1,22 @@
 /// <reference types="node" />
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const readStyle = (name: string) =>
-  readFileSync(resolve(process.cwd(), 'src', 'styles', name), 'utf8')
+const sourceRoot = resolve(process.cwd(), 'src')
+const stylesRoot = resolve(sourceRoot, 'styles')
+
+const readStyle = (name: string) => readFileSync(resolve(stylesRoot, name), 'utf8')
+
+function findFiles(directory: string, extension: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = resolve(directory, entry.name)
+    if (entry.isDirectory()) {
+      return findFiles(path, extension)
+    }
+    return entry.isFile() && entry.name.endsWith(extension) ? [path] : []
+  })
+}
 
 describe('commerce design token contract', () => {
   const tokens = readStyle('tokens.css')
@@ -42,5 +54,24 @@ describe('commerce design token contract', () => {
     expect(styles).not.toMatch(/linear-gradient|radial-gradient/)
     expect(styles).not.toMatch(/letter-spacing:\s*-/)
     expect(styles).not.toMatch(/border-radius:\s*(1[2-9]|[2-9]\d)px/)
+  })
+
+  it('keeps raw color literals inside the semantic token registry', () => {
+    const cssSources = findFiles(stylesRoot, '.css')
+      .filter((path) => !path.endsWith('tokens.css'))
+      .map((path) => ({ path, content: readFileSync(path, 'utf8') }))
+    const vueStyleSources = findFiles(sourceRoot, '.vue').flatMap((path) => {
+      const content = readFileSync(path, 'utf8')
+      return [...content.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/g)].map((match) => ({
+        path,
+        content: match[1],
+      }))
+    })
+    const rawColorLiteral = /#[0-9a-f]{3,8}\b|rgba?\(/i
+    const offenders = [...cssSources, ...vueStyleSources]
+      .filter(({ content }) => rawColorLiteral.test(content))
+      .map(({ path }) => path.slice(sourceRoot.length + 1).replaceAll('\\', '/'))
+
+    expect(offenders).toEqual([])
   })
 })

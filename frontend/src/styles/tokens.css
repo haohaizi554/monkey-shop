@@ -79,6 +79,7 @@
   --shadow-card: var(--shadow-surface);
   --shadow-overlay: 0 20px 52px rgb(24 34 48 / 0.18);
   --shadow-control: 0 7px 18px rgb(24 34 48 / 0.12);
+  --shadow-bottom-nav: 0 -4px 14px rgb(24 34 48 / 0.08);
 
   --focus-width: 2px;
   --focus-offset: 2px;
@@ -175,6 +176,7 @@ html.dark {
   --shadow-card: var(--shadow-surface);
   --shadow-overlay: 0 18px 48px rgb(0 0 0 / 0.38);
   --shadow-control: 0 6px 14px rgb(0 0 0 / 0.28);
+  --shadow-bottom-nav: 0 -4px 14px rgb(0 0 0 / 0.3);
   --focus-ring: color-mix(in srgb, var(--color-primary) 58%, transparent);
 }
 
