@@ -171,6 +171,18 @@ class RepositoryHygieneTest {
         }
     }
 
+    @Test
+    void frontendAcceptanceBypassesConfiguredProxyForLoopbackServers() throws IOException {
+        String script = Files.readString(Path.of("scripts/verify-ws5-frontend.ps1"), StandardCharsets.UTF_8);
+
+        assertThat(script)
+                .contains("$env:NO_PROXY")
+                .contains("$env:no_proxy")
+                .contains("127.0.0.1")
+                .contains("localhost")
+                .contains("::1");
+    }
+
     private static String readProcessOutput(Process process) {
         try {
             return new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);

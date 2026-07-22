@@ -593,3 +593,4 @@ if ($Failures.Count -gt 0) {
 }
 
 Write-Host "WS7 DevOps gate completed successfully."
+$global:LASTEXITCODE = 0

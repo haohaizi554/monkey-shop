@@ -21,6 +21,30 @@ function Add-Failure {
     [void]$script:Failures.Add($Message)
 }
 
+function Add-LoopbackProxyBypass {
+    $entries = [System.Collections.Generic.List[string]]::new()
+    foreach ($configuredValue in @($env:NO_PROXY, $env:no_proxy)) {
+        if ([string]::IsNullOrWhiteSpace($configuredValue)) {
+            continue
+        }
+        foreach ($entry in ($configuredValue -split ",")) {
+            $trimmedEntry = $entry.Trim()
+            if (-not [string]::IsNullOrWhiteSpace($trimmedEntry) -and -not $entries.Contains($trimmedEntry)) {
+                [void]$entries.Add($trimmedEntry)
+            }
+        }
+    }
+    foreach ($loopbackHost in @("127.0.0.1", "localhost", "::1")) {
+        if (-not $entries.Contains($loopbackHost)) {
+            [void]$entries.Add($loopbackHost)
+        }
+    }
+
+    $proxyBypass = $entries -join ","
+    $env:NO_PROXY = $proxyBypass
+    $env:no_proxy = $proxyBypass
+}
+
 function Invoke-FrontendCommand {
     param(
         [string]$Name,
@@ -123,6 +147,7 @@ if (failures.length > 0) {
 
 Write-Host "==> WS5 frontend checks"
 
+Add-LoopbackProxyBypass
 $script:FrontendPath = Join-Path (Get-Location).Path $FrontendDir
 if (-not (Test-Path -LiteralPath (Join-Path $script:FrontendPath "package.json"))) {
     Add-Failure "Missing frontend package.json under $script:FrontendPath"

@@ -92,6 +92,16 @@ class Ws7DevOpsWorkflowTest {
     }
 
     @Test
+    void ws7VerifierClearsExpectedNativeFailureExitCodeOnSuccess() throws IOException {
+        String script = read("scripts/verify-ws7-devops.ps1");
+
+        assertThat(script)
+                .contains("Assert-HelmFailure")
+                .contains("WS7 DevOps gate completed successfully.")
+                .contains("$global:LASTEXITCODE = 0");
+    }
+
+    @Test
     void ciRequiresHelmRenderedManifestEvidenceForWs7() throws IOException {
         String workflow = read(".github/workflows/ci.yaml");
         String script = read("scripts/verify-ws7-devops.ps1");

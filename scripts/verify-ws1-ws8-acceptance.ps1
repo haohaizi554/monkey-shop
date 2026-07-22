@@ -193,8 +193,10 @@ try {
 
     if ($IncludeRuntimeDataProtection) {
         if ([string]::IsNullOrWhiteSpace($SshTarget)) {
-            Invoke-AcceptanceStep -Name "Runtime data-protection gate" -Action {
-                Invoke-RepoScript -RelativePath "scripts/verify-runtime-data-protection.ps1"
+            Invoke-AcceptanceStep -Name "Local runtime data-protection gate" -Action {
+                Invoke-RepoScript `
+                    -RelativePath "scripts/verify-local-data-protection.ps1" `
+                    -Parameters @{ RequirePopulatedPii = $true }
             }
         } else {
             Invoke-AcceptanceStep -Name "Remote runtime data-protection gate" -Action {

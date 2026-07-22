@@ -19,13 +19,15 @@ Run `scripts/verify-ws1-ws8-acceptance.ps1 -IncludeRuntimeDataProtection` for th
 - [x] Stage 11-5: refresh this requirement-by-requirement evidence log.
 - [x] Stage 11-5A: map the first 68 incremental commits into five contiguous push batches with per-stage tasks and verification checkpoints in [phased-push-checklist.md](./phased-push-checklist.md).
 - [x] Stage 11-6: fetch the trusted remote and verify that all five delivery targets plus the one-commit UI follow-up are present through `d6a0b99d` (69 incremental commits from `6a7a7ce4`).
-- [ ] Stage 11-7: commit and push the post-delivery audit patch, then verify its newly enabled branch CI workflows on GitHub.
+- [x] Stage 11-7: commit the post-delivery UI, account-security, asset-provenance, runtime, and CI-trigger audit patch as `9866c1db`.
+- [x] Stage 11-8: make the aggregate local acceptance gate deterministic under Clash, native Windows services, and expected negative Helm checks; then run the complete local umbrella gate without manual skips.
+- [ ] Stage 11-9: push the two local post-delivery audit commits and verify their newly enabled branch CI workflows on GitHub.
 
 ## Current Local Evidence
 
 ### Backend Quality
 
-- Maven `test` completed successfully. After the focused acceptance additions, the current Surefire report set contains 1,714 tests, 0 failures, 0 errors, and 41 skipped tests.
+- The full umbrella run's Maven `verify` completed successfully. The current Surefire report set contains 1,716 tests, 0 failures, 0 errors, and 41 skipped tests across 246 suites.
 - `scripts/verify-quality-reports.ps1 -RequireDependencyCheckReport` passed:
   - JaCoCo line coverage: 84.88% (13,958/16,444).
   - PITest mutation coverage: 85.36% (1,102/1,291).
@@ -48,7 +50,7 @@ Run `scripts/verify-ws1-ws8-acceptance.ps1 -IncludeRuntimeDataProtection` for th
 
 ### WS5 Frontend
 
-- npm audit: 0 vulnerabilities. The successful run used the approved Clash proxy at `127.0.0.1:7890` because the WLAN DNS path was unstable.
+- npm audit: 0 vulnerabilities. The successful run used the approved Clash proxy at `127.0.0.1:7890` because the WLAN DNS path was unstable; the WS5 verifier now preserves configured proxy exclusions and always adds `127.0.0.1`, `localhost`, and `::1` for its local Playwright servers.
 - Prettier, TypeScript/Vite production build, ESLint, and the API contract gate passed.
 - API contract coverage: 19 modules and 113 UI-consumed clients.
 - Vitest: 29 files and 151 tests passed.
@@ -61,13 +63,14 @@ Run `scripts/verify-ws1-ws8-acceptance.ps1 -IncludeRuntimeDataProtection` for th
   - Accessibility: 100.
   - Best practices: 100.
   - SEO: 100.
-  - Largest Contentful Paint: 1,336 ms.
+  - Largest Contentful Paint: 1,279 ms.
 - A finite retry handles only Chromium `net::ERR_NETWORK_CHANGED`. The original failures were correlated with Windows WLAN disconnect/reconnect events; route readiness and snapshot assertions remain unchanged.
 
 ### WS6-WS8 Repository Gates
 
 - `scripts/verify-ws6-observability.ps1` passed.
 - `scripts/verify-ws7-devops.ps1 -RequireHelm -DownloadHelmIfMissing` passed, including Helm lint and dev/staging/prod rendering.
+- The WS7 verifier clears the native exit code left by its expected all-zero-digest rejection before returning success to an aggregate PowerShell caller.
 - `scripts/verify-kyverno-supply-chain.ps1` passed.
 - `scripts/verify-ws8-security.ps1` passed.
 - Main, dev, staging, and production configuration now default PII encryption on and legacy plaintext reads off. Backfill remains disabled by default.
@@ -90,6 +93,8 @@ The current workstation deployment is direct, not Docker-based:
 - 124 OpenAPI operations;
 - a real Chromium storefront render and bootstrap-admin authentication;
 - strict authenticated PII ciphertext validation through `scripts/verify-local-data-protection.ps1 -RequirePopulatedPii`.
+
+The aggregate command `scripts/verify-ws1-ws8-acceptance.ps1 -RuntimeBaseUrl http://127.0.0.1:8888 -IncludeRuntimeDataProtection` also completed with exit code 0 on 2026-07-22 in 943.9 seconds. It ran backend Maven verification, quality reports, WS1 scanners, WS5, WS6, WS7, WS8, Kyverno, runtime smoke/API checks, and the populated local PII audit without Docker or manual skip flags. Its retained workstation log is `target/ws1-ws8-full-acceptance.log`; VM, runtime-image, public-edge, and Sonar proof were explicitly reported as open rather than silently treated as passed.
 
 ### Local PII Migration
 
@@ -127,4 +132,4 @@ Therefore these claims remain open and must not be represented as complete:
 
 ## Acceptance Verdict
 
-The workstation build is ready for local acceptance and the repeatable local gates are green. The initial staged delivery is present on the trusted remote through `d6a0b99d`; the post-delivery audit patch and its remote CI evidence are still pending. The original production Definition of Done remains incomplete until the external proof above is supplied and executed.
+The workstation build is ready for local acceptance and the repeatable local gates are green. The initial staged delivery is present on the trusted remote through `d6a0b99d`; a fresh fetch on 2026-07-22 still leaves the local branch ahead, so the post-delivery audit commits and their remote CI evidence remain pending. The original production Definition of Done remains incomplete until the external proof above is supplied and executed.
