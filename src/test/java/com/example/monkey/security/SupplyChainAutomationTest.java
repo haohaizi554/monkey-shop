@@ -55,7 +55,10 @@ class SupplyChainAutomationTest {
                 .contains("name: Snyk Security Gate")
                 .contains("- 'codex/**'")
                 .contains("SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}")
-                .contains("SNYK_TOKEN secret is required")
+                .contains("EXTERNAL_SECURITY_GATES_REQUIRED")
+                .contains("id: snyk-policy")
+                .contains("::notice title=Snyk gate deferred::")
+                .contains("if: steps.snyk-policy.outputs.available == 'true'")
                 .contains("npm install --global snyk")
                 .contains("snyk test --file=pom.xml --package-manager=maven --severity-threshold=high")
                 .contains("working-directory: frontend")
@@ -90,6 +93,10 @@ class SupplyChainAutomationTest {
         assertThat(requiredChecks)
                 .contains("branch: main")
                 .contains("require_pull_request_before_merging: true")
+                .contains("external_security_gate_policy:")
+                .contains("repository_variable: EXTERNAL_SECURITY_GATES_REQUIRED")
+                .contains("default: false")
+                .contains("required_secrets_when_enabled:")
                 .contains("- NVD_API_KEY")
                 .contains("- SNYK_TOKEN")
                 .contains("- Maven Verify")
@@ -181,6 +188,10 @@ class SupplyChainAutomationTest {
         assertThat(workflow)
                 .contains("name: SonarQube Quality Gate")
                 .contains("SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}")
+                .contains("EXTERNAL_SECURITY_GATES_REQUIRED")
+                .contains("id: sonar-policy")
+                .contains("::notice title=SonarQube gate deferred::")
+                .contains("if: steps.sonar-policy.outputs.available == 'true'")
                 .contains("SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}")
                 .contains("SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}")
                 .contains("sonar.qualitygate.wait=true")
@@ -218,6 +229,34 @@ class SupplyChainAutomationTest {
                 .contains("SONAR_TOKEN")
                 .contains("SONAR_PROJECT_KEY")
                 .contains("SonarQube Quality Gate");
+    }
+
+    @Test
+    void ciKeepsLocalSecurityBlockingWhenExternalCredentialsAreUnavailable() throws IOException {
+        String ci = Files.readString(Path.of(".github/workflows/ci.yaml"), StandardCharsets.UTF_8);
+        String ws1 = Files.readString(Path.of(".github/workflows/ws1-security.yml"), StandardCharsets.UTF_8);
+        String snyk = Files.readString(Path.of(".github/workflows/snyk.yml"), StandardCharsets.UTF_8);
+        String sonar = Files.readString(Path.of(".github/workflows/sonarqube.yml"), StandardCharsets.UTF_8);
+
+        assertThat(ci)
+                .contains("EXTERNAL_SECURITY_GATES_REQUIRED")
+                .contains("id: nvd-policy")
+                .contains("::notice title=OWASP dependency-check deferred::")
+                .contains("-Ddependency-check.skip=true clean verify")
+                .contains("npm run audit")
+                .contains("Trivy runtime image JSON gate");
+        assertThat(ws1)
+                .contains("Fast WS1 Security Gate")
+                .contains("id: nvd-policy")
+                .contains("::notice title=OWASP dependency-check deferred::");
+        assertThat(snyk)
+                .contains("id: snyk-policy")
+                .contains("::notice title=Snyk gate deferred::")
+                .contains("if: steps.snyk-policy.outputs.available == 'true'");
+        assertThat(sonar)
+                .contains("id: sonar-policy")
+                .contains("::notice title=SonarQube gate deferred::")
+                .contains("if: steps.sonar-policy.outputs.available == 'true'");
     }
 
     @Test

@@ -337,7 +337,7 @@ Run `.\scripts\verify-runtime-data-protection.ps1 -ComposeProject monkey-shop -R
 
 On Linux compose hosts or VMs without PowerShell, run `bash scripts/verify-runtime-data-protection.sh --compose-project monkey-shop --require-populated-pii` for the same runtime data-protection gate.
 
-Full Maven `verify` includes JaCoCo, SpotBugs/FindSecBugs, PIT mutation testing, and OWASP dependency-check. Set `NVD_API_KEY` before running full dependency-check to avoid NVD rate limits.
+Full Maven `verify` includes JaCoCo, SpotBugs/FindSecBugs, PIT mutation testing, and OWASP dependency-check. Set `NVD_API_KEY` before running full dependency-check to avoid NVD rate limits. GitHub Actions defers only the external NVD refresh when that credential is absent; set repository variable `EXTERNAL_SECURITY_GATES_REQUIRED=true` to make missing NVD, Snyk, or SonarQube credentials fail immediately.
 
 Run `.\scripts\verify-quality-reports.ps1` after Maven `verify` to re-check the generated JaCoCo line coverage, PIT mutation and line coverage, and SpotBugs XML reports without rerunning the full build.
 
@@ -443,8 +443,8 @@ The staging and production Helm values enable ServiceMonitor, PrometheusRule, an
 
 - `.github/dependabot.yml` maintains Maven, frontend npm, GitHub Actions, and Docker dependencies.
 - `.github/workflows/codeql.yml` runs CodeQL for Java/Kotlin and JavaScript/TypeScript sources.
-- `.github/workflows/snyk.yml` scans `pom.xml` and `frontend/package-lock.json`; the `SNYK_TOKEN` repository secret is required for the Snyk dependency gate.
-- `.github/workflows/sonarqube.yml` runs the blocking SonarQube Quality Gate with JaCoCo and SpotBugs reports; `SONAR_TOKEN`, `SONAR_PROJECT_KEY`, and Sonar host variables must be configured in the repository.
+- `.github/workflows/snyk.yml` scans `pom.xml` and `frontend/package-lock.json` when `SNYK_TOKEN` is configured. Without it, the job records an explicit deferred notice while Fast WS1, Maven local checks, Trivy, CodeQL, and npm audit remain blocking.
+- `.github/workflows/sonarqube.yml` runs the blocking SonarQube Quality Gate with JaCoCo and SpotBugs reports when `SONAR_TOKEN`, `SONAR_PROJECT_KEY`, and Sonar host variables are configured. Missing settings are reported as deferred unless `EXTERNAL_SECURITY_GATES_REQUIRED=true`.
 - `scripts/verify-sonarqube-quality-gate.ps1` provides the same blocking SonarQube Quality Gate as a manual release-readiness gate.
 - `.github/workflows/ci.yaml` builds `monkeyshop:ci`, blocks HIGH/CRITICAL Trivy image findings, uploads SARIF to code scanning, and keeps `target/runtime-supply-chain/trivy-runtime-image.json` as the runtime-image audit report.
 

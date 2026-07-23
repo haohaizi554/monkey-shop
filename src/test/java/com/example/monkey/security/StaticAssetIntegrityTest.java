@@ -355,7 +355,8 @@ class StaticAssetIntegrityTest {
                 .contains("npm run format")
                 .contains("npx playwright install --with-deps chromium")
                 .contains("npm run test:a11y")
-                .contains("CHROME_PATH=$(node -e")
+                .contains("chromium_path=\"$(node -p 'require(\"playwright\").chromium.executablePath()')\"")
+                .contains("printf 'CHROME_PATH=%s\\n'")
                 .contains("chromium.executablePath()")
                 .contains("npm run test:lighthouse")
                 .contains("frontend/lighthouse-report.json");

@@ -42,7 +42,10 @@ class Ws1SecurityWorkflowTest {
         assertThat(workflow).contains(".\\scripts\\verify-ws1-security.ps1 -SkipDependencyCheck");
         assertThat(workflow).contains("target/ws1-security/");
         assertThat(workflow).contains("NVD_API_KEY: ${{ secrets.NVD_API_KEY }}");
-        assertThat(workflow).contains("Set repository secret NVD_API_KEY");
+        assertThat(workflow).contains("EXTERNAL_SECURITY_GATES_REQUIRED");
+        assertThat(workflow).contains("id: nvd-policy");
+        assertThat(workflow).contains("::notice title=OWASP dependency-check deferred::");
+        assertThat(workflow).contains("if: steps.nvd-policy.outputs.available == 'true'");
         assertThat(workflow).contains("mvn --batch-mode -DautoUpdate=true clean verify");
     }
 

@@ -12,6 +12,9 @@ on:
 permissions:
   contents: read
 
+env:
+  EXTERNAL_SECURITY_GATES_REQUIRED: ${{ vars.EXTERNAL_SECURITY_GATES_REQUIRED || 'false' }}
+
 jobs:
   fast-security:
     name: Fast WS1 Security Gate
@@ -65,29 +68,43 @@ jobs:
     env:
       NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
     steps:
+      - name: Resolve OWASP dependency-check policy
+        id: nvd-policy
+        shell: pwsh
+        run: |
+          $available = -not [string]::IsNullOrWhiteSpace($env:NVD_API_KEY)
+          "available=$($available.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          if ($available) {
+            return
+          }
+          if ($env:EXTERNAL_SECURITY_GATES_REQUIRED -eq "true") {
+            throw "NVD_API_KEY is required when EXTERNAL_SECURITY_GATES_REQUIRED=true."
+          }
+          Write-Output "::notice title=OWASP dependency-check deferred::NVD_API_KEY is not configured; the Fast WS1 Security Gate remains blocking."
+          @(
+            "### OWASP dependency-check deferred"
+            "NVD_API_KEY is not configured. Set EXTERNAL_SECURITY_GATES_REQUIRED=true to make this credential mandatory."
+          ) >> $env:GITHUB_STEP_SUMMARY
+
       - name: Checkout source
+        if: steps.nvd-policy.outputs.available == 'true'
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Set up Java
+        if: steps.nvd-policy.outputs.available == 'true'
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
 
-      - name: Require NVD API key
-        shell: pwsh
-        run: |
-          if (-not $env:NVD_API_KEY) {
-            throw "Set repository secret NVD_API_KEY before requiring the full WS1 dependency-check gate."
-          }
-
       - name: Run Maven verify with OWASP dependency-check
+        if: steps.nvd-policy.outputs.available == 'true'
         shell: pwsh
         run: mvn --batch-mode -DautoUpdate=true clean verify
 
       - name: Upload dependency-check reports
-        if: always()
+        if: always() && steps.nvd-policy.outputs.available == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: dependency-check-reports

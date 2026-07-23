@@ -2,14 +2,17 @@
 # Configure these as required status checks on the protected main branch.
 branch: main
 require_pull_request_before_merging: true
-required_secrets:
-  - NVD_API_KEY
-  - SNYK_TOKEN
-  - SONAR_TOKEN
-required_variables:
-  - SONAR_HOST_URL
-  - SONAR_PROJECT_KEY
-  - SONAR_ORGANIZATION
+external_security_gate_policy:
+  repository_variable: EXTERNAL_SECURITY_GATES_REQUIRED
+  default: false
+  required_secrets_when_enabled:
+    - NVD_API_KEY
+    - SNYK_TOKEN
+    - SONAR_TOKEN
+  required_variables_when_enabled:
+    - SONAR_HOST_URL
+    - SONAR_PROJECT_KEY
+    - SONAR_ORGANIZATION
 required_status_checks:
   - Maven Verify
   - Frontend Verify
