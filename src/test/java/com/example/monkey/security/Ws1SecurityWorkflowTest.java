@@ -91,6 +91,22 @@ class Ws1SecurityWorkflowTest {
     }
 
     @Test
+    void ws1ScriptRunsSemgrepWithScopedUtf8PythonEncoding() throws IOException {
+        String script = Files.readString(Path.of("scripts/verify-ws1-security.ps1"), StandardCharsets.UTF_8);
+
+        assertThat(script)
+                .contains("function Invoke-Utf8PythonGateCommand")
+                .contains("$previousPythonUtf8 = $env:PYTHONUTF8")
+                .contains("$previousPythonIoEncoding = $env:PYTHONIOENCODING")
+                .contains("$env:PYTHONUTF8 = \"1\"")
+                .contains("$env:PYTHONIOENCODING = \"utf-8\"")
+                .contains("$env:PYTHONUTF8 = $previousPythonUtf8")
+                .contains("$env:PYTHONIOENCODING = $previousPythonIoEncoding")
+                .contains("Invoke-Utf8PythonGateCommand `")
+                .contains("-Name \"Semgrep OWASP and secrets\"");
+    }
+
+    @Test
     void ws1ScriptAssertsSecurityHeaderPosture() throws IOException {
         String script = Files.readString(Path.of("scripts/verify-ws1-security.ps1"), StandardCharsets.UTF_8);
 

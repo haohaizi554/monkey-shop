@@ -93,6 +93,25 @@ function Invoke-GateCommand {
     }
 }
 
+function Invoke-Utf8PythonGateCommand {
+    param(
+        [string]$Name,
+        [string]$FilePath,
+        [string[]]$Arguments
+    )
+
+    $previousPythonUtf8 = $env:PYTHONUTF8
+    $previousPythonIoEncoding = $env:PYTHONIOENCODING
+    try {
+        $env:PYTHONUTF8 = "1"
+        $env:PYTHONIOENCODING = "utf-8"
+        Invoke-GateCommand -Name $Name -FilePath $FilePath -Arguments $Arguments
+    } finally {
+        $env:PYTHONUTF8 = $previousPythonUtf8
+        $env:PYTHONIOENCODING = $previousPythonIoEncoding
+    }
+}
+
 function Invoke-LiteralRiskScan {
     param([string]$RipgrepPath)
 
@@ -394,7 +413,7 @@ try {
         "--output", (Join-Path $OutputDir "semgrep.json"),
         $currentTreeSnapshot
     )
-    Invoke-GateCommand `
+    Invoke-Utf8PythonGateCommand `
         -Name "Semgrep OWASP and secrets" `
         -FilePath $uvx `
         -Arguments $semgrepArgs

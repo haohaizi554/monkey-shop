@@ -145,6 +145,7 @@ class SupplyChainAutomationTest {
         String readme = Files.readString(Path.of("README.md"), StandardCharsets.UTF_8);
         String ci = Files.readString(Path.of(".github/workflows/ci.yaml"), StandardCharsets.UTF_8);
         String dockerfile = Files.readString(Path.of("Dockerfile"), StandardCharsets.UTF_8);
+        String pom = Files.readString(Path.of("pom.xml"), StandardCharsets.UTF_8);
         String script =
                 Files.readString(Path.of("scripts/verify-runtime-image-supply-chain.ps1"), StandardCharsets.UTF_8);
 
@@ -157,7 +158,11 @@ class SupplyChainAutomationTest {
                 .contains("Trivy runtime image JSON gate")
                 .contains("target/runtime-supply-chain/trivy-runtime-image.json")
                 .contains("trivy-runtime-image-json")
-                .contains("Trivy image scan");
+                .contains("type=ref,event=branch,prefix=branch-")
+                .contains("- name: Trivy image scan\n        if: always()\n        id: trivy-sarif")
+                .contains(
+                        "if: always() && github.event_name != 'pull_request' && steps.trivy-sarif.outcome == 'success'");
+        assertThat(pom).contains("<netty.version>4.2.16.Final</netty.version>");
         assertThat(dockerfile)
                 .contains("apt-get install -y --only-upgrade")
                 .contains("libssl3")
