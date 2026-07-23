@@ -161,6 +161,8 @@ class SupplyChainAutomationTest {
                 .contains("type=ref,event=branch,prefix=branch-")
                 .contains("- name: Trivy image scan\n        if: always()\n        id: trivy-sarif")
                 .contains(
+                        "format: sarif\n          output: trivy-image.sarif\n          limit-severities-for-sarif: true")
+                .contains(
                         "if: always() && github.event_name != 'pull_request' && steps.trivy-sarif.outcome == 'success'");
         assertThat(pom).contains("<netty.version>4.2.16.Final</netty.version>");
         assertThat(dockerfile)

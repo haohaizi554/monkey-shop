@@ -253,6 +253,7 @@ jobs:
           exit-code: '1'
           format: sarif
           output: trivy-image.sarif
+          limit-severities-for-sarif: true
 
       - name: Upload Trivy runtime image JSON
         if: always()
