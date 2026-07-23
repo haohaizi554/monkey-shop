@@ -1018,6 +1018,9 @@ class PaymentLocalMySqlAcceptanceTest {
             Long userId = invocation.getArgument(1, Long.class);
             return order != null && order.userId().equals(userId) ? Optional.of(order) : Optional.empty();
         });
+        when(orderStore.findById(anyLong()))
+                .thenAnswer(
+                        invocation -> Optional.ofNullable(visibleOrders.get(invocation.getArgument(0, Long.class))));
         JpaPaymentStore store = paymentStore();
         PaymentCallbackReplayGuard replayGuard = (provider, paymentNo, callbackId, ttl) -> true;
         PaymentTransitionResolver resolver = (status, event) -> PaymentTransitionPolicy.nextStatus(status, event)
@@ -1546,6 +1549,11 @@ class PaymentLocalMySqlAcceptanceTest {
                 await(releaseCommit, "release committed local MySQL transaction");
             }
             return result;
+        }
+
+        @Override
+        public <T> T executeWithoutTransaction(java.util.function.Supplier<T> action) {
+            return delegate.executeWithoutTransaction(action);
         }
     }
 

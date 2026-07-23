@@ -30,4 +30,21 @@ class RequiresNewPaymentTransactionsTest {
                 .isEqualTo(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         assertThat(result).isEqualTo("committed");
     }
+
+    @Test
+    void providerCallsSuspendAnyCallerTransaction() {
+        PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
+        SimpleTransactionStatus status = new SimpleTransactionStatus();
+        when(transactionManager.getTransaction(any())).thenReturn(status);
+        RequiresNewPaymentTransactions transactions = new RequiresNewPaymentTransactions(transactionManager);
+
+        String result = transactions.executeWithoutTransaction(() -> "provider-result");
+
+        ArgumentCaptor<TransactionDefinition> definition = ArgumentCaptor.forClass(TransactionDefinition.class);
+        verify(transactionManager).getTransaction(definition.capture());
+        verify(transactionManager).commit(status);
+        assertThat(definition.getValue().getPropagationBehavior())
+                .isEqualTo(TransactionDefinition.PROPAGATION_NOT_SUPPORTED);
+        assertThat(result).isEqualTo("provider-result");
+    }
 }

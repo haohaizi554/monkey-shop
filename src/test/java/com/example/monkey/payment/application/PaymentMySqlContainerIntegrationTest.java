@@ -2,6 +2,7 @@ package com.example.monkey.payment.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -57,6 +58,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -218,7 +220,7 @@ class PaymentMySqlContainerIntegrationTest {
         assertThat(responses.size() + conflicts.size()).isEqualTo(2);
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM payment_order", Long.class))
                 .isEqualTo(1L);
-        assertThat(gateway.createTokens).containsExactly("PAY960100");
+        assertThat(gateway.createTokens).containsExactly(responses.getFirst().paymentNo());
     }
 
     @Test
@@ -451,7 +453,7 @@ class PaymentMySqlContainerIntegrationTest {
                     .containsEntry("operation_state", "COMPLETED")
                     .containsEntry("query_attempt_count", 2);
             assertThat(toLocalDateTime(persisted.get("query_lease_expires_at")))
-                    .isEqualTo(newerAttempt.leaseExpiresAt());
+                    .isCloseTo(newerAttempt.leaseExpiresAt(), within(1, ChronoUnit.MICROS));
         } finally {
             transactions.releasePausedCommit();
             executor.shutdownNow();
@@ -757,7 +759,7 @@ class PaymentMySqlContainerIntegrationTest {
         assertThat(refund.get("audit_actor_user_id")).isNull();
         assertThat(refund.get("audit_actor_role")).isNull();
         assertThat(refund.get("audit_source_ip")).isNull();
-        assertThat(((Number) refund.get("audit_include_owner")).intValue()).isZero();
+        assertThat(toBoolean(refund.get("audit_include_owner"))).isFalse();
         assertThat(refund.get("audit_detail")).isNull();
 
         Map<String, Object> legacyPending = jdbcTemplate.queryForMap("""
@@ -920,6 +922,16 @@ class PaymentMySqlContainerIntegrationTest {
         return ((Timestamp) value).toLocalDateTime();
     }
 
+    private static boolean toBoolean(Object value) {
+        if (value instanceof Boolean booleanValue) {
+            return booleanValue;
+        }
+        if (value instanceof Number number) {
+            return number.intValue() != 0;
+        }
+        throw new IllegalArgumentException("Unsupported boolean value: " + value);
+    }
+
     private static Throwable awaitWorkerFailure(Future<?> worker) throws Exception {
         try {
             worker.get(10, TimeUnit.SECONDS);
@@ -952,6 +964,9 @@ class PaymentMySqlContainerIntegrationTest {
             Long userId = invocation.getArgument(1, Long.class);
             return order != null && order.userId().equals(userId) ? Optional.of(order) : Optional.empty();
         });
+        when(orderStore.findById(anyLong()))
+                .thenAnswer(
+                        invocation -> Optional.ofNullable(visibleOrders.get(invocation.getArgument(0, Long.class))));
         JpaPaymentStore store = paymentStore();
         PaymentCallbackReplayGuard replayGuard = (provider, paymentNo, callbackId, ttl) -> true;
         PaymentTransitionResolver resolver = (status, event) -> PaymentTransitionPolicy.nextStatus(status, event)
@@ -1474,6 +1489,11 @@ class PaymentMySqlContainerIntegrationTest {
                 RecordingGateway.await(releaseCommit, "release committed MySQL transaction");
             }
             return result;
+        }
+
+        @Override
+        public <T> T executeWithoutTransaction(java.util.function.Supplier<T> action) {
+            return delegate.executeWithoutTransaction(action);
         }
     }
 

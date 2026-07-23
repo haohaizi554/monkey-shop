@@ -654,7 +654,7 @@ public class PaymentApplicationService {
             }
             PaymentGatewayResult result;
             try {
-                result = paymentGateway.query(execution.payment());
+                result = paymentTransactions.executeWithoutTransaction(() -> paymentGateway.query(execution.payment()));
             } catch (RuntimeException exception) {
                 retryPaymentQuery(execution);
                 continue;
@@ -945,7 +945,8 @@ public class PaymentApplicationService {
         }
         PaymentGatewayResult gatewayResult;
         try {
-            gatewayResult = paymentGateway.create(execution.payment(), execution.merchantToken());
+            gatewayResult = paymentTransactions.executeWithoutTransaction(
+                    () -> paymentGateway.create(execution.payment(), execution.merchantToken()));
         } catch (PaymentGatewayException exception) {
             String terminalFailureCode = exception.isTerminal() ? exception.providerCode() : null;
             recordPaymentGatewayFailure(execution, exception.classification(), terminalFailureCode);
@@ -1266,10 +1267,10 @@ public class PaymentApplicationService {
         }
         PaymentGatewayResult gatewayResult;
         try {
-            gatewayResult = paymentGateway.refund(
+            gatewayResult = paymentTransactions.executeWithoutTransaction(() -> paymentGateway.refund(
                     execution.payment(),
                     execution.refund().ledger().amount(),
-                    execution.refund().merchantToken());
+                    execution.refund().merchantToken()));
         } catch (PaymentGatewayException exception) {
             String terminalFailureCode = exception.isTerminal() ? exception.providerCode() : null;
             recordRefundGatewayFailure(execution, exception.classification(), terminalFailureCode);

@@ -10,15 +10,23 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Component
 public class RequiresNewPaymentTransactions implements PaymentTransactions {
 
-    private final TransactionTemplate transactionTemplate;
+    private final TransactionTemplate requiresNewTransaction;
+    private final TransactionTemplate withoutTransaction;
 
     public RequiresNewPaymentTransactions(PlatformTransactionManager transactionManager) {
-        this.transactionTemplate = new TransactionTemplate(transactionManager);
-        this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.requiresNewTransaction = new TransactionTemplate(transactionManager);
+        this.requiresNewTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.withoutTransaction = new TransactionTemplate(transactionManager);
+        this.withoutTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_NOT_SUPPORTED);
     }
 
     @Override
     public <T> T execute(Supplier<T> action) {
-        return transactionTemplate.execute(status -> action.get());
+        return requiresNewTransaction.execute(status -> action.get());
+    }
+
+    @Override
+    public <T> T executeWithoutTransaction(Supplier<T> action) {
+        return withoutTransaction.execute(status -> action.get());
     }
 }
