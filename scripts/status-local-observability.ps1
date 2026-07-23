@@ -1,6 +1,7 @@
 param([switch]$AllowPartial)
 
 . (Join-Path $PSScriptRoot "local-observability-common.ps1")
+Add-LocalRuntimeNoProxy
 
 $checks = @(
     [ordered]@{ Service = "OTel Collector"; Port = 13133; Endpoint = "http://127.0.0.1:13133/" },
@@ -12,6 +13,10 @@ $checks = @(
 
 foreach ($check in $checks) {
     $check.Up = Test-LocalRuntimeHttp -Uri $check.Endpoint
+}
+
+foreach ($check in $checks | Where-Object { $_.Up }) {
+    Assert-LocalRuntimeLoopbackListener -Name $check.Service -Port $check.Port
 }
 
 $checks | ForEach-Object {

@@ -259,6 +259,104 @@ class Ws8SecurityWorkflowTest {
                 .contains("APP_PII_VAULT_PREVIOUS_AES_CIPHERTEXTS");
     }
 
+    @Test
+    void localProductionSupportUsesPinnedLoopbackServicesAndFailClosedStartup() throws IOException {
+        String runtimeCommon = read("scripts/local-runtime-common.ps1");
+        String common = read("scripts/local-support-common.ps1");
+        String bootstrap = read("scripts/bootstrap-local-support.ps1");
+        String startSupport = read("scripts/start-local-support.ps1");
+        String statusLocal = read("scripts/status-local.ps1");
+        String statusSupport = read("scripts/status-local-support.ps1");
+        String stopSupport = read("scripts/stop-local-support.ps1");
+        String verifySupport = read("scripts/verify-local-support.ps1");
+        String startLocal = read("scripts/start-local.ps1");
+        String application = read("src/main/resources/application.yml");
+
+        assertThat(runtimeCommon)
+                .contains("function Add-LocalRuntimeNoProxy")
+                .contains("@(\"127.0.0.1\", \"localhost\", \"::1\")")
+                .contains("function Assert-LocalRuntimeLoopbackListener");
+        assertThat(common)
+                .contains("local-runtime-common.ps1")
+                .contains("LocalSupportRoot")
+                .contains("local-support-state.json")
+                .contains("application.env")
+                .contains("Protect-LocalSupportSecret");
+        assertThat(bootstrap)
+                .contains("2.0.3")
+                .contains("4.29")
+                .contains("1.5.3")
+                .contains("02da9f383256606db9717d29f2d26d0aafd9af951d51263bdee38dd98d38cbaa")
+                .contains("a5a343f2e2249b4e709842b846e596330a316e064b15f9d77899581ea545cb9b")
+                .contains("e998b3b98c2812726ca7f4db06bf89c4b52a7eb7160ab93403c3ec790a9be6b6")
+                .contains("http://127.0.0.1:7890")
+                .contains("Get-FileHash");
+        assertThat(startSupport)
+                .contains("Add-LocalRuntimeNoProxy")
+                .doesNotContain("$env:HTTPS_PROXY = $ProxyUri")
+                .doesNotContain("$env:HTTP_PROXY = $ProxyUri")
+                .contains("[switch]$AdoptEnvironmentPiiKeys")
+                .contains("127.0.0.1:8200")
+                .contains("storage \"file\"")
+                .contains("transit/keys/monkeyshop-pii")
+                .contains("transit/decrypt/monkeyshop-pii")
+                .contains("capabilities = [\"update\"]")
+                .contains("Invoke-VaultKeyWrap")
+                .contains("piiKeySource")
+                .contains("APP_PII_AES_KEY_BASE64")
+                .contains("APP_PII_HMAC_KEY_BASE64")
+                .contains("RandomNumberGenerator")
+                .contains("APP_PII_KEY_PROVIDER=vault-transit")
+                .contains("-ip.bind=127.0.0.1")
+                .contains("-s3.ip.bind=127.0.0.1")
+                .contains("-filer.port=8887")
+                .contains("-s3.port=8333")
+                .contains("-s3.port.iceberg=0")
+                .contains("-master.telemetry=false")
+                .contains("TCPAddr 127.0.0.1")
+                .contains("TCPSocket 3310")
+                .contains("Stop-LocalRuntimeProcessTree")
+                .doesNotContain("-admin.")
+                .doesNotContain("verify-local-support.ps1");
+        assertThat(statusLocal)
+                .contains("Add-LocalRuntimeNoProxy")
+                .contains("Assert-LocalRuntimeLoopbackListener")
+                .contains("MySQL", "Redis", "Backend", "Frontend");
+        assertThat(statusSupport)
+                .contains("Add-LocalRuntimeNoProxy", "Assert-LocalRuntimeLoopbackListener")
+                .contains("Vault", "SeaweedFS S3", "ClamAV");
+        assertThat(stopSupport).contains("clamav", "seaweedfs", "vault").contains("Test-LocalRuntimeProcessIdentity");
+        assertThat(verifySupport)
+                .contains("Add-LocalRuntimeNoProxy")
+                .contains("LocalProductionSupportAcceptanceTest")
+                .contains("MONKEYSHOP_LOCAL_SUPPORT_ACCEPTANCE")
+                .contains("APP_PII_VAULT_TOKEN")
+                .contains("APP_STORAGE_MINIO_ENDPOINT");
+        assertThat(startLocal)
+                .contains("Add-LocalRuntimeNoProxy")
+                .contains("[switch]$WithProductionSupport")
+                .contains("start-local-support.ps1")
+                .contains("-AdoptEnvironmentPiiKeys")
+                .contains("Remove-Item Env:APP_PII_AES_KEY_BASE64")
+                .contains("Remove-Item Env:APP_PII_HMAC_KEY_BASE64")
+                .contains("$env:SERVER_ADDRESS = \"127.0.0.1\"")
+                .contains("APP_INTEGRATIONS_STARTUP_READINESS_REQUIRED")
+                .contains("APP_INTEGRATIONS_STARTUP_CREATE_STORAGE_BUCKET")
+                .contains("APP_STORAGE_PROVIDER = \"minio\"")
+                .contains("APP_UPLOAD_VIRUS_SCAN_ENABLED = \"true\"")
+                .contains("$effectiveProductionSupportEnabled")
+                .contains("productionSupportEnabled = $effectiveProductionSupportEnabled")
+                .contains("Assert-LocalRuntimeLoopbackListener -Name \"MySQL\"")
+                .contains("Assert-LocalRuntimeLoopbackListener -Name \"Redis\"")
+                .contains("Assert-LocalRuntimeLoopbackListener -Name \"Backend\"")
+                .contains("Assert-LocalRuntimeLoopbackListener -Name \"Frontend\"");
+        assertThat(startLocal.indexOf("$previousState = Read-LocalRuntimeState"))
+                .isLessThan(startLocal.indexOf("start-local-support.ps1"));
+        assertThat(application)
+                .contains("startup-readiness-required: ${APP_INTEGRATIONS_STARTUP_READINESS_REQUIRED:false}")
+                .contains("startup-create-storage-bucket: ${APP_INTEGRATIONS_STARTUP_CREATE_STORAGE_BUCKET:false}");
+    }
+
     private static String read(String path) throws IOException {
         return Files.readString(Path.of(path), StandardCharsets.UTF_8).replace("\r\n", "\n");
     }

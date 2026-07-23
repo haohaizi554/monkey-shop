@@ -69,6 +69,44 @@ Required runtime key contract:
 
 Staging and production set `APP_PII_ENCRYPTION_ENABLED=true`, `APP_PII_KEY_PROVIDER=vault-transit`, `APP_PII_ALLOW_PLAINTEXT_READ=false`, and rotation enforcement on. Key rotation is versioned by `APP_PII_KEY_VERSION`; mint a new wrapped DEK in Vault/KMS, update the ExternalSecret values and creation timestamp, run a backfill rewrite with the previous AES key configured, then retire the old version after verification. Existing legacy `enc:v1:<version>:<iv>:<ciphertext>` rows remain readable during migration; new writes use `enc:v1:<version>:tink:<ciphertext>`.
 
+## Native Windows Vault Acceptance
+
+The Docker-free workstation path uses persistent Vault 2.0.3 file storage on
+`127.0.0.1:8200`. Bootstrap artifacts are pinned and SHA-256 checked. Operator
+material and generated service credentials live under
+`%LOCALAPPDATA%\MonkeyShop\support\secrets` with inheritance removed and access
+limited to the current Windows user and `SYSTEM`.
+
+```powershell
+.\scripts\bootstrap-local-support.ps1 -ProxyUri http://127.0.0.1:7890
+.\scripts\start-local.ps1 -WithProductionSupport -StartupTimeoutSeconds 600
+.\scripts\status-local-support.ps1
+.\scripts\verify-local-support.ps1 -SkipStart
+```
+
+On first use, `start-local.ps1` passes `-AdoptEnvironmentPiiKeys`. The support
+script validates the existing `APP_PII_AES_KEY_BASE64` and
+`APP_PII_HMAC_KEY_BASE64` values as 32-byte keys and wraps them through Transit.
+This preserves readability of the existing encrypted MySQL rows. It records only
+the Vault ciphertexts and a key-source marker, then removes both raw key variables
+before launching Spring.
+
+The generated application token is bound only to
+`transit/decrypt/monkeyshop-pii`; an encrypt request must return HTTP 403. The
+semantic verifier also unwraps both 32-byte DEKs, performs SeaweedFS S3 object
+write/stat/read/presigned-read/delete, creates and removes a fresh random startup
+bucket, and requires ClamAV to accept a clean sample and reject EICAR.
+`APP_INTEGRATIONS_STARTUP_READINESS_REQUIRED=true` adds a Spring startup probe
+for the S3 bucket and ClamAV PONG. The workstation launcher additionally sets
+`APP_INTEGRATIONS_STARTUP_CREATE_STORAGE_BUCKET=true`; its application default is
+`false`, so production infrastructure remains fail-closed. An unavailable
+required dependency aborts startup without leaving an HTTP listener.
+
+This local Vault is workstation acceptance evidence, not production KMS or
+separation-of-duties evidence. Production still requires TLS, audited unseal and
+recovery procedures, managed identity, external secret delivery, and independent
+operator custody.
+
 ## MicroK8s Development Acceptance
 
 `scripts/verify-microk8s-dev-runtime.ps1` and `scripts/verify-argocd-microk8s-gitops.ps1` keep PII encryption enabled in their disposable development namespaces. On the first deployment they generate independent 256-bit AES and HMAC material and store it, the key version, and its creation timestamp in the namespace runtime Secret. Later deployments read and reuse that material before applying the Secret, so a routine redeployment cannot silently orphan existing ciphertext. After Helm or Argo reports the workload ready, each verifier reads the effective Pod environment and fails unless encryption is on, plaintext reads and backfill are off, and a key version is present. Secret values are never written to verifier output.

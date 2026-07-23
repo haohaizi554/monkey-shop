@@ -52,6 +52,9 @@ monkeyshop:
       identity-window: ${MONKEYSHOP_RATE_LIMIT_REGISTER_IDENTITY_WINDOW:1h}
 
 app:
+  integrations:
+    startup-readiness-required: ${APP_INTEGRATIONS_STARTUP_READINESS_REQUIRED:false}
+    startup-create-storage-bucket: ${APP_INTEGRATIONS_STARTUP_CREATE_STORAGE_BUCKET:false}
   rate-limit:
     enabled: ${APP_RATE_LIMIT_ENABLED:true}
     require-redis-state: ${APP_RATE_LIMIT_REQUIRE_REDIS_STATE:${APP_AUTH_REQUIRE_REDIS_STATE:false}}

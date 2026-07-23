@@ -185,6 +185,13 @@ installation under `%LOCALAPPDATA%\MonkeyShop\memurai-*`. Override the Redis
 executable with `-MemuraiExecutable` or `MONKEYSHOP_MEMURAI_EXE` when installed
 elsewhere.
 
+Keep both MySQL protocols local by setting `bind-address=127.0.0.1` and
+`mysqlx-bind-address=127.0.0.1` under `[mysqld]`, validating with
+`mysqld --validate-config`, and restarting the Windows service as an
+administrator. The lifecycle and status scripts fail closed when any required
+service is healthy through loopback but also listens on a wildcard or non-loopback
+address.
+
 ```powershell
 # Start MySQL checks, Memurai, Spring Boot, and Vite.
 .\scripts\start-local.ps1
@@ -201,6 +208,38 @@ elsewhere.
 # Also stop the shared MySQL Windows service when explicitly desired.
 .\scripts\stop-local.ps1 -StopMySql
 ```
+
+Add the native production-support services when local acceptance must exercise
+Vault Transit, S3-compatible storage, and antivirus scanning instead of the
+dependency-light defaults:
+
+```powershell
+# One-time pinned downloads through Clash, with SHA-256 verification.
+.\scripts\bootstrap-local-support.ps1 -ProxyUri http://127.0.0.1:7890
+
+# Start Vault, SeaweedFS S3, ClamAV, MySQL, Redis, Spring Boot, and Vite.
+.\scripts\start-local.ps1 -WithProductionSupport -StartupTimeoutSeconds 600
+
+# Add the native telemetry stack to the same run when required.
+.\scripts\start-local.ps1 -WithProductionSupport -WithObservability -StartupTimeoutSeconds 600
+
+.\scripts\status-local-support.ps1
+.\scripts\verify-local-support.ps1 -SkipStart
+.\scripts\stop-local.ps1
+```
+
+The first `-WithProductionSupport` start wraps the existing workstation AES/HMAC
+PII keys with the persistent local Vault Transit key, then removes the raw key
+variables before Spring starts. The application receives a decrypt-only Vault
+token. Vault operator material, S3 credentials, wrapped keys, and service data
+remain below `%LOCALAPPDATA%\MonkeyShop\support`; secret files have user-only
+ACLs and are never written to the repository. Support services listen only on
+`127.0.0.1`. Run `verify-local-support.ps1` explicitly for the slower semantic
+S3 read/write/delete, ClamAV clean/EICAR, and Vault least-privilege acceptance.
+The local support mode explicitly provisions a missing configured S3 bucket;
+the default application setting remains fail-closed and never creates production
+infrastructure. Re-running `start-local.ps1` without switches inherits the active
+support and observability modes until `stop-local.ps1` clears the managed state.
 
 Runtime data, logs, uploads, and the managed-process state file stay under
 `%LOCALAPPDATA%\MonkeyShop`. The browser acceptance reads administrator

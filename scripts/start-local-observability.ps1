@@ -4,6 +4,7 @@ param(
 )
 
 . (Join-Path $PSScriptRoot "local-observability-common.ps1")
+Add-LocalRuntimeNoProxy
 
 $versionsPath = Join-Path $Script:LocalObservabilityToolsRoot "versions.json"
 if (-not $SkipBootstrap -and -not (Test-Path -LiteralPath $versionsPath)) {
@@ -36,6 +37,7 @@ $env:MONKEYSHOP_LOG_ROOT = ConvertTo-LocalObservabilityPath -Path (Join-Path $Sc
 $env:GF_PATHS_DATA = Join-Path $dataRoot "grafana"
 $env:GF_PATHS_LOGS = Join-Path $logRoot "grafana"
 $env:GF_PATHS_PROVISIONING = $grafanaProvisioning
+$env:GF_SERVER_HTTP_ADDR = "127.0.0.1"
 $env:GF_AUTH_ANONYMOUS_ENABLED = "true"
 $env:GF_AUTH_ANONYMOUS_ORG_ROLE = "Viewer"
 $env:GF_USERS_ALLOW_SIGN_UP = "false"

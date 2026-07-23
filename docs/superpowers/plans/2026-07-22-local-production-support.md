@@ -1,6 +1,7 @@
 # Local Production Support Implementation Plan
 
 Date: 2026-07-22
+Updated: 2026-07-23
 
 ## Batch 10A: Native Observability
 
@@ -15,13 +16,17 @@ Date: 2026-07-22
 
 ## Batch 10B: Native Security And Storage
 
-- [ ] Select pinned Windows-capable Vault, S3-compatible storage, and ClamAV distributions with integrity verification.
-- [ ] Add bootstrap, start, status, stop, and verification scripts with loopback-only listeners and externalized secrets.
-- [ ] Initialize Vault Transit keys and prove wrap/unwrap operations.
-- [ ] Create the S3 bucket and prove upload, read, metadata, and delete operations.
-- [ ] Update ClamAV signatures and prove clean plus EICAR rejection behavior.
-- [ ] Wire an explicit application startup mode to Vault, S3 storage, and ClamAV; prove fail-closed startup and upload behavior.
-- [ ] Run focused and full gates, update evidence, and create the Batch 10B commit.
+- [x] Select pinned Windows-capable Vault, S3-compatible storage, and ClamAV distributions with integrity verification.
+- [x] Add bootstrap, start, status, stop, and verification scripts with loopback-only listeners and externalized secrets.
+- [x] Initialize Vault Transit keys and prove wrap/unwrap operations.
+- [x] Create the S3 bucket and prove upload, read, metadata, and delete operations.
+- [x] Update ClamAV signatures and prove clean plus EICAR rejection behavior.
+- [x] Wire an explicit application startup mode to Vault, S3 storage, and ClamAV; prove healthy startup and fail-closed startup when ClamAV is unavailable.
+- [x] Run focused Java contracts and real-service semantic acceptance for Vault, S3, and ClamAV.
+- [x] Run the split full repository/runtime gates and update final evidence.
+- [x] Restart the pre-fix observability processes and refresh final loopback/runtime evidence.
+- [x] Fix cold-bucket provisioning, proxy exclusions, repeated-start mode inheritance, and fail-closed listener checks with red/green regressions.
+- [x] Create the Batch 10B commit.
 
 ## Final Delivery
 

@@ -12,9 +12,9 @@ $tempoVersion = "2.10.5"
 $grafanaVersion = "13.1.1"
 $grafanaBuild = "13.1.1_29761037902"
 
+$proxyParameters = @{}
 if (-not [string]::IsNullOrWhiteSpace($ProxyUri)) {
-    $env:HTTPS_PROXY = $ProxyUri
-    $env:HTTP_PROXY = $ProxyUri
+    $proxyParameters["Proxy"] = $ProxyUri
 }
 
 $downloadRoot = Join-Path $Script:LocalObservabilityRoot "downloads"
@@ -39,7 +39,7 @@ function Invoke-VerifiedDownload {
     )
     $archivePath = Join-Path $downloadRoot $ArtifactName
     $checksumPath = "$archivePath.sha256"
-    Invoke-WebRequest -UseBasicParsing -Uri $ChecksumUri -OutFile $checksumPath -TimeoutSec 120
+    Invoke-WebRequest -UseBasicParsing -Uri $ChecksumUri -OutFile $checksumPath -TimeoutSec 120 @proxyParameters
     $checksumText = Get-Content -LiteralPath $checksumPath -Raw -Encoding UTF8
     $escapedName = [regex]::Escape($ArtifactName)
     $match = [regex]::Match($checksumText, "(?im)^([0-9a-f]{64})\s+\*?(?:.*/)?$escapedName\s*$")
@@ -60,7 +60,7 @@ function Invoke-VerifiedDownload {
         $partialPath = "$archivePath.partial"
         Remove-Item -LiteralPath $partialPath -Force -ErrorAction SilentlyContinue
         Write-Host "Downloading $ArtifactName"
-        Invoke-WebRequest -UseBasicParsing -Uri $Uri -OutFile $partialPath -TimeoutSec 900
+        Invoke-WebRequest -UseBasicParsing -Uri $Uri -OutFile $partialPath -TimeoutSec 900 @proxyParameters
         $actualHash = (Get-FileHash -LiteralPath $partialPath -Algorithm SHA256).Hash
         Assert-LocalRuntime ($actualHash -eq $expectedHash) "SHA256 mismatch for $ArtifactName"
         Move-Item -LiteralPath $partialPath -Destination $archivePath -Force

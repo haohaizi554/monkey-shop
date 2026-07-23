@@ -130,8 +130,27 @@
 - [x] 以真实 Spring `GET /api/v1/monkeys` 请求证明 Tempo Server Span、TraceQL 精确检索、同 Trace ID Loki 日志、Prometheus span metrics 与 Grafana 三数据源联动。
 - [x] Tempo metrics-generator 已向 Prometheus 写入 30 条 span metric 序列与 2 条 service graph 序列。
 - [x] 修复本地启动超时后 Maven/Java 子进程树未回收的问题；1 秒故意超时负例确认 8888 与 MonkeyShop 后端进程均无残留。
-- [x] 脚本 AST、Dashboard JSON、Collector/Loki/Tempo/Prometheus 原生配置解析、WS6 门禁与阶段回归均已通过，本批次准备提交。
+- [x] 脚本 AST、Dashboard JSON、Collector/Loki/Tempo/Prometheus 原生配置解析、WS6 门禁与阶段回归均已通过。
+- [x] 已提交为 `5473c31d`；后续进程清理修复已提交为 `2ff4a5e9`。
 - [ ] 推送批次 10A，并取得当前分支 GitHub Actions 的真实绿色结果。
+
+## 批次 10B：原生 Windows 安全与对象存储栈（本地收口中）
+
+- [x] 通过 Clash 下载并按固定 SHA-256 校验 Vault 2.0.3、SeaweedFS 4.29 与 ClamAV 1.5.3 Windows 制品。
+- [x] 增加 bootstrap/start/status/stop/verify 生命周期脚本；运行数据、操作员材料和应用凭据均位于仓库外并限制 ACL。
+- [x] Vault 使用持久化 file storage 和 Transit；应用令牌仅允许解密，encrypt 实测返回 403。
+- [x] 首次启动将已有 AES/HMAC PII 密钥包裹进 Vault，Spring 启动前删除两个原始密钥环境变量，旧密文继续可读。
+- [x] SeaweedFS S3 已实测建桶、写入、stat、读取、预签名读取与删除；ClamAV 已实测干净样本与 EICAR 拒绝。
+- [x] Spring 以 `vault-transit + minio + ClamAV` 冷启动并返回健康；关闭端口故障探针证明依赖不可用时非零退出且不残留监听。
+- [x] 修复 Clash 进程级代理污染、慢速 `Get-NetTCPConnection` 探测、后端/Grafana 回环绑定和重复 Maven 语义验收；热启动复测为 18.0 秒。
+- [x] WS6、WS8 与启动验证器共 23 个聚焦测试零失败；真实支持服务语义验收、运行冒烟、安全和 429 探针通过。
+- [x] 修复首次启动缺桶、状态脚本代理绕行和重复启动模式覆盖；随机缺失桶真实建删成功，无开关重复启动 8.6 秒且 PID 与两项模式状态保持不变。
+- [x] 重启原生可观测栈，使 Grafana 应用新的 `127.0.0.1` 绑定和代理排除配置。
+- [x] 管理员重启 MySQL 后，3306 与 33060 均仅监听 `127.0.0.1`；统一监听门禁同时覆盖运行时、支撑与可观测服务，并实测拒绝临时 wildcard 监听。
+- [x] 拆分执行最终后端、质量报告、WS1 扫描、WS5、WS6/7/8、Kyverno、运行态、429、PII 与本地支撑语义门禁，全部取得退出码 0 并更新证据。
+- [x] 可观测栈重启后更新最终 PID、监听与真实 trace 证据。
+- [x] 创建批次 10B 提交。
+- [ ] 推送批次 10B，并取得当前分支 GitHub Actions 的真实绿色结果。
 ## 远端核验
 
 - [x] `git fetch origin` 与 `git ls-remote` 确认初始 69 个增量提交的远端目标仍为 `d6a0b99d`。
@@ -143,4 +162,4 @@
 
 ## 不随代码推送伪装完成的事项
 
-公开 TLS/HSTS、Sonar、Vault/KMS、Turnstile、Sentry、真实 Argo 集群、镜像签名、灰度回滚以及 30 天 SLO 仍需要外部环境或凭据；OTel/Loki/Tempo/Grafana 已在 Windows 本机形成可重复验收栈，但不等同于生产环境证据。它们不会阻止当前本地成果按阶段入库，但在获得真实证据前不得标记为生产验收完成。
+公开 TLS/HSTS、Sonar、生产 Vault/KMS 托管与职责分离、Turnstile、Sentry、真实 Argo 集群、镜像签名、灰度回滚以及 30 天 SLO 仍需要外部环境或凭据；Vault/SeaweedFS/ClamAV 与 OTel/Loki/Tempo/Grafana 已在 Windows 本机形成可重复验收栈，但不等同于生产环境证据。它们不会阻止当前本地成果按阶段入库，但在获得真实证据前不得标记为生产验收完成。

@@ -15,6 +15,30 @@ function Assert-LocalRuntime {
     }
 }
 
+function Add-LocalRuntimeNoProxy {
+    param([string[]]$Hosts = @("127.0.0.1", "localhost", "::1"))
+
+    $current = [Environment]::GetEnvironmentVariable(
+        "NO_PROXY",
+        [EnvironmentVariableTarget]::Process
+    )
+    $entries = @(
+        $current -split "," |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    )
+    foreach ($hostName in $Hosts) {
+        if (-not [string]::IsNullOrWhiteSpace($hostName) -and $entries -notcontains $hostName) {
+            $entries += $hostName
+        }
+    }
+    [Environment]::SetEnvironmentVariable(
+        "NO_PROXY",
+        ($entries -join ","),
+        [EnvironmentVariableTarget]::Process
+    )
+}
+
 function Stop-LocalRuntimeProcessTree {
     param(
         [int]$ProcessId,
@@ -174,12 +198,54 @@ function Wait-LocalRuntimeHttp {
 
 function Get-LocalRuntimeListenerProcessId {
     param([int]$Port)
-    $connection = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if ($null -eq $connection) {
-        return $null
+    $output = & netstat.exe -ano -p tcp 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "netstat.exe failed while resolving listener port $Port"
     }
-    return [int]$connection.OwningProcess
+    $escapedPort = [regex]::Escape([string]$Port)
+    $pattern = "^\s*TCP\s+\S+:${escapedPort}\s+\S+\s+LISTENING\s+(\d+)\s*$"
+    foreach ($line in $output) {
+        $match = [regex]::Match([string]$line, $pattern, [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+        if ($match.Success) {
+            return [int]$match.Groups[1].Value
+        }
+    }
+    return $null
+}
+
+function Get-LocalRuntimeListenerAddresses {
+    param([int]$Port)
+    $output = & netstat.exe -ano -p tcp 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "netstat.exe failed while resolving listener addresses for port $Port"
+    }
+    $escapedPort = [regex]::Escape([string]$Port)
+    $pattern = "^\s*TCP\s+(\S+):${escapedPort}\s+\S+\s+LISTENING\s+\d+\s*$"
+    $addresses = @()
+    foreach ($line in $output) {
+        $match = [regex]::Match([string]$line, $pattern, [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+        if ($match.Success -and $addresses -notcontains $match.Groups[1].Value) {
+            $addresses += $match.Groups[1].Value
+        }
+    }
+    return $addresses
+}
+
+function Assert-LocalRuntimeLoopbackListener {
+    param(
+        [string]$Name,
+        [int]$Port,
+        [switch]$AllowAbsent
+    )
+    $addresses = @(Get-LocalRuntimeListenerAddresses -Port $Port)
+    if ($addresses.Count -eq 0 -and $AllowAbsent) {
+        return
+    }
+    Assert-LocalRuntime ($addresses.Count -gt 0) "$Name has no TCP listener on port $Port"
+    $unsafeAddresses = @($addresses | Where-Object { $_ -notin @("127.0.0.1", "[::1]", "::1") })
+    Assert-LocalRuntime `
+        ($unsafeAddresses.Count -eq 0) `
+        "$Name must listen only on loopback; port $Port also listens on $($unsafeAddresses -join ', ')"
 }
 
 function Get-LocalRuntimeProcessIdentity {

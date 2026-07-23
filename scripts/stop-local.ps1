@@ -5,10 +5,16 @@ param(
 . (Join-Path $PSScriptRoot "local-runtime-common.ps1")
 
 $state = Read-LocalRuntimeState
+$stopObservability = $false
+$stopProductionSupport = $false
 if ($null -eq $state) {
     Write-Host "No managed local runtime state was found at $Script:LocalRuntimeStatePath"
 } else {
     Assert-LocalRuntime ($state.repositoryRoot -eq $Script:LocalRuntimeRepoRoot) "Runtime state belongs to another repository"
+    $observabilityProperty = $state.PSObject.Properties["observabilityEnabled"]
+    $productionSupportProperty = $state.PSObject.Properties["productionSupportEnabled"]
+    $stopObservability = $null -ne $observabilityProperty -and [bool]$observabilityProperty.Value
+    $stopProductionSupport = $null -ne $productionSupportProperty -and [bool]$productionSupportProperty.Value
 
     $stoppedProcessIds = [Collections.Generic.HashSet[int]]::new()
     function Stop-TrackedIdentity {
@@ -42,6 +48,13 @@ if ($null -eq $state) {
     }
 
     Remove-Item -LiteralPath $Script:LocalRuntimeStatePath -Force
+}
+
+if ($stopProductionSupport) {
+    & (Join-Path $PSScriptRoot "stop-local-support.ps1")
+}
+if ($stopObservability) {
+    & (Join-Path $PSScriptRoot "stop-local-observability.ps1")
 }
 
 if ($StopMySql) {

@@ -247,6 +247,9 @@ class Ws6ObservabilityWorkflowTest {
         String dataSources = read("ops/local/observability/grafana/provisioning/datasources/monkeyshop.yml");
 
         assertThat(bootstrap)
+                .contains("$proxyParameters")
+                .doesNotContain("$env:HTTPS_PROXY = $ProxyUri")
+                .doesNotContain("$env:HTTP_PROXY = $ProxyUri")
                 .contains("0.153.0")
                 .contains("3.12.0")
                 .contains("3.7.2")
@@ -262,6 +265,7 @@ class Ws6ObservabilityWorkflowTest {
                 .contains("Expand-Archive")
                 .doesNotContain("docker");
         assertThat(start)
+                .contains("Add-LocalRuntimeNoProxy")
                 .contains("otelcol-contrib.exe")
                 .contains("prometheus.exe")
                 .contains("loki-windows-amd64.exe")
@@ -275,6 +279,7 @@ class Ws6ObservabilityWorkflowTest {
                 .contains("Stop-LocalRuntimeProcessTree -ProcessId $process.Id")
                 .contains("exited before becoming ready")
                 .contains("GF_ANALYTICS_CHECK_FOR_UPDATES")
+                .contains("GF_SERVER_HTTP_ADDR = \"127.0.0.1\"")
                 .contains("GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES")
                 .contains("GF_PLUGINS_PREINSTALL_DISABLED")
                 .contains("GF_PLUGINS_PLUGIN_ADMIN_ENABLED")
@@ -284,14 +289,22 @@ class Ws6ObservabilityWorkflowTest {
                 .doesNotContain("grafana-server.exe")
                 .doesNotContain("docker");
         assertThat(startLocal)
+                .contains("Add-LocalRuntimeNoProxy")
                 .contains("[switch]$WithObservability")
                 .contains("start-local-observability.ps1")
+                .contains("$effectiveObservabilityEnabled")
+                .contains("observabilityEnabled = $effectiveObservabilityEnabled")
                 .contains("OTEL_TRACES_EXPORTER = \"otlp\"")
                 .contains("OTEL_EXPORTER_OTLP_ENDPOINT = \"http://127.0.0.1:4318\"")
                 .contains("OTEL_TRACES_EXPORTER = \"none\"")
                 .contains("Stop-LocalRuntimeProcessTree -ProcessId $backend.Id")
                 .contains("Stop-LocalRuntimeProcessTree -ProcessId $frontend.Id");
         assertThat(runtimeCommon)
+                .contains("function Add-LocalRuntimeNoProxy")
+                .contains("@(\"127.0.0.1\", \"localhost\", \"::1\")")
+                .contains("function Assert-LocalRuntimeLoopbackListener")
+                .contains("netstat.exe", "-ano", "-p", "tcp")
+                .doesNotContain("Get-NetTCPConnection")
                 .contains("function Stop-LocalRuntimeProcessTree")
                 .contains("WaitForExit")
                 .contains("TaskkillTimeoutSeconds = 90")
@@ -300,7 +313,11 @@ class Ws6ObservabilityWorkflowTest {
                 .contains("Start-Sleep -Milliseconds 200");
         assertThat(startLocal.indexOf("$requiredEnvironment"))
                 .isLessThan(startLocal.indexOf("start-local-observability.ps1"));
+        assertThat(startLocal.indexOf("$previousState = Read-LocalRuntimeState"))
+                .isLessThan(startLocal.indexOf("start-local-observability.ps1"));
         assertThat(status)
+                .contains("Add-LocalRuntimeNoProxy")
+                .contains("Assert-LocalRuntimeLoopbackListener")
                 .contains("http://127.0.0.1:13133/")
                 .contains("http://127.0.0.1:9090/-/ready")
                 .contains("http://127.0.0.1:3100/ready")
@@ -312,6 +329,7 @@ class Ws6ObservabilityWorkflowTest {
                 .contains("Stop-LocalRuntimeProcessTree -ProcessId $processId");
         assertThat(stopLocal).contains("Stop-LocalRuntimeProcessTree -ProcessId $processId");
         assertThat(verify)
+                .contains("Add-LocalRuntimeNoProxy")
                 .contains("api/v1/targets")
                 .contains("api/v1/query")
                 .contains("loki/api/v1/query_range")

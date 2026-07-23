@@ -4,6 +4,7 @@ param(
 )
 
 . (Join-Path $PSScriptRoot "local-observability-common.ps1")
+Add-LocalRuntimeNoProxy
 
 function Assert-Observability {
     param(

@@ -3,11 +3,13 @@ param(
     [string]$LocalEnvPath = "",
     [string]$MemuraiExecutable = "",
     [int]$MySqlPort = 3306,
+    [int]$MySqlXPort = 33060,
     [int]$RedisPort = 6379,
     [int]$BackendPort = 8888,
     [int]$FrontendPort = 5173,
     [int]$StartupTimeoutSeconds = 120,
-    [switch]$WithObservability
+    [switch]$WithObservability,
+    [switch]$WithProductionSupport
 )
 
 . (Join-Path $PSScriptRoot "local-runtime-common.ps1")
@@ -20,7 +22,42 @@ if ([string]::IsNullOrWhiteSpace($LocalEnvPath)) {
 }
 Import-LocalRuntimeEnvironment -Path $EnvPath -Required
 Import-LocalRuntimeEnvironment -Path $LocalEnvPath -Required
+Add-LocalRuntimeNoProxy
 
+$previousState = Read-LocalRuntimeState
+$previousObservabilityEnabled = $false
+$previousProductionSupportEnabled = $false
+if ($null -ne $previousState) {
+    Assert-LocalRuntime `
+        ($previousState.repositoryRoot -eq $Script:LocalRuntimeRepoRoot) `
+        "Runtime state belongs to another repository"
+    $observabilityProperty = $previousState.PSObject.Properties["observabilityEnabled"]
+    $productionSupportProperty = $previousState.PSObject.Properties["productionSupportEnabled"]
+    $previousObservabilityEnabled = $null -ne $observabilityProperty -and [bool]$observabilityProperty.Value
+    $previousProductionSupportEnabled = $null -ne $productionSupportProperty -and [bool]$productionSupportProperty.Value
+}
+
+$backendHealthUrl = "http://127.0.0.1:$BackendPort/actuator/health"
+$backendAlreadyHealthy = Test-LocalRuntimeHttp -Uri $backendHealthUrl
+if ($backendAlreadyHealthy) {
+    Assert-LocalRuntime `
+        (-not $WithObservability -or $previousObservabilityEnabled) `
+        "Backend is already running without local OTLP export; run scripts/stop-local.ps1 before enabling observability"
+    Assert-LocalRuntime `
+        (-not $WithProductionSupport -or $previousProductionSupportEnabled) `
+        "Backend is already running without local production support; run scripts/stop-local.ps1 before enabling it"
+}
+
+$effectiveObservabilityEnabled = ([bool]$WithObservability) -or $previousObservabilityEnabled
+$effectiveProductionSupportEnabled = ([bool]$WithProductionSupport) -or $previousProductionSupportEnabled
+
+if ($effectiveProductionSupportEnabled) {
+    & (Join-Path $PSScriptRoot "start-local-support.ps1") -AdoptEnvironmentPiiKeys -StartupTimeoutSeconds ([Math]::Max($StartupTimeoutSeconds, 600))
+    . (Join-Path $PSScriptRoot "local-support-common.ps1")
+    Import-LocalRuntimeEnvironment -Path $Script:LocalSupportEnvironmentPath -Required
+    Remove-Item Env:APP_PII_AES_KEY_BASE64 -ErrorAction SilentlyContinue
+    Remove-Item Env:APP_PII_HMAC_KEY_BASE64 -ErrorAction SilentlyContinue
+}
 
 $requiredEnvironment = @(
     "DB_URL",
@@ -30,11 +67,12 @@ $requiredEnvironment = @(
     "ADMIN_INIT_PASSWORD",
     "ADMIN_TOTP_SECRET",
     "APP_JWT_SECRET",
-    "APP_PII_AES_KEY_BASE64",
-    "APP_PII_HMAC_KEY_BASE64",
     "APP_PAYMENT_CALLBACK_SECRET",
     "APP_LOGISTICS_WEBHOOK_SECRET"
 )
+if (-not $effectiveProductionSupportEnabled) {
+    $requiredEnvironment += @("APP_PII_AES_KEY_BASE64", "APP_PII_HMAC_KEY_BASE64")
+}
 foreach ($name in $requiredEnvironment) {
     $value = [Environment]::GetEnvironmentVariable($name)
     Assert-LocalRuntime (-not [string]::IsNullOrWhiteSpace($value)) "$name is required in .env or the workstation runtime environment"
@@ -44,7 +82,7 @@ $redisHost = [Environment]::GetEnvironmentVariable("SPRING_DATA_REDIS_HOST")
 Assert-LocalRuntime ($env:DB_URL -match "jdbc:mysql://(127\.0\.0\.1|localhost):") "DB_URL must target local MySQL"
 Assert-LocalRuntime ($redisHost -in @("127.0.0.1", "localhost")) "SPRING_DATA_REDIS_HOST must target local Redis"
 
-if ($WithObservability) {
+if ($effectiveObservabilityEnabled) {
     & (Join-Path $PSScriptRoot "start-local-observability.ps1") -SkipBootstrap -StartupTimeoutSeconds $StartupTimeoutSeconds
 }
 
@@ -55,10 +93,20 @@ New-Item -ItemType Directory -Path $logsPath, $redisDataPath, $uploadPath -Force
 
 $env:SPRING_PROFILES_ACTIVE = "dev"
 $env:SERVER_PORT = [string]$BackendPort
+$env:SERVER_ADDRESS = "127.0.0.1"
 $env:SPRING_DATA_REDIS_PORT = [string]$RedisPort
 $env:APP_UPLOAD_PATH = $uploadPath
-$env:APP_STORAGE_PROVIDER = "local"
-$env:APP_UPLOAD_VIRUS_SCAN_ENABLED = "false"
+if ($effectiveProductionSupportEnabled) {
+    $env:APP_STORAGE_PROVIDER = "minio"
+    $env:APP_UPLOAD_VIRUS_SCAN_ENABLED = "true"
+    $env:APP_INTEGRATIONS_STARTUP_READINESS_REQUIRED = "true"
+    $env:APP_INTEGRATIONS_STARTUP_CREATE_STORAGE_BUCKET = "true"
+} else {
+    $env:APP_STORAGE_PROVIDER = "local"
+    $env:APP_UPLOAD_VIRUS_SCAN_ENABLED = "false"
+    $env:APP_INTEGRATIONS_STARTUP_READINESS_REQUIRED = "false"
+    $env:APP_INTEGRATIONS_STARTUP_CREATE_STORAGE_BUCKET = "false"
+}
 $env:APP_JWT_REQUIRE_REDIS_TOKEN_STORE = "true"
 $env:APP_AUTH_REQUIRE_REDIS_STATE = "true"
 $env:APP_RATE_LIMIT_REQUIRE_REDIS_STATE = "true"
@@ -67,23 +115,18 @@ $env:APP_JWT_COOKIE_SECURE = "false"
 $env:APP_AUTH_CAPTCHA_COOKIE_SECURE = "false"
 $env:OTEL_METRICS_EXPORTER = "none"
 $env:OTEL_LOGS_EXPORTER = "none"
-if ($WithObservability) {
+if ($effectiveObservabilityEnabled) {
     $env:OTEL_TRACES_EXPORTER = "otlp"
     $env:OTEL_EXPORTER_OTLP_ENDPOINT = "http://127.0.0.1:4318"
 } else {
     $env:OTEL_TRACES_EXPORTER = "none"
 }
 
-$previousState = Read-LocalRuntimeState
-if ($null -ne $previousState) {
-    Assert-LocalRuntime `
-        ($previousState.repositoryRoot -eq $Script:LocalRuntimeRepoRoot) `
-        "Runtime state belongs to another repository"
-}
 $state = [ordered]@{
     version = 1
     repositoryRoot = $Script:LocalRuntimeRepoRoot
-    observabilityEnabled = [bool]$WithObservability
+    observabilityEnabled = $effectiveObservabilityEnabled
+    productionSupportEnabled = $effectiveProductionSupportEnabled
     updatedAtUtc = [DateTime]::UtcNow.ToString("O")
     services = [ordered]@{}
 }
@@ -122,6 +165,8 @@ if ($null -ne $mysqlService -and $mysqlService.Status -ne "Running") {
     Start-Service -Name "MySQL"
 }
 Wait-LocalRuntimeTcp -Address "127.0.0.1" -Port $MySqlPort -TimeoutSeconds 30 -Name "MySQL"
+Assert-LocalRuntimeLoopbackListener -Name "MySQL" -Port $MySqlPort
+Assert-LocalRuntimeLoopbackListener -Name "MySQL X Protocol" -Port $MySqlXPort -AllowAbsent
 Write-Host "MySQL is listening on 127.0.0.1:$MySqlPort"
 
 Write-Host "==> Redis-compatible local service"
@@ -163,13 +208,16 @@ if (Test-LocalRuntimeTcp -Address "127.0.0.1" -Port $RedisPort) {
         New-LocalRuntimeServiceRecord -Launcher $memurai -Port $RedisPort -StandardOutput $memuraiLog
     )
 }
+Assert-LocalRuntimeLoopbackListener -Name "Redis" -Port $RedisPort
 
 Write-Host "==> Spring Boot backend"
-$backendHealthUrl = "http://127.0.0.1:$BackendPort/actuator/health"
 if (Test-LocalRuntimeHttp -Uri $backendHealthUrl) {
     Assert-LocalRuntime `
-        (-not $WithObservability -or ($null -ne $previousState -and [bool]$previousState.observabilityEnabled)) `
+        (-not $WithObservability -or $previousObservabilityEnabled) `
         "Backend is already running without local OTLP export; run scripts/stop-local.ps1 before enabling observability"
+    Assert-LocalRuntime `
+        (-not $WithProductionSupport -or $previousProductionSupportEnabled) `
+        "Backend is already running without local production support; run scripts/stop-local.ps1 before enabling it"
     Write-Host "Backend is already healthy at $backendHealthUrl"
     Save-ServiceRecord -Name "backend" -Record (Get-RunningServiceRecord -Name "backend" -Port $BackendPort)
 } else {
@@ -208,6 +256,7 @@ if (Test-LocalRuntimeHttp -Uri $backendHealthUrl) {
             -StandardError $backendError
     )
 }
+Assert-LocalRuntimeLoopbackListener -Name "Backend" -Port $BackendPort
 
 Write-Host "==> Vite frontend"
 $frontendUrl = "http://127.0.0.1:$FrontendPort/shop"
@@ -245,9 +294,15 @@ if (Test-LocalRuntimeHttp -Uri $frontendUrl) {
             -StandardError $frontendError
     )
 }
+Assert-LocalRuntimeLoopbackListener -Name "Frontend" -Port $FrontendPort
 
 Write-Host ""
 Write-Host "MonkeyShop local stack is ready."
 Write-Host "Frontend: http://127.0.0.1:$FrontendPort"
 Write-Host "Backend:  http://127.0.0.1:$BackendPort"
+if ($effectiveProductionSupportEnabled) {
+    Write-Host "Vault:    http://127.0.0.1:8200"
+    Write-Host "S3:       http://127.0.0.1:8333"
+    Write-Host "ClamAV:   tcp://127.0.0.1:3310"
+}
 Write-Host "Logs:     $logsPath"
