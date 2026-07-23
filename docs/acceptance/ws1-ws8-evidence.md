@@ -27,7 +27,7 @@ Run `scripts/verify-ws1-ws8-acceptance.ps1 -IncludeRuntimeDataProtection` for th
 - [x] Stage 11-11: deploy native Windows Vault, SeaweedFS S3, and ClamAV; adopt the existing PII keys into Transit; prove semantic operations, application startup, and fail-closed dependency handling.
 - [x] Stage 11-11A: stop recursive tracking-profile summary growth, add a 100-event regression, and repeat real-browser runtime, API, rate-limit, OpenAPI, and populated-PII acceptance.
 - [x] Stage 11-12: push all post-delivery batches and verify CI/CD, WS1 Security Gate, and CodeQL through the final tracking hotfix.
-- [ ] Stage 11-13: merge the verified remote upgrade branch into `main`, push `main`, and rerun the main-branch gates.
+- [x] Stage 11-13: fast-forward the verified remote upgrade branch into `main`, push it, pass the main-branch gates, and pin the signed image digest plus Argo release revision.
 
 ## Current Local Evidence
 
@@ -137,7 +137,7 @@ The first support start adopted the existing workstation AES/HMAC PII keys into 
 
 ## Remote Branch Evidence
 
-The upgrade branch is present remotely through `480f433485d72533c3073c9e0ab891f03556035d`. The following completed branch checkpoints are independently queryable in GitHub Actions:
+The final code checkpoint is `480f433485d72533c3073c9e0ab891f03556035d`, followed by the remote evidence commit `aa6b2d9220817e101a81f2406b1f8e9b2b70ec22`. The following completed branch checkpoints are independently queryable in GitHub Actions:
 
 | Checkpoint | Commit | CI/CD | WS1 | CodeQL |
 | --- | --- | --- | --- | --- |
@@ -148,6 +148,12 @@ The upgrade branch is present remotely through `480f433485d72533c3073c9e0ab891f0
 | Tracking hotfix | `480f4334` | `30010693037` | `30010692977` | `30010693024` |
 
 Every listed run concluded successfully. The Batch 10B image job also completed the Trivy JSON/SARIF gates, code-scanning upload, GHCR push, and keyless cosign signing. SonarQube and Snyk workflows explicitly report credential-aware deferred status on this workstation-owned repository; they do not claim an external Quality Gate result without tokens.
+
+## Main Branch Release Evidence
+
+The remote `main` branch was verified as an ancestor-only base at `008651d5`, then fast-forwarded without a merge commit to evidence checkpoint `aa6b2d92`. The main-branch CI/CD `30015188255`, WS1 Security Gate `30015185956`, CodeQL `30015188219`, Snyk `30015186527`, and SonarQube `30015189059` runs all concluded successfully.
+
+The main image job passed the Trivy JSON and SARIF gates, code-scanning upload, GHCR push, keyless cosign signature, production-input validation, and GitOps update. Commit `373c0c9a` pins `ghcr.io/haohaizi554/monkey-shop@sha256:8d0dc3905bde643a73cc4b74b749ab821d5c42ff392095c5a211f48b0f51eafe`; commit `6079dc62` pins the production Argo Application to release revision `373c0c9a408d55ab25de605179f75cf568297470`.
 
 ### Local PII Migration
 
@@ -168,23 +174,23 @@ Every listed run concluded successfully. The Batch 10B image job also completed 
 | WS4 | concurrency/idempotency/precision/migration/upload tests | production-scale load and rollback exercise |
 | WS5 | build, lint, contracts, unit, axe, visual, responsive, i18n, dark mode, Lighthouse | public CSP/TLS deployment check |
 | WS6 | JSON logs, trace IDs, metrics, audit persistence, Helm dashboards/alerts, plus a live native Collector/Prometheus/Loki/Tempo/Grafana stack with real Spring spans and service graph metrics | live Sentry and 30-day production SLO evidence |
-| WS7 | Docker/Helm/Argo/Kyverno artifacts, rendered manifests, fail-closed MicroK8s generation paths, plus branch-image GHCR push and cosign signature | real staging/prod reconciliation, signed-image admission, production digest pin, and canary rollback drill |
+| WS7 | Docker/Helm/Argo/Kyverno artifacts, rendered manifests, fail-closed MicroK8s generation paths, GHCR push/cosign signature, production digest pin, and fixed Argo revision | real staging/prod reconciliation, signed-image admission, and canary rollback drill |
 | WS8 | local 429 probe, encrypted database, blind indexes, key rotation, native Vault Transit key release, S3/ClamAV operations, fail-closed startup, and MicroK8s Pod flag contracts | live production Vault/KMS custody, Turnstile, WAF/bot provider, and TDE/backup-key integration |
 
 ## Open External Proof
 
 The following external-production configuration is absent from the current workstation environment: `MONKEYSHOP_PUBLIC_URL`, `SONAR_TOKEN`, `SONAR_HOST_URL`, `SENTRY_DSN`, and `APP_TURNSTILE_SECRET_KEY`. A local decrypt-only Vault token is proven for workstation acceptance, but no production Vault/KMS identity or custody evidence is available. Local OTLP is configured explicitly by `start-local.ps1 -WithObservability`.
 
-The previously supplied VM addresses `192.168.147.128` and `192.168.119.129` both timed out on TCP/22 during the latest check, so the hardened MicroK8s scripts could not be executed against a real cluster. GitHub CLI authentication is valid; a fresh fetch confirms the remote upgrade branch at `480f4334`, with all required workflows green through the final tracking hotfix.
+The previously supplied VM addresses `192.168.147.128` and `192.168.119.129` both timed out on TCP/22 during the latest check, so the hardened MicroK8s scripts could not be executed against a real cluster. GitHub CLI authentication is valid; a fresh fetch confirms the remote upgrade evidence at `aa6b2d92` and the released `main` head at `6079dc62`.
 
 Therefore these claims remain open and must not be represented as complete:
 
 1. Public DNS/TLS 1.3, HTTPS redirect, HSTS preload, and SecurityHeaders A+.
 2. Sonar Quality Gate A with 0 new bugs/vulnerabilities and duplication below 3%.
 3. Production Vault/KMS custody, Turnstile, and Sentry integration; native Vault/SeaweedFS/ClamAV and Collector/Loki/Tempo are locally proven but still require production-environment evidence.
-4. Real staging and production Argo CD reconciliation, signed immutable image admission, production digest pinning, and canary rollback. Branch-image push/signing is proven, but cluster admission is not.
+4. Real staging and production Argo CD reconciliation, signed immutable image admission, and canary rollback. Repository digest/revision pinning and image signing are proven, but cluster reconciliation and admission are not.
 5. A measured 99.9% availability window and MTTR drill.
 
 ## Acceptance Verdict
 
-The workstation build is ready for local acceptance and the split final local gates are green. All post-delivery work is present on the remote upgrade branch through `480f4334`, and every required branch workflow is green through the final tracking hotfix. The native workstation stack is loopback-complete and repeatable. The remaining delivery step is the fast-forward merge and main-branch verification; the original production Definition of Done remains incomplete until the external proof above is supplied and executed.
+The workstation build is ready for local acceptance and the split final local gates are green. All post-delivery work is merged into `main`; branch and main workflows are green, and the signed immutable image digest plus fixed Argo revision are committed. The native workstation stack is loopback-complete and repeatable. The repository delivery is complete, while the original production Definition of Done remains incomplete until the external proof above is supplied and executed.

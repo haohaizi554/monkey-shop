@@ -40,4 +40,4 @@ Updated: 2026-07-23
 - [x] Run the complete repository/runtime acceptance before Batch 10B, then repeat focused compile, regression, PII, API, rate-limit, and real-browser gates after the tracking hotfix.
 - [x] Finish the final hotfix CI run; every local batch is pushed in order with recorded green workflow evidence.
 - [x] Record public-edge, SaaS, production key-custody, and real-cluster proof as externally blocked rather than representing missing evidence as complete.
-- [ ] Merge the verified remote upgrade branch into `main`, push `main`, and rerun the main-branch acceptance gates.
+- [x] Fast-forward the verified upgrade branch into `main`; pass CI/CD `30015188255`, WS1 `30015185956`, CodeQL `30015188219`, Snyk `30015186527`, and Sonar `30015189059`; pin the production image in `373c0c9a` and Argo revision in `6079dc62`.
