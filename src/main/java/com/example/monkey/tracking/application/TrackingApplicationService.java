@@ -162,7 +162,7 @@ public class TrackingApplicationService {
                     trackingStore.findUserProfile(event.userId()).orElseGet(() -> emptyProfile(event.userId()));
             UserProfileTag updated = new UserProfileTag(
                     event.userId(),
-                    profileSummary(event, existing),
+                    profileSummary(event),
                     merge(existing.behaviorTags(), behaviorTags(event)),
                     merge(existing.interestTags(), interestTags(event)),
                     event.occurredAt(),
@@ -236,8 +236,8 @@ public class TrackingApplicationService {
         return new UserProfileTag(userId, "", List.of(), List.of(), LocalDateTime.now(), 0L);
     }
 
-    private static String profileSummary(TrackingEvent event, UserProfileTag existing) {
-        return "last=" + event.eventType() + ",page=" + event.page() + ",previous=" + existing.profileSummary();
+    private static String profileSummary(TrackingEvent event) {
+        return "last=" + event.eventType() + ",page=" + event.page();
     }
 
     private static List<String> behaviorTags(TrackingEvent event) {

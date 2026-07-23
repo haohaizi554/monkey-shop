@@ -81,6 +81,18 @@ class TrackingApplicationServiceTest {
     }
 
     @Test
+    void repeatedEventsReplaceProfileSummaryInsteadOfGrowingItUnboundedly() {
+        for (int index = 0; index < 100; index++) {
+            record(USER, TrackingEventType.SEARCH, "summary-session", null, null, null, null, "/search");
+        }
+
+        assertThat(trackingStore.userProfiles.get(7L).profileSummary())
+                .isEqualTo("last=SEARCH,page=/search")
+                .doesNotContain("previous=")
+                .hasSizeLessThanOrEqualTo(256);
+    }
+
+    @Test
     void uiErrorEventRemainsTraceableWithoutPollutingRecommendationProfiles() {
         var response = service.recordEvent(
                 USER,
