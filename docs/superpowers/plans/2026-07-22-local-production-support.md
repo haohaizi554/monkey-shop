@@ -12,7 +12,7 @@ Updated: 2026-07-23
 - [x] Wire `start-local.ps1 -WithObservability` to OTLP before Spring starts.
 - [x] Verify a real Spring server span, exact TraceQL search, correlated Loki log, Prometheus target, span metrics, service graph metrics, and Grafana data sources.
 - [x] Prove timed-out application starts terminate their Maven/Java process tree and cannot become untracked late listeners.
-- [x] Run repository syntax/config/WS6 gates and prepare the Batch 10A commit.
+- [x] Run repository syntax/config/WS6 gates and push the final Batch 10A checkpoint `3e60d9f1` with green CI/CD, WS1, and CodeQL runs.
 
 ## Batch 10B: Native Security And Storage
 
@@ -26,11 +26,18 @@ Updated: 2026-07-23
 - [x] Run the split full repository/runtime gates and update final evidence.
 - [x] Restart the pre-fix observability processes and refresh final loopback/runtime evidence.
 - [x] Fix cold-bucket provisioning, proxy exclusions, repeated-start mode inheritance, and fail-closed listener checks with red/green regressions.
-- [x] Create the Batch 10B commit.
+- [x] Create and push Batch 10B checkpoint `8641d187` with green CI/CD, WS1, and CodeQL runs.
+
+## Runtime Acceptance Hotfix
+
+- [x] Reproduce the live `/api/v1/tracking/events` 502 and trace it to recursively growing encrypted profile summaries.
+- [x] Replace recursive history with a bounded latest-event snapshot and add a 100-event regression.
+- [x] Pass 15 focused Tracking/JPA/WS11/schema tests, Maven validate, and the full real-browser local runtime gate.
+- [x] Push checkpoint `480f4334`; CI/CD `30010693037`, WS1 `30010692977`, and CodeQL `30010693024` all completed successfully.
 
 ## Final Delivery
 
-- [ ] Re-run backend, frontend, security, scanner, visual, runtime, and encrypted-data gates from the committed tree.
-- [ ] Push each local batch in order and record the remote commit and CI result.
-- [ ] Obtain remaining public-edge, SaaS, and cluster proof without representing missing evidence as complete.
+- [x] Run the complete repository/runtime acceptance before Batch 10B, then repeat focused compile, regression, PII, API, rate-limit, and real-browser gates after the tracking hotfix.
+- [x] Finish the final hotfix CI run; every local batch is pushed in order with recorded green workflow evidence.
+- [x] Record public-edge, SaaS, production key-custody, and real-cluster proof as externally blocked rather than representing missing evidence as complete.
 - [ ] Merge the verified remote upgrade branch into `main`, push `main`, and rerun the main-branch acceptance gates.

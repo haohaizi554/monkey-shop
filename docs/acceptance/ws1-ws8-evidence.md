@@ -3,7 +3,7 @@
 Date: 2026-07-22
 Updated: 2026-07-23
 
-This is the current evidence log for the original WS1-WS8 objective. Local repository and workstation acceptance is green. The full production Definition of Done is not yet proven because public-edge, external SaaS, image-signing, and real staging/production-cluster evidence is unavailable.
+This is the current evidence log for the original WS1-WS8 objective. Local repository and workstation acceptance is green, and the upgrade branch has remote CI, security scanning, GHCR push, and cosign-signing evidence through the final tracking hotfix. The full production Definition of Done is not yet proven because public-edge, external SaaS, signed-image cluster admission, and real staging/production-cluster evidence is unavailable.
 
 ## Umbrella Acceptance Entry Point
 
@@ -25,7 +25,8 @@ Run `scripts/verify-ws1-ws8-acceptance.ps1 -IncludeRuntimeDataProtection` for th
 - [x] Stage 11-9: remove the PII-encryption bypass from both MicroK8s acceptance paths, preserve development key material across redeployments, and guard the effective Pod flags through the WS8 gate.
 - [x] Stage 11-10: deploy the native Windows Collector, Prometheus, Loki, Tempo, and Grafana stack; verify real Spring traces, logs, span metrics, service graphs, and provisioned data sources.
 - [x] Stage 11-11: deploy native Windows Vault, SeaweedFS S3, and ClamAV; adopt the existing PII keys into Transit; prove semantic operations, application startup, and fail-closed dependency handling.
-- [ ] Stage 11-12: push the local post-delivery batches and verify their newly enabled branch CI workflows on GitHub.
+- [x] Stage 11-11A: stop recursive tracking-profile summary growth, add a 100-event regression, and repeat real-browser runtime, API, rate-limit, OpenAPI, and populated-PII acceptance.
+- [x] Stage 11-12: push all post-delivery batches and verify CI/CD, WS1 Security Gate, and CodeQL through the final tracking hotfix.
 - [ ] Stage 11-13: merge the verified remote upgrade branch into `main`, push `main`, and rerun the main-branch gates.
 
 ## Current Local Evidence
@@ -90,16 +91,16 @@ The current workstation deployment is direct, not Docker-based:
 | --- | --- | ---: |
 | MySQL Windows service | `127.0.0.1:3306` and `127.0.0.1:33060` | 9556 |
 | Redis-compatible service | `127.0.0.1:6379` | 15976 |
-| Spring Boot | `http://127.0.0.1:8888` | 45432 |
+| Spring Boot | `http://127.0.0.1:8888` | 45788 |
 | Vite | `http://127.0.0.1:5173` | 43616 |
-| Vault | `http://127.0.0.1:8200` | 40880 |
-| SeaweedFS S3 | `http://127.0.0.1:8333` | 45136 |
-| ClamAV | `tcp://127.0.0.1:3310` | 36820 |
-| OpenTelemetry Collector | `http://127.0.0.1:13133` | 8308 |
-| Prometheus | `http://127.0.0.1:9090` | 43684 |
-| Loki | `http://127.0.0.1:3100` | 42224 |
-| Tempo | `http://127.0.0.1:3200` | 34596 |
-| Grafana | `http://127.0.0.1:3000` | 1020 |
+| Vault | `http://127.0.0.1:8200` | 43344 |
+| SeaweedFS S3 | `http://127.0.0.1:8333` | 40468 |
+| ClamAV | `tcp://127.0.0.1:3310` | 48716 |
+| OpenTelemetry Collector | `http://127.0.0.1:13133` | 27584 |
+| Prometheus | `http://127.0.0.1:9090` | 29348 |
+| Loki | `http://127.0.0.1:3100` | 41192 |
+| Tempo | `http://127.0.0.1:3200` | 37064 |
+| Grafana | `http://127.0.0.1:3000` | 10084 |
 
 All listed listeners are loopback-only. MySQL was validated and restarted with both `bind-address=127.0.0.1` and `mysqlx-bind-address=127.0.0.1`. Repository lifecycle and status scripts now fail closed if a healthy service also exposes a wildcard or non-loopback listener; a temporary `0.0.0.0` negative probe was rejected.
 
@@ -109,6 +110,8 @@ All listed listeners are loopback-only. MySQL was validated and restarted with b
 - 124 OpenAPI operations;
 - a real Chromium storefront render and bootstrap-admin authentication;
 - strict authenticated PII ciphertext validation through `scripts/verify-local-data-protection.ps1 -RequirePopulatedPii`.
+
+The gate was repeated on 2026-07-23 after fixing the live `/api/v1/tracking/events` failure caused by recursively growing encrypted profile summaries. The repeated run returned exit code 0, authenticated all 349 populated PII values with 0 unprotected rows and 0 blind-index mismatches, exposed 124 OpenAPI operations, and passed the real Chromium storefront plus bootstrap-admin flow. The focused Tracking/JPA/WS11/schema regression set contains 15 tests with 0 failures and 0 errors.
 
 The aggregate command `scripts/verify-ws1-ws8-acceptance.ps1 -RuntimeBaseUrl http://127.0.0.1:8888 -IncludeRuntimeDataProtection` completed again with exit code 0 on 2026-07-22 in 1,257.8 seconds after the MicroK8s hardening. It ran backend Maven verification, quality reports, WS1 scanners, WS5, WS6, WS7, WS8, Kyverno, runtime smoke/API checks, and the populated local PII audit without Docker or manual skip flags. Its retained workstation log is `target/batch9-full-acceptance.log`; VM, runtime-image, public-edge, and Sonar proof were explicitly reported as open rather than silently treated as passed.
 
@@ -132,6 +135,20 @@ The final WS1 scan reported 0 Gitleaks history findings, 0 Gitleaks current-tree
 
 The first support start adopted the existing workstation AES/HMAC PII keys into Vault Transit, preserving all previously encrypted rows. Only wrapped ciphertexts are passed to Spring and the raw environment keys are removed first. Support secrets and persistent state remain outside Git below `%LOCALAPPDATA%\MonkeyShop\support` with restricted ACLs. After a full support-plus-observability start, invoking `start-local.ps1` again without switches completed in 8.6 seconds, preserved every service PID, and retained both runtime mode flags as `true`.
 
+## Remote Branch Evidence
+
+The upgrade branch is present remotely through `480f433485d72533c3073c9e0ab891f03556035d`. The following completed branch checkpoints are independently queryable in GitHub Actions:
+
+| Checkpoint | Commit | CI/CD | WS1 | CodeQL |
+| --- | --- | --- | --- | --- |
+| CI and image-gate repair | `93e3d0c0` | `30003439046` | `30003439013` | `30003438999` |
+| Batch 9 | `66857fc2` | `30005065330` | `30005065308` | `30005065296` |
+| Batch 10A | `3e60d9f1` | `30006714248` | `30006714177` | `30006714212` |
+| Batch 10B | `8641d187` | `30008413100` | `30008413158` | `30008413186` |
+| Tracking hotfix | `480f4334` | `30010693037` | `30010692977` | `30010693024` |
+
+Every listed run concluded successfully. The Batch 10B image job also completed the Trivy JSON/SARIF gates, code-scanning upload, GHCR push, and keyless cosign signing. SonarQube and Snyk workflows explicitly report credential-aware deferred status on this workstation-owned repository; they do not claim an external Quality Gate result without tokens.
+
 ### Local PII Migration
 
 - A pre-migration MySQL backup was created at `C:\Users\MemoryLeak\AppData\Local\MonkeyShop\backups\before-pii-backfill-clean-20260722-100539.sql`.
@@ -151,23 +168,23 @@ The first support start adopted the existing workstation AES/HMAC PII keys into 
 | WS4 | concurrency/idempotency/precision/migration/upload tests | production-scale load and rollback exercise |
 | WS5 | build, lint, contracts, unit, axe, visual, responsive, i18n, dark mode, Lighthouse | public CSP/TLS deployment check |
 | WS6 | JSON logs, trace IDs, metrics, audit persistence, Helm dashboards/alerts, plus a live native Collector/Prometheus/Loki/Tempo/Grafana stack with real Spring spans and service graph metrics | live Sentry and 30-day production SLO evidence |
-| WS7 | Docker/Helm/Argo/Kyverno artifacts, rendered manifests, and fail-closed MicroK8s generation paths | real staging/prod reconciliation, pushed digest, cosign signature, canary rollback drill |
+| WS7 | Docker/Helm/Argo/Kyverno artifacts, rendered manifests, fail-closed MicroK8s generation paths, plus branch-image GHCR push and cosign signature | real staging/prod reconciliation, signed-image admission, production digest pin, and canary rollback drill |
 | WS8 | local 429 probe, encrypted database, blind indexes, key rotation, native Vault Transit key release, S3/ClamAV operations, fail-closed startup, and MicroK8s Pod flag contracts | live production Vault/KMS custody, Turnstile, WAF/bot provider, and TDE/backup-key integration |
 
 ## Open External Proof
 
 The following external-production configuration is absent from the current workstation environment: `MONKEYSHOP_PUBLIC_URL`, `SONAR_TOKEN`, `SONAR_HOST_URL`, `SENTRY_DSN`, and `APP_TURNSTILE_SECRET_KEY`. A local decrypt-only Vault token is proven for workstation acceptance, but no production Vault/KMS identity or custody evidence is available. Local OTLP is configured explicitly by `start-local.ps1 -WithObservability`.
 
-The previously supplied VM addresses `192.168.147.128` and `192.168.119.129` both timed out on TCP/22 during the latest check, so the hardened MicroK8s scripts could not be executed against a real cluster. The configured GitHub CLI token is also invalid, and a fresh fetch still leaves the trusted remote at `d6a0b99d`.
+The previously supplied VM addresses `192.168.147.128` and `192.168.119.129` both timed out on TCP/22 during the latest check, so the hardened MicroK8s scripts could not be executed against a real cluster. GitHub CLI authentication is valid; a fresh fetch confirms the remote upgrade branch at `480f4334`, with all required workflows green through the final tracking hotfix.
 
 Therefore these claims remain open and must not be represented as complete:
 
 1. Public DNS/TLS 1.3, HTTPS redirect, HSTS preload, and SecurityHeaders A+.
 2. Sonar Quality Gate A with 0 new bugs/vulnerabilities and duplication below 3%.
 3. Production Vault/KMS custody, Turnstile, and Sentry integration; native Vault/SeaweedFS/ClamAV and Collector/Loki/Tempo are locally proven but still require production-environment evidence.
-4. Real staging and production Argo CD reconciliation, signed immutable image admission, and canary rollback.
+4. Real staging and production Argo CD reconciliation, signed immutable image admission, production digest pinning, and canary rollback. Branch-image push/signing is proven, but cluster admission is not.
 5. A measured 99.9% availability window and MTTR drill.
 
 ## Acceptance Verdict
 
-The workstation build is ready for local acceptance and the split final local gates are green. The initial staged delivery is present on the trusted remote through `d6a0b99d`; the local branch is five commits ahead before the Batch 10B commit, so remote CI evidence remains pending. The native workstation stack is loopback-complete and repeatable; the original production Definition of Done remains incomplete until the external proof above is supplied and executed.
+The workstation build is ready for local acceptance and the split final local gates are green. All post-delivery work is present on the remote upgrade branch through `480f4334`, and every required branch workflow is green through the final tracking hotfix. The native workstation stack is loopback-complete and repeatable. The remaining delivery step is the fast-forward merge and main-branch verification; the original production Definition of Done remains incomplete until the external proof above is supplied and executed.

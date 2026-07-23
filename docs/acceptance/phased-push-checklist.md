@@ -1,10 +1,10 @@
 # MonkeyShop 分阶段推送清单
 
-日期：2026-07-22
+日期：2026-07-23
 
-本清单记录从基础节点 `6a7a7ce4` 到远端节点 `d6a0b99d` 的 69 个增量提交。前 68 个提交按 5 个严格连续的交付批次组织，随后增加 1 个 UI 与账户安全补充提交。2026-07-22 19:09（Asia/Shanghai）通过 Clash `127.0.0.1:7890` 再次执行 `git fetch origin`，远端分支仍为 `d6a0b99d0d154e38d1b4aae601374569eb0a3c70`，本地提交 `9866c1db`、`993fb25e` 及后续批次 9 尚未进入该分支。
+本清单记录从基础节点 `6a7a7ce4` 到当前远端架构升级分支节点 `480f4334` 的 81 个增量提交。前 69 个提交形成初始 UI、业务、安全与质量交付，后续 12 个提交按批次 7 至批次 11 独立补齐验收确定性、MicroK8s PII、CI、安全依赖、原生可观测/支撑服务和运行态缺陷。
 
-当前本地另有三组交付后审查补丁，尚未进入远端；它们在“批次 7”至“批次 9”中独立跟踪，不与已推送成果混报。
+2026-07-23（Asia/Shanghai）通过 Clash `127.0.0.1:7890` 执行 `git fetch origin` 后，本地与远端架构升级分支均为 `480f433485d72533c3073c9e0ab891f03556035d`。批次 1 至批次 11 的必需 GitHub Actions 均已取得真实绿色结果。
 
 ## 基础节点
 
@@ -88,7 +88,7 @@
 - [x] 增加猴类图片下载脚本及相关 UI、账户回归测试。
 - [x] `git fetch origin` 后确认本地与远端均为 `d6a0b99d`。
 
-## 批次 7：交付后审查补丁（本地待推送）
+## 批次 7：交付后审查补丁
 
 - [x] 前端统一处理 `passwordChangeRequired` 与 `passwordExpired`，密码过期用户不能绕过安全修改流程。
 - [x] 将猴类图片下载改为仓库相对路径，校验真实 JPEG，生成许可归属与 SHA-256 清单，并增加离线回归测试。
@@ -98,18 +98,18 @@
 - [x] 修复账户浏览器用例的非唯一等待条件，并为首屏 eager 吉祥物补充高资源优先级。
 - [x] 完成审查补丁的最终全量本地门禁。
 - [x] 提交审查补丁为 `9866c1db`。
-- [ ] 推送审查补丁，确认远端新节点与 CI 结果。
+- [x] 审查补丁及后续 CI 修复已进入远端；包含该节点的 `93e3d0c0` 在 CI/CD、WS1 Security Gate 与 CodeQL 三项工作流均为绿色。
 
-## 批次 8：总验收门禁确定性修复（本地待推送）
+## 批次 8：总验收门禁确定性修复
 
 - [x] WS5 在保留既有代理排除项的同时强制加入 `127.0.0.1`、`localhost` 与 `::1`，避免 Clash 代理阻断 Playwright 本地服务探测。
 - [x] WS7 在预期的全零镜像摘要负例后清除原生失败退出码，使聚合 PowerShell 调用方获得真实成功状态。
 - [x] 总验收在无 SSH 目标时调用原生 Windows 本地 PII 审计，不再隐式依赖 Docker；远端 SSH 分支仍执行容器/集群侧审计。
 - [x] 增加 3 个对应仓库契约回归；全量 Maven 报告为 1,716 个测试、0 失败、0 错误、41 跳过。
 - [x] 在 Clash 开启且未预设 `NO_PROXY` 的条件下执行无人工跳过的本地总入口，943.9 秒后以退出码 0 完成；Lighthouse 为 96/100/100/100，LCP 1,279 ms，本地 PII 为 349/349 密文且 0 个盲索引不一致。
-- [ ] 推送批次 7 与批次 8，并取得当前分支 GitHub Actions 的真实绿色结果。
+- [x] 批次 7 与批次 8 已进入远端；CI 修复节点 `93e3d0c0` 的三项必需工作流均为绿色。
 
-## 批次 9：MicroK8s PII 运行态加固（本地待推送）
+## 批次 9：MicroK8s PII 运行态加固
 
 - [x] 删除直接 Helm 与 Argo CD 两条开发验收路径中的 `APP_PII_ENCRYPTION_ENABLED=false` 绕过，显式关闭明文读取与一次性回填。
 - [x] 首次部署生成独立的 256 位 AES/HMAC 密钥，并将密钥、版本和创建时间写入命名空间 runtime Secret；重复部署读取并复用已有材料，避免旧密文因静默换钥失效。
@@ -118,9 +118,9 @@
 - [x] 通过假的 `ssh/scp` 执行动态生成路径；两份 Bash 通过 `bash -n`，两份 values 通过 Helm 渲染。
 - [x] 当前完整总入口在 1,257.8 秒后以退出码 0 完成：1,718 个后端测试零失败，JaCoCo 84.88%，PITest 85.36%，扫描器零阻断，Lighthouse 96/100/100/100，PII 349/349。
 - [ ] 两个历史 VM 地址的 TCP/22 均超时；恢复可达集群后执行真实 MicroK8s/Argo 运行态验收。
-- [ ] 推送批次 7 至批次 9，并取得当前分支 GitHub Actions 的真实绿色结果。
+- [x] 批次 9 已推送为 `66857fc2`；CI/CD `30005065330`、WS1 `30005065308`、CodeQL `30005065296` 均为绿色。
 
-## 批次 10A：原生 Windows 可观测栈（本地待推送）
+## 批次 10A：原生 Windows 可观测栈
 
 - [x] 通过 Clash `127.0.0.1:7890` 下载并校验固定版本的 Collector、Prometheus、Loki、Tempo 与 Grafana 官方制品。
 - [x] 所有服务绑定环回地址，运行数据、PID 身份和随机生成的 Grafana 管理密码均保存在仓库外的 `%LOCALAPPDATA%\MonkeyShop`。
@@ -131,10 +131,10 @@
 - [x] Tempo metrics-generator 已向 Prometheus 写入 30 条 span metric 序列与 2 条 service graph 序列。
 - [x] 修复本地启动超时后 Maven/Java 子进程树未回收的问题；1 秒故意超时负例确认 8888 与 MonkeyShop 后端进程均无残留。
 - [x] 脚本 AST、Dashboard JSON、Collector/Loki/Tempo/Prometheus 原生配置解析、WS6 门禁与阶段回归均已通过。
-- [x] 已提交为 `5473c31d`；后续进程清理修复已提交为 `2ff4a5e9`。
-- [ ] 推送批次 10A，并取得当前分支 GitHub Actions 的真实绿色结果。
+- [x] 当前重放后的批次节点为 `2281baf8`；后续进程清理节点为 `3e60d9f1`。
+- [x] 批次 10A 已推送；CI/CD `30006714248`、WS1 `30006714177`、CodeQL `30006714212` 均为绿色。
 
-## 批次 10B：原生 Windows 安全与对象存储栈（本地收口中）
+## 批次 10B：原生 Windows 安全与对象存储栈
 
 - [x] 通过 Clash 下载并按固定 SHA-256 校验 Vault 2.0.3、SeaweedFS 4.29 与 ClamAV 1.5.3 Windows 制品。
 - [x] 增加 bootstrap/start/status/stop/verify 生命周期脚本；运行数据、操作员材料和应用凭据均位于仓库外并限制 ACL。
@@ -149,17 +149,27 @@
 - [x] 管理员重启 MySQL 后，3306 与 33060 均仅监听 `127.0.0.1`；统一监听门禁同时覆盖运行时、支撑与可观测服务，并实测拒绝临时 wildcard 监听。
 - [x] 拆分执行最终后端、质量报告、WS1 扫描、WS5、WS6/7/8、Kyverno、运行态、429、PII 与本地支撑语义门禁，全部取得退出码 0 并更新证据。
 - [x] 可观测栈重启后更新最终 PID、监听与真实 trace 证据。
-- [x] 创建批次 10B 提交。
-- [ ] 推送批次 10B，并取得当前分支 GitHub Actions 的真实绿色结果。
+- [x] 创建并推送批次 10B 节点 `8641d187`。
+- [x] CI/CD `30008413100`、WS1 `30008413158`、CodeQL `30008413186` 均为绿色。
+
+## 批次 11：埋点加密摘要运行态热修
+
+- [x] 真实 Chromium 验收定位到 `/api/v1/tracking/events` 因递归拼接画像摘要而触发 `encrypted_profile_summary` 字段溢出。
+- [x] 将画像摘要收敛为固定大小的最新事件快照；行为与兴趣历史仍由既有标签及事件记录保留。
+- [x] 增加 100 次重复事件回归；Tracking、JPA、WS11 与 SchemaMigration 共 15 个测试零失败。
+- [x] `mvn -o -DskipTests validate` 通过：Spotless 972 个文件干净，Checkstyle 0 违规。
+- [x] `scripts/verify-local-runtime.ps1 -RunRateLimitProbe` 通过：349/349 PII 密文、124 个 OpenAPI 操作、真实 Chromium 登录与店铺链路均成功。
+- [x] 创建并推送节点 `480f4334`。
+- [x] CI/CD `30010693037`、WS1 `30010692977`、CodeQL `30010693024` 均为绿色；Snyk `30010693063` 与 Sonar `30010693107` 也按凭据感知策略正常结束。
+
 ## 远端核验
 
-- [x] `git fetch origin` 与 `git ls-remote` 确认初始 69 个增量提交的远端目标仍为 `d6a0b99d`。
-- [x] 确认 5 个批次目标和 UI 补充节点均是远端 `d6a0b99d` 的祖先。
-- [x] 确认基础节点之后远端共有 69 个增量提交。
-- [x] 确认本地批次 7 至批次 9 没有混入远端 `d6a0b99d`。
-- [ ] 远端 `d6a0b99d` 未触发当前分支 CI；批次 7 已在本地修正触发规则，须在批次 7 至批次 9 推送后取得真实绿色结果。
-- [x] 已回写实际远端节点与核验时间；Git 不提供服务器端推送发生时间，因此只记录可证明的拉取核验时间。
+- [x] `git fetch origin` 与 `git ls-remote` 确认远端架构升级分支为 `480f4334`，与本地提交一致。
+- [x] 确认基础节点之后共有 81 个增量提交，且批次 1 至批次 11 严格连续。
+- [x] 确认远端 `main` 节点 `008651d5` 是架构升级分支的祖先，分支关系为 `0` 个仅 main 提交、`183` 个仅升级分支提交，可执行快进合并。
+- [x] 批次 1 至批次 11 的 CI/CD、WS1 Security Gate 与 CodeQL 已取得真实绿色结果；Snyk/Sonar 工作流在缺少外部令牌时按设计显式降级而非伪报外部质量门通过。
+- [ ] 提交并推送本验收证据后，将远端架构升级分支快进合并到 `main`，再核验 main 分支工作流和 GitOps 发布提交。
 
 ## 不随代码推送伪装完成的事项
 
-公开 TLS/HSTS、Sonar、生产 Vault/KMS 托管与职责分离、Turnstile、Sentry、真实 Argo 集群、镜像签名、灰度回滚以及 30 天 SLO 仍需要外部环境或凭据；Vault/SeaweedFS/ClamAV 与 OTel/Loki/Tempo/Grafana 已在 Windows 本机形成可重复验收栈，但不等同于生产环境证据。它们不会阻止当前本地成果按阶段入库，但在获得真实证据前不得标记为生产验收完成。
+公开 TLS/HSTS、真实 Sonar Quality Gate、生产 Vault/KMS 托管与职责分离、Turnstile、Sentry、真实 Argo 集群、签名镜像的集群准入、灰度回滚以及 30 天 SLO 仍需要外部环境或凭据。分支 CI 已真实完成 GHCR 推送与 cosign 签名，Vault/SeaweedFS/ClamAV 与 OTel/Loki/Tempo/Grafana 已在 Windows 本机形成可重复验收栈，但这些证据不等同于生产环境验收。
