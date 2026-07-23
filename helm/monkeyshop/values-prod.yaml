@@ -6,10 +6,10 @@ namespace:
   name: monkeyshop-prod
 
 image:
-  repository: harbor.example.com/monkeyshop/monkeyshop
+  repository: ghcr.io/haohaizi554/monkey-shop
   tag: prod
   # CI/CD writes the signed release digest here before production sync.
-  digest: ""
+  digest: sha256:8d0dc3905bde643a73cc4b74b749ab821d5c42ff392095c5a211f48b0f51eafe
   pullPolicy: IfNotPresent
 
 replicaCount: 3
