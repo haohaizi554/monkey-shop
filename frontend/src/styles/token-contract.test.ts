@@ -115,6 +115,8 @@ describe('commerce design token contract', () => {
     expect(tokens).toContain('--color-warning-soft: #f7ead6')
     expect(tokens).not.toContain('--color-warning: var(--color-accent)')
     expect(tokens).not.toContain('--color-warning-soft: var(--color-accent-soft)')
+    expect(tokens).toContain('--color-warning-rgb: 211, 146, 79')
+    expect(tokens).not.toContain('--color-warning-rgb: 226, 181, 106')
   })
 
   it('maps Element Plus color and surface variables to semantic roles', () => {

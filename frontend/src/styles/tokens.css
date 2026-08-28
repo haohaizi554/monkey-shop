@@ -212,7 +212,7 @@ html.dark {
   --color-primary-rgb: 120, 203, 179;
   --color-info-rgb: 142, 175, 232;
   --color-success-rgb: 123, 209, 168;
-  --color-warning-rgb: 226, 181, 106;
+  --color-warning-rgb: 211, 146, 79;
   --color-danger-rgb: 240, 154, 143;
   --focus-ring: color-mix(in srgb, var(--color-primary) 58%, transparent);
   --shadow-surface:
