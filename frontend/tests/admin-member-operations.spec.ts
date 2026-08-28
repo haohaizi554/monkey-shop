@@ -74,6 +74,13 @@ test('member operations loads a target member and exposes guarded admin actions'
 
   await expect(page.getByRole('heading', { name: 'Member operations', exact: true })).toBeVisible()
   await expect(
+    page.locator(
+      '.route-view[data-surface="commerce-observatory"][data-observatory="commerce"][data-workspace="members"]',
+    ),
+  ).toBeVisible()
+  await expect(page.locator('.admin-page-toolbar')).toHaveAttribute('data-density', 'compact')
+  await expect(page.locator('.metric-strip')).toHaveAttribute('data-surface', 'signal-strip')
+  await expect(
     page.getByRole('region', { name: 'Find a member' }).getByText('Basic', { exact: true }),
   ).toBeVisible()
   await expect(page.getByText('100', { exact: true })).toBeVisible()

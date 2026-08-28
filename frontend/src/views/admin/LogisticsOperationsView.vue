@@ -71,14 +71,19 @@ const canCreate = computed(
 const metrics = computed<MetricItem[]>(() => [
   {
     key: 'eligible-orders',
-    label: t('adminCommerce.selectOrder'),
+    label: t('adminCommerce.ordersTitle'),
     value: logisticsOrders.value.length,
     tone: 'info',
   },
   {
     key: 'selected-order',
     label: t('adminCommerce.selectedOrder'),
-    value: selectedOrder.value ? t('common.status') : '-',
+    value: selectedOrder.value?.orderNo ?? '-',
+  },
+  {
+    key: 'selected-status',
+    label: t('common.status'),
+    value: selectedOrder.value ? normalizeAdminOrderStatus(selectedOrder.value.status) : '-',
   },
   {
     key: 'shipments',
@@ -170,8 +175,11 @@ watch(
 watch(
   logisticsOrders,
   (rows) => {
-    if (!selectedOrderId.value && rows[0]) {
-      void selectOrder(rows[0].id)
+    if (!selectedOrderId.value && !route.query.orderId && rows[0]) {
+      // Selecting an implicit first row must not synthesize a query navigation:
+      // RouterView remounts on that update and repeats the bounded list request.
+      selectedOrderId.value = rows[0].id
+      void loadShipments(rows[0].id)
     }
   },
   { immediate: true },
@@ -191,7 +199,7 @@ watch(
       :description="t('adminCommerce.logisticsDescription')"
     >
       <template #actions>
-        <el-button :icon="RefreshRight" :loading="orderStatus === 'updating'" @click="loadOrders">
+        <el-button :icon="RefreshRight" :loading="orderStatus === 'updating'" @click="loadOrders()">
           {{ t('adminCommerce.refreshOrders') }}
         </el-button>
       </template>

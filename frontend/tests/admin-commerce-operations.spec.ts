@@ -214,6 +214,7 @@ test('payment lookup keeps a Snowflake order ID exact in query, input, URL, and 
   page,
 }) => {
   const lookups: string[] = []
+  let reconciliationPayload: unknown
 
   await installAdminMocks(page)
   await page.route('**/api/v1/payments/admin/orders/*', async (route) => {
@@ -233,6 +234,16 @@ test('payment lookup keeps a Snowflake order ID exact in query, input, URL, and 
       providerTradeNo: `PROVIDER-${requestedId}`,
       paidAt: '2026-07-12T09:00:00',
       createTime: '2026-07-12T08:30:00',
+    })
+  })
+  await page.route('**/api/v1/payments/reconciliation', async (route) => {
+    reconciliationPayload = route.request().postDataJSON()
+    await fulfillOk(route, {
+      status: 'COMPLETED',
+      platformAmount: '128.00',
+      providerAmount: '128.00',
+      diffAmount: '0.00',
+      issueCount: 0,
     })
   })
 
@@ -268,6 +279,33 @@ test('payment lookup keeps a Snowflake order ID exact in query, input, URL, and 
     reconciliationLines.nth(0).getByRole('textbox', { name: 'Payment number', exact: true }),
   ).toHaveAttribute('id', secondPaymentInputId!)
 
+  await reconciliationLines
+    .nth(0)
+    .getByRole('textbox', { name: 'Payment number', exact: true })
+    .fill(`PAY-${SNOWFLAKE_ID}`)
+  await reconciliationLines
+    .nth(0)
+    .getByRole('textbox', { name: 'Provider trade number', exact: true })
+    .fill(`PROVIDER-${SNOWFLAKE_ID}`)
+  await reconciliationLines
+    .nth(0)
+    .getByRole('textbox', { name: 'Provider amount', exact: true })
+    .fill('128')
+  await page.getByRole('button', { name: 'Run reconciliation', exact: true }).click()
+  await expect.poll(() => reconciliationPayload).not.toBeUndefined()
+  expect(reconciliationPayload).toEqual({
+    provider: 'WECHAT',
+    reportDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    lines: [
+      {
+        paymentNo: `PAY-${SNOWFLAKE_ID}`,
+        providerTradeNo: `PROVIDER-${SNOWFLAKE_ID}`,
+        amount: '128.00',
+      },
+    ],
+  })
+  expect(JSON.stringify(reconciliationPayload)).not.toContain('editorKey')
+
   await orderIdInput.fill('12')
   await page.getByRole('button', { name: 'Load payment', exact: true }).click()
   await expect(page).toHaveURL(/orderId=12/)
@@ -279,6 +317,7 @@ test('payment lookup keeps a Snowflake order ID exact in query, input, URL, and 
 test('logistics creation is scoped to one paid order and blocks duplicate submission', async ({
   page,
 }) => {
+  const orderPages: string[] = []
   let createCalls = 0
   let releaseCreate!: () => void
   const createGate = new Promise<void>((resolve) => {
@@ -296,6 +335,10 @@ test('logistics creation is scoped to one paid order and blocks duplicate submis
   }
 
   await installAdminMocks(page)
+  await page.route('**/api/v1/orders/all**', async (route) => {
+    orderPages.push(new URL(route.request().url()).searchParams.get('page') ?? '')
+    await fulfillOk(route, pageResult(orders))
+  })
   await page.route('**/api/v1/orders/shipments/11', async (route) => {
     createCalls += 1
     expect(route.request().postDataJSON()).toEqual({
@@ -308,6 +351,14 @@ test('logistics creation is scoped to one paid order and blocks duplicate submis
   })
 
   await page.goto('/admin/logistics?orderId=11')
+  await expect.poll(() => orderPages.length).toBe(1)
+  const refreshOrdersButton = page.getByRole('button', { name: 'Refresh orders', exact: true })
+  await refreshOrdersButton.click()
+  await expect.poll(() => orderPages.length).toBe(2)
+  expect(orderPages).toEqual(['0', '0'])
+  expect(
+    orderPages.every((pageNumber) => /^\d+$/.test(pageNumber) && Number(pageNumber) <= 100),
+  ).toBe(true)
   await page.getByLabel('Tracking number').fill('SF-NEW-11')
   const createButton = page.getByRole('button', { name: 'Create shipment', exact: true })
   await createButton.click()
