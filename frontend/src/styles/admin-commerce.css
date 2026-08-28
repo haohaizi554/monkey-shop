@@ -256,9 +256,8 @@
  * inspectable by route-level tests.
  */
 .app-shell[data-area='admin'] .admin-page-toolbar[data-density='compact'] {
-  display: grid;
-  grid-template-columns: minmax(180px, 320px) minmax(0, 1fr) auto;
-  grid-template-areas: 'search filters actions';
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--space-3);
   align-items: center;
   width: 100%;
@@ -275,15 +274,17 @@
 }
 
 .app-shell[data-area='admin'] .admin-page-toolbar__search {
-  grid-area: search;
+  flex: 1 1 240px;
+  max-width: 320px;
 }
 
 .app-shell[data-area='admin'] .admin-page-toolbar__filters {
-  grid-area: filters;
+  flex: 999 1 320px;
 }
 
 .app-shell[data-area='admin'] .admin-page-toolbar__actions {
-  grid-area: actions;
+  flex: 0 1 auto;
+  margin-inline-start: auto;
 }
 
 .app-shell[data-area='admin'] .admin-page-toolbar__search > * {
@@ -441,11 +442,8 @@
 
 @media (max-width: 760px) {
   .app-shell[data-area='admin'] .admin-page-toolbar[data-density='compact'] {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas:
-      'search'
-      'filters'
-      'actions';
+    flex-direction: column;
+    align-items: stretch;
     padding-inline: var(--space-3);
   }
 
@@ -455,6 +453,7 @@
 
   .app-shell[data-area='admin'] .admin-page-toolbar__actions {
     justify-content: flex-start;
+    margin-inline-start: 0;
   }
 
   .app-shell[data-area='admin']

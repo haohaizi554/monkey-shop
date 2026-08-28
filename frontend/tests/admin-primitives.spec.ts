@@ -103,6 +103,42 @@ test('admin toolbar and metrics remain dense and bounded at 390px', async ({ pag
   expect(geometry.sidebarBackground).not.toBe(geometry.canvasBackground)
 })
 
+test('an optional-slot toolbar does not reserve empty search or action tracks', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await installAdminMocks(page)
+  await page.goto('/admin')
+
+  const toolbar = page.locator('.admin-page-toolbar')
+  await expect(toolbar).toBeVisible()
+  await toolbar.evaluate((element) => {
+    element.querySelector('.admin-page-toolbar__search')?.remove()
+    element.querySelector('.admin-page-toolbar__actions')?.remove()
+
+    if (!element.querySelector('.admin-page-toolbar__filters')) {
+      const filters = document.createElement('div')
+      filters.className = 'admin-page-toolbar__filters'
+      filters.textContent = 'Filters'
+      element.append(filters)
+    }
+  })
+
+  const geometry = await toolbar.evaluate((element) => {
+    const toolbarRect = element.getBoundingClientRect()
+    const filtersRect = element
+      .querySelector<HTMLElement>('.admin-page-toolbar__filters')
+      ?.getBoundingClientRect()
+    return {
+      leadingGap: filtersRect ? filtersRect.left - toolbarRect.left : Number.POSITIVE_INFINITY,
+      trailingGap: filtersRect ? toolbarRect.right - filtersRect.right : Number.POSITIVE_INFINITY,
+    }
+  })
+
+  expect(geometry.leadingGap).toBeLessThanOrEqual(20)
+  expect(geometry.trailingGap).toBeLessThanOrEqual(20)
+})
+
 test('commerce navigation keeps current semantics and local scroll owners at 390px', async ({
   page,
 }) => {
