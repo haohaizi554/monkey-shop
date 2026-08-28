@@ -1,50 +1,87 @@
 :root {
   color-scheme: light;
 
-  --color-canvas: #f6f7f9;
-  --color-surface: #ffffff;
-  --color-surface-subtle: #eef1f4;
+  /* Canonical field-guide palette. Dark swatches below feed the same roles. */
+  --color-canvas: #f3f1ea;
+  --color-surface: #fffcf6;
+  --color-surface-subtle: #eaede7;
   --color-surface-raised: #ffffff;
-  --color-ink: #182230;
-  --color-muted: #667085;
+  --color-ink: #17312a;
+  --color-muted: #66736e;
+  --color-line: #d7d9d2;
+  --color-line-strong: #aab3ac;
+  --color-primary: #126b5b;
+  --color-primary-strong: #0b4f43;
+  --color-primary-soft: #dcede7;
+  --color-accent: #a8691f;
+  --color-accent-soft: #f6e7c9;
+  --color-info: #315f9c;
+  --color-info-soft: #e4edf8;
+  --color-success: #287a57;
+  --color-success-soft: #dfeee5;
+  --color-warning: #9a611c;
+  --color-warning-soft: #f6e7c9;
+  --color-danger: #b4493d;
+  --color-danger-soft: #f4ded9;
+  --color-error: var(--color-danger);
+  --color-error-soft: var(--color-danger-soft);
   --color-text: var(--color-ink);
   --color-text-muted: var(--color-muted);
   --color-text-inverse: #ffffff;
-  --color-line: #d8e0e8;
-  --color-line-strong: #a7b2c0;
-  --color-primary: #0b6e61;
-  --color-primary-strong: #075448;
-  --color-primary-soft: #ddf6f0;
-  --color-cobalt: #2f61d5;
-  --color-cobalt-soft: #e8eefc;
-  --color-coral: #c94355;
-  --color-coral-soft: #fbeaec;
-  --color-honey: #9f5900;
-  --color-honey-soft: #fff0d5;
-  --color-brand: var(--color-primary);
-  --color-brand-strong: var(--color-primary-strong);
-  --color-brand-soft: var(--color-primary-soft);
-  --color-accent: var(--color-honey);
-  --color-accent-soft: var(--color-honey-soft);
-  --color-info: var(--color-cobalt);
-  --color-info-soft: var(--color-cobalt-soft);
-  --color-success: #087a55;
-  --color-success-soft: #ddf6ea;
-  --color-warning: var(--color-honey);
-  --color-warning-soft: var(--color-honey-soft);
-  --color-danger: #b42318;
-  --color-danger-soft: #fce8e6;
-  --color-auth-visual: #182230;
-  --color-shadow-ink: #182230;
-  --color-overlay: rgb(23 32 51 / 0.42);
-  --color-admin-chrome: #17221d;
-  --color-admin-chrome-raised: #223129;
-  --color-admin-chrome-text: #f3f7f4;
-  --color-admin-chrome-muted: #aab9b0;
-  --color-admin-chrome-line: #34473d;
-  --color-admin-chrome-accent: #f2c36f;
-  --color-admin-chrome-accent-soft: #3b3221;
+  --color-shadow-ink: #10231d;
+  --color-overlay: rgb(16 35 29 / 0.42);
 
+  /* Backend chrome palette from the control-observatory brief. */
+  --color-admin-chrome: #10231d;
+  --color-admin-chrome-raised: #1a3028;
+  --color-admin-chrome-text: #f4f7f3;
+  --color-admin-chrome-muted: #afc0b7;
+  --color-admin-chrome-line: #2e453a;
+  --color-admin-chrome-accent: #d8a54a;
+  --color-admin-chrome-accent-soft: #2d3526;
+  --color-auth-visual: var(--color-primary-strong);
+
+  /* Dark registry: html.dark assigns these to the canonical roles below. */
+  --dark-color-canvas: #0e1512;
+  --dark-color-surface: #16201c;
+  --dark-color-surface-subtle: #1a2821;
+  --dark-color-surface-raised: #1e2a25;
+  --dark-color-ink: #eff5f1;
+  --dark-color-muted: #a8b5ae;
+  --dark-color-line: #35453d;
+  --dark-color-line-strong: #52675b;
+  --dark-color-primary: #78cbb3;
+  --dark-color-primary-strong: #a1e0cc;
+  --dark-color-primary-soft: #1b4337;
+  --dark-color-accent: #e2b56a;
+  --dark-color-accent-soft: #3b301c;
+  --dark-color-info: #8eafe8;
+  --dark-color-info-soft: #203554;
+  --dark-color-success: #7bd1a8;
+  --dark-color-success-soft: #1c3d2e;
+  --dark-color-warning: #e2b56a;
+  --dark-color-warning-soft: #3b301c;
+  --dark-color-danger: #f09a8f;
+  --dark-color-danger-soft: #492721;
+  --dark-color-text-inverse: #0e1512;
+  --dark-color-shadow-ink: #000000;
+  --dark-color-overlay: rgb(0 0 0 / 0.62);
+  --dark-color-admin-chrome: #0b1712;
+  --dark-color-admin-chrome-raised: #14251d;
+  --dark-color-admin-chrome-text: #eff5f1;
+  --dark-color-admin-chrome-muted: #a8b5ae;
+  --dark-color-admin-chrome-line: #2d4037;
+  --dark-color-admin-chrome-accent: #e2b56a;
+  --dark-color-admin-chrome-accent-soft: #3b301c;
+  --dark-color-auth-visual: #112c23;
+
+  --color-primary-rgb: 18, 107, 91;
+  --color-info-rgb: 49, 95, 156;
+  --color-success-rgb: 40, 122, 87;
+  --color-warning-rgb: 154, 97, 28;
+  --color-danger-rgb: 180, 73, 61;
+
+  /* Baseline spacing: every value is a multiple of the 4px grid. */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -55,7 +92,22 @@
   --space-10: 40px;
   --space-12: 48px;
   --space-16: 64px;
+  --space-tight: var(--space-3);
+  --space-regular: var(--space-5);
+  --space-section: var(--space-8);
+  --space-page: clamp(var(--space-12), 5vw, 72px);
 
+  /* Typography uses the locally bundled Noto Sans SC variable family. */
+  --font-sans: 'Noto Sans SC Variable', 'Noto Sans SC', system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  --font-display: var(--font-sans);
+  --font-body: var(--font-sans);
+  --font-utility: var(--font-sans);
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 650;
+  --font-weight-bold: 750;
+  --font-weight-display: 800;
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-base: 1rem;
@@ -64,42 +116,330 @@
   --text-2xl: 1.5rem;
   --text-3xl: 1.875rem;
   --text-4xl: 2.25rem;
-  --leading-tight: 1.25;
-  --leading-normal: 1.5;
+  --text-display: clamp(2.5rem, 4vw, 3.25rem);
+  --text-admin-title: clamp(1.5rem, 2.2vw, 1.875rem);
+  --text-metric: clamp(1.5rem, 2.4vw, 2rem);
+  --leading-tight: 1.2;
+  --leading-snug: 1.35;
+  --leading-normal: 1.55;
   --leading-relaxed: 1.7;
 
-  --radius-control: 6px;
-  --radius-surface: 8px;
+  /* Shape and controls. Pill/circle are reserved for tags and icon marks. */
+  --radius-control: 8px;
+  --radius-surface: 12px;
+  --radius-overlay: 16px;
   --radius-pill: 999px;
   --radius-circle: 50%;
-  --control-height: 38px;
+  --control-height: 44px;
+  --control-height-compact: 36px;
+  --control-height-small: 32px;
+  --control-height-large: 48px;
+  --touch-target-min: 44px;
+  --icon-button-size: 44px;
+  --icon-button-size-desktop: 36px;
+  --consumer-header-height: 72px;
   --consumer-bottom-nav-height: 64px;
 
-  --shadow-surface: 0 1px 2px rgb(24 34 48 / 0.05), 0 6px 18px rgb(24 34 48 / 0.07);
+  /* Shadows are limited to raised, interactive, or overlay surfaces. */
+  --shadow-surface:
+    0 1px 2px color-mix(in srgb, var(--color-shadow-ink) 8%, transparent),
+    0 8px 20px color-mix(in srgb, var(--color-shadow-ink) 7%, transparent);
   --shadow-card: var(--shadow-surface);
-  --shadow-overlay: 0 20px 52px rgb(24 34 48 / 0.18);
-  --shadow-control: 0 7px 18px rgb(24 34 48 / 0.12);
-  --shadow-bottom-nav: 0 -4px 14px rgb(24 34 48 / 0.08);
+  --shadow-overlay: 0 20px 52px color-mix(in srgb, var(--color-shadow-ink) 18%, transparent);
+  --shadow-control: 0 7px 18px color-mix(in srgb, var(--color-shadow-ink) 12%, transparent);
+  --shadow-bottom-nav: 0 -4px 14px color-mix(in srgb, var(--color-shadow-ink) 8%, transparent);
 
+  /* Visible keyboard focus and two intentional motion tiers. */
   --focus-width: 2px;
   --focus-offset: 2px;
   --focus-ring: color-mix(in srgb, var(--color-primary) 48%, transparent);
-
   --motion-fast: 140ms cubic-bezier(0.2, 0, 0, 1);
   --motion-structure: 220ms cubic-bezier(0.2, 0, 0, 1);
   --easing-standard: cubic-bezier(0.2, 0, 0, 1);
   --easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
 
-  --font-sans: 'Noto Sans SC Variable', 'Noto Sans SC', system-ui, sans-serif;
+  --content-consumer: 1320px;
+  --content-detail: 1440px;
+  --content-admin: 100%;
 
   --z-base: 0;
   --z-sticky: 20;
   --z-header: 40;
+  --z-admin-sidebar: 50;
+  --z-admin-topbar: 60;
   --z-dropdown: 80;
   --z-overlay: 120;
   --z-toast: 160;
+}
 
-  /* Compatibility aliases used by existing views during the staged migration. */
+html.dark {
+  color-scheme: dark;
+
+  --color-canvas: var(--dark-color-canvas);
+  --color-surface: var(--dark-color-surface);
+  --color-surface-subtle: var(--dark-color-surface-subtle);
+  --color-surface-raised: var(--dark-color-surface-raised);
+  --color-ink: var(--dark-color-ink);
+  --color-muted: var(--dark-color-muted);
+  --color-line: var(--dark-color-line);
+  --color-line-strong: var(--dark-color-line-strong);
+  --color-primary: var(--dark-color-primary);
+  --color-primary-strong: var(--dark-color-primary-strong);
+  --color-primary-soft: var(--dark-color-primary-soft);
+  --color-accent: var(--dark-color-accent);
+  --color-accent-soft: var(--dark-color-accent-soft);
+  --color-info: var(--dark-color-info);
+  --color-info-soft: var(--dark-color-info-soft);
+  --color-success: var(--dark-color-success);
+  --color-success-soft: var(--dark-color-success-soft);
+  --color-warning: var(--dark-color-warning);
+  --color-warning-soft: var(--dark-color-warning-soft);
+  --color-danger: var(--dark-color-danger);
+  --color-danger-soft: var(--dark-color-danger-soft);
+  --color-error: var(--color-danger);
+  --color-error-soft: var(--color-danger-soft);
+  --color-text-inverse: var(--dark-color-text-inverse);
+  --color-shadow-ink: var(--dark-color-shadow-ink);
+  --color-overlay: var(--dark-color-overlay);
+  --color-auth-visual: var(--dark-color-auth-visual);
+  --color-admin-chrome: var(--dark-color-admin-chrome);
+  --color-admin-chrome-raised: var(--dark-color-admin-chrome-raised);
+  --color-admin-chrome-text: var(--dark-color-admin-chrome-text);
+  --color-admin-chrome-muted: var(--dark-color-admin-chrome-muted);
+  --color-admin-chrome-line: var(--dark-color-admin-chrome-line);
+  --color-admin-chrome-accent: var(--dark-color-admin-chrome-accent);
+  --color-admin-chrome-accent-soft: var(--dark-color-admin-chrome-accent-soft);
+  --color-primary-rgb: 120, 203, 179;
+  --color-info-rgb: 142, 175, 232;
+  --color-success-rgb: 123, 209, 168;
+  --color-warning-rgb: 226, 181, 106;
+  --color-danger-rgb: 240, 154, 143;
+  --focus-ring: color-mix(in srgb, var(--color-primary) 58%, transparent);
+  --shadow-surface:
+    0 1px 2px color-mix(in srgb, var(--color-shadow-ink) 24%, transparent),
+    0 8px 22px color-mix(in srgb, var(--color-shadow-ink) 20%, transparent);
+  --shadow-card: var(--shadow-surface);
+  --shadow-overlay: 0 18px 48px color-mix(in srgb, var(--color-shadow-ink) 38%, transparent);
+  --shadow-control: 0 6px 14px color-mix(in srgb, var(--color-shadow-ink) 28%, transparent);
+  --shadow-bottom-nav: 0 -4px 14px color-mix(in srgb, var(--color-shadow-ink) 30%, transparent);
+}
+
+/* Area roles derive from the shared palette so light and dark stay in lockstep. */
+:root,
+html.dark {
+  --consumer-canvas: var(--color-canvas);
+  --consumer-surface: var(--color-surface);
+  --consumer-surface-subtle: var(--color-surface-subtle);
+  --consumer-surface-raised: var(--color-surface-raised);
+  --consumer-ink: var(--color-ink);
+  --consumer-muted: var(--color-muted);
+  --consumer-line: var(--color-line);
+  --consumer-line-strong: var(--color-line-strong);
+  --consumer-primary: var(--color-primary);
+  --consumer-primary-strong: var(--color-primary-strong);
+  --consumer-primary-soft: var(--color-primary-soft);
+  --consumer-accent: var(--color-accent);
+  --consumer-accent-soft: var(--color-accent-soft);
+  --consumer-info: var(--color-info);
+  --consumer-success: var(--color-success);
+  --consumer-warning: var(--color-warning);
+  --consumer-danger: var(--color-danger);
+  --consumer-danger-soft: var(--color-danger-soft);
+  --consumer-content-width: var(--content-consumer);
+  --consumer-detail-width: var(--content-detail);
+
+  --auth-canvas: var(--color-canvas);
+  --auth-surface: var(--color-surface);
+  --auth-surface-subtle: var(--color-surface-subtle);
+  --auth-surface-raised: var(--color-surface-raised);
+  --auth-ink: var(--color-ink);
+  --auth-muted: var(--color-muted);
+  --auth-line: var(--color-line);
+  --auth-primary: var(--color-primary);
+  --auth-primary-strong: var(--color-primary-strong);
+  --auth-primary-soft: var(--color-primary-soft);
+  --auth-accent: var(--color-accent);
+  --auth-danger: var(--color-danger);
+  --auth-danger-soft: var(--color-danger-soft);
+  --auth-visual: var(--color-auth-visual);
+
+  --admin-canvas: var(--color-canvas);
+  --admin-surface: var(--color-surface);
+  --admin-surface-subtle: var(--color-surface-subtle);
+  --admin-surface-raised: var(--color-surface-raised);
+  --admin-ink: var(--color-ink);
+  --admin-muted: var(--color-muted);
+  --admin-line: var(--color-line);
+  --admin-line-strong: var(--color-line-strong);
+  --admin-primary: var(--color-primary);
+  --admin-primary-strong: var(--color-primary-strong);
+  --admin-primary-soft: var(--color-primary-soft);
+  --admin-accent: var(--color-accent);
+  --admin-accent-soft: var(--color-accent-soft);
+  --admin-info: var(--color-info);
+  --admin-success: var(--color-success);
+  --admin-warning: var(--color-warning);
+  --admin-danger: var(--color-danger);
+  --admin-danger-soft: var(--color-danger-soft);
+  --admin-chrome: var(--color-admin-chrome);
+  --admin-chrome-raised: var(--color-admin-chrome-raised);
+  --admin-chrome-text: var(--color-admin-chrome-text);
+  --admin-chrome-muted: var(--color-admin-chrome-muted);
+  --admin-chrome-line: var(--color-admin-chrome-line);
+  --admin-chrome-accent: var(--color-admin-chrome-accent);
+  --admin-chrome-accent-soft: var(--color-admin-chrome-accent-soft);
+  --admin-sidebar-width: 248px;
+
+  /* Element Plus consumes these bridges instead of owning a second palette. */
+  --el-color-white: var(--color-surface-raised);
+  --el-color-black: var(--color-ink);
+  --el-color-primary-rgb: var(--color-primary-rgb);
+  --el-color-success-rgb: var(--color-success-rgb);
+  --el-color-warning-rgb: var(--color-warning-rgb);
+  --el-color-danger-rgb: var(--color-danger-rgb);
+  --el-color-error-rgb: var(--color-danger-rgb);
+  --el-font-family: var(--font-sans);
+  --el-font-weight-primary: var(--font-weight-medium);
+  --el-font-line-height-primary: 1.5;
+  --el-index-normal: var(--z-base);
+  --el-index-top: var(--z-dropdown);
+  --el-index-popper: var(--z-dropdown);
+  --el-border-radius-base: var(--radius-control);
+  --el-border-radius-small: var(--radius-control);
+  --el-border-radius-round: var(--radius-pill);
+  --el-border-radius-circle: var(--radius-circle);
+  --el-transition-duration: var(--motion-structure);
+  --el-transition-duration-fast: var(--motion-fast);
+  --el-transition-function-ease-in-out-bezier: var(--easing-standard);
+  --el-transition-function-fast-bezier: var(--easing-standard);
+  --el-transition-all: all var(--motion-structure) var(--easing-standard);
+  --el-transition-fade: opacity var(--motion-structure) var(--easing-standard);
+  --el-transition-md-fade:
+    transform var(--motion-structure) var(--easing-standard),
+    opacity var(--motion-structure) var(--easing-standard);
+  --el-transition-fade-linear: opacity var(--motion-fast) linear;
+  --el-transition-border: border-color var(--motion-fast) var(--easing-standard);
+  --el-transition-box-shadow: box-shadow var(--motion-fast) var(--easing-standard);
+  --el-transition-color: color var(--motion-fast) var(--easing-standard);
+  --el-component-size-large: var(--control-height-large);
+  --el-component-size: var(--control-height);
+  --el-component-size-small: var(--control-height-small);
+
+  --el-color-primary: var(--color-primary);
+  --el-color-primary-light-3: color-mix(in srgb, var(--color-primary) 70%, var(--color-surface));
+  --el-color-primary-light-5: color-mix(in srgb, var(--color-primary) 58%, var(--color-surface));
+  --el-color-primary-light-7: color-mix(in srgb, var(--color-primary) 38%, var(--color-surface));
+  --el-color-primary-light-8: var(--color-primary-soft);
+  --el-color-primary-light-9: var(--color-primary-soft);
+  --el-color-primary-dark-2: var(--color-primary-strong);
+  --el-color-success: var(--color-success);
+  --el-color-success-light-3: color-mix(in srgb, var(--color-success) 70%, var(--color-surface));
+  --el-color-success-light-5: color-mix(in srgb, var(--color-success) 58%, var(--color-surface));
+  --el-color-success-light-7: color-mix(in srgb, var(--color-success) 38%, var(--color-surface));
+  --el-color-success-light-8: var(--color-success-soft);
+  --el-color-success-light-9: var(--color-success-soft);
+  --el-color-success-dark-2: color-mix(in srgb, var(--color-success) 82%, var(--color-ink));
+  --el-color-warning: var(--color-warning);
+  --el-color-warning-light-3: color-mix(in srgb, var(--color-warning) 70%, var(--color-surface));
+  --el-color-warning-light-5: color-mix(in srgb, var(--color-warning) 58%, var(--color-surface));
+  --el-color-warning-light-7: color-mix(in srgb, var(--color-warning) 38%, var(--color-surface));
+  --el-color-warning-light-8: var(--color-warning-soft);
+  --el-color-warning-light-9: var(--color-warning-soft);
+  --el-color-warning-dark-2: color-mix(in srgb, var(--color-warning) 82%, var(--color-ink));
+  --el-color-danger: var(--color-danger);
+  --el-color-danger-light-3: color-mix(in srgb, var(--color-danger) 70%, var(--color-surface));
+  --el-color-danger-light-5: color-mix(in srgb, var(--color-danger) 58%, var(--color-surface));
+  --el-color-danger-light-7: color-mix(in srgb, var(--color-danger) 38%, var(--color-surface));
+  --el-color-danger-light-8: var(--color-danger-soft);
+  --el-color-danger-light-9: var(--color-danger-soft);
+  --el-color-danger-dark-2: color-mix(in srgb, var(--color-danger) 82%, var(--color-ink));
+  --el-color-error: var(--color-error);
+  --el-color-error-light-3: color-mix(in srgb, var(--color-error) 70%, var(--color-surface));
+  --el-color-error-light-5: color-mix(in srgb, var(--color-error) 58%, var(--color-surface));
+  --el-color-error-light-7: color-mix(in srgb, var(--color-error) 38%, var(--color-surface));
+  --el-color-error-light-8: var(--color-error-soft);
+  --el-color-error-light-9: var(--color-error-soft);
+  --el-color-error-dark-2: color-mix(in srgb, var(--color-error) 82%, var(--color-ink));
+  --el-color-info: var(--color-info);
+  --el-color-info-light-3: color-mix(in srgb, var(--color-info) 70%, var(--color-surface));
+  --el-color-info-light-5: color-mix(in srgb, var(--color-info) 58%, var(--color-surface));
+  --el-color-info-light-7: color-mix(in srgb, var(--color-info) 38%, var(--color-surface));
+  --el-color-info-light-8: var(--color-info-soft);
+  --el-color-info-light-9: var(--color-info-soft);
+  --el-color-info-dark-2: color-mix(in srgb, var(--color-info) 82%, var(--color-ink));
+
+  --el-bg-color: var(--color-surface);
+  --el-bg-color-page: var(--color-canvas);
+  --el-bg-color-overlay: var(--color-surface-raised);
+  --el-text-color-primary: var(--color-ink);
+  --el-text-color-regular: var(--color-ink);
+  --el-text-color-secondary: var(--color-muted);
+  --el-text-color-placeholder: var(--color-muted);
+  --el-text-color-disabled: color-mix(in srgb, var(--color-muted) 70%, var(--color-surface));
+  --el-border-color: var(--color-line);
+  --el-border-color-light: color-mix(in srgb, var(--color-line) 76%, var(--color-surface));
+  --el-border-color-lighter: color-mix(in srgb, var(--color-line) 58%, var(--color-surface));
+  --el-border-color-extra-light: color-mix(in srgb, var(--color-line) 38%, var(--color-surface));
+  --el-border-color-dark: var(--color-line-strong);
+  --el-border-color-darker: color-mix(in srgb, var(--color-line-strong) 80%, var(--color-ink));
+  --el-fill-color: var(--color-surface-subtle);
+  --el-fill-color-light: color-mix(in srgb, var(--color-surface-subtle) 75%, var(--color-surface));
+  --el-fill-color-lighter: color-mix(
+    in srgb,
+    var(--color-surface-subtle) 52%,
+    var(--color-surface)
+  );
+  --el-fill-color-extra-light: color-mix(
+    in srgb,
+    var(--color-surface-subtle) 32%,
+    var(--color-surface)
+  );
+  --el-fill-color-dark: color-mix(in srgb, var(--color-surface-subtle) 82%, var(--color-ink));
+  --el-fill-color-darker: color-mix(in srgb, var(--color-surface-subtle) 68%, var(--color-ink));
+  --el-fill-color-blank: var(--color-surface);
+  --el-box-shadow: var(--shadow-overlay);
+  --el-box-shadow-light: var(--shadow-control);
+  --el-box-shadow-lighter: var(--shadow-surface);
+  --el-box-shadow-dark: var(--shadow-overlay);
+  --el-disabled-bg-color: var(--color-surface-subtle);
+  --el-disabled-text-color: var(--el-text-color-disabled);
+  --el-disabled-border-color: var(--color-line);
+  --el-overlay-color: var(--color-overlay);
+  --el-overlay-color-light: color-mix(in srgb, var(--color-overlay) 72%, transparent);
+  --el-overlay-color-lighter: color-mix(in srgb, var(--color-overlay) 48%, transparent);
+  --el-mask-color: var(--color-overlay);
+  --el-mask-color-extra-light: color-mix(in srgb, var(--color-overlay) 42%, transparent);
+  --el-border-width: 1px;
+  --el-border-style: solid;
+  --el-border-color-hover: var(--color-line-strong);
+  --el-border: var(--el-border-width) var(--el-border-style) var(--el-border-color);
+  --el-svg-monochrome-grey: var(--color-muted);
+
+  --el-table-border-color: var(--color-line);
+  --el-table-header-bg-color: var(--color-surface-subtle);
+  --el-table-row-hover-bg-color: color-mix(in srgb, var(--color-primary) 6%, transparent);
+  --el-table-current-row-bg-color: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  --el-table-text-color: var(--color-ink);
+  --el-table-header-text-color: var(--color-muted);
+  --el-tag-text-color: var(--color-success);
+  --el-tag-bg-color: var(--color-success-soft);
+  --el-tag-border-color: color-mix(in srgb, var(--color-success) 36%, var(--color-line));
+  --el-button-bg-color: var(--color-primary);
+  --el-button-border-color: var(--color-primary);
+  --el-button-hover-bg-color: var(--color-primary-strong);
+  --el-button-hover-border-color: var(--color-primary-strong);
+  --el-button-active-bg-color: var(--color-primary-strong);
+  --el-button-active-border-color: var(--color-primary-strong);
+  --el-button-text-color: var(--color-text-inverse);
+}
+
+/*
+ * Compatibility aliases for the staged migration. Existing shared styles and
+ * views still consume these names; Task 2-7 can remove each alias as its
+ * consumer moves to the area role or canonical semantic token above.
+ */
+:root,
+html.dark {
   --page: var(--color-canvas);
   --panel: var(--color-surface);
   --panel-muted: var(--color-surface-subtle);
@@ -108,9 +448,9 @@
   --muted: var(--color-text-muted);
   --line: var(--color-line);
   --line-strong: var(--color-line-strong);
-  --brand: var(--color-brand);
-  --brand-strong: var(--color-brand-strong);
-  --brand-soft: var(--color-brand-soft);
+  --brand: var(--color-primary);
+  --brand-strong: var(--color-primary-strong);
+  --brand-soft: var(--color-primary-soft);
   --success: var(--color-success);
   --success-soft: var(--color-success-soft);
   --warning: var(--color-warning);
@@ -128,89 +468,30 @@
   --color-page: var(--color-canvas);
   --color-border: var(--color-line);
   --color-border-strong: var(--color-line-strong);
+  --color-brand: var(--color-primary);
+  --color-brand-strong: var(--color-primary-strong);
+  --color-brand-soft: var(--color-primary-soft);
+  --color-cobalt: var(--color-info);
+  --color-cobalt-soft: var(--color-info-soft);
+  --color-coral: var(--color-danger);
+  --color-coral-soft: var(--color-danger-soft);
+  --color-honey: var(--color-accent);
+  --color-honey-soft: var(--color-accent-soft);
+  --color-auth-visual: var(--auth-visual);
+  --color-admin-chrome: var(--admin-chrome);
+  --color-admin-chrome-raised: var(--admin-chrome-raised);
+  --color-admin-chrome-text: var(--admin-chrome-text);
+  --color-admin-chrome-muted: var(--admin-chrome-muted);
+  --color-admin-chrome-line: var(--admin-chrome-line);
+  --color-admin-chrome-accent: var(--admin-chrome-accent);
+  --color-admin-chrome-accent-soft: var(--admin-chrome-accent-soft);
   --radius-sm: var(--radius-control);
   --radius-md: var(--radius-surface);
   --radius-lg: var(--radius-surface);
-  --radius-xl: var(--radius-surface);
-  --shadow-sm: var(--shadow-card);
+  --radius-xl: var(--radius-overlay);
+  --shadow-sm: var(--shadow-surface);
   --shadow: var(--shadow-card);
   --shadow-popover: var(--shadow-overlay);
   --motion-base: var(--motion-structure);
   --motion-slow: var(--motion-structure);
-}
-
-html.dark {
-  color-scheme: dark;
-  --color-canvas: #111513;
-  --color-surface: #191e1b;
-  --color-surface-subtle: #202722;
-  --color-surface-raised: #252d28;
-  --color-ink: #f1f5f2;
-  --color-muted: #a7b1ab;
-  --color-text-inverse: #111513;
-  --color-line: #35413a;
-  --color-line-strong: #516056;
-  --color-primary: #74d1b5;
-  --color-primary-strong: #98e0c9;
-  --color-primary-soft: #183b31;
-  --color-cobalt: #8daaf0;
-  --color-cobalt-soft: #1b2b4a;
-  --color-coral: #f0929e;
-  --color-coral-soft: #45232a;
-  --color-honey: #e9b76c;
-  --color-honey-soft: #3b2b15;
-  --color-success: #76d4ae;
-  --color-success-soft: #173a2e;
-  --color-danger: #ff9b91;
-  --color-danger-soft: #492522;
-  --color-auth-visual: #111513;
-  --color-overlay: rgb(0 0 0 / 0.58);
-  --color-admin-chrome: #090d0b;
-  --color-admin-chrome-raised: #141b17;
-  --color-admin-chrome-text: #f1f5f2;
-  --color-admin-chrome-muted: #a7b1ab;
-  --color-admin-chrome-line: #2b3931;
-  --color-admin-chrome-accent: #e9b76c;
-  --color-admin-chrome-accent-soft: #332818;
-  --shadow-surface: 0 1px 2px rgb(0 0 0 / 0.24), 0 8px 22px rgb(0 0 0 / 0.2);
-  --shadow-card: var(--shadow-surface);
-  --shadow-overlay: 0 18px 48px rgb(0 0 0 / 0.38);
-  --shadow-control: 0 6px 14px rgb(0 0 0 / 0.28);
-  --shadow-bottom-nav: 0 -4px 14px rgb(0 0 0 / 0.3);
-  --focus-ring: color-mix(in srgb, var(--color-primary) 58%, transparent);
-}
-
-:root,
-html.dark {
-  --el-color-primary: var(--color-brand);
-  --el-color-primary-light-3: color-mix(in srgb, var(--color-brand) 70%, var(--color-surface));
-  --el-color-primary-light-8: var(--color-brand-soft);
-  --el-color-primary-light-9: var(--color-brand-soft);
-  --el-color-primary-dark-2: var(--color-brand-strong);
-  --el-color-success: var(--color-success);
-  --el-color-success-light-8: var(--color-success-soft);
-  --el-color-success-light-9: var(--color-success-soft);
-  --el-color-warning: var(--color-warning);
-  --el-color-warning-light-8: var(--color-warning-soft);
-  --el-color-warning-light-9: var(--color-warning-soft);
-  --el-color-danger: var(--color-danger);
-  --el-color-danger-light-8: var(--color-danger-soft);
-  --el-color-danger-light-9: var(--color-danger-soft);
-  --el-color-info: var(--color-info);
-  --el-color-info-light-8: var(--color-info-soft);
-  --el-color-info-light-9: var(--color-info-soft);
-  --el-text-color-primary: var(--color-text);
-  --el-text-color-regular: var(--color-text);
-  --el-text-color-secondary: var(--color-text-muted);
-  --el-text-color-placeholder: var(--color-text-muted);
-  --el-border-color: var(--color-line);
-  --el-border-color-light: var(--color-line);
-  --el-border-color-lighter: var(--color-line);
-  --el-fill-color: var(--color-surface-subtle);
-  --el-fill-color-light: var(--color-surface-subtle);
-  --el-fill-color-blank: var(--color-surface);
-  --el-bg-color: var(--color-surface);
-  --el-bg-color-page: var(--color-canvas);
-  --el-border-radius-base: var(--radius-control);
-  --el-mask-color: var(--color-overlay);
 }
