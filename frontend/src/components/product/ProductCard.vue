@@ -67,9 +67,11 @@ function readAttribute(keys: string[]): string | undefined {
     <div class="product-card__body product-body">
       <div class="product-card__heading">
         <div class="product-card__identity">
-          <button class="product-card__title" type="button" @click="emit('secondary')">
-            <h2>{{ product.name }}</h2>
-          </button>
+          <h2 class="product-card__title-heading">
+            <button class="product-card__title" type="button" @click="emit('secondary')">
+              {{ product.name }}
+            </button>
+          </h2>
           <p v-if="product.breed" class="product-card__breed">{{ product.breed }}</p>
         </div>
         <strong v-if="hasPrice" class="product-card__price">{{ money(product.price) }}</strong>
@@ -95,14 +97,6 @@ function readAttribute(keys: string[]): string | undefined {
       </dl>
 
       <div class="product-card__actions product-actions">
-        <span
-          v-if="hasStock"
-          class="stock-pill"
-          :class="{ 'stock-pill-muted': soldOut }"
-          :data-state="soldOut ? 'sold-out' : 'available'"
-        >
-          {{ t('common.stock') }} {{ product.stock }}
-        </span>
         <el-button
           class="product-card__primary"
           type="primary"
@@ -215,19 +209,27 @@ function readAttribute(keys: string[]): string | undefined {
 }
 
 .product-card__title {
-  display: block;
+  display: flex;
+  width: 100%;
+  min-height: var(--touch-target-min);
   max-width: 100%;
+  align-items: center;
   border: 0;
-  padding: 0;
+  border-radius: var(--radius-control);
+  padding: var(--space-2) 0;
   color: var(--color-ink);
+  font: inherit;
+  line-height: var(--leading-tight);
   text-align: left;
+  overflow-wrap: anywhere;
   background: transparent;
   cursor: pointer;
 }
 
-.product-card__title h2 {
+.product-card__title-heading {
+  max-width: 100%;
   margin: 0;
-  overflow-wrap: anywhere;
+  color: var(--color-ink);
   font-size: var(--text-xl);
   line-height: var(--leading-tight);
 }

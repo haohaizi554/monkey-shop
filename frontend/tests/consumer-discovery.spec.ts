@@ -316,6 +316,20 @@ test('discovery routes expose one photo-first field-guide card contract', async 
     await expect(card.locator('.product-card__primary')).toBeVisible()
     await expect(card.locator('img')).toHaveAttribute('alt', /.+/)
     await expect(card.locator('img')).toHaveAttribute('data-image-state', /loaded|fallback/)
+
+    const title = card.locator('h2')
+    const titleButton = title.locator('> button.product-card__title')
+    await expect(title).toHaveCount(1)
+    await expect(titleButton).toHaveCount(1)
+    await expect(titleButton).toHaveAccessibleName('Golden Monkey')
+    await expect(titleButton.locator('h2')).toHaveCount(0)
+    expect((await titleButton.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44)
+
+    if (route === '/shop') {
+      await expect(page.locator('.catalog-toolbar__hint')).toHaveCount(0)
+      await expect(card.locator('.stock-pill')).toHaveCount(0)
+      await expect(card.locator('[data-spec="stock"]')).toHaveCount(1)
+    }
   }
 })
 
@@ -540,6 +554,19 @@ test('recommendations reuse product cards and acknowledge profile updates', asyn
   await page.getByLabel('Tags, comma separated').fill('family')
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.locator('.app-feedback-item')).toContainText('Profile updated')
+})
+
+test('recommendations render without requesting the catalog taxonomy', async ({ page }) => {
+  let categoryRequests = 0
+  await page.route('**/api/v1/catalog/categories/tree', async (route) => {
+    categoryRequests += 1
+    await route.fallback()
+  })
+
+  await page.goto('/recommendations')
+
+  await expect(page.locator('.product-card')).toHaveCount(1)
+  expect(categoryRequests).toBe(0)
 })
 
 test('product detail is mobile-safe and validates a new address inline', async ({ page }) => {

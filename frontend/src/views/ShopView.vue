@@ -182,7 +182,6 @@ onMounted(() => {
           <span class="catalog-toolbar__eyebrow">{{ $t('nav.discover') }}</span>
           <strong>{{ $t('common.search') }}</strong>
         </div>
-        <span class="catalog-toolbar__hint">{{ $t('shop.inStockOnly') }}</span>
       </div>
       <div class="catalog-tools">
         <input
@@ -402,12 +401,6 @@ onMounted(() => {
 .catalog-toolbar__heading strong {
   color: var(--color-ink);
   font-size: var(--text-lg);
-}
-
-.catalog-toolbar__hint {
-  color: var(--color-ink);
-  font-size: var(--text-sm);
-  font-weight: var(--font-weight-semibold);
 }
 
 .catalog-tools {
