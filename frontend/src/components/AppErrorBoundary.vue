@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { Warning } from '@element-plus/icons-vue'
 import { onErrorCaptured, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
+import MascotState from '@/components/mascot/MascotState.vue'
 import { getUiErrorReference, reportUiError } from '@/utils/reportUiError'
 
 const { t } = useI18n()
@@ -24,24 +24,34 @@ function retry() {
   retryKey.value += 1
 }
 
-watch(
-  () => route.fullPath,
-  () => {
-    error.value = null
-    errorReference.value = ''
-  },
-)
+function clearBoundary() {
+  error.value = null
+  errorReference.value = ''
+  retryKey.value += 1
+}
+
+watch(() => route.fullPath, clearBoundary)
 </script>
 
 <template>
-  <div v-if="error" class="app-error-boundary" role="alert">
-    <el-icon :size="40" color="var(--color-danger)"><Warning /></el-icon>
+  <div v-if="error" class="app-error-boundary" data-surface="error-recovery" role="alert">
+    <MascotState
+      class="app-error-boundary__mascot"
+      pose="warning"
+      size="sm"
+      :alt="t('common.unexpectedError')"
+      eager
+    />
     <h2>{{ t('common.unexpectedError') }}</h2>
     <p>{{ t('common.recoveryHint') }}</p>
     <p class="app-error-boundary__reference">
       {{ t('common.errorReference', { reference: errorReference }) }}
     </p>
-    <el-button type="primary" @click="retry">{{ t('common.retry') }}</el-button>
+    <div class="app-error-boundary__actions">
+      <el-button type="primary" data-touch-target="44" @click="retry">
+        {{ t('common.retry') }}
+      </el-button>
+    </div>
   </div>
   <div v-else :key="retryKey" class="app-error-boundary-content">
     <slot />
@@ -59,6 +69,15 @@ watch(
   border: 1px solid var(--color-line);
   border-radius: var(--radius-surface);
   background: var(--color-surface);
+}
+
+.app-error-boundary__mascot {
+  width: var(--space-16);
+  max-width: 100%;
+}
+
+.app-error-boundary__actions :deep(.el-button) {
+  min-height: var(--touch-target-min);
 }
 
 .app-error-boundary p {

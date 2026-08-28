@@ -53,6 +53,9 @@ test('login keeps rate limits inside the form and hides backend copy', async ({ 
   await expect(page.getByRole('alert')).toContainText(
     'Too many operations. Please wait a moment and try again.',
   )
+  await expect(page.locator('.auth-workspace[data-surface="secure-checkpoint"]')).toBeVisible()
+  await expect(page.locator('.auth-workspace h1')).toHaveCount(1)
+  await expect(page.locator('.auth-workspace .mascot-state[data-pose="hourglass"]')).toBeVisible()
   await expect(page.locator('body')).not.toContainText('Too many requests')
   await expect(page.locator('.app-feedback-host')).toHaveCount(0)
   await expect(page.getByTestId('retry-countdown')).toContainText('10')
@@ -96,6 +99,7 @@ test('registration uses account, contact, and complete steps with inline 422 err
 
   await expect(page.getByTestId('register-account-step')).toBeVisible()
   await expect(page.getByTestId('register-contact-step')).toHaveCount(0)
+  await expect(page.locator('.auth-workspace .mascot-state[data-pose="welcome"]')).toBeVisible()
   await page.getByTestId('register-username').fill('member')
   await page.getByTestId('register-password').fill('ValidPass!1')
   await page.getByTestId('register-next').click()
@@ -109,6 +113,9 @@ test('registration uses account, contact, and complete steps with inline 422 err
     'Username is already in use',
   )
   await expect(page.getByTestId('register-account-step')).toBeVisible()
+  await expect(page.locator('.auth-workspace .mascot-state[data-pose="shield"]')).toBeVisible()
+  await expect(page.locator('[data-testid="register-account-step"]:visible')).toHaveCount(1)
+  await expect(page.locator('[data-testid="register-contact-step"]:visible')).toHaveCount(0)
 })
 
 test('password reset reveals challenge fields only after identity succeeds', async ({ page }) => {
@@ -127,28 +134,127 @@ test('password reset reveals challenge fields only after identity succeeds', asy
   await expect(page.getByRole('status')).toContainText(
     'If the account matches, a reset challenge was sent',
   )
+  await expect(page.locator('.auth-workspace .mascot-state[data-pose="shield"]')).toBeVisible()
+  await expect(resetPanel.locator('.reset-stage:visible')).toHaveCount(1)
 })
 
-test('mobile auth keeps the brand mascot and form surface touch-safe without overflow', async ({
+async function assertAuthViewport(
+  page: Page,
+  width: number,
+  height: number,
+  mode: 'login' | 'register' | 'reset' = 'login',
+) {
+  await page.setViewportSize({ width, height })
+  await page.goto('/login')
+  await expect(page.locator('.auth-workspace[data-surface="secure-checkpoint"]')).toBeVisible()
+  if (mode !== 'login') {
+    await page.getByTestId(`${mode}-tab`).click()
+    await expect(page.locator(`[data-mode="${mode}"]`)).toBeVisible()
+  }
+  await page.evaluate(() => window.scrollTo(0, 0))
+
+  const geometry = await page.evaluate(() => {
+    const workspace = document.querySelector<HTMLElement>('.auth-workspace')
+    const brand = document.querySelector<HTMLElement>('.auth-brand-region')
+    const surface = document.querySelector<HTMLElement>('.auth-surface')
+    const mascot = document.querySelector<HTMLElement>('.auth-brand-region img.mascot-state')
+    const submit = document.querySelector<HTMLElement>('.auth-primary-action')
+    const overflowOwners = [
+      workspace,
+      brand,
+      surface,
+      ...Array.from(workspace?.querySelectorAll('*') ?? []),
+    ]
+      .filter((element): element is HTMLElement => element instanceof HTMLElement)
+      .filter((element) => element.scrollWidth > element.clientWidth + 1)
+      .map((element) => `${element.tagName.toLowerCase()}.${element.className}`)
+
+    return {
+      documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      brandTop: brand?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY,
+      surfaceTop: surface?.getBoundingClientRect().top ?? Number.NEGATIVE_INFINITY,
+      mascotHeight: mascot?.getBoundingClientRect().height ?? Number.POSITIVE_INFINITY,
+      submitBottom: submit?.getBoundingClientRect().bottom ?? Number.POSITIVE_INFINITY,
+      submitHeight: submit?.getBoundingClientRect().height ?? 0,
+      overflowOwners,
+    }
+  })
+
+  expect(geometry.brandTop).toBeLessThan(geometry.surfaceTop)
+  expect(geometry.mascotHeight).toBeLessThanOrEqual(height * 0.35)
+  expect(geometry.submitBottom).toBeLessThanOrEqual(height)
+  expect(geometry.submitHeight).toBeGreaterThanOrEqual(44)
+  expect(geometry.documentOverflow).toBeLessThanOrEqual(1)
+  expect(geometry.overflowOwners).toEqual([])
+
+  const controls = page.locator(
+    '.auth-workspace button:visible, .auth-workspace input:visible, .auth-workspace a:visible',
+  )
+  for (let index = 0; index < (await controls.count()); index += 1) {
+    const control = controls.nth(index)
+    await control.focus()
+    const focusedGeometry = await control.evaluate((element) => {
+      const rect = element.getBoundingClientRect()
+      const centerX = Math.min(window.innerWidth - 1, Math.max(0, rect.left + rect.width / 2))
+      const centerY = Math.min(window.innerHeight - 1, Math.max(0, rect.top + rect.height / 2))
+      const hit = document.elementFromPoint(centerX, centerY)
+      return {
+        inViewport:
+          rect.top >= -1 &&
+          rect.left >= -1 &&
+          rect.bottom <= window.innerHeight + 1 &&
+          rect.right <= window.innerWidth + 1,
+        uncovered: Boolean(
+          hit && (hit === element || element.contains(hit) || hit.contains(element)),
+        ),
+      }
+    })
+    expect(focusedGeometry.inViewport).toBe(true)
+    expect(focusedGeometry.uncovered).toBe(true)
+  }
+}
+
+test('mobile auth keeps the secure checkpoint touch-safe at 390px and 320px', async ({ page }) => {
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 320, height: 800 },
+  ]) {
+    for (const mode of ['login', 'register', 'reset'] as const) {
+      await assertAuthViewport(page, viewport.width, viewport.height, mode)
+    }
+  }
+
+  await page.goto('/login')
+  await page.getByTestId('register-tab').click()
+  await page.getByTestId('register-username').fill('member')
+  await page.getByTestId('register-password').fill('ValidPass!1')
+  await page.getByTestId('register-next').click()
+  await expect(page.getByTestId('register-contact-step')).toBeVisible()
+  await expect(page.locator('.auth-back-button')).toHaveCSS('min-height', '44px')
+  await expect(page.locator('.auth-back-button')).toHaveJSProperty('offsetHeight', 44)
+})
+
+test('auth mode tabs support roving ArrowLeft/ArrowRight/Home/End keyboard navigation', async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/login')
+  const tabs = page.getByRole('tab')
+  await expect(tabs).toHaveCount(3)
+  await tabs.nth(0).focus()
 
-  const brand = await page.locator('.auth-brand-region').boundingBox()
-  const surface = await page.locator('.auth-surface').boundingBox()
-  const submit = await page.getByRole('button', { name: 'Sign in', exact: true }).boundingBox()
-  const mascot = await page.locator('.auth-brand-region img.mascot-state').boundingBox()
-  const overflow = await page.evaluate(
-    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-  )
+  await page.keyboard.press('ArrowRight')
+  await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('[role="tabpanel"]:visible')).toHaveCount(1)
 
-  expect(brand).not.toBeNull()
-  expect(surface).not.toBeNull()
-  expect((brand?.y ?? 1) < (surface?.y ?? 0)).toBe(true)
-  expect(mascot?.height).toBeLessThanOrEqual(144)
-  expect(submit?.height).toBeGreaterThanOrEqual(44)
-  expect(overflow).toBeLessThanOrEqual(1)
+  await page.keyboard.press('End')
+  await expect(tabs.nth(2)).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('[role="tabpanel"]:visible')).toHaveCount(1)
+
+  await page.keyboard.press('Home')
+  await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('ArrowLeft')
+  await expect(tabs.nth(2)).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('[role="tabpanel"]:visible')).toHaveCount(1)
 })
 
 test('verification retries with a fresh provider script after the first load fails', async ({

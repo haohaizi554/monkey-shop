@@ -161,6 +161,70 @@ describe('LoginView registration journey', () => {
   })
 })
 
+describe('LoginView secure checkpoint composition', () => {
+  it('exposes one secure checkpoint heading, one active panel, and one meaningful mascot', async () => {
+    const { host } = await mountLogin()
+
+    const workspace = host.querySelector<HTMLElement>('.auth-workspace')
+    expect(workspace?.dataset.surface).toBe('secure-checkpoint')
+    expect(host.querySelectorAll('h1')).toHaveLength(1)
+    expect(host.querySelector('.auth-mode-switch')?.getAttribute('role')).toBe('tablist')
+    expect(host.querySelectorAll('[role="tab"][aria-selected="true"]')).toHaveLength(1)
+    expect(host.querySelectorAll('[role="tabpanel"]')).toHaveLength(1)
+    expect(host.querySelector('[role="tabpanel"]')?.id).toBe('auth-panel-login')
+    expect(host.querySelectorAll('.mascot-state')).toHaveLength(1)
+    expect(host.querySelector('.mascot-state')?.getAttribute('data-pose')).toBe('welcome')
+  })
+
+  it('keeps mode tabs roving and supports arrow, Home, and End navigation', async () => {
+    const { host } = await mountLogin()
+    const tablist = host.querySelector<HTMLElement>('[role="tablist"]')
+    const loginTab = host.querySelector<HTMLButtonElement>('[data-testid="login-tab"]')
+    const registerTab = host.querySelector<HTMLButtonElement>('[data-testid="register-tab"]')
+    const resetTab = host.querySelector<HTMLButtonElement>('[data-testid="reset-tab"]')
+
+    expect(tablist).not.toBeNull()
+    expect(loginTab).not.toBeNull()
+    expect(registerTab).not.toBeNull()
+    expect(resetTab).not.toBeNull()
+    loginTab?.focus()
+
+    loginTab?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    await vi.waitFor(() => expect(registerTab?.getAttribute('aria-selected')).toBe('true'))
+    expect(host.querySelectorAll('[role="tabpanel"]')).toHaveLength(1)
+    expect(document.activeElement).toBe(registerTab)
+
+    registerTab?.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
+    await vi.waitFor(() => expect(resetTab?.getAttribute('aria-selected')).toBe('true'))
+    expect(document.activeElement).toBe(resetTab)
+
+    resetTab?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+    await vi.waitFor(() => expect(loginTab?.getAttribute('aria-selected')).toBe('true'))
+    expect(document.activeElement).toBe(loginTab)
+  })
+
+  it('uses the welcome pose while registration is idle and the celebrate pose only on completion', async () => {
+    const { host } = await mountLogin()
+
+    await click(host, '[data-testid="register-tab"]')
+    expect(host.querySelector('.mascot-state')?.getAttribute('data-pose')).toBe('welcome')
+
+    await fill(host, '[data-testid="register-username"]', 'member')
+    await fill(host, '[data-testid="register-password"]', 'ValidPass!1')
+    await click(host, '[data-testid="register-next"]')
+    await vi.waitFor(() =>
+      expect(host.querySelector('[data-testid="register-contact-step"]')).not.toBeNull(),
+    )
+    await fill(host, '[data-testid="register-phone"]', '13800138000')
+    await fill(host, '[data-testid="register-captcha"]', '1234')
+    await click(host, '[data-testid="register-submit"]')
+    await vi.waitFor(() =>
+      expect(host.querySelector('[data-testid="register-complete"]')).not.toBeNull(),
+    )
+    expect(host.querySelector('.mascot-state')?.getAttribute('data-pose')).toBe('celebrate')
+  })
+})
+
 describe('LoginView retry state', () => {
   it('disables only submission while a 429 retry countdown is active', async () => {
     vi.mocked(authApi.login).mockRejectedValue(
