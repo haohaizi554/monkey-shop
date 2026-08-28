@@ -899,7 +899,7 @@ html.dark .el-button--primary {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 40px;
+  min-height: var(--touch-target-min);
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   padding: 0 14px;
@@ -926,7 +926,7 @@ html.dark .el-button--primary {
 
 .icon-button {
   gap: 0;
-  width: 40px;
+  width: var(--icon-button-size);
   padding: 0;
   border-color: var(--line);
 }
@@ -1194,6 +1194,11 @@ html.dark .el-message--success {
 
   .el-button + .el-button {
     margin-left: 0;
+  }
+
+  .el-button,
+  .el-button.is-text {
+    min-height: var(--touch-target-min);
   }
 }
 
@@ -1895,6 +1900,11 @@ html.dark .el-message--success {
 [data-surface='inline-notice'] :is(button, a):focus-visible {
   position: relative;
   z-index: 1;
+}
+
+[data-surface='inline-notice'] :is(.inline-notice__retry button, .inline-notice__dismiss) {
+  min-width: var(--touch-target-min);
+  min-height: var(--touch-target-min);
 }
 
 [data-surface='form-section'] {

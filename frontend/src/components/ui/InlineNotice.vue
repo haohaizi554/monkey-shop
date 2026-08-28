@@ -179,8 +179,8 @@ onBeforeUnmount(stopCountdown)
 
 .inline-notice__retry button,
 .inline-notice__dismiss {
-  min-width: 36px;
-  min-height: 36px;
+  min-width: var(--touch-target-min);
+  min-height: var(--touch-target-min);
   padding: 0 var(--space-2);
   border: 0;
   border-radius: var(--radius-control);
