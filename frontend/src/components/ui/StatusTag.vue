@@ -82,7 +82,7 @@ export default defineComponent({
 </script>
 
 <template>
-  <span class="status-tag" :data-tone="resolvedTone">
+  <span class="status-tag" data-surface="status-tag" :data-tone="resolvedTone">
     <span class="status-tag__dot" aria-hidden="true" />
     <span>{{ resolvedLabel }}</span>
   </span>

@@ -2,6 +2,7 @@
   display: grid;
   gap: var(--space-5);
   min-width: 0;
+  container-type: inline-size;
 }
 
 .commerce-section {
@@ -10,6 +11,10 @@
   min-width: 0;
   padding-block: var(--space-5);
   border-block: 1px solid var(--color-line);
+}
+
+.commerce-section > * {
+  min-width: 0;
 }
 
 .commerce-section + .commerce-section {
@@ -92,6 +97,7 @@
   width: 100%;
   min-width: 760px;
   border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
 }
 
 .commerce-table th,
@@ -183,6 +189,7 @@
   display: inline-flex;
   gap: var(--space-2);
   align-items: center;
+  min-width: 0;
   color: var(--color-muted);
   font-size: var(--text-sm);
 }
@@ -194,6 +201,18 @@
 .admin-orders-pagination {
   justify-self: center;
   margin-top: var(--space-4);
+}
+
+/* Commerce tables are intentionally wide, but only their DataTableShell owns
+ * the overflow. This keeps the page track and fixed chrome stable on phones. */
+.data-table-shell .commerce-table {
+  width: max-content;
+  min-width: 100%;
+}
+
+.commerce-page :is(.el-input, .el-select, .el-input-number, .el-date-editor) {
+  min-width: 0;
+  max-width: 100%;
 }
 
 @media (max-width: 820px) {
@@ -220,5 +239,19 @@
   .commerce-actions > .el-button,
   .commerce-actions > a {
     flex: 1 1 auto;
+  }
+}
+
+@media (max-width: 360px) {
+  .commerce-page {
+    gap: var(--space-3);
+  }
+
+  .commerce-section {
+    gap: var(--space-3);
+  }
+
+  .commerce-actions > :is(.el-button, a) {
+    width: 100%;
   }
 }

@@ -11,7 +11,7 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <header class="page-header">
+  <header class="page-header" data-surface="page-heading">
     <div class="page-header__main">
       <nav
         v-if="$slots.breadcrumbs"

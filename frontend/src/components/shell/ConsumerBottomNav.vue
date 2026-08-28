@@ -29,7 +29,12 @@ const links = computed<BottomLink[]>(() => {
 </script>
 
 <template>
-  <nav class="consumer-bottom-nav" :aria-label="$t('nav.mobilePrimary')">
+  <nav
+    class="consumer-bottom-nav"
+    data-surface="consumer-primary-navigation"
+    data-tone="mobile"
+    :aria-label="$t('nav.mobilePrimary')"
+  >
     <RouterLink v-for="link in links" :key="link.to" :to="link.to">
       <component :is="link.icon" aria-hidden="true" />
       <span>{{ link.label }}</span>

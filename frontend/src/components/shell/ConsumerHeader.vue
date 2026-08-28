@@ -60,13 +60,23 @@ async function logout() {
 </script>
 
 <template>
-  <header class="app-header consumer-header" :data-compact="props.compact">
+  <header
+    class="app-header consumer-header"
+    :data-compact="props.compact"
+    data-surface="consumer-chrome"
+    data-tone="consumer"
+  >
     <RouterLink class="brand" to="/shop" :aria-label="$t('nav.homeLabel')">
       <BrandMascot />
       <span>MonkeyShop</span>
     </RouterLink>
 
-    <nav v-if="!props.compact" class="primary-nav" :aria-label="$t('nav.primaryNavigation')">
+    <nav
+      v-if="!props.compact"
+      class="primary-nav"
+      data-surface="consumer-primary-navigation"
+      :aria-label="$t('nav.primaryNavigation')"
+    >
       <RouterLink
         v-for="link in primaryLinks"
         :key="link.to"

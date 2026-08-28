@@ -90,6 +90,10 @@ test('consumer routes own one consumer shell with unique home and discover names
 
   await expectSingleShell(page, 'consumer')
   await expect(page.locator('.consumer-header')).toBeVisible()
+  const consumerHeaderHeight = await page
+    .locator('.consumer-header')
+    .evaluate((header) => header.getBoundingClientRect().height)
+  expect(consumerHeaderHeight).toBeGreaterThanOrEqual(64)
   await expect(page.locator('.admin-sidebar')).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'MonkeyShop home', exact: true })).toBeVisible()
   await expect(
@@ -116,6 +120,14 @@ test('admin routes replace consumer chrome with sidebar and topbar', async ({ pa
   await expectSingleShell(page, 'admin')
   await expect(page.locator('.admin-sidebar')).toBeVisible()
   await expect(page.locator('.admin-topbar')).toBeVisible()
+  const adminSidebarWidth = await page
+    .locator('.admin-sidebar')
+    .evaluate((sidebar) => sidebar.getBoundingClientRect().width)
+  const adminTopbarHeight = await page
+    .locator('.admin-topbar')
+    .evaluate((topbar) => topbar.getBoundingClientRect().height)
+  expect(adminSidebarWidth).toBe(248)
+  expect(adminTopbarHeight).toBeGreaterThanOrEqual(64)
   await expect(page.getByRole('navigation', { name: 'Primary' })).toHaveCount(0)
 })
 
@@ -147,6 +159,26 @@ test('consumer mobile routes expose bottom navigation', async ({ page }) => {
   await expectSingleShell(page, 'consumer')
   await expect(page.locator('.consumer-bottom-nav')).toBeVisible()
   await expect(page.locator('.consumer-header .primary-nav')).toBeHidden()
+
+  const bottomNavGeometry = await page.locator('.consumer-bottom-nav').evaluate((nav) => {
+    const computed = getComputedStyle(nav)
+    return {
+      minHeight: Number.parseFloat(computed.minHeight),
+      paddingBottom: Number.parseFloat(computed.paddingBottom),
+      safeAreaRulePresent: Array.from(document.styleSheets).some((sheet) => {
+        try {
+          return Array.from(sheet.cssRules).some((rule) =>
+            rule.cssText.includes('safe-area-inset-bottom'),
+          )
+        } catch {
+          return false
+        }
+      }),
+    }
+  })
+  expect(bottomNavGeometry.minHeight).toBeGreaterThanOrEqual(64)
+  expect(bottomNavGeometry.paddingBottom).toBeGreaterThanOrEqual(0)
+  expect(bottomNavGeometry.safeAreaRulePresent).toBe(true)
 })
 
 test('consumer chrome stays inside a 320px signed-in viewport', async ({ page }) => {
@@ -240,6 +272,10 @@ test('desktop consumer shell exposes the complete commerce navigation', async ({
   await page.goto('/shop')
 
   const navigation = page.getByRole('navigation', { name: 'Primary' })
+  await expect(navigation.getByRole('link', { name: 'Discover', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  )
   const labels = ['Discover', 'Categories', 'Search', 'Recommend', 'Orders', 'Cart', 'Membership']
   for (const label of labels) {
     await expect(navigation.getByRole('link', { name: label, exact: true })).toBeVisible()

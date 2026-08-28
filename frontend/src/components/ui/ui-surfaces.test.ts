@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp, h, type App, type Component } from 'vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import DataTableShell from '@/components/ui/DataTableShell.vue'
+import FormSection from '@/components/ui/FormSection.vue'
+import InlineNotice from '@/components/ui/InlineNotice.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import StatusTag from '@/components/ui/StatusTag.vue'
 import { i18n } from '@/locales'
 
 const mountedApps: Array<{ app: App; host: HTMLElement }> = []
@@ -38,6 +41,7 @@ describe('PageHeader', () => {
 
     expect(host.querySelectorAll('h1')).toHaveLength(1)
     expect(host.querySelector('h1')?.textContent).toBe('Inventory')
+    expect(host.querySelector('.page-header')?.getAttribute('data-surface')).toBe('page-heading')
     expect(host.querySelector('.page-header__eyebrow')?.textContent).toBe('Operations')
     expect(host.querySelector('.page-header__actions button')?.textContent).toBe('Refresh')
     expect(host.querySelector('.page-header')?.classList.contains('card')).toBe(false)
@@ -148,6 +152,7 @@ describe('DataTableShell', () => {
     )
 
     expect(host.querySelector('.data-table-shell__scroller table')).not.toBeNull()
+    expect(host.querySelector('.data-table-shell')?.getAttribute('data-surface')).toBe('data-table')
     const scroller = host.querySelector('.data-table-shell__scroller')
     expect(scroller?.getAttribute('role')).toBe('region')
     expect(scroller?.getAttribute('tabindex')).toBe('0')
@@ -166,5 +171,34 @@ describe('DataTableShell', () => {
 
     expect(host.querySelector('.data-table-shell__empty')?.textContent).toContain('No products')
     expect(host.querySelector('.data-table-shell__scroller')).toBeNull()
+  })
+})
+
+describe('semantic surface hooks', () => {
+  it('marks notices with a surface and severity tone while keeping alert semantics', () => {
+    const host = mount(InlineNotice, {
+      severity: 'warning',
+      message: 'The workspace needs attention.',
+    })
+
+    const notice = host.querySelector('.inline-notice')
+    expect(notice?.getAttribute('data-surface')).toBe('inline-notice')
+    expect(notice?.getAttribute('data-tone')).toBe('warning')
+    expect(notice?.getAttribute('role')).toBe('alert')
+  })
+
+  it('marks form sections and status tags for semantic styling', () => {
+    const formHost = mount(
+      FormSection,
+      { title: 'Profile details' },
+      { default: () => h('input', { name: 'displayName' }) },
+    )
+    const tagHost = mount(StatusTag, { status: 'PAID' })
+
+    expect(formHost.querySelector('.form-section')?.getAttribute('data-surface')).toBe(
+      'form-section',
+    )
+    expect(tagHost.querySelector('.status-tag')?.getAttribute('data-surface')).toBe('status-tag')
+    expect(tagHost.querySelector('.status-tag')?.getAttribute('data-tone')).toBe('info')
   })
 })

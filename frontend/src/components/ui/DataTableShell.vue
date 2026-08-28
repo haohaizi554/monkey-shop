@@ -22,6 +22,8 @@ const accessibleLabel = computed(() => props.ariaLabel || t('common.dataTable'))
 <template>
   <section
     class="data-table-shell"
+    data-surface="data-table"
+    :data-state="empty ? 'empty' : busy ? 'updating' : 'ready'"
     :aria-label="empty ? accessibleLabel : undefined"
     :aria-busy="busy || undefined"
   >
@@ -34,6 +36,7 @@ const accessibleLabel = computed(() => props.ariaLabel || t('common.dataTable'))
     <div
       v-else
       class="data-table-shell__scroller"
+      data-surface="data-table-scroll"
       role="region"
       tabindex="0"
       :aria-label="accessibleLabel"

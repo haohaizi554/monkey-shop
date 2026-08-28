@@ -120,6 +120,8 @@ useEventListener(window, 'keydown', onKeydown)
     ref="sidebar"
     class="admin-sidebar"
     :class="{ 'is-open': props.open }"
+    data-surface="admin-navigation"
+    data-tone="chrome"
     :role="isDesktop ? undefined : 'dialog'"
     :aria-modal="isDesktop ? undefined : 'true'"
     :aria-label="$t('nav.adminNavigation')"

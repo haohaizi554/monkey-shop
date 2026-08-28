@@ -1859,3 +1859,62 @@ html.dark .el-message--success {
   color: var(--color-text);
   font-weight: 650;
 }
+
+/* Shared surface hooks keep visual responsibility explicit without creating
+ * another card system for individual pages. */
+[data-surface='page-heading'] {
+  container-type: inline-size;
+}
+
+.app-shell[data-area='consumer'] [data-surface='page-heading'] h1 {
+  font-size: var(--text-display);
+}
+
+.app-shell[data-area='admin'] [data-surface='page-heading'] {
+  background: transparent;
+}
+
+[data-surface='data-table'] {
+  container-type: inline-size;
+}
+
+[data-surface='data-table'][data-state='updating'] {
+  border-color: var(--color-line-strong);
+}
+
+[data-surface='data-table-scroll'] {
+  overscroll-behavior-inline: contain;
+  scrollbar-color: var(--color-line-strong) transparent;
+  scrollbar-width: thin;
+}
+
+[data-surface='inline-notice'] {
+  min-width: 0;
+}
+
+[data-surface='inline-notice'] :is(button, a):focus-visible {
+  position: relative;
+  z-index: 1;
+}
+
+[data-surface='form-section'] {
+  min-width: 0;
+}
+
+[data-surface='form-section'][data-tone='disabled'] {
+  color: var(--color-muted);
+}
+
+[data-surface='status-tag'] {
+  min-width: 0;
+}
+
+@media (max-width: 760px) {
+  .app-shell[data-area='consumer'] [data-surface='page-heading'] h1 {
+    font-size: var(--text-2xl);
+  }
+
+  [data-surface='data-table-scroll'] {
+    max-width: 100%;
+  }
+}
