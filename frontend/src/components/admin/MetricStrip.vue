@@ -10,7 +10,7 @@ defineProps<{ items: readonly MetricItem[] }>()
 </script>
 
 <template>
-  <ul class="metric-strip">
+  <ul class="metric-strip" data-surface="signal-strip">
     <li
       v-for="item in items"
       :key="item.key"
@@ -18,8 +18,11 @@ defineProps<{ items: readonly MetricItem[] }>()
       :data-metric-key="item.key"
       :data-tone="item.tone || 'neutral'"
     >
-      <span>{{ item.label }}</span>
-      <strong>{{ item.value }}</strong>
+      <span class="metric-strip__label">
+        <i class="metric-strip__signal" aria-hidden="true" />
+        {{ item.label }}
+      </span>
+      <strong data-numeric>{{ item.value }}</strong>
     </li>
   </ul>
 </template>

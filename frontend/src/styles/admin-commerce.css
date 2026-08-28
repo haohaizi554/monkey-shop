@@ -1,8 +1,28 @@
+/*
+ * Commerce Control Observatory primitives.
+ *
+ * This sheet owns the shared admin work surfaces. DataTableShell remains the
+ * only table overflow owner; these rules only give its content a stable track.
+ */
+
 .commerce-page {
   display: grid;
   gap: var(--space-5);
+  width: 100%;
   min-width: 0;
+  max-width: 100%;
   container-type: inline-size;
+}
+
+.commerce-page > *,
+.commerce-section > *,
+.admin-page > *,
+.inventory-page > *,
+.dashboard-view > *,
+.risk-page > *,
+.tenant-page > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .commerce-section {
@@ -10,11 +30,8 @@
   gap: var(--space-4);
   min-width: 0;
   padding-block: var(--space-5);
-  border-block: 1px solid var(--color-line);
-}
-
-.commerce-section > * {
-  min-width: 0;
+  border-block: 1px solid var(--admin-line);
+  background: transparent;
 }
 
 .commerce-section + .commerce-section {
@@ -29,11 +46,15 @@
   justify-content: space-between;
 }
 
+.commerce-section__heading > * {
+  min-width: 0;
+}
+
 .commerce-section__icon {
   flex: 0 0 auto;
   width: 20px;
   height: 20px;
-  color: var(--color-honey);
+  color: var(--admin-accent);
 }
 
 .commerce-section__heading h2,
@@ -42,7 +63,7 @@
 }
 
 .commerce-section__heading h2 {
-  color: var(--color-ink);
+  color: var(--admin-ink);
   font-size: var(--text-lg);
   line-height: var(--leading-tight);
 }
@@ -50,7 +71,7 @@
 .commerce-section__heading p {
   max-width: 68ch;
   margin-top: var(--space-1);
-  color: var(--color-muted);
+  color: var(--admin-muted);
   font-size: var(--text-sm);
   line-height: var(--leading-relaxed);
 }
@@ -73,9 +94,9 @@
 }
 
 .commerce-field > span {
-  color: var(--color-text);
+  color: var(--admin-ink);
   font-size: var(--text-sm);
-  font-weight: 700;
+  font-weight: var(--font-weight-semibold);
 }
 
 .commerce-field--wide {
@@ -87,46 +108,60 @@
   flex-wrap: wrap;
   gap: var(--space-2);
   align-items: center;
+  min-width: 0;
 }
 
 .commerce-actions--end {
   justify-content: flex-end;
 }
 
+.commerce-actions :is(button, a) {
+  max-width: 100%;
+}
+
 .commerce-table {
   width: 100%;
   min-width: 760px;
   border-collapse: collapse;
+  color: var(--admin-ink);
   font-variant-numeric: tabular-nums;
 }
 
 .commerce-table th,
 .commerce-table td {
   padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--color-line);
-  color: var(--color-text);
+  border-bottom: 1px solid var(--admin-line);
+  color: inherit;
   text-align: left;
   vertical-align: middle;
 }
 
 .commerce-table th {
-  background: var(--color-surface-subtle);
-  color: var(--color-text);
+  background: var(--admin-surface-subtle);
+  color: var(--admin-ink);
   font-size: var(--text-xs);
-  font-weight: 750;
-}
-
-.commerce-table tbody tr {
-  background: var(--color-surface-raised);
-  transition: background-color var(--motion-fast);
-}
-
-.commerce-table tbody tr:hover {
-  background: var(--color-brand-soft);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 .commerce-table td {
+  background: var(--admin-surface-raised);
   font-size: var(--text-sm);
+}
+
+.commerce-table tbody tr {
+  transition: background-color var(--motion-fast);
+}
+
+.commerce-table tbody tr:hover,
+.commerce-table tbody tr:focus-within {
+  background: var(--admin-primary-soft);
+}
+
+.commerce-table tbody tr:hover > td,
+.commerce-table tbody tr:focus-within > td {
+  background: var(--admin-primary-soft);
 }
 
 .commerce-table__primary {
@@ -136,11 +171,12 @@
 }
 
 .commerce-table__primary strong {
-  color: var(--color-ink);
+  color: var(--admin-ink);
+  overflow-wrap: anywhere;
 }
 
 .commerce-table__primary small {
-  color: var(--color-muted);
+  color: var(--admin-muted);
 }
 
 .commerce-kv {
@@ -149,9 +185,9 @@
   gap: 1px;
   margin: 0;
   overflow: hidden;
-  border: 1px solid var(--color-line);
+  border: 1px solid var(--admin-line);
   border-radius: var(--radius-surface);
-  background: var(--color-line);
+  background: var(--admin-line);
 }
 
 .commerce-kv > div {
@@ -159,20 +195,20 @@
   gap: var(--space-1);
   min-width: 0;
   padding: var(--space-4);
-  background: var(--color-surface-raised);
+  background: var(--admin-surface-raised);
 }
 
 .commerce-kv dt {
-  color: var(--color-muted);
+  color: var(--admin-muted);
   font-size: var(--text-xs);
-  font-weight: 700;
+  font-weight: var(--font-weight-semibold);
 }
 
 .commerce-kv dd {
   min-width: 0;
   margin: 0;
-  color: var(--color-ink);
-  font-weight: 700;
+  color: var(--admin-ink);
+  font-weight: var(--font-weight-bold);
   overflow-wrap: anywhere;
 }
 
@@ -182,7 +218,7 @@
   gap: var(--space-3);
   align-items: end;
   padding-block: var(--space-3);
-  border-bottom: 1px solid var(--color-line);
+  border-bottom: 1px solid var(--admin-line);
 }
 
 .commerce-inline-state {
@@ -190,12 +226,12 @@
   gap: var(--space-2);
   align-items: center;
   min-width: 0;
-  color: var(--color-muted);
+  color: var(--admin-muted);
   font-size: var(--text-sm);
 }
 
 .commerce-inline-state strong {
-  color: var(--color-ink);
+  color: var(--admin-ink);
 }
 
 .admin-orders-pagination {
@@ -203,8 +239,7 @@
   margin-top: var(--space-4);
 }
 
-/* Commerce tables are intentionally wide, but only their DataTableShell owns
- * the overflow. This keeps the page track and fixed chrome stable on phones. */
+/* Keep wide commerce records inside DataTableShell's labelled scroller. */
 .data-table-shell .commerce-table {
   width: max-content;
   min-width: 100%;
@@ -212,6 +247,183 @@
 
 .commerce-page :is(.el-input, .el-select, .el-input-number, .el-date-editor) {
   min-width: 0;
+  max-width: 100%;
+}
+
+/*
+ * Toolbar hierarchy: search first, filters second, actions last. The explicit
+ * regions keep slot composition stable while making the density contract
+ * inspectable by route-level tests.
+ */
+.app-shell[data-area='admin'] .admin-page-toolbar[data-density='compact'] {
+  display: grid;
+  grid-template-columns: minmax(180px, 320px) minmax(0, 1fr) auto;
+  grid-template-areas: 'search filters actions';
+  gap: var(--space-3);
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--admin-line);
+  border-radius: var(--radius-control);
+  background: var(--admin-surface-subtle);
+  box-shadow: none;
+}
+
+.app-shell[data-area='admin'] .admin-page-toolbar[data-density='compact'] > * {
+  min-width: 0;
+}
+
+.app-shell[data-area='admin'] .admin-page-toolbar__search {
+  grid-area: search;
+}
+
+.app-shell[data-area='admin'] .admin-page-toolbar__filters {
+  grid-area: filters;
+}
+
+.app-shell[data-area='admin'] .admin-page-toolbar__actions {
+  grid-area: actions;
+}
+
+.app-shell[data-area='admin'] .admin-page-toolbar__search > * {
+  width: 100%;
+  max-width: 320px;
+}
+
+.app-shell[data-area='admin'] .admin-page-toolbar__filters,
+.app-shell[data-area='admin'] .admin-page-toolbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.app-shell[data-area='admin'] .admin-page-toolbar__actions {
+  justify-content: flex-end;
+}
+
+.app-shell[data-area='admin']
+  .admin-page-toolbar[data-density='compact']
+  :is(
+    button,
+    input,
+    select,
+    textarea,
+    .el-button,
+    .el-input__wrapper,
+    .el-select__wrapper,
+    .el-input-number,
+    .el-date-editor
+  ) {
+  min-height: var(--control-height-compact);
+}
+
+/* Signal strip: one quiet surface, with tone carried by a small signal mark. */
+.app-shell[data-area='admin'] .metric-strip[data-surface='signal-strip'] {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--admin-line);
+  border-radius: var(--radius-control);
+  background: var(--admin-surface-subtle);
+  box-shadow: none;
+  list-style: none;
+}
+
+.app-shell[data-area='admin'] .metric-strip[data-surface='signal-strip'] .metric-strip__item {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  background: transparent;
+}
+
+.app-shell[data-area='admin'] .metric-strip__label {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--admin-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.app-shell[data-area='admin'] .metric-strip__signal {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-circle);
+  background: var(--admin-line-strong);
+}
+
+.app-shell[data-area='admin'] .metric-strip__item strong {
+  color: var(--admin-ink);
+  font-size: var(--text-metric);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--leading-tight);
+}
+
+.app-shell[data-area='admin'] .metric-strip__item[data-tone='info'] .metric-strip__signal {
+  background: var(--admin-info);
+}
+
+.app-shell[data-area='admin'] .metric-strip__item[data-tone='info'] strong {
+  color: var(--admin-info);
+}
+
+.app-shell[data-area='admin'] .metric-strip__item[data-tone='success'] .metric-strip__signal {
+  background: var(--admin-success);
+}
+
+.app-shell[data-area='admin'] .metric-strip__item[data-tone='success'] strong {
+  color: var(--admin-success);
+}
+
+.app-shell[data-area='admin'] .metric-strip__item[data-tone='warning'] .metric-strip__signal {
+  background: var(--admin-warning);
+}
+
+.app-shell[data-area='admin'] .metric-strip__item[data-tone='warning'] strong {
+  color: var(--admin-warning);
+}
+
+.app-shell[data-area='admin'] .metric-strip__item[data-tone='danger'] .metric-strip__signal {
+  background: var(--admin-danger);
+}
+
+.app-shell[data-area='admin'] .metric-strip__item[data-tone='danger'] strong {
+  color: var(--admin-danger);
+}
+
+/* Shared admin state surfaces stay within the page track. */
+.app-shell[data-area='admin'] .route-view {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.app-shell[data-area='admin'] :is(.data-table-shell, [data-surface='data-table']) {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.app-shell[data-area='admin'] [data-surface='data-table-scroll'] {
+  overscroll-behavior-inline: contain;
+  scrollbar-color: var(--admin-line-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.app-shell[data-area='admin']
+  :is(.admin-page, .inventory-page, .dashboard-view, .risk-page, .tenant-page)
+  :is(button, input, select, textarea, a, [role='combobox']) {
   max-width: 100%;
 }
 
@@ -227,7 +439,48 @@
   }
 }
 
-@media (max-width: 560px) {
+@media (max-width: 760px) {
+  .app-shell[data-area='admin'] .admin-page-toolbar[data-density='compact'] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'search'
+      'filters'
+      'actions';
+    padding-inline: var(--space-3);
+  }
+
+  .app-shell[data-area='admin'] .admin-page-toolbar__search > * {
+    max-width: none;
+  }
+
+  .app-shell[data-area='admin'] .admin-page-toolbar__actions {
+    justify-content: flex-start;
+  }
+
+  .app-shell[data-area='admin']
+    .admin-page-toolbar[data-density='compact']
+    :is(
+      button,
+      input,
+      select,
+      textarea,
+      .el-button,
+      .el-input__wrapper,
+      .el-select__wrapper,
+      .el-input-number,
+      .el-date-editor
+    ) {
+    min-height: var(--touch-target-min);
+  }
+
+  .app-shell[data-area='admin'] :is(button, input, select, textarea, a, [role='combobox']) {
+    min-height: var(--touch-target-min);
+  }
+
+  .app-shell[data-area='admin'] .metric-strip[data-surface='signal-strip'] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .commerce-page {
     gap: var(--space-4);
   }
@@ -236,9 +489,14 @@
     padding-block: var(--space-4);
   }
 
-  .commerce-actions > .el-button,
-  .commerce-actions > a {
+  .commerce-actions > :is(.el-button, a) {
     flex: 1 1 auto;
+  }
+}
+
+@media (max-width: 420px) {
+  .app-shell[data-area='admin'] .metric-strip[data-surface='signal-strip'] {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -253,5 +511,19 @@
 
   .commerce-actions > :is(.el-button, a) {
     width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell[data-area='admin']
+    :is(
+      .admin-page-toolbar[data-density='compact'],
+      .metric-strip[data-surface='signal-strip'],
+      .commerce-table tbody tr,
+      [data-surface='data-table-scroll']
+    ) {
+    animation-duration: 1ms !important;
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
   }
 }
