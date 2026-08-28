@@ -17,6 +17,7 @@ frontend/output/
 .trae/
 .tools/
 .superpowers/
+.worktrees/
 *.iml
 *.iws
 
