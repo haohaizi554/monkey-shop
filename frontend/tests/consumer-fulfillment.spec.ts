@@ -370,7 +370,9 @@ test('payment creation freezes refund and lookup controls until it settles', asy
   releaseCreate()
   await expect(page.getByRole('button', { name: 'Submit payment', exact: true })).toBeHidden()
   await expect(refundForm).toBeVisible()
-  await expect(refundForm.getByRole('spinbutton')).toBeEnabled()
+  const settledRefundAmount = refundForm.getByRole('spinbutton')
+  await expect(settledRefundAmount).toBeEnabled()
+  await expect(settledRefundAmount).toHaveAttribute('aria-disabled', 'false')
 })
 
 test('refund confirmation freezes the selected payment and lookup controls', async ({ page }) => {

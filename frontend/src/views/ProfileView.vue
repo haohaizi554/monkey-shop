@@ -972,7 +972,6 @@ onBeforeUnmount(() => {
 .identity-summary img {
   width: 96px;
   height: 96px;
-  border: 1px solid var(--color-line);
   border: 3px solid var(--color-surface);
   border-radius: var(--radius-circle);
   box-shadow:
@@ -1086,7 +1085,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  min-height: 40px;
+  min-height: var(--touch-target-min);
   padding: 0 var(--space-4);
   border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-control);
@@ -1161,7 +1160,7 @@ onBeforeUnmount(() => {
 
 .address-form > .el-button,
 .password-submit {
-  min-height: 40px;
+  min-height: var(--touch-target-min);
 }
 
 .address-list {
@@ -1244,7 +1243,8 @@ onBeforeUnmount(() => {
 
 .captcha-image-button {
   width: 120px;
-  height: 40px;
+  min-height: var(--touch-target-min);
+  height: var(--touch-target-min);
   padding: 0;
   overflow: hidden;
   border: 1px solid var(--color-line);
@@ -1256,8 +1256,13 @@ onBeforeUnmount(() => {
 .captcha-image-button img {
   display: block;
   width: 120px;
-  height: 40px;
+  height: var(--touch-target-min);
   object-fit: cover;
+}
+
+.captcha-row :deep(.el-button) {
+  width: var(--touch-target-min);
+  min-height: var(--touch-target-min);
 }
 
 .form-error {

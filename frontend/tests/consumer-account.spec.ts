@@ -67,11 +67,16 @@ interface AccountMockOptions {
   passwordChangeRequired?: boolean
   passwordExpired?: boolean
   checkInGate?: Promise<void>
+  checkInKeys?: string[]
   failRedeem?: boolean
   emptyCollections?: boolean
   onAddressUpdate?: () => void
   onForgetMe?: () => void
   redeemKeys?: string[]
+  failAvatarUpload?: boolean
+  avatarUploadCalls?: string[]
+  failPassword?: boolean
+  passwordCalls?: Array<Record<string, unknown>>
 }
 
 async function fulfillJson(route: Route, data: unknown, status = 200) {
@@ -179,6 +184,7 @@ async function installAccountMocks(page: Page, options: AccountMockOptions = {})
       return
     }
     if (pathname === '/membership/check-in') {
+      options.checkInKeys?.push((await request.allHeaders())['idempotency-key'] ?? '')
       await options.checkInGate
       await fulfillJson(
         route,
@@ -189,6 +195,44 @@ async function installAccountMocks(page: Page, options: AccountMockOptions = {})
           wallet: membershipDashboard().wallet,
         }),
       )
+      return
+    }
+    if (pathname === '/uploads' && method === 'POST') {
+      options.avatarUploadCalls?.push('upload')
+      if (options.failAvatarUpload) {
+        await fulfillJson(
+          route,
+          {
+            title: 'avatar storage unavailable',
+            detail: 'avatar storage unavailable',
+            status: 503,
+          },
+          503,
+        )
+      } else {
+        await fulfillJson(route, ok({ path: '/uploads/avatar.webp', cropped: false }))
+      }
+      return
+    }
+    if (pathname === '/users/update-avatar' && method === 'POST') {
+      await fulfillJson(route, ok(null))
+      return
+    }
+    if (pathname === '/users/update-password' && method === 'POST') {
+      options.passwordCalls?.push(request.postDataJSON() as Record<string, unknown>)
+      if (options.failPassword) {
+        await fulfillJson(
+          route,
+          {
+            title: 'password provider unavailable',
+            detail: 'password provider unavailable',
+            status: 503,
+          },
+          503,
+        )
+      } else {
+        await fulfillJson(route, ok(null))
+      }
       return
     }
     if (pathname === '/membership/points/redeem' && options.failRedeem) {
@@ -253,7 +297,13 @@ test('membership groups account tasks, masks identity data, and isolates pending
   page,
 }) => {
   const checkIn = deferred()
-  await installAccountMocks(page, { checkInGate: checkIn.promise })
+  const checkInKeys: string[] = []
+  const redeemKeys: string[] = []
+  await installAccountMocks(page, {
+    checkInGate: checkIn.promise,
+    checkInKeys,
+    redeemKeys,
+  })
   await page.goto('/membership')
 
   await expect(page.getByRole('heading', { name: 'Membership center', level: 1 })).toBeVisible()
@@ -283,9 +333,30 @@ test('membership groups account tasks, masks identity data, and isolates pending
   await checkInButton.click()
   await expect(checkInButton).toBeDisabled()
   await expect(redeemButton).toBeEnabled()
+  await expect.poll(() => checkInKeys.length).toBe(1)
+  expect(checkInKeys[0]).not.toBe('')
+
+  await redeemButton.click()
+  await expect.poll(() => redeemKeys.length).toBe(1)
+  expect(redeemKeys[0]).not.toBe('')
+  await expect(checkInButton).toBeDisabled()
 
   checkIn.resolve()
   await expect(checkInButton).toBeEnabled()
+})
+
+test('membership publishes every ordered section through the rendered account surface', async ({
+  page,
+}) => {
+  await installAccountMocks(page)
+  await page.goto('/membership')
+
+  const sections = ['identity', 'points', 'price-watch', 'coupons', 'history']
+  for (const section of sections) {
+    const locator = page.locator(`[data-membership-section="${section}"]`)
+    await expect(locator).toBeVisible()
+    await expect(locator).toHaveAttribute('data-surface', 'membership-section')
+  }
 })
 
 test('membership mutations use safe app feedback instead of raw backend errors', async ({
@@ -377,6 +448,120 @@ test('profile identity summarizes account readiness without exposing raw pii', a
   await expect(identity).toContainText('Protected')
   await expect(identity.getByRole('link', { name: 'Open membership' })).toBeVisible()
   await expect(page.locator('body')).not.toContainText(rawPhone)
+})
+
+test('profile reaches every account tab and renders its owned section', async ({ page }) => {
+  await installAccountMocks(page)
+  await page.goto('/profile')
+
+  for (const [tabName, sectionName] of [
+    ['Identity', 'identity'],
+    ['Addresses', 'addresses'],
+    ['Security', 'security'],
+    ['Privacy', 'privacy'],
+  ]) {
+    const tab = page.getByRole('tab', { name: tabName, exact: true })
+    await tab.click()
+    await expect(tab).toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator(`[data-account-section="${sectionName}"]`)).toBeVisible()
+  }
+})
+
+test('profile interactive controls meet the minimum touch target through each tab', async ({
+  page,
+}) => {
+  await installAccountMocks(page)
+  await page.goto('/profile')
+  await expect(page.locator('[data-account-section="identity"]')).toBeVisible()
+
+  const expectMinimum = async (selector: string, label: string) => {
+    const heights = await page
+      .locator(selector)
+      .evaluateAll((elements) =>
+        elements.map((element) => Math.round(element.getBoundingClientRect().height)),
+      )
+    expect(heights.length, `${label} must render`).toBeGreaterThan(0)
+    expect(Math.min(...heights), `${label} must be at least 44px`).toBeGreaterThanOrEqual(44)
+  }
+
+  await expectMinimum('.file-picker', 'avatar picker')
+
+  await page.getByRole('tab', { name: 'Addresses', exact: true }).click()
+  await expect(page.locator('.address-form > .el-button')).toBeVisible()
+  await expectMinimum('.address-form > .el-button', 'address submit')
+
+  await page.getByRole('tab', { name: 'Security', exact: true }).click()
+  await expect(page.locator('.password-submit')).toBeVisible()
+  await expect(page.locator('.captcha-image-button')).toBeVisible()
+  await expectMinimum('.password-submit', 'password submit')
+  await expectMinimum('.captcha-image-button', 'captcha image button')
+  await expectMinimum('.captcha-row > .el-button', 'captcha refresh button')
+})
+
+test('profile avatar upload failure resets the file input and picker state', async ({ page }) => {
+  const avatarUploadCalls: string[] = []
+  await installAccountMocks(page, { failAvatarUpload: true, avatarUploadCalls })
+  await page.goto('/profile')
+
+  const input = page.locator('#profile-avatar-input')
+  await input.setInputFiles({
+    name: 'avatar.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('mock-avatar'),
+  })
+
+  await expect.poll(() => avatarUploadCalls.length).toBe(1)
+  await expect(page.locator('.app-feedback-item')).toContainText('Unable to upload image')
+  await expect(input).toHaveValue('')
+  await expect(page.locator('.file-picker')).toHaveAttribute('aria-disabled', 'false')
+})
+
+test('profile password failure keeps the corridor recoverable and clears captcha', async ({
+  page,
+}) => {
+  const passwordCalls: Array<Record<string, unknown>> = []
+  await installAccountMocks(page, { failPassword: true, passwordCalls })
+  await page.goto('/profile')
+  await page.getByRole('tab', { name: 'Security', exact: true }).click()
+  const security = page.locator('[data-account-section="security"]')
+  await expect(security).toBeVisible()
+
+  await security.getByLabel('Current password').fill('OldPassword!1')
+  await security.getByLabel('Phone').fill('13800138000')
+  await security.getByLabel('New password').fill('NewPassword!2')
+  await security.getByRole('textbox', { name: 'Captcha', exact: true }).fill('ABCD')
+  await security.getByRole('button', { name: 'Update password', exact: true }).click()
+
+  await expect.poll(() => passwordCalls.length).toBe(1)
+  expect(passwordCalls[0]).toMatchObject({
+    oldPassword: 'OldPassword!1',
+    phone: '13800138000',
+    newPassword: 'NewPassword!2',
+    captcha: 'ABCD',
+  })
+  await expect(page.locator('.app-feedback-item')).toContainText('Request failed')
+  await expect(page).toHaveURL(/\/profile$/)
+  await expect(security.getByRole('textbox', { name: 'Captcha', exact: true })).toHaveValue('')
+  await expect(security.getByRole('button', { name: 'Update password', exact: true })).toBeEnabled()
+})
+
+test('profile password success sends captcha and returns to sign in', async ({ page }) => {
+  const passwordCalls: Array<Record<string, unknown>> = []
+  await installAccountMocks(page, { passwordCalls })
+  await page.goto('/profile')
+  await page.getByRole('tab', { name: 'Security', exact: true }).click()
+  const security = page.locator('[data-account-section="security"]')
+  await expect(security).toBeVisible()
+
+  await security.getByLabel('Current password').fill('OldPassword!1')
+  await security.getByLabel('Phone').fill('13800138000')
+  await security.getByLabel('New password').fill('NewPassword!2')
+  await security.getByRole('textbox', { name: 'Captcha', exact: true }).fill('ABCD')
+  await security.getByRole('button', { name: 'Update password', exact: true }).click()
+
+  await expect.poll(() => passwordCalls.length).toBe(1)
+  expect(passwordCalls[0]).toMatchObject({ captcha: 'ABCD' })
+  await expect(page).toHaveURL(/\/login$/)
 })
 
 test('profile masks address data and validates the edit dialog before restoring focus', async ({
