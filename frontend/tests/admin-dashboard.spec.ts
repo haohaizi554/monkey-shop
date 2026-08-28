@@ -114,6 +114,19 @@ test('dashboard sleeps while hidden and preserves metrics during one resume refr
   await expect(page.getByText('144', { exact: true })).toBeVisible()
   expect(requests).toBe(2)
 
+  await expect(page.locator('.dashboard-view')).toHaveAttribute('data-observatory', 'analytics')
+  await expect(page.locator('.admin-page-toolbar')).toHaveAttribute('data-density', 'compact')
+  await expect(page.locator('.metric-strip')).toHaveAttribute('data-surface', 'signal-strip')
+  await expect(page.locator('.dashboard-funnel-table')).toHaveAttribute(
+    'data-row-identity',
+    'eventType',
+  )
+  await expect(page.locator('.dashboard-funnel-event[data-row-key="SEARCH"]')).toBeVisible()
+  await expect(
+    page.locator('.dashboard-funnel-event[data-row-key="PAYMENT_SUCCESS"]'),
+  ).toBeVisible()
+  await expect(page.locator('.data-table-shell__scroller').first()).toHaveCSS('overflow-x', 'auto')
+
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.screenshot({ path: 'output/task6-dashboard-desktop.png' })
   await page.setViewportSize({ width: 390, height: 844 })

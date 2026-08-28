@@ -3,10 +3,12 @@ import { Refresh, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { currentTrackingProfile, trackingDashboard, trackingProductProfile } from '@/api/tracking'
+import AdminPageToolbar from '@/components/admin/AdminPageToolbar.vue'
 import MetricStrip, { type MetricItem } from '@/components/admin/MetricStrip.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import DataTableShell from '@/components/ui/DataTableShell.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import StatusTag from '@/components/ui/StatusTag.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { usePageVisibility } from '@/composables/usePageVisibility'
 import type { ProductProfile, RealtimeDashboard, TrackingEventType, UserProfileTag } from '@/types'
@@ -71,7 +73,22 @@ const eventLabels = computed<Record<TrackingEventType, string>>(() => ({
 }))
 
 function eventLabel(eventType: string): string {
-  return eventLabels.value[eventType as TrackingEventType] ?? t('common.unknown')
+  return Object.prototype.hasOwnProperty.call(eventLabels.value, eventType)
+    ? eventLabels.value[eventType as TrackingEventType]
+    : t('common.unknown')
+}
+
+function funnelRowIdentity(eventType: string): string {
+  if (Object.prototype.hasOwnProperty.call(eventLabels.value, eventType)) return eventType
+  let hash = 0
+  for (const character of eventType) {
+    hash = (hash * 31 + character.charCodeAt(0)) | 0
+  }
+  return `unknown-${hash >>> 0}`
+}
+
+function funnelRowClassName(): string {
+  return 'dashboard-funnel-row'
 }
 
 function formatSuccessfulRefresh(value?: Date): string {
@@ -222,7 +239,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="route-view dashboard-view">
+  <div class="route-view dashboard-view" data-observatory="analytics">
     <PageHeader
       :eyebrow="t('dashboard.dataCenter')"
       :title="t('dashboard.title')"
@@ -246,6 +263,28 @@ onMounted(() => {
         </el-button>
       </template>
     </PageHeader>
+
+    <AdminPageToolbar class="dashboard-toolbar" :aria-label="t('dashboard.title')">
+      <template #search>
+        <span class="dashboard-toolbar__scope">{{ t('dashboard.conversionFunnel') }}</span>
+      </template>
+      <template #filters>
+        <span class="dashboard-toolbar__status" data-state="polling">
+          {{ polling ? t('dashboard.pausePolling') : t('dashboard.resumePolling') }}
+        </span>
+      </template>
+      <template #actions>
+        <span class="dashboard-toolbar__status" data-state="refresh">
+          {{
+            dashboardLastSuccessAt
+              ? t('dashboard.lastUpdated', {
+                  time: formatSuccessfulRefresh(dashboardLastSuccessAt),
+                })
+              : t('common.loading')
+          }}
+        </span>
+      </template>
+    </AdminPageToolbar>
 
     <AsyncStateView
       :status="dashboardState.status.value"
@@ -275,14 +314,29 @@ onMounted(() => {
           </div>
         </div>
         <DataTableShell
+          class="dashboard-funnel-surface"
           :aria-label="t('dashboard.conversionFunnel')"
           :empty="funnel.length === 0"
           :busy="dashboardState.status.value === 'updating'"
         >
           <template #empty>{{ t('common.noData') }}</template>
-          <el-table :data="funnel" size="small">
+          <el-table
+            class="dashboard-funnel-table"
+            :data="funnel"
+            row-key="eventType"
+            :row-class-name="funnelRowClassName"
+            size="small"
+            data-row-identity="eventType"
+          >
             <el-table-column :label="t('dashboard.step')" min-width="180">
-              <template #default="{ row }">{{ eventLabel(row.eventType) }}</template>
+              <template #default="{ row }">
+                <span
+                  class="dashboard-funnel-event"
+                  :data-row-key="funnelRowIdentity(row.eventType)"
+                >
+                  {{ eventLabel(row.eventType) }}
+                </span>
+              </template>
             </el-table-column>
             <el-table-column prop="count" :label="t('dashboard.count')" width="120" />
             <el-table-column :label="t('dashboard.conversionRate')" width="160">
@@ -328,12 +382,20 @@ onMounted(() => {
         >
           <p class="profile-summary">{{ normalizeProfileText(myProfile?.profileSummary) }}</p>
           <div class="tag-row">
-            <el-tag v-for="tag in myProfile?.behaviorTags ?? []" :key="tag" type="info">
-              {{ tagLabel(tag) }}
-            </el-tag>
-            <el-tag v-for="tag in myProfile?.interestTags ?? []" :key="tag" type="success">
-              {{ tagLabel(tag) }}
-            </el-tag>
+            <StatusTag
+              v-for="tag in myProfile?.behaviorTags ?? []"
+              :key="tag"
+              status="info"
+              tone="info"
+              :label="tagLabel(tag)"
+            />
+            <StatusTag
+              v-for="tag in myProfile?.interestTags ?? []"
+              :key="tag"
+              status="success"
+              tone="success"
+              :label="tagLabel(tag)"
+            />
           </div>
         </AsyncStateView>
       </section>
@@ -390,9 +452,13 @@ onMounted(() => {
             }}
           </p>
           <div class="tag-row">
-            <el-tag v-for="tag in productProfile?.tagVector ?? []" :key="tag">
-              {{ tagLabel(tag) }}
-            </el-tag>
+            <StatusTag
+              v-for="tag in productProfile?.tagVector ?? []"
+              :key="tag"
+              status="info"
+              tone="info"
+              :label="tagLabel(tag)"
+            />
           </div>
         </AsyncStateView>
       </section>
@@ -404,13 +470,37 @@ onMounted(() => {
 .dashboard-view {
   display: grid;
   gap: var(--space-5);
+  width: 100%;
   min-width: 0;
+}
+
+.dashboard-toolbar {
+  align-self: stretch;
+}
+
+.dashboard-toolbar__scope,
+.dashboard-toolbar__status {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  min-height: var(--control-height-compact);
+  color: var(--admin-ink);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.dashboard-toolbar__status {
+  color: var(--admin-muted);
+  font-weight: var(--font-weight-medium);
 }
 
 .dashboard-section {
   display: grid;
   gap: var(--space-3);
   min-width: 0;
+  padding-block: var(--space-4);
+  border-block: 1px solid var(--admin-line);
 }
 
 .data-freshness {
@@ -419,13 +509,13 @@ onMounted(() => {
   justify-content: flex-end;
   gap: var(--space-2);
   margin: 0;
-  color: var(--color-text-muted);
+  color: var(--admin-muted);
   font-size: var(--text-sm);
   text-align: right;
 }
 
 .data-freshness.is-stale {
-  color: var(--color-danger);
+  color: var(--admin-danger);
 }
 
 .section-heading {
@@ -449,7 +539,7 @@ onMounted(() => {
 .section-heading time,
 .product-profile-control span,
 .profile-summary {
-  color: var(--color-text-muted);
+  color: var(--admin-muted);
   font-size: var(--text-sm);
 }
 
@@ -461,8 +551,8 @@ onMounted(() => {
 
 .profile-section {
   align-content: start;
-  padding-block: var(--space-4);
-  border-top: 1px solid var(--color-line);
+  border-block: 0;
+  border-top: 1px solid var(--admin-line);
 }
 
 .profile-summary {
@@ -478,7 +568,7 @@ onMounted(() => {
 
 .product-input-error {
   margin: 0;
-  color: var(--color-danger);
+  color: var(--admin-danger);
   font-size: var(--text-sm);
 }
 
@@ -490,11 +580,23 @@ onMounted(() => {
   margin-top: var(--space-3);
 }
 
-.tag-row :deep(.el-tag) {
+.tag-row :deep(.status-tag) {
   max-width: 100%;
   height: auto;
   min-height: var(--control-height);
   white-space: normal;
+}
+
+.dashboard-funnel-event {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height-compact);
+  font-weight: var(--font-weight-semibold);
+}
+
+.dashboard-funnel-table :deep(.dashboard-funnel-row:hover > td),
+.dashboard-funnel-table :deep(.dashboard-funnel-row:focus-within > td) {
+  background: var(--admin-primary-soft);
 }
 
 @media (max-width: 900px) {
@@ -512,6 +614,19 @@ onMounted(() => {
 
   .product-profile-control :deep(.el-input-number) {
     width: 100%;
+  }
+
+  .data-freshness {
+    justify-content: flex-start;
+    text-align: left;
+  }
+}
+
+@media (max-width: 760px) {
+  .dashboard-toolbar :deep(.admin-page-toolbar__search),
+  .dashboard-toolbar :deep(.admin-page-toolbar__filters),
+  .dashboard-toolbar :deep(.admin-page-toolbar__actions) {
+    flex: 0 1 auto;
   }
 }
 </style>

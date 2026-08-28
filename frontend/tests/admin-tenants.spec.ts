@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 function ok(data: unknown) {
   return { code: 'OK', message: 'ok', data, traceId: 'tenant-test' }
@@ -67,6 +67,13 @@ function requestBatchGate(expectedRequests: number) {
       if (completedCount === expectedRequests) markCompletedReady()
     },
   }
+}
+
+async function expectTouchTarget(locator: Locator) {
+  const box = await locator.boundingBox()
+  expect(box, 'expected a visible touch target').not.toBeNull()
+  expect(box?.width).toBeGreaterThanOrEqual(44)
+  expect(box?.height).toBeGreaterThanOrEqual(44)
 }
 
 async function installTenantMocks(page: Page, options: TenantMockOptions = {}) {
@@ -588,15 +595,25 @@ test('tenant master-detail stays usable in desktop and mobile evidence views', a
     .toBe(true)
   await expect(page.getByRole('heading', { name: 'Tenant list' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Tenant Alpha' })).toBeVisible()
+  await expect(page.locator('.tenant-page')).toHaveAttribute('data-observatory', 'tenants')
+  await expect(page.locator('.admin-page-toolbar')).toHaveAttribute('data-density', 'compact')
+  await expect(page.locator('.metric-strip')).toHaveAttribute('data-surface', 'signal-strip')
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
     .toBe(true)
   await page.screenshot({ path: 'output/task7-tenant-desktop.png', fullPage: false })
 
   await page.setViewportSize({ width: 390, height: 844 })
+  await expectTouchTarget(page.getByRole('button', { name: 'Open Tenant Alpha' }))
   await page.getByRole('button', { name: 'Open Tenant Beta' }).click()
-  await expect(page.getByRole('button', { name: 'Back to tenant list' })).toBeVisible()
+  const backToList = page.getByRole('button', { name: 'Back to tenant list' })
+  await expect(backToList).toBeVisible()
+  await expectTouchTarget(backToList)
   await expect(page.getByRole('heading', { name: 'Tenant Beta' })).toBeVisible()
+  await expectTouchTarget(page.getByRole('tab', { name: 'Configuration' }))
+  await expectTouchTarget(page.getByPlaceholder('Provider'))
+  await expectTouchTarget(page.getByLabel('Settings JSON'))
+  await expectTouchTarget(page.getByRole('button', { name: 'Save config', exact: true }))
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
     .toBe(true)
