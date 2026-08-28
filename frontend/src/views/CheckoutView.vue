@@ -543,7 +543,7 @@ onBeforeUnmount(() => {
           </section>
         </div>
 
-        <div class="checkout-summary">
+        <div class="checkout-summary" data-surface="transaction-summary">
           <div class="checkout-summary__metric checkout-summary__metric--optional">
             <span>{{ $t('checkout.selectedItems') }}</span>
             <strong>{{ cart?.selectedQuantity ?? 0 }}</strong>
@@ -589,7 +589,7 @@ onBeforeUnmount(() => {
 .checkout-layout,
 .checkout-workspace {
   display: grid;
-  gap: var(--space-5);
+  gap: var(--space-6);
   min-width: 0;
 }
 
@@ -645,12 +645,22 @@ onBeforeUnmount(() => {
   color: var(--color-text-inverse);
 }
 
+.checkout-progress li:not(.is-current) span {
+  background: var(--color-surface-subtle);
+  color: var(--color-text-muted);
+}
+
 .checkout-form-section,
 .checkout-preview-section {
   display: grid;
   gap: var(--space-4);
   min-width: 0;
   padding-top: var(--space-2);
+}
+
+.checkout-form-section + .checkout-form-section,
+.checkout-preview-section {
+  border-top: 1px solid var(--color-line);
 }
 
 .section-heading {
@@ -720,7 +730,7 @@ onBeforeUnmount(() => {
   min-height: 124px;
   margin: 0;
   padding: var(--space-4);
-  border: 1px solid var(--color-line);
+  border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-surface);
   background: var(--color-surface);
   white-space: normal;
@@ -732,6 +742,7 @@ onBeforeUnmount(() => {
 
 .address-option.el-radio:hover {
   border-color: var(--color-brand);
+  box-shadow: var(--shadow-control);
 }
 
 .address-option.el-radio.is-checked {
@@ -801,6 +812,12 @@ onBeforeUnmount(() => {
 .checkout-preview-button {
   min-width: 126px;
   min-height: 40px;
+}
+
+.checkout-preview-button:focus-visible,
+.checkout-submit:focus-visible {
+  outline: var(--focus-width) solid var(--focus-ring);
+  outline-offset: var(--focus-offset);
 }
 
 .suborder-list {
@@ -875,6 +892,18 @@ onBeforeUnmount(() => {
   min-width: 900px;
 }
 
+.checkout-table :deep(th.el-table__cell) {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.checkout-table :deep(.el-table__row:hover > td.el-table__cell) {
+  background: var(--color-primary-soft);
+}
+
 .checkout-mobile-lines {
   display: none;
 }
@@ -931,15 +960,18 @@ onBeforeUnmount(() => {
   gap: 0;
   align-items: stretch;
   margin: 0;
-  border: 1px solid var(--color-line);
+  border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-surface);
-  background: var(--color-surface);
+  background: var(--color-surface-raised);
   box-shadow: var(--shadow-surface);
 }
 
 .checkout-summary__metric {
+  display: grid;
+  align-content: center;
   min-width: 0;
-  padding: var(--space-3);
+  min-height: 76px;
+  padding: var(--space-4);
   border-right: 1px solid var(--color-line);
 }
 
@@ -955,6 +987,7 @@ onBeforeUnmount(() => {
   margin-top: var(--space-1);
   overflow-wrap: anywhere;
   font-size: var(--text-lg);
+  font-variant-numeric: tabular-nums;
 }
 
 .checkout-summary__metric--payable strong {
@@ -966,6 +999,7 @@ onBeforeUnmount(() => {
   min-width: 150px;
   min-height: 52px;
   border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  font-weight: 750;
 }
 
 @media (max-width: 1100px) {
@@ -992,7 +1026,7 @@ onBeforeUnmount(() => {
 
 @media (max-width: 720px) {
   .checkout-layout {
-    padding-bottom: 176px;
+    padding-bottom: calc(176px + env(safe-area-inset-bottom));
   }
 
   .checkout-progress li {
@@ -1034,7 +1068,7 @@ onBeforeUnmount(() => {
     right: 0;
     bottom: env(safe-area-inset-bottom);
     left: 0;
-    z-index: 30;
+    z-index: var(--z-sticky);
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0;
     border: 0;
@@ -1046,6 +1080,7 @@ onBeforeUnmount(() => {
   }
 
   .checkout-summary__metric {
+    min-height: 48px;
     border-right: 0;
     padding: var(--space-1) var(--space-2);
   }
@@ -1089,6 +1124,7 @@ onBeforeUnmount(() => {
     gap: var(--space-3);
     min-width: 0;
     padding: var(--space-4);
+    background: var(--color-surface);
     border-bottom: 1px solid var(--color-line);
   }
 
@@ -1123,6 +1159,20 @@ onBeforeUnmount(() => {
     margin: 0;
     overflow-wrap: anywhere;
     font-weight: 650;
+  }
+
+  .checkout-layout :deep(input),
+  .checkout-layout :deep(button),
+  .checkout-layout :deep(.el-radio) {
+    scroll-margin-bottom: calc(132px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .address-option.el-radio,
+  .checkout-preview-button,
+  .checkout-submit {
+    transition: none;
   }
 }
 </style>

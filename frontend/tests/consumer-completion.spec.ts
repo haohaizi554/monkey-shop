@@ -48,6 +48,31 @@ test('consumer source guard rejects direct feedback APIs and hard-coded colors',
   }
 })
 
+test('consumer lifecycle views publish the field guide surface hooks', async () => {
+  const viewsDirectory = resolve(process.cwd(), 'src/views')
+  const requiredHooks: Record<string, string[]> = {
+    'CartView.vue': ['class="cart-summary"', 'data-surface="transaction-summary"'],
+    'CheckoutView.vue': ['class="checkout-summary"', 'data-surface="transaction-summary"'],
+    'OrdersView.vue': ['OrderStatusTimeline'],
+    'LogisticsView.vue': ['OrderStatusTimeline'],
+    'MembershipView.vue': ['class="member-hero"', 'data-surface="membership-overview"'],
+    'ProfileView.vue': ['data-account-section="identity"', 'data-surface="account-overview"'],
+  }
+
+  for (const [view, hooks] of Object.entries(requiredHooks)) {
+    const source = await readFile(resolve(viewsDirectory, view), 'utf8')
+    for (const hook of hooks) {
+      expect(source, `${view} must publish ${hook}`).toContain(hook)
+    }
+  }
+
+  const timeline = await readFile(
+    resolve(process.cwd(), 'src/components/order/OrderStatusTimeline.vue'),
+    'utf8',
+  )
+  expect(timeline).toContain('data-surface="status-spine"')
+})
+
 function ok(data: unknown) {
   return { code: 'OK', message: 'ok', data, traceId: 'consumer-completion' }
 }

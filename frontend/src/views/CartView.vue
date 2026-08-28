@@ -193,7 +193,7 @@ onMounted(loadCart)
         </template>
       </PageHeader>
 
-      <div class="cart-summary">
+      <div class="cart-summary" data-surface="transaction-summary">
         <div class="cart-summary__metric">
           <span>{{ $t('cart.selectedItems') }}</span>
           <strong>{{ cart?.selectedQuantity ?? 0 }}</strong>
@@ -356,24 +356,31 @@ onMounted(loadCart)
 <style scoped>
 .cart-layout {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-6);
   min-width: 0;
 }
 
 .cart-summary {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(160px, auto);
   align-items: stretch;
   overflow: hidden;
-  border: 1px solid var(--color-line);
+  border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-surface);
-  background: var(--color-surface);
+  background: var(--color-surface-raised);
   box-shadow: var(--shadow-surface);
 }
 
 .cart-summary__metric,
 .checkout-link {
-  padding: var(--space-3);
+  padding: var(--space-4);
+}
+
+.cart-summary__metric {
+  display: grid;
+  align-content: center;
+  min-width: 0;
+  min-height: 76px;
 }
 
 .cart-summary__metric + .cart-summary__metric,
@@ -385,12 +392,15 @@ onMounted(loadCart)
   display: block;
   color: var(--color-text-muted);
   font-size: var(--text-sm);
+  font-weight: 650;
 }
 
 .cart-summary strong {
   display: block;
   margin-top: var(--space-1);
-  font-size: var(--text-xl);
+  color: var(--color-text);
+  font-size: var(--text-2xl);
+  font-variant-numeric: tabular-nums;
 }
 
 .checkout-link {
@@ -398,9 +408,22 @@ onMounted(loadCart)
   place-items: center;
   min-height: 48px;
   color: var(--color-text-inverse);
-  background: var(--color-brand);
+  background: var(--color-primary);
   font-weight: 700;
   text-decoration: none;
+  transition:
+    background-color var(--motion-fast),
+    box-shadow var(--motion-fast);
+}
+
+.checkout-link:hover {
+  background: var(--color-primary-strong);
+  box-shadow: inset 0 -3px 0 color-mix(in srgb, var(--color-accent) 78%, transparent);
+}
+
+.checkout-link:focus-visible {
+  outline: var(--focus-width) solid var(--focus-ring);
+  outline-offset: calc(var(--focus-offset) * -1);
 }
 
 .checkout-link.is-disabled {
@@ -413,6 +436,18 @@ onMounted(loadCart)
 .cart-table {
   width: 100%;
   min-width: 940px;
+}
+
+.cart-table :deep(th.el-table__cell) {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.cart-table :deep(.el-table__row:hover > td.el-table__cell) {
+  background: var(--color-primary-soft);
 }
 
 .cart-product-cell,
@@ -490,7 +525,7 @@ onMounted(loadCart)
 
 @media (max-width: 720px) {
   .cart-layout {
-    padding-bottom: 128px;
+    padding-bottom: calc(var(--consumer-bottom-nav-height) + 96px + env(safe-area-inset-bottom));
   }
 
   .cart-summary {
@@ -498,7 +533,7 @@ onMounted(loadCart)
     right: 0;
     bottom: calc(var(--consumer-bottom-nav-height) + env(safe-area-inset-bottom));
     left: 0;
-    z-index: 30;
+    z-index: var(--z-sticky);
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(112px, 1fr);
     gap: 0;
     padding: var(--space-2) var(--space-3);
@@ -513,6 +548,10 @@ onMounted(loadCart)
     border: 0;
     border-radius: 0;
     padding: var(--space-2);
+  }
+
+  .cart-summary__metric {
+    min-height: 56px;
   }
 
   .cart-summary span {
@@ -543,6 +582,7 @@ onMounted(loadCart)
     gap: var(--space-3);
     min-width: 0;
     padding: var(--space-4);
+    background: var(--color-surface);
     border-bottom: 1px solid var(--color-line);
   }
 
@@ -604,6 +644,19 @@ onMounted(loadCart)
 
   .cart-mobile-item__controls .el-input-number {
     width: 100%;
+  }
+
+  .cart-mobile-item :deep(input),
+  .cart-mobile-item :deep(button) {
+    scroll-margin-bottom: calc(
+      var(--consumer-bottom-nav-height) + 112px + env(safe-area-inset-bottom)
+    );
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .checkout-link {
+    transition: none;
   }
 }
 </style>

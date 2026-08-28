@@ -481,7 +481,11 @@ onBeforeUnmount(() => {
           name="identity"
           :disabled="passwordActionRequired"
         >
-          <section class="profile-section identity-section" data-account-section="identity">
+          <section
+            class="profile-section identity-section"
+            data-account-section="identity"
+            data-surface="account-overview"
+          >
             <div class="identity-band">
               <div class="identity-main">
                 <div class="identity-summary">
@@ -884,7 +888,7 @@ onBeforeUnmount(() => {
 
 .profile-page,
 .profile-page :deep(.async-state-view__content) {
-  gap: var(--space-5);
+  gap: var(--space-6);
 }
 
 .required-password {
@@ -913,6 +917,7 @@ onBeforeUnmount(() => {
 .profile-tabs {
   border-top: 1px solid var(--color-line);
   padding-top: var(--space-3);
+  min-width: 0;
 }
 
 .profile-tabs :deep(.el-tabs__header) {
@@ -921,6 +926,11 @@ onBeforeUnmount(() => {
 
 .profile-tabs :deep(.el-tabs__item) {
   min-height: 44px;
+}
+
+.profile-tabs :deep(.el-tabs__nav-wrap) {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
 }
 
 .profile-section {
@@ -940,8 +950,10 @@ onBeforeUnmount(() => {
   gap: var(--space-5);
   min-width: 0;
   padding: var(--space-5) var(--space-6);
-  border-block: 1px solid var(--color-line);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-surface);
   background: var(--color-brand-soft);
+  box-shadow: var(--shadow-surface);
 }
 
 .identity-main {
@@ -1050,6 +1062,7 @@ onBeforeUnmount(() => {
   margin: 0;
   overflow-wrap: anywhere;
   font-weight: 800;
+  line-height: var(--leading-normal);
 }
 
 .identity-fact[data-tone='brand'] .el-icon {
@@ -1079,6 +1092,14 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-control);
   cursor: pointer;
   font-weight: 700;
+  transition:
+    border-color var(--motion-fast),
+    background-color var(--motion-fast);
+}
+
+.file-picker:hover {
+  background: var(--color-surface);
+  border-color: var(--color-brand);
 }
 
 .file-picker.is-disabled {
@@ -1165,6 +1186,10 @@ onBeforeUnmount(() => {
   box-shadow: var(--shadow-surface);
 }
 
+.address-item > * {
+  min-width: 0;
+}
+
 .address-item__identity {
   gap: var(--space-1);
 }
@@ -1187,6 +1212,10 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
   padding-top: var(--space-2);
   border-top: 1px solid var(--color-line);
+}
+
+.address-item__actions :deep(.el-button) {
+  min-height: 44px;
 }
 
 .address-empty {
@@ -1250,7 +1279,8 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: var(--space-6);
   padding: var(--space-5) var(--space-6);
-  border-block: 1px solid var(--color-line);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-surface);
   background: var(--color-brand-soft);
 }
 
@@ -1282,7 +1312,7 @@ onBeforeUnmount(() => {
 
 .privacy-impact .el-button {
   justify-self: start;
-  min-height: 40px;
+  min-height: 44px;
 }
 
 .forget-dialog-content {
@@ -1382,6 +1412,14 @@ onBeforeUnmount(() => {
     height: 80px;
   }
 
+  .identity-summary h2,
+  .identity-summary p,
+  .identity-fact dd,
+  .address-item p,
+  .privacy-impact li {
+    overflow-wrap: anywhere;
+  }
+
   .identity-actions,
   .address-item__actions,
   .captcha-row {
@@ -1396,6 +1434,19 @@ onBeforeUnmount(() => {
   .required-alert__content :deep(.el-button) {
     width: 100%;
     min-height: 44px;
+  }
+
+  .profile-page :deep(input),
+  .profile-page :deep(textarea),
+  .profile-page :deep(button),
+  .profile-page :deep(.el-tabs__item) {
+    scroll-margin-bottom: calc(var(--consumer-bottom-nav-height) + var(--space-6));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-picker {
+    transition: none;
   }
 }
 </style>

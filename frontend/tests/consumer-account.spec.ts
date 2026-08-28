@@ -259,6 +259,7 @@ test('membership groups account tasks, masks identity data, and isolates pending
   await expect(page.getByRole('heading', { name: 'Membership center', level: 1 })).toBeVisible()
   await expect(page.locator('.async-state-view[data-status="success"]')).toBeVisible()
   await expect(page.locator('img.mascot-state[data-pose="celebrate"]')).toBeVisible()
+  await expect(page.locator('.member-hero')).toHaveAttribute('data-surface', 'membership-overview')
   const sectionOrder = await page
     .locator('[data-membership-section]')
     .evaluateAll((sections) =>
@@ -389,7 +390,9 @@ test('profile masks address data and validates the edit dialog before restoring 
   })
   await page.goto('/profile')
 
-  await expect(page.locator('[data-account-section="identity"]')).toBeVisible()
+  const identity = page.locator('[data-account-section="identity"]')
+  await expect(identity).toBeVisible()
+  await expect(identity).toHaveAttribute('data-surface', 'account-overview')
   await expect(page.locator('body')).not.toContainText(rawRealName)
   await expect(page.locator('body')).not.toContainText(rawPhone)
 

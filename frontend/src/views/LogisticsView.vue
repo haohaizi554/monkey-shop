@@ -153,7 +153,11 @@ onMounted(() => {
       </template>
     </PageHeader>
 
-    <section class="lookup-task" :aria-label="$t('common.tracking')">
+    <section
+      class="lookup-task"
+      data-surface="fulfillment-lookup"
+      :aria-label="$t('common.tracking')"
+    >
       <div class="section-heading">
         <span class="section-heading__icon" aria-hidden="true">
           <el-icon><Search /></el-icon>
@@ -205,7 +209,7 @@ onMounted(() => {
     </section>
 
     <section class="estimate-workspace" :aria-label="$t('logistics.addressTools')">
-      <div class="address-task">
+      <div class="address-task" data-surface="address-parser">
         <div class="section-heading section-heading--compact">
           <span class="section-heading__icon" aria-hidden="true">
             <el-icon><Location /></el-icon>
@@ -266,7 +270,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <div class="quote-task">
+      <div class="quote-task" data-surface="freight-estimate">
         <div class="section-heading section-heading--compact">
           <span class="section-heading__icon" aria-hidden="true">
             <el-icon><Van /></el-icon>
@@ -372,7 +376,7 @@ onMounted(() => {
         </template>
 
         <DataTableShell v-if="tracking" :aria-label="$t('common.tracking')">
-          <article class="tracking-task">
+          <article class="tracking-task" data-surface="fulfillment-record">
             <header class="tracking-heading">
               <div>
                 <span>{{ safeCarrier(tracking.carrier) }}</span>
@@ -405,7 +409,7 @@ onMounted(() => {
 <style scoped>
 .logistics-view {
   display: grid;
-  gap: var(--space-5);
+  gap: var(--space-6);
 }
 
 .lookup-task,
@@ -421,6 +425,11 @@ onMounted(() => {
 .tracking-task {
   display: grid;
   gap: var(--space-4);
+}
+
+.lookup-task {
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--color-line);
 }
 
 .section-heading {
@@ -477,6 +486,10 @@ onMounted(() => {
   gap: var(--space-2);
 }
 
+.lookup-form > .el-button {
+  min-height: 44px;
+}
+
 .lookup-form :deep(.el-input-number) {
   width: 100%;
 }
@@ -485,6 +498,11 @@ onMounted(() => {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(340px, 0.75fr);
   gap: var(--space-6);
+}
+
+.address-task,
+.quote-task {
+  min-width: 0;
 }
 
 .quote-task {
@@ -520,7 +538,7 @@ onMounted(() => {
 
 .address-form > .el-button,
 .quote-form > .el-button {
-  min-height: 40px;
+  min-height: 44px;
   justify-self: start;
 }
 
@@ -555,6 +573,7 @@ onMounted(() => {
 
 .tracking-result {
   min-height: 300px;
+  padding-bottom: var(--space-5);
 }
 
 .tracking-empty {
@@ -597,12 +616,18 @@ onMounted(() => {
 
 .tracking-heading strong {
   font-size: var(--text-lg);
+  font-variant-numeric: tabular-nums;
 }
 
 .tracking-address {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+.tracking-task > :deep(.order-status-timeline) {
+  padding-top: var(--space-4);
+  border-top: 1px dashed var(--color-line);
 }
 
 @media (max-width: 920px) {
@@ -648,6 +673,18 @@ onMounted(() => {
     grid-template-columns: 1fr;
     justify-items: center;
     text-align: center;
+  }
+
+  .logistics-view :deep(input),
+  .logistics-view :deep(textarea),
+  .logistics-view :deep(button) {
+    scroll-margin-bottom: calc(var(--consumer-bottom-nav-height) + var(--space-6));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logistics-view :deep(.el-button) {
+    transition: none;
   }
 }
 </style>

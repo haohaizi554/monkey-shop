@@ -132,7 +132,9 @@ test('orders localize fulfillment states and confirm a single return request', a
 
   const completedOrder = page.locator('.order-row').filter({ hasText: 'Completed monkey' })
   await completedOrder.getByRole('button', { name: 'View order details ORDER-103' }).click()
-  await expect(completedOrder.locator('.order-status-timeline')).toBeVisible()
+  const orderTimeline = completedOrder.locator('.order-status-timeline')
+  await expect(orderTimeline).toBeVisible()
+  await expect(orderTimeline).toHaveAttribute('data-surface', 'status-spine')
   const returnButton = completedOrder.getByRole('button', { name: 'Return', exact: true })
   await returnButton.click()
   await expect(page.getByRole('dialog')).toBeVisible()
@@ -539,6 +541,10 @@ test('logistics localizes tracking and isolates quote errors from shipment data'
 
   await expect(page.locator('.page-header')).toContainText('Logistics')
   await expect(page.getByText('In transit', { exact: true }).first()).toBeVisible()
+  await expect(page.locator('.order-status-timeline')).toHaveAttribute(
+    'data-surface',
+    'status-spine',
+  )
   await expect(page.locator('body')).not.toContainText(/IN_TRANSIT|PICKED_UP|TRANSIT/)
   const quoteButton = page.getByRole('button', { name: 'Quote', exact: true })
   await quoteButton.click()
@@ -671,6 +677,26 @@ test('review upload leaves content editable and review submission is single-flig
       await fulfillOk(route, [])
       return true
     }
+    if (pathname === '/orders/101' && route.request().method() === 'GET') {
+      await fulfillOk(route, {
+        ...order(101, 'COMPLETED', 'Reviewable monkey'),
+        lines: [
+          {
+            checkoutLineId: 1,
+            skuId: 101,
+            productName: 'Reviewable monkey',
+            productImage: '/images/order-101.svg',
+            quantity: 1,
+            unitPrice: '288.00',
+            originalAmount: '288.00',
+            discountAmount: '0.00',
+            payableAmount: '288.00',
+            couponCodes: [],
+          },
+        ],
+      })
+      return true
+    }
     if (pathname === '/uploads') {
       uploadCalls += 1
       await uploadGate
@@ -723,6 +749,7 @@ test('review upload leaves content editable and review submission is single-flig
   await expect(page.locator('.upload-progress')).toBeHidden()
 
   const submit = page.getByRole('button', { name: 'Submit review', exact: true })
+  await expect(submit).toBeEnabled()
   await submit.evaluate((button) => {
     ;(button as HTMLButtonElement).click()
     ;(button as HTMLButtonElement).click()
