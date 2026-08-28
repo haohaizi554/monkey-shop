@@ -199,6 +199,7 @@ for (const pendingCase of couponPendingCases) {
     }
     gate.release()
     await expect(coupon.getByTestId('coupon-result')).toContainText(pendingCase.result)
+    await expect(coupon.locator('.status-tag')).toContainText(pendingCase.result)
   })
 }
 
@@ -370,6 +371,23 @@ test('marketing workspace adapts from two columns to one without horizontal over
   await installMarketingMocks(page)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/marketing')
+  await expect(page.locator('.marketing-page')).toHaveAttribute(
+    'data-surface',
+    'marketing-observatory',
+  )
+  await expect(page.locator('.marketing-page .page-header')).toHaveAttribute(
+    'data-surface',
+    'page-heading',
+  )
+  await expect(page.locator('.marketing-task-grid')).toHaveAttribute(
+    'data-layout',
+    'operation-board',
+  )
+  await expect(page.locator('.marketing-tool')).toHaveCount(4)
+  await expect(page.locator('.marketing-tool').first()).toHaveAttribute(
+    'data-surface',
+    'operation-section',
+  )
   await page.screenshot({ path: 'output/task4-marketing-desktop.png', fullPage: true })
   const desktop = await Promise.all(
     ['Coupon', 'Price quote'].map((name) => task(page, name).boundingBox()),
@@ -386,6 +404,15 @@ test('marketing workspace adapts from two columns to one without horizontal over
   )
   expect(mobile[0]?.x).toBe(mobile[1]?.x)
   expect(mobile[0]?.y).toBeLessThan(mobile[1]?.y ?? 0)
+  expect(await page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth)).toBe(
+    true,
+  )
+  const controls = page.locator('.marketing-page button, .marketing-page input')
+  for (const control of await controls.all()) {
+    const box = await control.boundingBox()
+    if (box) expect(box.height).toBeGreaterThanOrEqual(44)
+  }
+  await page.setViewportSize({ width: 320, height: 720 })
   expect(await page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth)).toBe(
     true,
   )

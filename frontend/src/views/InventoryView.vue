@@ -14,6 +14,7 @@ import MetricStrip, { type MetricItem } from '@/components/admin/MetricStrip.vue
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import DataTableShell from '@/components/ui/DataTableShell.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import StatusTag from '@/components/ui/StatusTag.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { useNotify } from '@/composables/useNotify'
 import { useRouteQueryState, type RouteQuerySchema } from '@/composables/useRouteQueryState'
@@ -61,13 +62,17 @@ const reservationKey = ref('')
 const reserveQuantity = ref(1)
 const reservationError = ref('')
 const pendingKeys = ref(new Set<string>())
+const stockQueryPending = ref(false)
 let stockLoadTimer: ReturnType<typeof setTimeout> | undefined
 
 const stocks = computed(() => stocksState.data.value ?? [])
 const appliedRegion = ref('')
+const appliedSkuId = ref<number | null>(null)
 const normalizedRegion = computed(() => query.region.trim().toLocaleLowerCase())
 const displayedRegion = computed(() =>
-  stocksState.status.value === 'updating' ? appliedRegion.value : normalizedRegion.value,
+  query.skuId !== appliedSkuId.value || stocksState.status.value === 'updating'
+    ? appliedRegion.value
+    : normalizedRegion.value,
 )
 const filteredStocks = computed(() => {
   if (!displayedRegion.value) return stocks.value
@@ -75,6 +80,10 @@ const filteredStocks = computed(() => {
     const haystack = `${stock.province ?? ''} ${stock.warehouseCode ?? ''}`.toLocaleLowerCase()
     return haystack.includes(displayedRegion.value)
   })
+})
+const stockViewStatus = computed(() => {
+  if (stockQueryPending.value && stocksState.data.value !== null) return 'updating' as const
+  return stocksState.status.value
 })
 const totalAvailable = computed(() =>
   filteredStocks.value.reduce((sum, stock) => sum + stock.availableQuantity, 0),
@@ -117,10 +126,18 @@ function reservationStatusLabel(status: ReservationStatus): string {
   return t(`inventory.status.${reservationStatusLabels[status] ?? 'reserved'}`)
 }
 
-function reservationStatusType(status: ReservationStatus): 'success' | 'warning' | 'info' {
+function reservationStatusTone(status: ReservationStatus): 'success' | 'warning' | 'info' {
   if (status === 'RESERVED') return 'warning'
   if (status === 'DEDUCTED') return 'success'
   return 'info'
+}
+
+function stockRowKey(stock: WarehouseStock): string {
+  return `stock:${stock.skuId}:${stock.warehouseId}`
+}
+
+function reservationRowKey(reservation: InventoryReservation): string {
+  return `reservation:${reservation.reservationKey}`
 }
 
 function isPending(key: string): boolean {
@@ -174,6 +191,8 @@ function mergeDiscrepancies(
 async function loadStocks() {
   if (!query.skuId) {
     appliedRegion.value = ''
+    appliedSkuId.value = null
+    stockQueryPending.value = false
     stocksState.reset()
     return
   }
@@ -183,7 +202,13 @@ async function loadStocks() {
     preserveData: true,
     isEmpty: (rows) => rows.length === 0,
   })
-  if (loaded !== null) appliedRegion.value = requestedRegion
+  if (loaded !== null) {
+    appliedSkuId.value = skuId
+    appliedRegion.value = requestedRegion
+    if (query.skuId === skuId) stockQueryPending.value = false
+  } else if (query.skuId === skuId && stocksState.status.value === 'error') {
+    stockQueryPending.value = false
+  }
 }
 
 function scheduleStockLoad() {
@@ -262,7 +287,10 @@ async function runReconciliation() {
 
 watch(
   () => query.skuId,
-  () => scheduleStockLoad(),
+  () => {
+    stockQueryPending.value = query.skuId !== null && query.skuId !== appliedSkuId.value
+    scheduleStockLoad()
+  },
   { immediate: true },
 )
 
@@ -276,7 +304,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="route-view inventory-page">
+  <div
+    class="route-view inventory-page commerce-page"
+    data-surface="inventory-observatory"
+    data-layout="stock-reservation-reconciliation"
+  >
     <PageHeader
       :eyebrow="t('nav.admin')"
       :title="t('inventory.title')"
@@ -328,10 +360,14 @@ onBeforeUnmount(() => {
 
     <MetricStrip :items="metrics" />
 
-    <section class="inventory-section" :aria-labelledby="'stock-table-title'">
+    <section
+      class="inventory-section commerce-section"
+      data-workspace="stock"
+      :aria-labelledby="'stock-table-title'"
+    >
       <h2 id="stock-table-title">{{ t('inventory.stockTable') }}</h2>
       <AsyncStateView
-        :status="stocksState.status.value"
+        :status="stockViewStatus"
         :error="stocksState.error.value"
         :empty-title="t('inventory.emptyHint')"
         @retry="loadStocks"
@@ -342,15 +378,23 @@ onBeforeUnmount(() => {
         <DataTableShell
           :aria-label="t('inventory.stockTable')"
           :empty="filteredStocks.length === 0"
-          :busy="stocksState.status.value === 'updating'"
+          :busy="stockViewStatus === 'updating'"
         >
           <template #empty>{{ t('common.noData') }}</template>
-          <el-table :data="filteredStocks" row-key="warehouseId" size="small">
-            <el-table-column
-              prop="warehouseCode"
-              :label="t('inventory.warehouse')"
-              min-width="140"
-            />
+          <el-table
+            class="inventory-data-table"
+            :data="filteredStocks"
+            :row-key="stockRowKey"
+            row-class-name="inventory-data-row"
+            size="small"
+          >
+            <el-table-column :label="t('inventory.warehouse')" min-width="140">
+              <template #default="{ row }">
+                <span class="table-row-anchor" :data-row-key="stockRowKey(row)">
+                  {{ row.warehouseCode }}
+                </span>
+              </template>
+            </el-table-column>
             <el-table-column prop="province" :label="t('inventory.region')" min-width="120" />
             <el-table-column
               prop="availableQuantity"
@@ -379,12 +423,16 @@ onBeforeUnmount(() => {
       </AsyncStateView>
     </section>
 
-    <section class="inventory-section" :aria-labelledby="'reservation-table-title'">
-      <div class="section-heading">
+    <section
+      class="inventory-section commerce-section"
+      data-workspace="reservations"
+      :aria-labelledby="'reservation-table-title'"
+    >
+      <div class="section-heading commerce-section__heading">
         <h2 id="reservation-table-title">{{ t('inventory.reservations') }}</h2>
       </div>
-      <div class="reservation-form">
-        <div class="field-control">
+      <div class="reservation-form commerce-form-grid" data-surface="reservation-form">
+        <div class="field-control commerce-field">
           <span>{{ t('inventory.reservationKey') }}</span>
           <el-input
             v-model="reservationKey"
@@ -393,7 +441,7 @@ onBeforeUnmount(() => {
             @input="reservationError = ''"
           />
         </div>
-        <div class="field-control field-control--compact">
+        <div class="field-control field-control--compact commerce-field">
           <span>{{ t('inventory.quantity') }}</span>
           <el-input-number
             v-model="reserveQuantity"
@@ -402,29 +450,41 @@ onBeforeUnmount(() => {
             :aria-label="t('inventory.quantity')"
           />
         </div>
-        <el-button
-          type="primary"
-          :loading="isPending(`reserve:${reservationKey.trim()}`)"
-          @click="reserveCurrentSku"
-        >
-          {{ t('inventory.reserve') }}
-        </el-button>
+        <div class="commerce-actions">
+          <el-button
+            type="primary"
+            :loading="isPending(`reserve:${reservationKey.trim()}`)"
+            @click="reserveCurrentSku"
+          >
+            {{ t('inventory.reserve') }}
+          </el-button>
+        </div>
         <p v-if="reservationError" class="inline-form-error" role="alert">{{ reservationError }}</p>
       </div>
       <DataTableShell :empty="reservations.length === 0" :aria-label="t('inventory.reservations')">
         <template #empty>{{ t('inventory.noReservations') }}</template>
-        <el-table :data="reservations" row-key="reservationKey" size="small">
-          <el-table-column
-            prop="reservationKey"
-            :label="t('inventory.reservationKey')"
-            min-width="180"
-          />
+        <el-table
+          class="inventory-data-table"
+          :data="reservations"
+          :row-key="reservationRowKey"
+          row-class-name="inventory-data-row"
+          size="small"
+        >
+          <el-table-column :label="t('inventory.reservationKey')" min-width="180">
+            <template #default="{ row }">
+              <span class="table-row-anchor" :data-row-key="reservationRowKey(row)">
+                {{ row.reservationKey }}
+              </span>
+            </template>
+          </el-table-column>
           <el-table-column prop="quantity" :label="t('inventory.quantity')" width="100" />
           <el-table-column :label="t('common.status')" width="120">
             <template #default="{ row }">
-              <el-tag :type="reservationStatusType(row.status)" effect="plain">
-                {{ reservationStatusLabel(row.status) }}
-              </el-tag>
+              <StatusTag
+                :status="row.status"
+                :label="reservationStatusLabel(row.status)"
+                :tone="reservationStatusTone(row.status)"
+              />
             </template>
           </el-table-column>
           <el-table-column prop="expiresAt" :label="t('inventory.expiresAt')" min-width="180" />
@@ -445,7 +505,11 @@ onBeforeUnmount(() => {
       </DataTableShell>
     </section>
 
-    <section class="inventory-section" :aria-labelledby="'discrepancy-title'">
+    <section
+      class="inventory-section commerce-section"
+      data-workspace="reconciliation"
+      :aria-labelledby="'discrepancy-title'"
+    >
       <h2 id="discrepancy-title">{{ t('inventory.discrepancies') }}</h2>
       <AsyncStateView
         :status="reconciliationState.status.value"
@@ -461,8 +525,23 @@ onBeforeUnmount(() => {
           :aria-label="t('inventory.discrepancies')"
         >
           <template #empty>{{ t('inventory.noDiscrepancies') }}</template>
-          <el-table :data="discrepancies" :row-key="discrepancyKey" size="small">
-            <el-table-column prop="skuId" :label="t('inventory.skuId')" width="100" />
+          <el-table
+            class="inventory-data-table"
+            :data="discrepancies"
+            :row-key="discrepancyKey"
+            row-class-name="inventory-data-row"
+            size="small"
+          >
+            <el-table-column :label="t('inventory.skuId')" width="100">
+              <template #default="{ row }">
+                <span
+                  class="table-row-anchor"
+                  :data-row-key="`discrepancy:${row.skuId}:${row.warehouseId}`"
+                >
+                  {{ row.skuId }}
+                </span>
+              </template>
+            </el-table-column>
             <el-table-column prop="warehouseId" :label="t('inventory.warehouse')" width="120" />
             <el-table-column prop="actualLocked" :label="t('inventory.actualLocked')" width="120" />
             <el-table-column
@@ -488,15 +567,26 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.inventory-page,
+.inventory-page {
+  display: grid;
+  gap: var(--space-5);
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  container-type: inline-size;
+}
+
 .inventory-section {
   display: grid;
   gap: var(--space-4);
   min-width: 0;
+  padding-block: var(--space-5);
+  border-block: 1px solid var(--admin-line);
+  background: transparent;
 }
 
-.inventory-page {
-  gap: var(--space-5);
+.inventory-section + .inventory-section {
+  border-top: 0;
 }
 
 .inventory-section h2,
@@ -506,18 +596,21 @@ onBeforeUnmount(() => {
 }
 
 .inventory-section h2 {
+  color: var(--admin-ink);
   font-size: var(--text-lg);
+  line-height: var(--leading-tight);
 }
 
 .field-control {
   display: grid;
-  gap: var(--space-1);
+  gap: var(--space-2);
   min-width: min(220px, 100%);
 }
 
 .field-control span {
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
+  color: var(--admin-ink);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
 }
 
 .field-control--compact {
@@ -525,21 +618,20 @@ onBeforeUnmount(() => {
 }
 
 .reservation-form {
-  display: flex;
+  grid-template-columns: minmax(180px, 1fr) minmax(140px, 220px) auto;
   align-items: end;
-  flex-wrap: wrap;
   gap: var(--space-3);
 }
 
 .inline-form-error {
-  flex-basis: 100%;
-  color: var(--color-danger);
+  grid-column: 1 / -1;
+  color: var(--admin-danger);
   font-size: var(--text-sm);
 }
 
 .section-hint {
   padding: var(--space-8) 0;
-  color: var(--color-text-muted);
+  color: var(--admin-muted);
   text-align: center;
 }
 
@@ -547,25 +639,82 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  color: var(--color-success);
+  color: var(--admin-success);
+  font-weight: var(--font-weight-semibold);
 }
 
 .safety-state[data-low='true'] {
-  color: var(--color-warning);
+  color: var(--admin-warning);
 }
 
-.inventory-section :deep(.data-table-shell__scroller > .el-table) {
+.inventory-data-table {
   min-width: 760px;
+  color: var(--admin-ink);
+  font-variant-numeric: tabular-nums;
 }
 
-@media (max-width: 600px) {
-  .reservation-form,
-  .reservation-form :deep(.el-button),
-  .field-control,
-  .field-control :deep(.el-input),
-  .field-control :deep(.el-input-number) {
+.inventory-data-table :deep(.el-table__header-wrapper th.el-table__cell) {
+  background: var(--admin-surface-subtle);
+  color: var(--admin-ink);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.02em;
+}
+
+.inventory-data-table :deep(.el-table__body tr) {
+  transition: background-color var(--motion-fast);
+}
+
+.inventory-data-table :deep(.el-table__body tr:hover > td.el-table__cell),
+.inventory-data-table :deep(.el-table__body tr:focus-within > td.el-table__cell) {
+  background: var(--admin-primary-soft);
+}
+
+.inventory-data-table :deep(.el-table) {
+  width: max-content;
+  min-width: 100%;
+}
+
+.table-row-anchor {
+  display: inline-flex;
+  min-width: 0;
+  color: var(--admin-ink);
+  font-weight: var(--font-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .inventory-page :deep(.admin-page-toolbar > *) {
+    flex: 0 1 auto;
     width: 100%;
     max-width: none;
+  }
+
+  .inventory-page :deep(.admin-page-toolbar__search),
+  .inventory-page :deep(.admin-page-toolbar__filters),
+  .inventory-page :deep(.admin-page-toolbar__actions) {
+    width: 100%;
+    max-width: none;
+  }
+
+  .reservation-form {
+    grid-template-columns: 1fr;
+  }
+
+  .reservation-form :deep(.el-button),
+  .field-control :deep(.el-input),
+  .field-control :deep(.el-input-number),
+  .reservation-form .commerce-actions {
+    width: 100%;
+    max-width: none;
+  }
+
+  .reservation-form :deep(button),
+  .reservation-form :deep(input),
+  .reservation-form :deep(.el-input__wrapper),
+  .reservation-form :deep(.el-input-number),
+  .reservation-form :deep(.el-button) {
+    min-height: var(--touch-target-min);
   }
 }
 </style>

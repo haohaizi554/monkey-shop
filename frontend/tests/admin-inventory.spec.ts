@@ -345,13 +345,42 @@ test('inventory keeps the page contained while all rendered tables scroll on mob
   await installInventoryMocks(page)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/inventory?skuId=7&region=East')
+  await expect(page.locator('.inventory-page')).toHaveAttribute(
+    'data-surface',
+    'inventory-observatory',
+  )
+  await expect(page.locator('.inventory-page .page-header')).toHaveAttribute(
+    'data-surface',
+    'page-heading',
+  )
+  await expect(page.locator('.inventory-page .admin-page-toolbar')).toHaveAttribute(
+    'data-density',
+    'compact',
+  )
+  await expect(page.locator('.inventory-page .metric-strip')).toHaveAttribute(
+    'data-surface',
+    'signal-strip',
+  )
   await expect(page.getByText('EAST-1')).toBeVisible()
+  await expect(
+    page.locator('.data-table-shell__scroller[aria-label="Warehouse stock"]'),
+  ).toHaveAttribute('data-surface', 'data-table-scroll')
+  await expect(
+    page.locator(
+      '.data-table-shell__scroller[aria-label="Warehouse stock"] [data-row-key="stock:7:1"]',
+    ),
+  ).toBeVisible()
   await page.getByRole('textbox', { name: 'Reservation key' }).fill('mobile-row')
   await page.getByRole('button', { name: 'Reserve', exact: true }).click()
   await expect(page.getByText('mobile-row', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Reconcile', exact: true }).click()
   await expect(
     page.locator('.data-table-shell__scroller[aria-label="Discrepancies"]'),
+  ).toBeVisible()
+  await expect(
+    page.locator(
+      '.data-table-shell__scroller[aria-label="Discrepancies"] [data-row-key="discrepancy:7:1"]',
+    ),
   ).toBeVisible()
   await page.screenshot({ path: 'output/task-3-inventory-desktop.png', fullPage: true })
 
@@ -376,5 +405,9 @@ test('inventory keeps the page contained while all rendered tables scroll on mob
     { label: 'Reservations', exists: true, scrolls: true },
     { label: 'Discrepancies', exists: true, scrolls: true },
   ])
+  await page.setViewportSize({ width: 320, height: 720 })
+  expect(await page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth)).toBe(
+    true,
+  )
   await page.screenshot({ path: 'output/task-3-inventory-mobile.png', fullPage: true })
 })

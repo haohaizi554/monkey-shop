@@ -11,6 +11,7 @@ import {
   returnCoupon,
 } from '@/api/marketing'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import StatusTag, { type StatusTone } from '@/components/ui/StatusTag.vue'
 import { useNotify } from '@/composables/useNotify'
 import type { CouponWalletEntry, GroupBuyTeam, MarketingPriceQuote, SeckillOrder } from '@/types'
 import { money } from '@/utils/format'
@@ -78,6 +79,13 @@ function couponStatus(status: string): string {
   return t(labels[status] ?? 'marketing.statusUnavailable')
 }
 
+function couponStatusTone(status: string): StatusTone {
+  if (status === 'CLAIMED') return 'success'
+  if (status === 'USED') return 'info'
+  if (status === 'RETURNED') return 'neutral'
+  return 'warning'
+}
+
 function groupStatus(status: string): string {
   const labels: Record<string, string> = {
     OPEN: 'marketing.groupOpenStatus',
@@ -85,6 +93,13 @@ function groupStatus(status: string): string {
     CANCELLED: 'marketing.groupCancelledStatus',
   }
   return t(labels[status] ?? 'marketing.statusUnavailable')
+}
+
+function groupStatusTone(status: string): StatusTone {
+  if (status === 'OPEN') return 'info'
+  if (status === 'SUCCEEDED') return 'success'
+  if (status === 'CANCELLED') return 'danger'
+  return 'neutral'
 }
 
 async function runClaimCoupon() {
@@ -243,15 +258,24 @@ async function runJoinGroup() {
 </script>
 
 <template>
-  <div class="route-view marketing-page">
+  <div
+    class="route-view marketing-page commerce-page"
+    data-surface="marketing-observatory"
+    data-layout="operation-board"
+  >
     <PageHeader
       :eyebrow="t('nav.admin')"
       :title="t('marketing.title')"
       :description="t('marketing.description')"
     />
 
-    <div class="marketing-task-grid">
-      <section class="marketing-tool" aria-labelledby="coupon-task-title">
+    <div class="marketing-task-grid" data-layout="operation-board">
+      <section
+        class="marketing-tool commerce-section"
+        data-surface="operation-section"
+        data-task="coupon"
+        aria-labelledby="coupon-task-title"
+      >
         <header class="tool-heading">
           <div>
             <h2 id="coupon-task-title">
@@ -310,12 +334,21 @@ async function runJoinGroup() {
           <div v-if="latestCoupon" data-testid="coupon-result" class="task-result" role="status">
             <span>{{ t('marketing.latestResult') }}</span
             ><strong>{{ latestCoupon.couponCode }}</strong
-            ><el-tag effect="plain">{{ couponStatus(latestCoupon.status) }}</el-tag>
+            ><StatusTag
+              :status="latestCoupon.status"
+              :label="couponStatus(latestCoupon.status)"
+              :tone="couponStatusTone(latestCoupon.status)"
+            />
           </div>
         </div>
       </section>
 
-      <section class="marketing-tool" aria-labelledby="quote-task-title">
+      <section
+        class="marketing-tool commerce-section"
+        data-surface="operation-section"
+        data-task="quote"
+        aria-labelledby="quote-task-title"
+      >
         <header class="tool-heading">
           <div>
             <h2 id="quote-task-title">
@@ -381,7 +414,12 @@ async function runJoinGroup() {
         </div>
       </section>
 
-      <section class="marketing-tool" aria-labelledby="seckill-task-title">
+      <section
+        class="marketing-tool commerce-section"
+        data-surface="operation-section"
+        data-task="seckill"
+        aria-labelledby="seckill-task-title"
+      >
         <header class="tool-heading">
           <div>
             <h2 id="seckill-task-title">
@@ -426,7 +464,12 @@ async function runJoinGroup() {
         </div>
       </section>
 
-      <section class="marketing-tool" aria-labelledby="group-task-title">
+      <section
+        class="marketing-tool commerce-section"
+        data-surface="operation-section"
+        data-task="group"
+        aria-labelledby="group-task-title"
+      >
         <header class="tool-heading">
           <div>
             <h2 id="group-task-title">
@@ -473,7 +516,12 @@ async function runJoinGroup() {
                 target: latestGroup.targetSize,
                 status: groupStatus(latestGroup.status),
               })
-            }}</strong>
+            }}</strong
+            ><StatusTag
+              :status="latestGroup.status"
+              :label="groupStatus(latestGroup.status)"
+              :tone="groupStatusTone(latestGroup.status)"
+            />
           </div>
         </div>
       </section>
@@ -485,40 +533,64 @@ async function runJoinGroup() {
 .marketing-page {
   display: grid;
   gap: var(--space-5);
+  width: 100%;
+  max-width: 100%;
+  container-type: inline-size;
   min-width: 0;
 }
+
 .marketing-task-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-4);
   align-items: start;
+  min-width: 0;
 }
+
 .marketing-tool {
   display: grid;
   align-content: start;
   gap: var(--space-4);
   min-width: 0;
-  padding: var(--space-4);
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-surface);
-  background: var(--color-surface);
+  padding-block: var(--space-5);
+  border-block: 1px solid var(--admin-line);
+  background: transparent;
 }
+
+.marketing-tool:nth-child(2n + 1) {
+  border-inline-end: 1px solid var(--admin-line);
+  padding-inline-end: var(--space-5);
+}
+
+.marketing-tool:nth-child(2n) {
+  padding-inline-start: var(--space-5);
+}
+
 .tool-heading h2 {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   margin: 0;
+  color: var(--admin-ink);
   font-size: var(--text-lg);
+  line-height: var(--leading-tight);
 }
+
+.tool-heading h2 :deep(.el-icon) {
+  color: var(--admin-accent);
+}
+
 .tool-heading p,
 .field-control span,
 .task-result > span,
 .applied-coupons > span,
 .quote-placeholder {
   margin: var(--space-1) 0 0;
-  color: var(--color-text-muted);
+  color: var(--admin-muted);
   font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
 }
+
 .task-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -526,96 +598,128 @@ async function runJoinGroup() {
   gap: var(--space-3);
   min-width: 0;
 }
+
 .field-control {
   display: grid;
-  gap: var(--space-1);
+  gap: var(--space-2);
   min-width: 0;
 }
+
+.field-control span {
+  color: var(--admin-ink);
+  font-weight: var(--font-weight-semibold);
+}
+
 .field-control--wide,
 .task-actions {
   grid-column: 1 / -1;
 }
+
 .field-control :deep(.el-input-number),
 .field-control :deep(.el-input) {
   width: 100%;
 }
+
 .task-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+  min-width: 0;
 }
+
 .operation-divider {
   height: 1px;
-  background: var(--color-line);
+  background: var(--admin-line);
 }
+
 .task-feedback {
   display: grid;
   align-content: start;
   min-block-size: 2.5rem;
 }
+
 .task-error {
   margin: 0;
-  color: var(--color-danger);
+  color: var(--admin-danger);
   font-size: var(--text-sm);
 }
+
 .task-result {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   padding-top: var(--space-3);
-  border-top: 1px solid var(--color-line);
+  border-top: 1px solid var(--admin-line);
 }
+
+.task-result strong {
+  min-width: 0;
+  color: var(--admin-ink);
+  overflow-wrap: anywhere;
+}
+
 .quote-workbench {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(12rem, 0.9fr);
   gap: var(--space-4);
   align-items: stretch;
 }
+
 .quote-form {
   display: grid;
   align-content: start;
   gap: var(--space-3);
   min-width: 0;
 }
+
 .quote-outcome {
   display: grid;
   align-content: start;
   gap: var(--space-3);
   min-block-size: 10.75rem;
   padding-inline-start: var(--space-4);
-  border-inline-start: 1px solid var(--color-line);
+  border-inline-start: 1px solid var(--admin-line);
 }
+
 .quote-placeholder {
   align-self: center;
   margin: 0;
 }
+
 .quote-totals {
   display: grid;
   gap: var(--space-2);
   margin: 0;
 }
+
 .quote-totals > div {
   display: grid;
   grid-template-columns: minmax(0, 1fr) max-content;
   gap: var(--space-3);
 }
+
 .quote-totals dt {
-  color: var(--color-text-muted);
+  color: var(--admin-muted);
   font-size: var(--text-sm);
 }
+
 .quote-totals dd {
   margin: 0;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
 .quote-total--payable {
   padding-top: var(--space-2);
-  border-top: 1px solid var(--color-line);
+  border-top: 1px solid var(--admin-line);
 }
+
 .quote-total--payable dd {
+  color: var(--admin-accent);
   font-weight: 700;
 }
+
 .applied-coupons,
 .coupon-tags {
   display: flex;
@@ -623,19 +727,29 @@ async function runJoinGroup() {
   align-items: center;
   gap: var(--space-2);
 }
+
 .applied-coupons {
   padding-top: var(--space-2);
-  border-top: 1px solid var(--color-line);
+  border-top: 1px solid var(--admin-line);
 }
+
 .marketing-tool :deep(.el-button) {
   white-space: normal;
 }
-@media (max-width: 1000px) {
+
+@container (max-width: 900px) {
   .marketing-task-grid {
     grid-template-columns: 1fr;
   }
+
+  .marketing-tool:nth-child(2n + 1),
+  .marketing-tool:nth-child(2n) {
+    padding-inline: 0;
+    border-inline-end: 0;
+  }
 }
-@media (max-width: 640px) {
+
+@container (max-width: 640px) {
   .task-form-grid,
   .quote-workbench {
     grid-template-columns: 1fr;
@@ -651,11 +765,38 @@ async function runJoinGroup() {
     min-block-size: 0;
     padding-top: var(--space-3);
     padding-inline-start: 0;
-    border-top: 1px solid var(--color-line);
+    border-top: 1px solid var(--admin-line);
     border-inline-start: 0;
   }
+
+  .quote-outcome {
+    border-top-color: var(--admin-line);
+  }
+
   .task-actions :deep(.el-button) {
     flex: 1 1 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .marketing-page :deep(button),
+  .marketing-page :deep(input),
+  .marketing-page :deep(.el-input__wrapper),
+  .marketing-page :deep(.el-input-number),
+  .marketing-page :deep(.el-button) {
+    min-height: var(--touch-target-min);
+  }
+
+  .marketing-page :deep(.el-button) {
+    white-space: normal;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marketing-tool,
+  .task-result,
+  .quote-outcome {
+    transition: none;
   }
 }
 </style>

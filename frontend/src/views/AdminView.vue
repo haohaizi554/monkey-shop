@@ -15,11 +15,12 @@ import MetricStrip, { type MetricItem } from '@/components/admin/MetricStrip.vue
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import DataTableShell from '@/components/ui/DataTableShell.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import StatusTag from '@/components/ui/StatusTag.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { useNotify } from '@/composables/useNotify'
 import { useRouteQueryState, type RouteQuerySchema } from '@/composables/useRouteQueryState'
 import type { Monkey, MonkeyRequest, Order, Stats } from '@/types'
-import { dateTime, money, orderStatusKey, orderStatusLabel, statusType } from '@/utils/format'
+import { dateTime, money, orderStatusKey, orderStatusLabel } from '@/utils/format'
 
 defineOptions({ name: 'AdminView' })
 
@@ -397,6 +398,22 @@ function auditEventLabel(eventType: string): string {
   return normalized ? normalized.charAt(0).toLocaleUpperCase() + normalized.slice(1) : eventType
 }
 
+function productRowKey(product: Monkey): string {
+  return `catalog:${product.id}`
+}
+
+function orderRowKey(order: Order): string {
+  return `order:${order.id}`
+}
+
+function productRowClassName({ row }: { row: Monkey }): string {
+  return `admin-data-row admin-data-row--catalog-${row.id}`
+}
+
+function orderRowClassName({ row }: { row: Order }): string {
+  return `admin-data-row admin-data-row--order-${row.id}`
+}
+
 watch(
   () => query.order,
   () => {
@@ -420,7 +437,11 @@ refreshAdmin()
 </script>
 
 <template>
-  <div class="route-view admin-page">
+  <div
+    class="route-view admin-page commerce-page"
+    data-surface="operations-observatory"
+    data-layout="catalog-fulfillment-audit"
+  >
     <PageHeader
       :eyebrow="t('nav.admin')"
       :title="t('admin.title')"
@@ -450,16 +471,24 @@ refreshAdmin()
       <MetricStrip :items="metrics" />
     </AsyncStateView>
 
-    <section class="admin-section" :aria-labelledby="'catalog-title'">
-      <div class="section-heading">
+    <section
+      class="admin-section commerce-section"
+      data-workspace="catalog"
+      :aria-labelledby="'catalog-title'"
+    >
+      <div class="section-heading commerce-section__heading">
         <div>
           <h2 id="catalog-title">{{ t('admin.catalog') }}</h2>
           <p>{{ t('admin.catalogDescription') }}</p>
         </div>
-        <el-button type="primary" @click="openProductDialog()">{{
-          t('admin.createProduct')
-        }}</el-button>
       </div>
+      <AdminPageToolbar :aria-label="t('admin.catalog')">
+        <template #actions>
+          <el-button type="primary" @click="openProductDialog()">
+            {{ t('admin.createProduct') }}
+          </el-button>
+        </template>
+      </AdminPageToolbar>
       <AsyncStateView
         :status="productsState.status.value"
         :error="productsState.error.value"
@@ -472,14 +501,26 @@ refreshAdmin()
           :aria-label="t('admin.catalog')"
         >
           <template #empty>{{ t('admin.noProducts') }}</template>
-          <el-table :data="products" row-key="id" size="small">
+          <el-table
+            class="admin-data-table"
+            :data="products"
+            row-key="id"
+            :row-class-name="productRowClassName"
+            size="small"
+          >
             <el-table-column width="76">
               <template #default="{ row }">
                 <ProductImage v-if="row.imageUrl" :src="row.imageUrl" :alt="row.name" />
                 <span v-else class="product-image-placeholder" aria-hidden="true" />
               </template>
             </el-table-column>
-            <el-table-column prop="name" :label="t('common.name')" min-width="160" />
+            <el-table-column :label="t('common.name')" min-width="160">
+              <template #default="{ row }">
+                <span class="table-row-anchor" :data-row-key="productRowKey(row)">
+                  {{ row.name }}
+                </span>
+              </template>
+            </el-table-column>
             <el-table-column prop="breed" :label="t('common.breed')" min-width="130" />
             <el-table-column :label="t('common.price')" width="130">
               <template #default="{ row }">{{ money(row.price) }}</template>
@@ -521,8 +562,12 @@ refreshAdmin()
       </AsyncStateView>
     </section>
 
-    <section class="admin-section" :aria-labelledby="'fulfillment-title'">
-      <div class="section-heading">
+    <section
+      class="admin-section commerce-section"
+      data-workspace="fulfillment"
+      :aria-labelledby="'fulfillment-title'"
+    >
+      <div class="section-heading commerce-section__heading">
         <div>
           <h2 id="fulfillment-title">{{ t('admin.fulfillment') }}</h2>
           <p>{{ t('admin.fulfillmentDescription') }}</p>
@@ -550,8 +595,20 @@ refreshAdmin()
           :aria-label="t('admin.fulfillment')"
         >
           <template #empty>{{ t('admin.noOrders') }}</template>
-          <el-table :data="orders" row-key="id" size="small">
-            <el-table-column prop="orderNo" :label="t('common.order')" min-width="160" />
+          <el-table
+            class="admin-data-table"
+            :data="orders"
+            row-key="id"
+            :row-class-name="orderRowClassName"
+            size="small"
+          >
+            <el-table-column :label="t('common.order')" min-width="160">
+              <template #default="{ row }">
+                <span class="table-row-anchor" :data-row-key="orderRowKey(row)">
+                  {{ row.orderNo }}
+                </span>
+              </template>
+            </el-table-column>
             <el-table-column prop="productName" :label="t('common.product')" min-width="150" />
             <el-table-column prop="buyerName" :label="t('common.buyer')" width="120" />
             <el-table-column :label="t('common.created')" min-width="170">
@@ -559,9 +616,10 @@ refreshAdmin()
             </el-table-column>
             <el-table-column :label="t('common.status')" width="140">
               <template #default="{ row }">
-                <el-tag :type="statusType(row.status)" effect="plain">{{
-                  orderStatusLabel(row.status)
-                }}</el-tag>
+                <StatusTag
+                  :status="orderStatusKey(row.status)"
+                  :label="orderStatusLabel(row.status)"
+                />
               </template>
             </el-table-column>
             <el-table-column :label="t('common.action')" width="180" fixed="right">
@@ -618,31 +676,39 @@ refreshAdmin()
       </AsyncStateView>
     </section>
 
-    <section class="admin-section" :aria-labelledby="'audit-title'">
-      <div class="section-heading">
+    <section
+      class="admin-section commerce-section"
+      data-workspace="audit"
+      :aria-labelledby="'audit-title'"
+    >
+      <div class="section-heading commerce-section__heading">
         <div>
           <h2 id="audit-title">{{ t('admin.audit') }}</h2>
           <p>{{ t('admin.auditDescription') }}</p>
         </div>
       </div>
-      <div class="trace-toolbar">
-        <el-input
-          v-model="traceKeyword"
-          clearable
-          :aria-label="t('admin.traceId')"
-          :placeholder="t('common.traceIdPlaceholder')"
-          @keyup.enter="loadTrace"
-        />
-        <el-button
-          type="primary"
-          :icon="Search"
-          :loading="traceState.isLoading.value"
-          :aria-label="t('admin.searchTrace')"
-          @click="loadTrace"
-        >
-          {{ t('common.search') }}
-        </el-button>
-      </div>
+      <AdminPageToolbar :aria-label="t('admin.audit')">
+        <template #search>
+          <el-input
+            v-model="traceKeyword"
+            clearable
+            :aria-label="t('admin.traceId')"
+            :placeholder="t('common.traceIdPlaceholder')"
+            @keyup.enter="loadTrace"
+          />
+        </template>
+        <template #actions>
+          <el-button
+            type="primary"
+            :icon="Search"
+            :loading="traceState.isLoading.value"
+            :aria-label="t('admin.searchTrace')"
+            @click="loadTrace"
+          >
+            {{ t('common.search') }}
+          </el-button>
+        </template>
+      </AdminPageToolbar>
       <AsyncStateView
         :status="traceState.status.value"
         :error="traceState.error.value"
@@ -672,6 +738,7 @@ refreshAdmin()
 
     <el-dialog
       v-model="productDialog"
+      class="admin-product-dialog"
       :title="productForm.id ? t('admin.editProduct') : t('admin.createProduct')"
       width="min(680px, 94vw)"
       :before-close="beforeProductClose"
@@ -730,15 +797,26 @@ refreshAdmin()
 </template>
 
 <style scoped>
-.admin-page,
+.admin-page {
+  display: grid;
+  gap: var(--space-6);
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  container-type: inline-size;
+}
+
 .admin-section {
   display: grid;
   gap: var(--space-4);
   min-width: 0;
+  padding-block: var(--space-5);
+  border-block: 1px solid var(--admin-line);
+  background: transparent;
 }
 
-.admin-page {
-  gap: var(--space-6);
+.admin-section + .admin-section {
+  border-top: 0;
 }
 
 .section-heading {
@@ -757,14 +835,16 @@ refreshAdmin()
 }
 
 .section-heading h2 {
+  color: var(--admin-ink);
   font-size: var(--text-lg);
+  line-height: var(--leading-tight);
 }
 
 .section-heading p,
 .trace-empty,
 .trace-timeline p,
 .trace-timeline code {
-  color: var(--color-text-muted);
+  color: var(--admin-muted);
   font-size: var(--text-sm);
 }
 
@@ -777,17 +857,44 @@ refreshAdmin()
   width: 48px;
   aspect-ratio: 1;
   border-radius: var(--radius-control);
-  background: var(--color-surface-subtle);
+  background: var(--admin-surface-subtle);
 }
 
-.trace-toolbar {
-  display: flex;
-  gap: var(--space-3);
-  max-width: 680px;
+.admin-data-table {
+  min-width: 760px;
+  color: var(--admin-ink);
+  font-variant-numeric: tabular-nums;
 }
 
-.trace-toolbar :deep(.el-input) {
-  flex: 1;
+.admin-data-table :deep(.el-table__header-wrapper th.el-table__cell) {
+  background: var(--admin-surface-subtle);
+  color: var(--admin-ink);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.02em;
+}
+
+.admin-data-table :deep(.el-table__body tr) {
+  transition: background-color var(--motion-fast);
+}
+
+.admin-data-table :deep(.el-table__body tr:hover > td.el-table__cell),
+.admin-data-table :deep(.el-table__body tr:focus-within > td.el-table__cell) {
+  background: var(--admin-primary-soft);
+}
+
+.table-row-anchor {
+  display: inline-flex;
+  min-width: 0;
+  color: var(--admin-ink);
+  font-weight: var(--font-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.product-table :deep(.el-table),
+.order-table :deep(.el-table) {
+  width: max-content;
+  min-width: 100%;
 }
 
 .trace-empty {
@@ -795,6 +902,7 @@ refreshAdmin()
 }
 
 .trace-timeline h3 {
+  color: var(--admin-ink);
   font-size: var(--text-sm);
 }
 
@@ -806,7 +914,7 @@ refreshAdmin()
 }
 
 .trace-timeline code {
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-family: var(--font-mono);
 }
 
 .product-form-grid {
@@ -832,21 +940,51 @@ refreshAdmin()
   margin-top: var(--space-4);
 }
 
-@media (max-width: 600px) {
+@media (max-width: 760px) {
+  .admin-page :deep(.admin-page-toolbar > *) {
+    flex: 0 1 auto;
+    width: 100%;
+    max-width: none;
+  }
+
+  .admin-page :deep(.admin-page-toolbar__search),
+  .admin-page :deep(.admin-page-toolbar__filters),
+  .admin-page :deep(.admin-page-toolbar__actions) {
+    width: 100%;
+    max-width: none;
+  }
+
   .section-heading,
-  .trace-toolbar,
   .product-image-editor {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .section-heading :deep(.el-button),
-  .trace-toolbar :deep(.el-button) {
-    width: 100%;
+  .admin-section :deep(button),
+  .admin-section :deep(input),
+  .admin-section :deep(select),
+  .admin-section :deep(textarea),
+  .admin-section :deep(.el-input__wrapper),
+  .admin-section :deep(.el-input-number),
+  .admin-section :deep(.el-button) {
+    min-height: var(--touch-target-min);
+  }
+
+  .admin-section :deep(.el-button) {
+    white-space: normal;
+  }
+
+  .admin-page :deep(.admin-page-toolbar__actions) {
+    justify-content: flex-start;
   }
 
   .product-form-grid {
     grid-template-columns: 1fr;
   }
+}
+
+:global(.admin-product-dialog)
+  :is(button, input, select, textarea, .el-input__wrapper, .el-input-number, .el-button) {
+  min-height: var(--touch-target-min);
 }
 </style>

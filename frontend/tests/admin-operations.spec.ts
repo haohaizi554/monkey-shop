@@ -127,6 +127,29 @@ test('admin product mutation is row-scoped while trace and URL order search stay
 }) => {
   await installAdminMocks(page)
   await page.goto('/admin')
+  await expect(page.locator('.admin-page')).toHaveAttribute(
+    'data-surface',
+    'operations-observatory',
+  )
+  await expect(page.locator('.admin-page .page-header')).toHaveAttribute(
+    'data-surface',
+    'page-heading',
+  )
+  await expect(page.locator('.admin-page .admin-page-toolbar')).toHaveCount(3)
+  for (const toolbar of await page.locator('.admin-page .admin-page-toolbar').all()) {
+    await expect(toolbar).toHaveAttribute('data-density', 'compact')
+  }
+  await expect(page.locator('.admin-page .metric-strip')).toHaveAttribute(
+    'data-surface',
+    'signal-strip',
+  )
+  await expect(page.locator('.product-table .data-table-shell__scroller')).toHaveAttribute(
+    'data-surface',
+    'data-table-scroll',
+  )
+  await expect(page.locator('.product-table [data-row-key="catalog:1"]')).toBeVisible()
+  await expect(page.locator('.order-table [data-row-key="order:11"]')).toBeVisible()
+  await expect(page.locator('.order-table .status-tag').first()).toContainText('Paid')
   await expect(page.getByText('Golden Monkey', { exact: true }).first()).toBeVisible()
   const productImageBox = await page.getByRole('img', { name: 'Golden Monkey' }).boundingBox()
   expect(productImageBox?.width).toBeLessThanOrEqual(64)
