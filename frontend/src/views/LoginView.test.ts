@@ -222,6 +222,12 @@ describe('LoginView secure checkpoint composition', () => {
       expect(host.querySelector('[data-testid="register-complete"]')).not.toBeNull(),
     )
     expect(host.querySelector('.mascot-state')?.getAttribute('data-pose')).toBe('celebrate')
+
+    await click(host, '[data-testid="login-tab"]')
+    expect(host.querySelector('.mascot-state')?.getAttribute('data-pose')).toBe('welcome')
+
+    await click(host, '[data-testid="reset-tab"]')
+    expect(host.querySelector('.mascot-state')?.getAttribute('data-pose')).toBe('shield')
   })
 })
 

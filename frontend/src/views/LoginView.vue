@@ -126,7 +126,7 @@ const passwordRequirements = computed(() => [
 
 const mascotPose = computed<MascotPose>(() => {
   if (retryActive.value) return 'hourglass'
-  if (registerStep.value === 'complete') return 'celebrate'
+  if (activeMode.value === 'register' && registerStep.value === 'complete') return 'celebrate'
   if (authNotice.value?.pose) return authNotice.value.pose
   if (activeMode.value === 'reset') return 'shield'
   return 'welcome'
