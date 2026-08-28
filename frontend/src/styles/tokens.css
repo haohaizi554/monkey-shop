@@ -20,7 +20,7 @@
   --color-success: #287a57;
   --color-success-soft: #dfeee5;
   --color-warning: #9a611c;
-  --color-warning-soft: #f6e7c9;
+  --color-warning-soft: #f7ead6;
   --color-danger: #b4493d;
   --color-danger-soft: #f4ded9;
   --color-error: var(--color-danger);
@@ -59,8 +59,8 @@
   --dark-color-info-soft: #203554;
   --dark-color-success: #7bd1a8;
   --dark-color-success-soft: #1c3d2e;
-  --dark-color-warning: #e2b56a;
-  --dark-color-warning-soft: #3b301c;
+  --dark-color-warning: #d3924f;
+  --dark-color-warning-soft: #4d3522;
   --dark-color-danger: #f09a8f;
   --dark-color-danger-soft: #492721;
   --dark-color-text-inverse: #0e1512;
@@ -294,6 +294,7 @@ html.dark {
   --el-color-white: var(--color-surface-raised);
   --el-color-black: var(--color-ink);
   --el-color-primary-rgb: var(--color-primary-rgb);
+  --el-color-info-rgb: var(--color-info-rgb);
   --el-color-success-rgb: var(--color-success-rgb);
   --el-color-warning-rgb: var(--color-warning-rgb);
   --el-color-danger-rgb: var(--color-danger-rgb);
@@ -477,14 +478,6 @@ html.dark {
   --color-coral-soft: var(--color-danger-soft);
   --color-honey: var(--color-accent);
   --color-honey-soft: var(--color-accent-soft);
-  --color-auth-visual: var(--auth-visual);
-  --color-admin-chrome: var(--admin-chrome);
-  --color-admin-chrome-raised: var(--admin-chrome-raised);
-  --color-admin-chrome-text: var(--admin-chrome-text);
-  --color-admin-chrome-muted: var(--admin-chrome-muted);
-  --color-admin-chrome-line: var(--admin-chrome-line);
-  --color-admin-chrome-accent: var(--admin-chrome-accent);
-  --color-admin-chrome-accent-soft: var(--admin-chrome-accent-soft);
   --radius-sm: var(--radius-control);
   --radius-md: var(--radius-surface);
   --radius-lg: var(--radius-surface);
