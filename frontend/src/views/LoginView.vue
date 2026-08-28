@@ -287,7 +287,9 @@ function handleAuthError(error: unknown, fallbackKey: string, mode: AuthMode) {
     showAuthNotice('warning', t('feedback.rateLimited'), 'hourglass', mode)
     return
   }
-  const pose: MascotPose = error instanceof ApiError && error.status === 403 ? 'shield' : 'warning'
+  const challenge = authChallenge(error instanceof Error ? error.message : '')
+  const pose: MascotPose =
+    challenge || (error instanceof ApiError && error.status === 403) ? 'shield' : 'warning'
   showAuthNotice('danger', authErrorMessage(error, fallbackKey), pose, mode)
 }
 

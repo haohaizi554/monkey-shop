@@ -232,6 +232,23 @@ describe('LoginView secure checkpoint composition', () => {
 })
 
 describe('LoginView retry state', () => {
+  it('uses the shield pose for server-originated MFA challenges', async () => {
+    vi.mocked(authApi.login).mockRejectedValue(
+      new ApiError('admin mfa required', 401, 'trace-mfa', 'AUTH_CHALLENGE'),
+    )
+    const { host } = await mountLogin()
+
+    await fill(host, '[data-testid="login-username"]', 'admin')
+    await fill(host, '[data-testid="login-password"]', 'ValidPass!1')
+    await click(host, '[data-testid="login-submit"]')
+
+    await vi.waitFor(() =>
+      expect(host.textContent).toContain(i18n.global.t('auth.adminMfaRequired')),
+    )
+    expect(host.querySelector('.mascot-state')?.getAttribute('data-pose')).toBe('shield')
+    expect(host.textContent).not.toContain('admin mfa required')
+  })
+
   it('disables only submission while a 429 retry countdown is active', async () => {
     vi.mocked(authApi.login).mockRejectedValue(
       new ApiError('Too many requests', 429, 'trace-login', 'RATE_LIMIT', {
@@ -297,6 +314,7 @@ describe('LoginView retry state', () => {
     expect(host.querySelector('[data-testid="retry-countdown"]')).toBeNull()
     expect(host.textContent).toContain(i18n.global.t('auth.captchaIncorrect'))
     expect(host.textContent).not.toContain('captcha incorrect')
+    expect(host.querySelector('.mascot-state')?.getAttribute('data-pose')).toBe('shield')
 
     await click(host, '[data-testid="login-tab"]')
     expect(host.querySelector('[data-testid="retry-countdown"]')).not.toBeNull()
