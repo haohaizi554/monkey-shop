@@ -302,6 +302,97 @@ test('consumer discovery views use shared state and feedback contracts', async (
   }
 })
 
+test('discovery routes expose one photo-first field-guide card contract', async ({ page }) => {
+  for (const route of ['/shop', '/search', '/recommendations']) {
+    await page.goto(route)
+
+    const grid = page.locator('.product-grid[data-layout="field-guide"]')
+    await expect(grid).toBeVisible()
+
+    const card = grid.locator('.product-card').first()
+    await expect(card).toHaveAttribute('data-surface', 'specimen')
+    await expect(card).toHaveAttribute('data-state', 'available')
+    await expect(card.locator('.product-card__media')).toHaveCSS('aspect-ratio', /4 \/ 3/)
+    await expect(card.locator('.product-card__primary')).toBeVisible()
+    await expect(card.locator('img')).toHaveAttribute('alt', /.+/)
+    await expect(card.locator('img')).toHaveAttribute('data-image-state', /loaded|fallback/)
+  }
+})
+
+test('field-guide discovery grids reflow from one readable phone column to two tablet tracks', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/shop')
+  const phoneGrid = page.locator('.product-grid[data-layout="field-guide"]')
+  await expect(phoneGrid).toBeVisible()
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const grid = document.querySelector('.product-grid[data-layout="field-guide"]')
+        return grid ? getComputedStyle(grid).gridTemplateColumns.trim().split(/\s+/).length : 0
+      }),
+    )
+    .toBe(1)
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    ),
+  ).toBeLessThanOrEqual(1)
+
+  await page.setViewportSize({ width: 768, height: 844 })
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const grid = document.querySelector('.product-grid[data-layout="field-guide"]')
+        return grid ? getComputedStyle(grid).gridTemplateColumns.trim().split(/\s+/).length : 0
+      }),
+    )
+    .toBeGreaterThanOrEqual(2)
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    ),
+  ).toBeLessThanOrEqual(1)
+})
+
+test('product detail composition stays one-column on mobile and two-column on desktop', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/shop/1')
+  const detailLayout = page.locator('.product-detail-layout')
+  await expect(detailLayout).toBeVisible()
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const layout = document.querySelector('.product-detail-layout')
+        return layout ? getComputedStyle(layout).gridTemplateColumns.trim().split(/\s+/).length : 0
+      }),
+    )
+    .toBe(1)
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    ),
+  ).toBeLessThanOrEqual(1)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const layout = document.querySelector('.product-detail-layout')
+        return layout ? getComputedStyle(layout).gridTemplateColumns.trim().split(/\s+/).length : 0
+      }),
+    )
+    .toBe(2)
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    ),
+  ).toBeLessThanOrEqual(1)
+})
+
 test('catalog card keeps geometry when its image fails', async ({ page }) => {
   await page.route('**/images/broken.jpg', (route) => route.abort())
   await page.goto('/shop')

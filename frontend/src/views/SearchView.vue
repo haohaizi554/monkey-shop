@@ -92,6 +92,8 @@ const searchCards = computed<SearchCardEntry[]>(() =>
       description: source.title || t('search.noTitle'),
       imageUrl: source.imageUrl ?? '',
       stock: Number.NaN,
+      categoryId: source.categoryId ?? undefined,
+      attributes: source.attributes,
     },
   })),
 )
@@ -207,6 +209,11 @@ async function useKeyword(keyword: string) {
   await runSearchNow({ resetPage: true })
 }
 
+async function useCategory(category: string) {
+  query.category = category
+  await runSearchNow({ resetPage: true })
+}
+
 function resetPage() {
   query.page = 0
 }
@@ -247,7 +254,34 @@ onBeforeUnmount(clearScheduledSearch)
       </template>
     </PageHeader>
 
-    <form class="search-toolbar" @submit.prevent="runSearchNow({ resetPage: true })">
+    <nav
+      v-if="categoryOptions.length"
+      class="category-rail"
+      :aria-label="$t('shop.browseCategories')"
+    >
+      <div class="category-rail__heading">
+        <strong>{{ $t('shop.browseCategories') }}</strong>
+        <RouterLink to="/shop">{{ $t('nav.discover') }}</RouterLink>
+      </div>
+      <div class="category-rail__scroller">
+        <button
+          v-for="category in categoryOptions"
+          :key="category.value"
+          class="category-link"
+          type="button"
+          :aria-pressed="query.category === category.value"
+          @click="useCategory(category.value)"
+        >
+          {{ category.label }}
+        </button>
+      </div>
+    </nav>
+
+    <form
+      class="search-toolbar"
+      data-surface="filter"
+      @submit.prevent="runSearchNow({ resetPage: true })"
+    >
       <el-input
         v-model="query.keyword"
         :aria-label="$t('search.keywordPlaceholder')"
@@ -343,7 +377,11 @@ onBeforeUnmount(clearScheduledSearch)
         @retry="runSearchNow"
       >
         <template #loading>
-          <div class="result-grid skeleton-grid" aria-busy="true">
+          <div
+            class="product-grid result-grid skeleton-grid"
+            data-layout="field-guide"
+            aria-busy="true"
+          >
             <div v-for="item in 4" :key="item" class="skeleton-card" />
           </div>
         </template>
@@ -372,7 +410,7 @@ onBeforeUnmount(clearScheduledSearch)
           </div>
         </template>
 
-        <div class="result-grid">
+        <div class="product-grid result-grid" data-layout="field-guide">
           <ProductCard
             v-for="entry in searchCards"
             :key="entry.source.productId"
@@ -411,7 +449,73 @@ onBeforeUnmount(clearScheduledSearch)
   gap: var(--space-3);
   align-items: center;
   min-width: 0;
-  padding-block: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-surface);
+  padding: var(--space-4);
+  background: var(--color-surface);
+}
+
+.category-rail {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  border-block: 1px solid var(--color-line);
+  padding-block: var(--space-4);
+}
+
+.category-rail__heading {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.category-rail__heading strong {
+  color: var(--color-ink);
+  font-size: var(--text-lg);
+}
+
+.category-rail__heading a {
+  color: var(--color-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-bold);
+}
+
+.category-rail__scroller {
+  display: flex;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: var(--space-1);
+  scrollbar-width: thin;
+}
+
+.category-link {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-height: var(--touch-target-min);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-control);
+  padding-inline: var(--space-4);
+  color: var(--color-ink);
+  background: var(--color-surface);
+  font: inherit;
+  font-weight: var(--font-weight-bold);
+  cursor: pointer;
+  transition:
+    border-color var(--motion-fast),
+    background-color var(--motion-fast),
+    color var(--motion-fast);
+}
+
+.category-link:hover,
+.category-link:focus-visible,
+.category-link[aria-pressed='true'] {
+  border-color: var(--color-primary);
+  color: var(--color-primary-strong);
+  background: var(--color-primary-soft);
 }
 
 .search-toolbar__summary {
@@ -421,7 +525,7 @@ onBeforeUnmount(clearScheduledSearch)
   gap: var(--space-2);
   align-items: center;
   min-height: 32px;
-  color: var(--color-text-muted);
+  color: var(--color-ink);
 }
 
 .filter-chip {
@@ -429,7 +533,7 @@ onBeforeUnmount(clearScheduledSearch)
   overflow: hidden;
   border-radius: var(--radius-pill);
   padding: var(--space-1) var(--space-2);
-  color: var(--color-text);
+  color: var(--color-ink);
   background: var(--color-surface-subtle);
   font-size: var(--text-sm);
   text-overflow: ellipsis;
@@ -449,7 +553,7 @@ onBeforeUnmount(clearScheduledSearch)
   border: 1px solid var(--color-line);
   border-radius: var(--radius-pill);
   padding-inline: var(--space-3);
-  color: var(--color-text);
+  color: var(--color-ink);
   background: var(--color-surface);
   cursor: pointer;
 }
@@ -461,7 +565,7 @@ onBeforeUnmount(clearScheduledSearch)
 
 .keyword-strip span {
   margin-left: var(--space-1);
-  color: var(--color-text-muted);
+  color: var(--color-ink);
 }
 
 .result-section {
@@ -482,14 +586,19 @@ onBeforeUnmount(clearScheduledSearch)
 }
 
 .result-heading span {
-  color: var(--color-text-muted);
+  color: var(--color-ink);
   font-weight: 700;
 }
 
 .result-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: clamp(var(--space-5), 2.4vw, var(--space-8));
+  min-width: 0;
+}
+
+.product-grid[data-layout='field-guide'] {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
 }
 
 .search-error {
@@ -498,7 +607,7 @@ onBeforeUnmount(clearScheduledSearch)
   gap: var(--space-3);
   min-height: 280px;
   align-content: center;
-  color: var(--color-text-muted);
+  color: var(--color-ink);
   text-align: center;
 }
 

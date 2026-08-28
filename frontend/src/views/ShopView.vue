@@ -176,7 +176,14 @@ onMounted(() => {
       </div>
     </nav>
 
-    <section class="catalog-toolbar" :aria-label="$t('common.search')">
+    <section class="catalog-toolbar" data-surface="filter" :aria-label="$t('common.search')">
+      <div class="catalog-toolbar__heading">
+        <div>
+          <span class="catalog-toolbar__eyebrow">{{ $t('nav.discover') }}</span>
+          <strong>{{ $t('common.search') }}</strong>
+        </div>
+        <span class="catalog-toolbar__hint">{{ $t('shop.inStockOnly') }}</span>
+      </div>
       <div class="catalog-tools">
         <input
           id="catalog-keyword"
@@ -216,7 +223,7 @@ onMounted(() => {
       @retry="loadMonkeys"
     >
       <template #loading>
-        <div class="skeleton-grid" aria-busy="true">
+        <div class="product-grid skeleton-grid" data-layout="field-guide" aria-busy="true">
           <div v-for="item in 6" :key="item" class="skeleton-card" />
         </div>
       </template>
@@ -245,7 +252,7 @@ onMounted(() => {
         </div>
       </template>
 
-      <div class="product-grid">
+      <div class="product-grid" data-layout="field-guide">
         <ProductCard
           v-for="monkey in monkeysList"
           :key="monkey.id"
@@ -363,7 +370,58 @@ onMounted(() => {
 
 .catalog-toolbar {
   min-width: 0;
-  padding-block: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-surface);
+  padding: var(--space-4);
+  background: var(--color-surface);
+}
+
+.catalog-toolbar__heading {
+  display: flex;
+  gap: var(--space-4);
+  align-items: baseline;
+  justify-content: space-between;
+  min-width: 0;
+  margin-bottom: var(--space-3);
+}
+
+.catalog-toolbar__heading > div {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.catalog-toolbar__eyebrow {
+  color: var(--color-primary);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.catalog-toolbar__heading strong {
+  color: var(--color-ink);
+  font-size: var(--text-lg);
+}
+
+.catalog-toolbar__hint {
+  color: var(--color-ink);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.catalog-tools {
+  display: grid;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.catalog-tools :where(.native-input, .native-checkbox) {
+  min-height: var(--touch-target-min);
+}
+
+.catalog-tools .native-checkbox {
+  color: var(--color-ink);
 }
 
 .catalog-pagination {
@@ -414,6 +472,13 @@ onMounted(() => {
   scrollbar-width: thin;
 }
 
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: clamp(var(--space-5), 2.4vw, var(--space-8));
+  min-width: 0;
+}
+
 .category-link {
   display: inline-flex;
   flex: 0 0 auto;
@@ -443,6 +508,10 @@ onMounted(() => {
   width: 100%;
 }
 
+.shop-view :deep(.page-header__description) {
+  color: var(--color-ink);
+}
+
 .catalog-tools :where(.native-input, .native-checkbox) {
   min-height: 44px;
 }
@@ -464,6 +533,12 @@ onMounted(() => {
 }
 
 @media (max-width: 640px) {
+  .catalog-toolbar__heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
   .catalog-tools {
     grid-template-columns: 1fr;
   }

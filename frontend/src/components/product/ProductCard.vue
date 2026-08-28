@@ -26,10 +26,32 @@ const hasPrice = computed(() => Number.isFinite(Number(props.product.price)))
 const hasStock = computed(() => Number.isFinite(props.product.stock))
 const soldOut = computed(() => hasStock.value && props.product.stock <= 0)
 const actionDisabled = computed(() => props.disabled || props.pending || soldOut.value)
+const coat = computed(() => readAttribute(['coat', 'furColor', 'colour', 'color']))
+const warehouse = computed(() =>
+  readAttribute(['warehouse', 'warehouseCode', 'warehouseName', 'province']),
+)
+
+function readAttribute(keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = props.product.attributes?.[key]
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim()
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value)
+    }
+  }
+  return undefined
+}
 </script>
 
 <template>
-  <article class="product-card">
+  <article
+    class="product-card"
+    data-surface="specimen"
+    :data-state="soldOut ? 'sold-out' : pending ? 'pending' : 'available'"
+    :aria-busy="pending"
+  >
     <button
       class="product-card__media"
       type="button"
@@ -57,8 +79,28 @@ const actionDisabled = computed(() => props.disabled || props.pending || soldOut
         {{ product.description }}
       </p>
 
+      <dl v-if="hasStock || coat || warehouse" class="product-card__specs">
+        <div v-if="coat" data-spec="coat">
+          <dt>{{ t('search.attribute') }}</dt>
+          <dd>{{ coat }}</dd>
+        </div>
+        <div v-if="hasStock" data-spec="stock">
+          <dt>{{ t('common.stock') }}</dt>
+          <dd>{{ product.stock }}</dd>
+        </div>
+        <div v-if="warehouse" data-spec="warehouse">
+          <dt>{{ t('inventory.warehouse') }}</dt>
+          <dd>{{ warehouse }}</dd>
+        </div>
+      </dl>
+
       <div class="product-card__actions product-actions">
-        <span v-if="hasStock" class="stock-pill" :class="{ 'stock-pill-muted': soldOut }">
+        <span
+          v-if="hasStock"
+          class="stock-pill"
+          :class="{ 'stock-pill-muted': soldOut }"
+          :data-state="soldOut ? 'sold-out' : 'available'"
+        >
           {{ t('common.stock') }} {{ product.stock }}
         </span>
         <el-button
@@ -77,8 +119,7 @@ const actionDisabled = computed(() => props.disabled || props.pending || soldOut
 
 <style scoped>
 .product-card {
-  --product-accent: var(--color-primary);
-
+  position: relative;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
@@ -86,30 +127,30 @@ const actionDisabled = computed(() => props.disabled || props.pending || soldOut
   border: 1px solid var(--color-line);
   border-radius: var(--radius-surface);
   background: var(--color-surface);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-surface);
   transition:
     border-color var(--motion-fast),
     box-shadow var(--motion-fast),
     transform var(--motion-fast);
 }
 
-.product-card:nth-child(4n + 2) {
-  --product-accent: var(--color-cobalt);
-}
-
-.product-card:nth-child(4n + 3) {
-  --product-accent: var(--color-coral);
-}
-
-.product-card:nth-child(4n + 4) {
-  --product-accent: var(--color-honey);
-}
-
 .product-card:hover,
 .product-card:focus-within {
-  border-color: color-mix(in srgb, var(--product-accent) 55%, var(--color-line));
+  border-color: var(--color-primary);
   box-shadow: var(--shadow-control);
   transform: translateY(-2px);
+}
+
+.product-card:active {
+  transform: translateY(1px);
+}
+
+.product-card[data-state='sold-out'] .product-card__media :deep(.product-image) {
+  filter: grayscale(0.88);
+}
+
+.product-card[data-state='pending'] {
+  cursor: progress;
 }
 
 .product-card__media {
@@ -144,8 +185,8 @@ const actionDisabled = computed(() => props.disabled || props.pending || soldOut
   overflow: hidden;
   border-radius: var(--radius-pill);
   padding: var(--space-1) var(--space-2);
-  color: var(--color-text);
-  background: color-mix(in srgb, var(--color-surface) 90%, transparent);
+  color: var(--color-ink);
+  background: var(--color-surface);
   box-shadow: var(--shadow-control);
   font-size: var(--text-xs);
   font-weight: 700;
@@ -154,16 +195,18 @@ const actionDisabled = computed(() => props.disabled || props.pending || soldOut
 }
 
 .product-card__body {
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: var(--space-4);
   min-width: 0;
-  border-top: 3px solid var(--product-accent);
+  padding: var(--space-5);
 }
 
 .product-card__heading {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-3);
   align-items: flex-start;
-  justify-content: space-between;
   min-width: 0;
 }
 
@@ -172,10 +215,11 @@ const actionDisabled = computed(() => props.disabled || props.pending || soldOut
 }
 
 .product-card__title {
+  display: block;
   max-width: 100%;
   border: 0;
   padding: 0;
-  color: var(--color-text);
+  color: var(--color-ink);
   text-align: left;
   background: transparent;
   cursor: pointer;
@@ -190,7 +234,7 @@ const actionDisabled = computed(() => props.disabled || props.pending || soldOut
 
 .product-card__breed,
 .product-card__description {
-  color: var(--color-text-muted);
+  color: var(--color-muted);
 }
 
 .product-card__breed {
@@ -200,7 +244,7 @@ const actionDisabled = computed(() => props.disabled || props.pending || soldOut
 
 .product-card__price {
   flex: 0 0 auto;
-  color: var(--color-honey);
+  color: color-mix(in srgb, var(--color-accent) 72%, var(--color-ink));
   white-space: nowrap;
 }
 
@@ -214,19 +258,52 @@ const actionDisabled = computed(() => props.disabled || props.pending || soldOut
   -webkit-line-clamp: 2;
 }
 
+.product-card__specs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  border-top: 1px solid var(--color-line);
+  padding-top: var(--space-3);
+}
+
+.product-card__specs > div {
+  min-width: 0;
+}
+
+.product-card__specs dt {
+  overflow-wrap: anywhere;
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+}
+
+.product-card__specs dd {
+  margin: var(--space-1) 0 0;
+  overflow-wrap: anywhere;
+  color: var(--color-ink);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-bold);
+}
+
 .product-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
   align-self: end;
   min-width: 0;
 }
 
 .product-card__primary {
   min-width: 112px;
-  min-height: 44px;
+  min-height: var(--touch-target-min);
   margin-left: auto;
 }
 
 @media (max-width: 520px) {
-  .product-card__heading,
   .product-card__actions {
     align-items: stretch;
     flex-direction: column;
@@ -246,6 +323,10 @@ const actionDisabled = computed(() => props.disabled || props.pending || soldOut
 
   .product-card:hover,
   .product-card:focus-within {
+    transform: none;
+  }
+
+  .product-card:active {
     transform: none;
   }
 }

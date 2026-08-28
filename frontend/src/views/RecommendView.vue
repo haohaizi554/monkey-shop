@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Search, Star } from '@element-plus/icons-vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import * as searchApi from '@/api/search'
@@ -84,6 +84,10 @@ async function openRecommendation(item: Recommendation) {
 onMounted(() => {
   void loadRecommendations()
 })
+
+onUnmounted(() => {
+  recommendationState.cancel()
+})
 </script>
 
 <template>
@@ -97,7 +101,16 @@ onMounted(() => {
       </template>
     </PageHeader>
 
-    <form class="profile-panel" @submit.prevent="saveProfile">
+    <form
+      class="profile-panel"
+      data-surface="filter"
+      :aria-busy="saving"
+      @submit.prevent="saveProfile"
+    >
+      <div class="profile-panel__heading">
+        <span>{{ $t('recommend.personalized') }}</span>
+        <strong>{{ $t('recommend.profilePlaceholder') }}</strong>
+      </div>
       <el-input
         v-model="form.interestProfile"
         :aria-label="$t('recommend.profilePlaceholder')"
@@ -151,7 +164,17 @@ onMounted(() => {
         </div>
       </template>
 
-      <div class="recommend-grid">
+      <template #loading>
+        <div
+          class="product-grid recommend-grid skeleton-grid"
+          data-layout="field-guide"
+          aria-busy="true"
+        >
+          <div v-for="item in 4" :key="item" class="skeleton-card" />
+        </div>
+      </template>
+
+      <div class="product-grid recommend-grid" data-layout="field-guide">
         <ProductCard
           v-for="entry in recommendationCards"
           :key="entry.source.productId"
@@ -175,11 +198,33 @@ onMounted(() => {
 
 .profile-panel {
   display: grid;
-  grid-template-columns: minmax(180px, 2fr) minmax(160px, 1fr) auto minmax(0, auto);
+  grid-template-columns: minmax(180px, 1.2fr) minmax(160px, 1fr) auto minmax(0, auto);
   gap: var(--space-3);
   align-items: center;
   min-width: 0;
-  padding-block: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-surface);
+  padding: var(--space-4);
+  background: var(--color-surface);
+}
+
+.profile-panel__heading {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.profile-panel__heading span {
+  color: var(--color-primary);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.profile-panel__heading strong {
+  color: var(--color-ink);
+  font-size: var(--text-lg);
 }
 
 .profile-panel__submit {
@@ -190,7 +235,7 @@ onMounted(() => {
 .profile-panel__stored {
   min-width: 0;
   overflow-wrap: anywhere;
-  color: var(--color-text-muted);
+  color: var(--color-ink);
   font-weight: 700;
 }
 
@@ -202,8 +247,13 @@ onMounted(() => {
 
 .recommend-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: clamp(var(--space-5), 2.4vw, var(--space-8));
+  min-width: 0;
+}
+
+.product-grid[data-layout='field-guide'] {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
 }
 
 .recommend-error {
@@ -212,13 +262,17 @@ onMounted(() => {
   gap: var(--space-3);
   min-height: 280px;
   align-content: center;
-  color: var(--color-text-muted);
+  color: var(--color-ink);
   text-align: center;
 }
 
 @media (max-width: 900px) {
   .profile-panel {
     grid-template-columns: 1fr;
+  }
+
+  .profile-panel__submit {
+    width: 100%;
   }
 }
 </style>

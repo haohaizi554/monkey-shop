@@ -418,12 +418,29 @@ watch(selectedSkuId, (skuId) => {
         </div>
       </template>
 
-      <section v-if="product" class="product-detail-layout">
-        <div class="product-detail__media">
-          <ProductImage :src="product.imageUrl" :alt="product.name" />
+      <section v-if="product" class="product-detail-layout" data-layout="detail-field-guide">
+        <div
+          class="product-detail__gallery"
+          data-surface="gallery"
+          :aria-label="$t('common.image')"
+        >
+          <figure class="product-detail__media">
+            <ProductImage
+              :src="product.imageUrl"
+              :alt="product.name"
+              object-position="center 35%"
+            />
+            <figcaption class="sr-only">
+              {{ product.name }}<span v-if="product.breed">, {{ product.breed }}</span>
+            </figcaption>
+          </figure>
         </div>
 
-        <div class="product-detail-panel">
+        <div
+          class="product-detail-panel"
+          data-surface="purchase"
+          :data-state="soldOut ? 'sold-out' : 'available'"
+        >
           <p class="detail-description">{{ product.description }}</p>
 
           <div v-if="skuOptions.length" class="sku-selector">
@@ -452,6 +469,14 @@ watch(selectedSkuId, (skuId) => {
                   {{ availableQuantity }}
                   <small v-if="warehouseCount">
                     {{ $t('shop.warehouseCount', { count: warehouseCount }) }}
+                  </small>
+                  <small
+                    v-if="inventoryState.status.value === 'loading'"
+                    class="inventory-state"
+                    data-state="loading"
+                    role="status"
+                  >
+                    {{ $t('common.loading') }}
                   </small>
                 </dd>
               </div>
@@ -626,11 +651,25 @@ watch(selectedSkuId, (skuId) => {
   gap: var(--space-5);
 }
 
+.product-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: clamp(var(--space-6), 4vw, var(--space-12));
+  align-items: start;
+  min-width: 0;
+}
+
+.product-detail__gallery {
+  min-width: 0;
+}
+
 .collection-action {
-  min-height: 44px;
+  min-height: var(--touch-target-min);
 }
 
 .product-detail__media {
+  position: relative;
+  margin: 0;
   aspect-ratio: 4 / 3;
   overflow: hidden;
   border: 1px solid var(--color-line);
@@ -647,10 +686,25 @@ watch(selectedSkuId, (skuId) => {
 }
 
 .product-detail-panel {
+  display: grid;
+  gap: var(--space-5);
+  align-self: start;
+  position: sticky;
+  top: calc(var(--consumer-header-height) + var(--space-4));
+  min-width: 0;
   padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-surface);
+  padding: var(--space-6);
+  color: var(--color-ink);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+  scroll-margin-block-start: calc(var(--consumer-header-height) + var(--space-5));
+}
+
+.detail-description {
+  color: var(--color-ink);
+  line-height: var(--leading-relaxed);
 }
 
 .price-stack {
@@ -660,19 +714,19 @@ watch(selectedSkuId, (skuId) => {
 }
 
 .price-stack strong {
-  color: var(--color-primary);
+  color: var(--color-primary-strong);
   font-size: var(--text-2xl);
 }
 
 .price-stack > span,
 .price-stack small {
-  color: var(--color-text-muted);
+  color: var(--color-ink);
   font-size: var(--text-xs);
   font-weight: 700;
 }
 
 .price-stack del {
-  color: var(--color-text-muted);
+  color: var(--color-ink);
   font-size: var(--text-sm);
 }
 
@@ -719,7 +773,7 @@ watch(selectedSkuId, (skuId) => {
 }
 
 .purchase-meta dt {
-  color: var(--color-text-muted);
+  color: var(--color-ink);
   font-size: var(--text-sm);
 }
 
@@ -733,9 +787,17 @@ watch(selectedSkuId, (skuId) => {
 }
 
 .purchase-meta dd small {
-  color: var(--color-text-muted);
+  color: var(--color-ink);
   font-size: var(--text-xs);
   font-weight: 600;
+}
+
+.inventory-state {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--color-ink);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semibold);
 }
 
 .quantity-control {
@@ -745,7 +807,7 @@ watch(selectedSkuId, (skuId) => {
 }
 
 .quantity-control > span {
-  color: var(--color-text-muted);
+  color: var(--color-ink);
   font-size: var(--text-sm);
   font-weight: 700;
 }
@@ -792,7 +854,7 @@ watch(selectedSkuId, (skuId) => {
 
 .stock-warning p {
   margin: 0;
-  color: var(--color-text-muted);
+  color: var(--color-ink);
   line-height: var(--leading-normal);
 }
 
@@ -824,6 +886,15 @@ watch(selectedSkuId, (skuId) => {
 }
 
 @media (max-width: 900px) {
+  .product-detail-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .product-detail-panel {
+    position: static;
+    padding: var(--space-5);
+  }
+
   .purchase-surface,
   .address-form {
     grid-template-columns: 1fr;
