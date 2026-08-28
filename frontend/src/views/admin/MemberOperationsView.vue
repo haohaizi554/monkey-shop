@@ -10,6 +10,8 @@ import {
   scanPriceDrops,
 } from '@/api/membership'
 import AdminCommerceNav from '@/components/admin/AdminCommerceNav.vue'
+import AdminPageToolbar from '@/components/admin/AdminPageToolbar.vue'
+import MetricStrip, { type MetricItem } from '@/components/admin/MetricStrip.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
@@ -38,6 +40,30 @@ const scanPending = ref(false)
 const scanResult = ref<PriceDropScanResult>()
 const dashboard = computed(() => dashboardState.data.value)
 const activeMemberId = computed(() => dashboard.value?.profile.userId)
+const metrics = computed<MetricItem[]>(() => [
+  {
+    key: 'member-level',
+    label: t('adminCommerce.memberLevel'),
+    value: dashboard.value?.profile.level ?? '-',
+    tone: dashboard.value ? 'info' : 'neutral',
+  },
+  {
+    key: 'points-balance',
+    label: t('adminCommerce.pointsBalance'),
+    value: dashboard.value ? `${dashboard.value.wallet.balance} pts` : '-',
+    tone: dashboard.value ? 'success' : 'neutral',
+  },
+  {
+    key: 'growth-value',
+    label: t('adminCommerce.growthValue'),
+    value: dashboard.value?.profile.growthValue ?? '-',
+  },
+  {
+    key: 'scan-reminders',
+    label: t('adminCommerce.remindersCreated'),
+    value: scanResult.value?.reminders ?? '-',
+  },
+])
 const loadedTargetReady = computed(
   () =>
     Boolean(activeMemberId.value) &&
@@ -198,7 +224,12 @@ watch(
 </script>
 
 <template>
-  <div class="route-view commerce-page">
+  <div
+    class="route-view commerce-page"
+    data-surface="commerce-observatory"
+    data-observatory="commerce"
+    data-workspace="members"
+  >
     <PageHeader
       :eyebrow="t('adminCommerce.workspace')"
       :title="t('adminCommerce.membersTitle')"
@@ -207,7 +238,24 @@ watch(
 
     <AdminCommerceNav />
 
-    <section class="commerce-section" aria-labelledby="member-lookup-title">
+    <AdminPageToolbar :aria-label="t('adminCommerce.membersTitle')">
+      <template #search>
+        <span class="commerce-toolbar__scope">{{ t('adminCommerce.memberLookupTitle') }}</span>
+      </template>
+      <template #filters>
+        <span class="commerce-toolbar__state" data-state="member-selection">
+          {{ t('adminCommerce.automationTitle') }}
+        </span>
+      </template>
+    </AdminPageToolbar>
+
+    <MetricStrip :items="metrics" />
+
+    <section
+      class="commerce-section"
+      data-workspace="member-lookup"
+      aria-labelledby="member-lookup-title"
+    >
       <div class="commerce-section__heading">
         <div>
           <h2 id="member-lookup-title">{{ t('adminCommerce.memberLookupTitle') }}</h2>
@@ -293,7 +341,11 @@ watch(
       </AsyncStateView>
     </section>
 
-    <section class="commerce-section" aria-labelledby="member-points-title">
+    <section
+      class="commerce-section"
+      data-workspace="member-points"
+      aria-labelledby="member-points-title"
+    >
       <div class="commerce-section__heading">
         <div>
           <h2 id="member-points-title">{{ t('adminCommerce.manualPointsTitle') }}</h2>
@@ -338,7 +390,11 @@ watch(
       </div>
     </section>
 
-    <section class="commerce-section" aria-labelledby="member-level-title">
+    <section
+      class="commerce-section"
+      data-workspace="member-level"
+      aria-labelledby="member-level-title"
+    >
       <div class="commerce-section__heading">
         <div>
           <h2 id="member-level-title">{{ t('adminCommerce.levelManagementTitle') }}</h2>
@@ -397,7 +453,11 @@ watch(
       </div>
     </section>
 
-    <section class="commerce-section" aria-labelledby="member-automation-title">
+    <section
+      class="commerce-section"
+      data-workspace="member-automation"
+      aria-labelledby="member-automation-title"
+    >
       <div class="commerce-section__heading">
         <div>
           <h2 id="member-automation-title">{{ t('adminCommerce.automationTitle') }}</h2>

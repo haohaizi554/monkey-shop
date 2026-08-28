@@ -6,6 +6,7 @@ import { useRouter } from 'vue-router'
 import type { ApiId } from '@/api/ids'
 import AdminCommerceNav from '@/components/admin/AdminCommerceNav.vue'
 import AdminPageToolbar from '@/components/admin/AdminPageToolbar.vue'
+import MetricStrip, { type MetricItem } from '@/components/admin/MetricStrip.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import DataTableShell from '@/components/ui/DataTableShell.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -42,6 +43,26 @@ const { orders, page, pageSize, currentPage, status, error, loadOrders, changePa
   })
 
 const viewStatus = computed(() => status.value)
+const metrics = computed<MetricItem[]>(() => [
+  {
+    key: 'visible-orders',
+    label: t('adminCommerce.ordersTitle'),
+    value: orders.value.length,
+    tone: 'info',
+  },
+  {
+    key: 'total-orders',
+    label: t('adminCommerce.orderNo'),
+    value: page.value?.totalElements ?? 0,
+  },
+  {
+    key: 'status-scope',
+    label: t('common.status'),
+    value: statusFilter.value
+      ? statusFilter.value.replaceAll('_', ' ')
+      : t('adminCommerce.allStatuses'),
+  },
+])
 
 function openWorkspace(path: string, orderId: ApiId) {
   void router.push({ path, query: { orderId: String(orderId) } })
@@ -61,7 +82,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="route-view commerce-page">
+  <div
+    class="route-view commerce-page"
+    data-surface="commerce-observatory"
+    data-observatory="commerce"
+    data-workspace="orders"
+  >
     <PageHeader
       :eyebrow="t('adminCommerce.workspace')"
       :title="t('adminCommerce.ordersTitle')"
@@ -103,6 +129,8 @@ onUnmounted(() => {
       </template>
     </AdminPageToolbar>
 
+    <MetricStrip :items="metrics" />
+
     <AsyncStateView
       :status="viewStatus"
       mode="table"
@@ -125,7 +153,7 @@ onUnmounted(() => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="order in orders" :key="order.id">
+            <tr v-for="order in orders" :key="order.id" :data-order-id="order.id">
               <td>
                 <span class="commerce-table__primary">
                   <strong>{{ order.orderNo }}</strong>

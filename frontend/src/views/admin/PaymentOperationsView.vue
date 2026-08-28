@@ -6,6 +6,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { isPositiveApiId, normalizeApiId, sameApiId, type ApiId } from '@/api/ids'
 import { adminPaymentForOrder, adminRefundPayment, reconcilePayment } from '@/api/payments'
 import AdminCommerceNav from '@/components/admin/AdminCommerceNav.vue'
+import AdminPageToolbar from '@/components/admin/AdminPageToolbar.vue'
+import MetricStrip, { type MetricItem } from '@/components/admin/MetricStrip.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import StatusTag from '@/components/ui/StatusTag.vue'
@@ -23,9 +25,22 @@ import { getIdempotencyIntent } from '@/utils/idempotencyIntent'
 defineOptions({ name: 'PaymentOperationsView' })
 
 interface EditableReconciliationLine {
+  editorKey: string
   paymentNo: string
   providerTradeNo: string
   amount: string
+}
+
+let reconciliationEditorSequence = 0
+
+function createReconciliationLine(): EditableReconciliationLine {
+  reconciliationEditorSequence += 1
+  return {
+    editorKey: `reconciliation-line-${reconciliationEditorSequence}`,
+    paymentNo: '',
+    providerTradeNo: '',
+    amount: '',
+  }
 }
 
 function defaultReportDate() {
@@ -48,9 +63,7 @@ const refundReason = ref('')
 const refundPending = ref(false)
 const provider = ref<PaymentMethod>('WECHAT')
 const reportDate = ref(defaultReportDate())
-const reconciliationLines = ref<EditableReconciliationLine[]>([
-  { paymentNo: '', providerTradeNo: '', amount: '' },
-])
+const reconciliationLines = ref<EditableReconciliationLine[]>([createReconciliationLine()])
 const payment = computed(() => paymentState.data.value)
 const reconciliation = computed(() => reconciliationState.data.value)
 const loadedPaymentReady = computed(
@@ -89,6 +102,31 @@ const canReconcile = computed(
         Number(line.amount) >= 0,
     ),
 )
+const showRefundControls = computed(
+  () =>
+    (Boolean(payment.value) && remainingRefund.value > 0) ||
+    (orderIdValid.value && paymentState.status.value === 'loading'),
+)
+const metrics = computed<MetricItem[]>(() => [
+  {
+    key: 'payment-status',
+    label: t('adminCommerce.paymentStatus'),
+    value: payment.value?.status ?? '-',
+    tone: payment.value?.status === 'PAID' ? 'success' : 'neutral',
+  },
+  {
+    key: 'remaining-refund',
+    label: t('adminCommerce.refundAmount'),
+    value: money(remainingRefund.value),
+    tone: remainingRefund.value > 0 ? 'warning' : 'neutral',
+  },
+  {
+    key: 'reconciliation-issues',
+    label: t('adminCommerce.issueCount'),
+    value: reconciliation.value?.issueCount ?? '-',
+    tone: reconciliation.value?.issueCount ? 'danger' : 'neutral',
+  },
+])
 
 async function loadPayment(id: ApiId) {
   const result = await paymentState.load(() => adminPaymentForOrder(id), {
@@ -156,12 +194,12 @@ async function issueRefund() {
 }
 
 function addReconciliationLine() {
-  reconciliationLines.value.push({ paymentNo: '', providerTradeNo: '', amount: '' })
+  reconciliationLines.value.push(createReconciliationLine())
 }
 
 function removeReconciliationLine(index: number) {
   if (reconciliationLines.value.length === 1) {
-    reconciliationLines.value[0] = { paymentNo: '', providerTradeNo: '', amount: '' }
+    reconciliationLines.value[0] = createReconciliationLine()
     return
   }
   reconciliationLines.value.splice(index, 1)
@@ -202,7 +240,12 @@ watch(
 </script>
 
 <template>
-  <div class="route-view commerce-page">
+  <div
+    class="route-view commerce-page"
+    data-surface="commerce-observatory"
+    data-observatory="commerce"
+    data-workspace="payments"
+  >
     <PageHeader
       :eyebrow="t('adminCommerce.workspace')"
       :title="t('adminCommerce.paymentsTitle')"
@@ -210,6 +253,30 @@ watch(
     />
 
     <AdminCommerceNav />
+
+    <AdminPageToolbar :aria-label="t('adminCommerce.paymentTitle')">
+      <template #search>
+        <span class="commerce-toolbar__scope">{{ t('adminCommerce.paymentTitle') }}</span>
+      </template>
+      <template #filters>
+        <span class="commerce-toolbar__state" data-state="payment-selection">
+          {{ payment ? t('adminCommerce.paymentStatus') : t('adminCommerce.noPaymentSelected') }}
+        </span>
+      </template>
+      <template #actions>
+        <el-button
+          v-if="payment"
+          :icon="RefreshRight"
+          :loading="paymentState.isLoading.value"
+          :disabled="paymentState.isLoading.value"
+          @click="loadPayment(payment.orderId)"
+        >
+          {{ t('common.refresh') }}
+        </el-button>
+      </template>
+    </AdminPageToolbar>
+
+    <MetricStrip :items="metrics" />
 
     <section class="commerce-section" :aria-labelledby="'payment-details-title'">
       <div class="commerce-section__heading">
@@ -238,14 +305,6 @@ watch(
             @click="submitPaymentLookup"
           >
             {{ t('adminCommerce.loadPayment') }}
-          </el-button>
-          <el-button
-            v-if="payment"
-            :icon="RefreshRight"
-            :loading="paymentState.isLoading.value"
-            @click="loadPayment(payment.orderId)"
-          >
-            {{ t('common.refresh') }}
           </el-button>
         </div>
       </div>
@@ -283,40 +342,40 @@ watch(
             <dd>{{ money(payment.refundedAmount) }}</dd>
           </div>
         </dl>
-
-        <div v-if="payment && remainingRefund > 0" class="commerce-form-grid">
-          <div class="commerce-field">
-            <span>{{ t('adminCommerce.refundAmount') }}</span>
-            <el-input
-              id="payment-refund-amount"
-              v-model="refundAmount"
-              inputmode="decimal"
-              :aria-label="t('adminCommerce.refundAmount')"
-            />
-          </div>
-          <div class="commerce-field">
-            <span>{{ t('adminCommerce.refundReason') }}</span>
-            <el-input
-              id="payment-refund-reason"
-              v-model="refundReason"
-              :placeholder="t('adminCommerce.refundReasonPlaceholder')"
-              :aria-label="t('adminCommerce.refundReason')"
-            />
-          </div>
-          <div class="commerce-actions commerce-actions--end commerce-field--wide">
-            <el-button
-              type="danger"
-              plain
-              :icon="Wallet"
-              :loading="refundPending"
-              :disabled="!canRefund"
-              @click="issueRefund"
-            >
-              {{ t('adminCommerce.refundPayment') }}
-            </el-button>
-          </div>
-        </div>
       </AsyncStateView>
+
+      <div v-if="showRefundControls" class="commerce-form-grid" data-surface="refund-editor">
+        <div class="commerce-field">
+          <span>{{ t('adminCommerce.refundAmount') }}</span>
+          <el-input
+            id="payment-refund-amount"
+            v-model="refundAmount"
+            inputmode="decimal"
+            :aria-label="t('adminCommerce.refundAmount')"
+          />
+        </div>
+        <div class="commerce-field">
+          <span>{{ t('adminCommerce.refundReason') }}</span>
+          <el-input
+            id="payment-refund-reason"
+            v-model="refundReason"
+            :placeholder="t('adminCommerce.refundReasonPlaceholder')"
+            :aria-label="t('adminCommerce.refundReason')"
+          />
+        </div>
+        <div class="commerce-actions commerce-actions--end commerce-field--wide">
+          <el-button
+            type="danger"
+            plain
+            :icon="Wallet"
+            :loading="refundPending"
+            :disabled="!canRefund"
+            @click="issueRefund"
+          >
+            {{ t('adminCommerce.refundPayment') }}
+          </el-button>
+        </div>
+      </div>
     </section>
 
     <section class="commerce-section" :aria-labelledby="'reconciliation-title'">
@@ -356,11 +415,16 @@ watch(
       </div>
 
       <div>
-        <div v-for="(line, index) in reconciliationLines" :key="index" class="commerce-line-editor">
+        <div
+          v-for="(line, index) in reconciliationLines"
+          :key="line.editorKey"
+          class="commerce-line-editor"
+          :data-editor-key="line.editorKey"
+        >
           <div class="commerce-field">
             <span>{{ t('adminCommerce.paymentNo') }}</span>
             <el-input
-              :id="`reconciliation-payment-${index}`"
+              :id="`reconciliation-payment-${line.editorKey}`"
               v-model="line.paymentNo"
               :aria-label="t('adminCommerce.paymentNo')"
             />
@@ -368,7 +432,7 @@ watch(
           <div class="commerce-field">
             <span>{{ t('adminCommerce.providerTradeNo') }}</span>
             <el-input
-              :id="`reconciliation-trade-${index}`"
+              :id="`reconciliation-trade-${line.editorKey}`"
               v-model="line.providerTradeNo"
               :aria-label="t('adminCommerce.providerTradeNo')"
             />
@@ -376,7 +440,7 @@ watch(
           <div class="commerce-field">
             <span>{{ t('adminCommerce.lineAmount') }}</span>
             <el-input
-              :id="`reconciliation-amount-${index}`"
+              :id="`reconciliation-amount-${line.editorKey}`"
               v-model="line.amount"
               inputmode="decimal"
               :aria-label="t('adminCommerce.lineAmount')"
@@ -384,6 +448,7 @@ watch(
           </div>
           <el-tooltip :content="t('adminCommerce.removeLine')">
             <el-button
+              class="commerce-icon-button"
               circle
               :icon="Delete"
               :aria-label="t('adminCommerce.removeLine')"
@@ -438,3 +503,10 @@ watch(
     </section>
   </div>
 </template>
+
+<style scoped>
+.commerce-icon-button {
+  min-width: var(--touch-target-min);
+  min-height: var(--touch-target-min);
+}
+</style>

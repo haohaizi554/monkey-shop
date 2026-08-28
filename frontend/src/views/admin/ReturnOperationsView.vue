@@ -6,6 +6,7 @@ import * as ordersApi from '@/api/orders'
 import { adminPaymentForOrder, adminRefundPayment } from '@/api/payments'
 import AdminCommerceNav from '@/components/admin/AdminCommerceNav.vue'
 import AdminPageToolbar from '@/components/admin/AdminPageToolbar.vue'
+import MetricStrip, { type MetricItem } from '@/components/admin/MetricStrip.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import DataTableShell from '@/components/ui/DataTableShell.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -33,6 +34,28 @@ const { orders, page, pageSize, currentPage, status, error, loadOrders, changePa
   })
 
 const returnOrders = computed(() => orders.value)
+const metrics = computed<MetricItem[]>(() => [
+  {
+    key: 'visible-returns',
+    label: t('adminCommerce.returnsTitle'),
+    value: returnOrders.value.length,
+    tone: 'warning',
+  },
+  {
+    key: 'total-returns',
+    label: t('adminCommerce.orderNo'),
+    value: page.value?.totalElements ?? 0,
+  },
+  {
+    key: 'pending-actions',
+    label: t('adminCommerce.actions'),
+    value: returnOrders.value.filter(
+      (order) =>
+        hasAdminOrderAction(order.status, 'approveReturn') ||
+        hasAdminOrderAction(order.status, 'refundReturn'),
+    ).length,
+  },
+])
 
 const viewStatus = computed(() => {
   if ((status.value === 'success' || status.value === 'empty') && returnOrders.value.length === 0) {
@@ -139,7 +162,12 @@ async function refundReturn(order: Order) {
 </script>
 
 <template>
-  <div class="route-view commerce-page">
+  <div
+    class="route-view commerce-page"
+    data-surface="commerce-observatory"
+    data-observatory="commerce"
+    data-workspace="returns"
+  >
     <PageHeader
       :eyebrow="t('adminCommerce.workspace')"
       :title="t('adminCommerce.returnsTitle')"
@@ -165,6 +193,8 @@ async function refundReturn(order: Order) {
         />
       </template>
     </AdminPageToolbar>
+
+    <MetricStrip :items="metrics" />
 
     <AsyncStateView
       :status="viewStatus"

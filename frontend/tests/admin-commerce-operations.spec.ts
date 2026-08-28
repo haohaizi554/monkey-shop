@@ -110,6 +110,12 @@ test('commerce operations are four linked admin workspaces without callback simu
   ] as const) {
     await page.goto(path)
     await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
+    await expect(page.locator('.route-view[data-surface="commerce-observatory"]')).toHaveAttribute(
+      'data-observatory',
+      'commerce',
+    )
+    await expect(page.locator('.admin-page-toolbar')).toHaveAttribute('data-density', 'compact')
+    await expect(page.locator('.metric-strip')).toHaveAttribute('data-surface', 'signal-strip')
     await expect(page.locator('body')).not.toContainText(/Push webhook|Simulate callback/)
   }
 })
@@ -237,6 +243,30 @@ test('payment lookup keeps a Snowflake order ID exact in query, input, URL, and 
   await expect(orderIdInput).toHaveValue(SNOWFLAKE_ID)
   await expect(page.getByRole('spinbutton', { name: 'Order ID' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Issue refund', exact: true })).toBeEnabled()
+
+  const reconciliationLines = page.locator('.commerce-line-editor')
+  const firstEditorKey = await reconciliationLines.nth(0).getAttribute('data-editor-key')
+  const firstPaymentInputId = await reconciliationLines
+    .nth(0)
+    .getByRole('textbox', { name: 'Payment number', exact: true })
+    .getAttribute('id')
+  expect(firstEditorKey).toMatch(/^reconciliation-line-/)
+  await page.getByRole('button', { name: 'Add row', exact: true }).click()
+  await expect(reconciliationLines).toHaveCount(2)
+  const secondEditorKey = await reconciliationLines.nth(1).getAttribute('data-editor-key')
+  const secondPaymentInputId = await reconciliationLines
+    .nth(1)
+    .getByRole('textbox', { name: 'Payment number', exact: true })
+    .getAttribute('id')
+  expect(secondEditorKey).toMatch(/^reconciliation-line-/)
+  expect(secondEditorKey).not.toBe(firstEditorKey)
+  expect(secondPaymentInputId).not.toBe(firstPaymentInputId)
+  await reconciliationLines.nth(0).getByRole('button', { name: 'Remove row', exact: true }).click()
+  await expect(reconciliationLines).toHaveCount(1)
+  await expect(reconciliationLines.nth(0)).toHaveAttribute('data-editor-key', secondEditorKey!)
+  await expect(
+    reconciliationLines.nth(0).getByRole('textbox', { name: 'Payment number', exact: true }),
+  ).toHaveAttribute('id', secondPaymentInputId!)
 
   await orderIdInput.fill('12')
   await page.getByRole('button', { name: 'Load payment', exact: true }).click()
