@@ -508,7 +508,9 @@ void initializeRiskQueue()
           <h2 id="review-list-title">{{ t('risk.manualReview') }}</h2>
         </div>
       </header>
-      <AdminPageToolbar :aria-label="t('common.clearFilters')">
+      <AdminPageToolbar
+        :aria-label="[t('risk.status'), t('risk.minScore'), t('risk.maxScoreFilter')].join(', ')"
+      >
         <template #filters>
           <el-select v-model="filters.status" :aria-label="t('risk.status')" clearable>
             <el-option :label="t('risk.allStatuses')" value="" />
@@ -1068,11 +1070,6 @@ void initializeRiskQueue()
   }
 
   .assessment-form__actions {
-    position: fixed;
-    right: var(--space-3);
-    bottom: var(--space-3);
-    left: var(--space-3);
-    z-index: var(--z-sticky);
     box-sizing: border-box;
     padding: var(--space-2);
     border: 1px solid var(--admin-line-strong);
@@ -1104,6 +1101,17 @@ void initializeRiskQueue()
   .assessment-field :deep(.el-input-number__decrease),
   .assessment-field :deep(.el-input-number__increase) {
     min-height: var(--touch-target-min);
+  }
+
+  .decision-drawer :deep(.el-radio-button) {
+    display: inline-flex;
+    min-height: var(--touch-target-min);
+  }
+
+  .decision-drawer :deep(.el-radio-button__inner) {
+    display: inline-flex;
+    min-height: var(--touch-target-min);
+    align-items: center;
   }
 
   .assessment-result:has(.async-state-view[data-status='idle']) {
