@@ -32,6 +32,31 @@ public interface MembershipStore {
 
     PointsLedgerEntry saveLedger(PointsLedgerEntry entry);
 
+    /** Returns the durable reward fact for a payment in the current tenant. */
+    default Optional<PurchaseRewardFact> findPurchaseReward(Long paymentId) {
+        return Optional.empty();
+    }
+
+    /** Persists a payment reward fact or its optimistic-lock update. */
+    default PurchaseRewardFact savePurchaseReward(PurchaseRewardFact fact) {
+        throw new UnsupportedOperationException("Purchase reward persistence is not configured");
+    }
+
+    /** Returns an event bound to this payment reward fact and event key. */
+    default Optional<PurchaseRewardEvent> findPurchaseRewardEvent(Long paymentId, String eventKey) {
+        return Optional.empty();
+    }
+
+    /** Returns any event with this tenant-scoped key, including events bound to another payment. */
+    default Optional<PurchaseRewardEvent> findPurchaseRewardEventByKey(String eventKey) {
+        return Optional.empty();
+    }
+
+    /** Persists immutable payment reward event evidence. */
+    default PurchaseRewardEvent savePurchaseRewardEvent(PurchaseRewardEvent event) {
+        throw new UnsupportedOperationException("Purchase reward event persistence is not configured");
+    }
+
     Optional<MembershipCheckIn> findCheckIn(Long userId, LocalDate date);
 
     Optional<MembershipCheckIn> findCheckInByIdempotencyKey(Long userId, String idempotencyKey);

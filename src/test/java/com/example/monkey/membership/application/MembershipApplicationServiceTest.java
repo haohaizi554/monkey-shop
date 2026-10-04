@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
+import com.example.monkey.membership.application.dto.BrowseRecordRequestDto;
 import com.example.monkey.membership.application.dto.CollectionRequestDto;
 import com.example.monkey.membership.application.dto.LevelChangeRequestDto;
 import com.example.monkey.membership.application.dto.PointsEarnRequestDto;
@@ -25,6 +26,8 @@ import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.id.IdGenerator;
+import com.example.monkey.shared.domain.storage.ImageReferenceService;
+import com.example.monkey.shared.infrastructure.storage.InMemoryImageReferenceService;
 import com.example.monkey.user.domain.UserAccountStore;
 import com.example.monkey.user.domain.UserAccountStore.UserAccount;
 import com.example.monkey.user.domain.UserMfaVerifier;
@@ -46,9 +49,13 @@ import org.junit.jupiter.api.Test;
 class MembershipApplicationServiceTest {
 
     private static final SessionUser USER = new SessionUser(7L, "USER");
+    private static final SessionUser ADMIN = new SessionUser(7L, "ADMIN");
     private static final String VALID_TOTP_CODE = "123" + "456";
+    private final List<String> browseEvents = new ArrayList<>();
     private final FakeMembershipStore store = new FakeMembershipStore();
-    private final FakeActivityStore activityStore = new FakeActivityStore();
+    private final FakeActivityStore activityStore = new FakeActivityStore(browseEvents);
+    private final RecordingImageReferenceService imageReferenceService =
+            new RecordingImageReferenceService(browseEvents);
     private final FakeIdGenerator idGenerator = new FakeIdGenerator();
     private final FakeMfaVerifier mfaVerifier = new FakeMfaVerifier();
     private final Clock clock = Clock.fixed(Instant.parse("2026-07-04T02:00:00Z"), ZoneId.of("Asia/Shanghai"));
@@ -60,6 +67,7 @@ class MembershipApplicationServiceTest {
             mfaVerifier,
             idGenerator,
             mock(AuditService.class),
+            imageReferenceService,
             clock,
             Duration.ofDays(7));
 
@@ -77,7 +85,7 @@ class MembershipApplicationServiceTest {
 
     @Test
     void pointsEarnAndRedeemUpdateWalletAndLedger() {
-        service.earnPoints(USER, new PointsEarnRequestDto(99L, BigDecimal.valueOf(120), "order:99"), "earn-1");
+        service.earnPoints(ADMIN, new PointsEarnRequestDto(99L, BigDecimal.valueOf(120), "order:99"), "earn-1");
         service.redeemPoints(USER, new PointsRedeemRequestDto(50, "redeem"), "redeem-1");
 
         assertThat(store.wallets.get(7L).balance()).isEqualTo(70);
@@ -85,7 +93,7 @@ class MembershipApplicationServiceTest {
         assertThat(store.wallets.get(7L).totalSpent()).isEqualTo(50);
         assertThat(store.ledgers).hasSize(2);
         assertThat(service.earnPoints(
-                                USER, new PointsEarnRequestDto(99L, BigDecimal.valueOf(120), "order:99"), "earn-1")
+                                ADMIN, new PointsEarnRequestDto(99L, BigDecimal.valueOf(120), "order:99"), "earn-1")
                         .points())
                 .isEqualTo(120);
     }
@@ -93,12 +101,12 @@ class MembershipApplicationServiceTest {
     @Test
     void levelChangeRequiresTotpAndCas() {
         assertThatThrownBy(() -> service.changeLevel(
-                        USER, new LevelChangeRequestDto(MembershipLevel.SILVER, "manual", "000000")))
+                        ADMIN, new LevelChangeRequestDto(MembershipLevel.SILVER, "manual", "000000")))
                 .isInstanceOf(BusinessException.class);
 
         mfaVerifier.accept = true;
         var dashboard =
-                service.changeLevel(USER, new LevelChangeRequestDto(MembershipLevel.SILVER, "manual", VALID_TOTP_CODE));
+                service.changeLevel(ADMIN, new LevelChangeRequestDto(MembershipLevel.SILVER, "manual", VALID_TOTP_CODE));
 
         assertThat(dashboard.profile().level()).isEqualTo(MembershipLevel.SILVER);
         assertThat(store.levelHistory).hasSize(1);
@@ -107,7 +115,7 @@ class MembershipApplicationServiceTest {
     @Test
     void collectionsBrowsingAndPriceDropReminderUseProductSnapshot() {
         service.addCollection(USER, new CollectionRequestDto(101L, BigDecimal.valueOf(99)));
-        service.recordBrowse(USER, new com.example.monkey.membership.application.dto.BrowseRecordRequestDto(101L));
+        service.recordBrowse(USER, new BrowseRecordRequestDto(101L));
         store.products.put(101L, new ProductSnapshot(101L, "Phone", "/p.png", BigDecimal.valueOf(89)));
 
         var scan = service.scanPriceDrops();
@@ -116,6 +124,84 @@ class MembershipApplicationServiceTest {
         assertThat(scan.reminders()).isEqualTo(1);
         assertThat(store.priceDrops).hasSize(1);
         assertThat(store.collections.get("7:101").priceDropNotified()).isTrue();
+    }
+
+    @Test
+    void recordBrowseRetainsTrackableProductImageBeforeWritingHistory() {
+        service.recordBrowse(USER, new BrowseRecordRequestDto(101L));
+
+        assertThat(browseEvents).containsExactly("retain", "record");
+        assertThat(imageReferenceService.retainedImages).containsExactly("/p.png");
+    }
+
+    @Test
+    void recordBrowseDoesNotWriteHistoryWhenImageRetentionFails() {
+        imageReferenceService.retainFailure = new IllegalStateException("image tombstone exists");
+
+        assertThatThrownBy(() -> service.recordBrowse(USER, new BrowseRecordRequestDto(101L)))
+                .isSameAs(imageReferenceService.retainFailure);
+        assertThat(activityStore.items).isEmpty();
+        assertThat(browseEvents).containsExactly("retain");
+    }
+
+    @Test
+    void compatibilityConstructorRejectsTrackableBrowseImageWithoutImageReferences() {
+        MembershipApplicationService compatibilityService = compatibilityService();
+
+        assertThatThrownBy(() -> compatibilityService.recordBrowse(USER, new BrowseRecordRequestDto(101L)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("image reference tracking is not configured");
+        assertThat(activityStore.items).isEmpty();
+    }
+
+    @Test
+    void compatibilityConstructorStillAllowsDefaultBrowseImage() {
+        store.products.put(101L, new ProductSnapshot(101L, "Phone", "/images/default_product.png", BigDecimal.valueOf(199)));
+
+        compatibilityService().recordBrowse(USER, new BrowseRecordRequestDto(101L));
+
+        assertThat(activityStore.items).hasSize(1);
+        assertThat(browseEvents).containsExactly("record");
+    }
+
+    @Test
+    void recordBrowseChangesProviderVersionSoStaleSnapshotCasFails() {
+        InMemoryImageReferenceService references = new InMemoryImageReferenceService();
+        MembershipApplicationService serviceWithReferences = serviceWith(references);
+        long staleVersion = references.snapshotVersion();
+
+        serviceWithReferences.recordBrowse(USER, new BrowseRecordRequestDto(101L));
+
+        assertThat(references.snapshotVersion()).isGreaterThan(staleVersion);
+        assertThat(references.replaceIfUnchanged(List.of("/images/other.png"), staleVersion)).isFalse();
+        assertThat(activityStore.items).hasSize(1);
+    }
+
+    private MembershipApplicationService compatibilityService() {
+        return new MembershipApplicationService(
+                store,
+                activityStore,
+                new AdjacentTransitionResolver(),
+                new FakeUserAccountStore(),
+                mfaVerifier,
+                idGenerator,
+                mock(AuditService.class),
+                clock,
+                Duration.ofDays(7));
+    }
+
+    private MembershipApplicationService serviceWith(ImageReferenceService references) {
+        return new MembershipApplicationService(
+                store,
+                activityStore,
+                new AdjacentTransitionResolver(),
+                new FakeUserAccountStore(),
+                mfaVerifier,
+                idGenerator,
+                mock(AuditService.class),
+                references,
+                clock,
+                Duration.ofDays(7));
     }
 
     private static final class AdjacentTransitionResolver implements MembershipLevelTransitionResolver {
@@ -166,13 +252,13 @@ class MembershipApplicationServiceTest {
                     "18800000000",
                     "a@example.com",
                     null,
-                    "USER",
+                    "ADMIN",
                     "Alice",
                     null,
                     false,
                     "SECRET",
                     true,
-                    List.of("MEMBERSHIP_WRITE")));
+                    List.of("MEMBERSHIP_WRITE", "MEMBERSHIP_ADMIN")));
         }
 
         @Override
@@ -195,10 +281,16 @@ class MembershipApplicationServiceTest {
     }
 
     private static final class FakeActivityStore implements MembershipActivityStore {
+        private final List<String> events;
         private final List<BrowseHistoryItem> items = new ArrayList<>();
+
+        private FakeActivityStore(List<String> events) {
+            this.events = events;
+        }
 
         @Override
         public BrowseHistoryItem record(BrowseHistoryItem item, Duration ttl) {
+            events.add("record");
             items.removeIf(existing -> existing.userId().equals(item.userId())
                     && existing.productId().equals(item.productId()));
             items.add(item);
@@ -212,6 +304,38 @@ class MembershipApplicationServiceTest {
                     .sorted(Comparator.comparing(BrowseHistoryItem::viewedAt).reversed())
                     .limit(limit)
                     .toList();
+        }
+    }
+
+    private static final class RecordingImageReferenceService implements ImageReferenceService {
+        private final List<String> events;
+        private final List<String> retainedImages = new ArrayList<>();
+        private RuntimeException retainFailure;
+
+        private RecordingImageReferenceService(List<String> events) {
+            this.events = events;
+        }
+
+        @Override
+        public void retain(String imagePath) {
+            events.add("retain");
+            if (retainFailure != null) {
+                throw retainFailure;
+            }
+            retainedImages.add(imagePath);
+        }
+
+        @Override
+        public void release(String imagePath) {}
+
+        @Override
+        public long referenceCount(String imagePath) {
+            return retainedImages.stream().filter(imagePath::equals).count();
+        }
+
+        @Override
+        public void clear() {
+            retainedImages.clear();
         }
     }
 

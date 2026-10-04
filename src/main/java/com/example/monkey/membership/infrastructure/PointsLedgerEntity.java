@@ -39,6 +39,9 @@ public class PointsLedgerEntity extends TenantScopedJpaEntity {
     @Column(nullable = false, length = 160)
     private String idempotencyKey;
 
+    @Column(name = "mutation_fingerprint", columnDefinition = "CHAR(64)")
+    private String mutationFingerprint;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
@@ -104,6 +107,14 @@ public class PointsLedgerEntity extends TenantScopedJpaEntity {
 
     public void setIdempotencyKey(String idempotencyKey) {
         this.idempotencyKey = idempotencyKey;
+    }
+
+    public String getMutationFingerprint() {
+        return mutationFingerprint;
+    }
+
+    public void setMutationFingerprint(String mutationFingerprint) {
+        this.mutationFingerprint = mutationFingerprint;
     }
 
     public LocalDateTime getCreatedAt() {

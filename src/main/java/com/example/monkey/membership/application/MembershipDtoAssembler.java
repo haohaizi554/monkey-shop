@@ -55,9 +55,12 @@ final class MembershipDtoAssembler {
                 profile.userId(),
                 profile.level(),
                 profile.growthValue(),
+                profile.identityStatus(),
                 profile.verified(),
                 maskName(profile.realName()),
                 maskIdCard(profile.idCardNo()),
+                profile.identitySubmittedAt(),
+                profile.identityReviewedAt(),
                 profile.version(),
                 profile.level().benefits());
     }
@@ -68,6 +71,7 @@ final class MembershipDtoAssembler {
                 wallet.balance(),
                 wallet.totalEarned(),
                 wallet.totalSpent(),
+                wallet.pointsDebt(),
                 moneyEquivalent(wallet.balance()),
                 wallet.version());
     }

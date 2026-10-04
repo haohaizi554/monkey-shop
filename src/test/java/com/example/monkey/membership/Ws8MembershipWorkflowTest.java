@@ -17,6 +17,7 @@ class Ws8MembershipWorkflowTest {
                 read("src/main/java/com/example/monkey/membership/application/MembershipApplicationService.java");
         String controller = read("src/main/java/com/example/monkey/membership/interfaces/MembershipController.java");
         String migration = read("src/main/resources/db/migration/V35__membership_points_wallet.sql");
+        String integrityMigration = read("src/main/resources/db/migration/V60__membership_identity_points_integrity.sql");
         String frontendApi = read("frontend/src/api/membership.ts");
         String frontend = read("frontend/src/views/MembershipView.vue");
         String script = read("scripts/verify-ws8-membership.ps1");
@@ -26,6 +27,14 @@ class Ws8MembershipWorkflowTest {
                 .contains("@WithSpan(\"membership.check-in\")", "scanPriceDrops", "userMfaVerifier.verifyCode");
         assertThat(controller).contains("/api/membership", "/points/redeem", "/collections");
         assertThat(migration).contains("membership_points_wallet", "membership_points_ledger");
+        assertThat(integrityMigration)
+                .contains("membership_profile_rows_before_identity_migration")
+                .contains("verified_at IS NULL THEN 'PENDING'")
+                .contains("verified_at IS NOT NULL")
+                .contains("mutation_fingerprint CHAR(64)")
+                .contains("OCTET_LENGTH")
+                .contains("UNIQUE (tenant_id, user_id, idempotency_key)")
+                .contains("verified_at is deliberately retained");
         assertThat(frontendApi).contains("scanPriceDrops");
         assertThat(frontend)
                 .contains("membershipApi.checkIn", "membershipApi.redeemPoints", "membershipApi.addCollection")

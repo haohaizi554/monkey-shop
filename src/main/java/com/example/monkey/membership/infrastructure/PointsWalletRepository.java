@@ -13,9 +13,28 @@ public interface PointsWalletRepository extends JpaRepository<PointsWalletEntity
     Optional<PointsWalletEntity> findByUserId(Long userId);
 
     default int updateWallet(
-            Long userId, long version, long balance, long totalEarned, long totalSpent, LocalDateTime now) {
+            Long userId,
+            long version,
+            long balance,
+            long totalEarned,
+            long totalSpent,
+            long pointsDebt,
+            LocalDateTime now) {
         return updateWallet(
-                userId, version, balance, totalEarned, totalSpent, now, TenantContext.currentTenantIdOrDefault());
+                userId,
+                version,
+                balance,
+                totalEarned,
+                totalSpent,
+                pointsDebt,
+                now,
+                TenantContext.currentTenantIdOrDefault());
+    }
+
+    /** Compatibility overload for direct callers that predate persisted refund debt. */
+    default int updateWallet(
+            Long userId, long version, long balance, long totalEarned, long totalSpent, LocalDateTime now) {
+        return updateWallet(userId, version, balance, totalEarned, totalSpent, 0, now);
     }
 
     @Modifying
@@ -24,6 +43,7 @@ public interface PointsWalletRepository extends JpaRepository<PointsWalletEntity
                set w.balance = :balance,
                    w.totalEarned = :totalEarned,
                    w.totalSpent = :totalSpent,
+                   w.pointsDebt = :pointsDebt,
                    w.updateTime = :now,
                    w.version = w.version + 1
              where w.userId = :userId
@@ -36,6 +56,7 @@ public interface PointsWalletRepository extends JpaRepository<PointsWalletEntity
             @Param("balance") long balance,
             @Param("totalEarned") long totalEarned,
             @Param("totalSpent") long totalSpent,
+            @Param("pointsDebt") long pointsDebt,
             @Param("now") LocalDateTime now,
             @Param("tenantId") Long tenantId);
 }

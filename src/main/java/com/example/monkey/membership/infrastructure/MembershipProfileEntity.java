@@ -1,6 +1,7 @@
 package com.example.monkey.membership.infrastructure;
 
 import com.example.monkey.membership.domain.MembershipLevel;
+import com.example.monkey.membership.domain.IdentityVerificationStatus;
 import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -39,6 +40,22 @@ public class MembershipProfileEntity extends TenantScopedJpaEntity {
 
     @Column(columnDefinition = "CHAR(64)")
     private String idCardHmac;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "identity_status", nullable = false, length = 16)
+    private IdentityVerificationStatus identityStatus;
+
+    @Column(name = "identity_submitted_at")
+    private LocalDateTime identitySubmittedAt;
+
+    @Column(name = "identity_reviewed_at")
+    private LocalDateTime identityReviewedAt;
+
+    @Column(name = "identity_reviewed_by")
+    private Long identityReviewedBy;
+
+    @Column(name = "identity_review_reason", length = 256)
+    private String identityReviewReason;
 
     private LocalDateTime verifiedAt;
 
@@ -114,6 +131,46 @@ public class MembershipProfileEntity extends TenantScopedJpaEntity {
 
     public void setIdCardHmac(String idCardHmac) {
         this.idCardHmac = idCardHmac;
+    }
+
+    public IdentityVerificationStatus getIdentityStatus() {
+        return identityStatus;
+    }
+
+    public void setIdentityStatus(IdentityVerificationStatus identityStatus) {
+        this.identityStatus = identityStatus;
+    }
+
+    public LocalDateTime getIdentitySubmittedAt() {
+        return identitySubmittedAt;
+    }
+
+    public void setIdentitySubmittedAt(LocalDateTime identitySubmittedAt) {
+        this.identitySubmittedAt = identitySubmittedAt;
+    }
+
+    public LocalDateTime getIdentityReviewedAt() {
+        return identityReviewedAt;
+    }
+
+    public void setIdentityReviewedAt(LocalDateTime identityReviewedAt) {
+        this.identityReviewedAt = identityReviewedAt;
+    }
+
+    public Long getIdentityReviewedBy() {
+        return identityReviewedBy;
+    }
+
+    public void setIdentityReviewedBy(Long identityReviewedBy) {
+        this.identityReviewedBy = identityReviewedBy;
+    }
+
+    public String getIdentityReviewReason() {
+        return identityReviewReason;
+    }
+
+    public void setIdentityReviewReason(String identityReviewReason) {
+        this.identityReviewReason = identityReviewReason;
     }
 
     public LocalDateTime getVerifiedAt() {

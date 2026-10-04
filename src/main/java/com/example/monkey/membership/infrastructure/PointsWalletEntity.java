@@ -27,6 +27,9 @@ public class PointsWalletEntity extends TenantScopedJpaEntity {
     @Column(nullable = false)
     private long totalSpent;
 
+    @Column(nullable = false)
+    private long pointsDebt;
+
     @Version
     @Column(nullable = false)
     private long version;
@@ -75,6 +78,14 @@ public class PointsWalletEntity extends TenantScopedJpaEntity {
 
     public void setTotalSpent(long totalSpent) {
         this.totalSpent = totalSpent;
+    }
+
+    public long getPointsDebt() {
+        return pointsDebt;
+    }
+
+    public void setPointsDebt(long pointsDebt) {
+        this.pointsDebt = pointsDebt;
     }
 
     public long getVersion() {

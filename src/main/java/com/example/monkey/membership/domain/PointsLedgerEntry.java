@@ -12,4 +12,20 @@ public record PointsLedgerEntry(
         Long orderId,
         String referenceKey,
         String idempotencyKey,
-        LocalDateTime createdAt) {}
+        String mutationFingerprint,
+        LocalDateTime createdAt) {
+
+    /** Compatibility constructor for legacy ledger rows created before intent fingerprints. */
+    public PointsLedgerEntry(
+            Long id,
+            Long userId,
+            PointsLedgerType type,
+            long points,
+            BigDecimal moneyEquivalent,
+            Long orderId,
+            String referenceKey,
+            String idempotencyKey,
+            LocalDateTime createdAt) {
+        this(id, userId, type, points, moneyEquivalent, orderId, referenceKey, idempotencyKey, null, createdAt);
+    }
+}

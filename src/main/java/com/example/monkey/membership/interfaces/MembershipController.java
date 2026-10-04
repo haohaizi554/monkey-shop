@@ -4,6 +4,7 @@ import com.example.monkey.membership.application.MembershipApplicationService;
 import com.example.monkey.membership.application.dto.BrowseRecordRequestDto;
 import com.example.monkey.membership.application.dto.CheckInResponseDto;
 import com.example.monkey.membership.application.dto.CollectionRequestDto;
+import com.example.monkey.membership.application.dto.IdentityReviewRequestDto;
 import com.example.monkey.membership.application.dto.LevelChangeRequestDto;
 import com.example.monkey.membership.application.dto.MemberCollectionDto;
 import com.example.monkey.membership.application.dto.MembershipDashboardDto;
@@ -55,6 +56,15 @@ public class MembershipController {
     public Result<MembershipDashboardDto> verifyIdentity(
             @Valid @RequestBody RealNameVerifyRequestDto request, @AuthenticationPrincipal SessionUser currentUser) {
         return Result.success(membershipApplicationService.verifyIdentity(currentUser, request));
+    }
+
+    @PostMapping("/admin/{userId}/identity/review")
+    @PreAuthorize("hasAuthority('MEMBERSHIP_ADMIN')")
+    public Result<MembershipDashboardDto> reviewIdentity(
+            @PathVariable Long userId,
+            @Valid @RequestBody IdentityReviewRequestDto request,
+            @AuthenticationPrincipal SessionUser currentUser) {
+        return Result.success(membershipApplicationService.reviewIdentity(currentUser, userId, request));
     }
 
     @PostMapping("/check-in")

@@ -5,6 +5,7 @@ import static com.example.monkey.shared.application.security.AuthenticatedPrinci
 import com.example.monkey.membership.application.dto.BrowseRecordRequestDto;
 import com.example.monkey.membership.application.dto.CheckInResponseDto;
 import com.example.monkey.membership.application.dto.CollectionRequestDto;
+import com.example.monkey.membership.application.dto.IdentityReviewRequestDto;
 import com.example.monkey.membership.application.dto.LevelChangeRequestDto;
 import com.example.monkey.membership.application.dto.MemberCollectionDto;
 import com.example.monkey.membership.application.dto.MembershipDashboardDto;
@@ -14,6 +15,7 @@ import com.example.monkey.membership.application.dto.PointsRedeemRequestDto;
 import com.example.monkey.membership.application.dto.PriceDropScanResponseDto;
 import com.example.monkey.membership.application.dto.RealNameVerifyRequestDto;
 import com.example.monkey.membership.domain.BrowseHistoryItem;
+import com.example.monkey.membership.domain.IdentityVerificationStatus;
 import com.example.monkey.membership.domain.MemberCollection;
 import com.example.monkey.membership.domain.MemberProfile;
 import com.example.monkey.membership.domain.MembershipActivityStore;
@@ -28,24 +30,30 @@ import com.example.monkey.membership.domain.PriceDropEvent;
 import com.example.monkey.membership.domain.ProductSnapshot;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
+import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import com.example.monkey.user.domain.UserAccountStore;
 import com.example.monkey.user.domain.UserAccountStore.UserAccount;
 import com.example.monkey.user.domain.UserMfaVerifier;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HexFormat;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.regex.Pattern;
-import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -59,9 +67,14 @@ public class MembershipApplicationService {
     private static final int PRICE_DROP_BATCH_SIZE = 100;
     private static final String CUSTOMER_ROLE = "CUSTOMER";
     private static final String SYSTEM_ROLE = "SYSTEM";
+    private static final String MEMBERSHIP_ADMIN_AUTHORITY = "MEMBERSHIP_ADMIN";
+    private static final String IDENTITY_SUBMITTED_AUDIT_EVENT = "MEMBERSHIP_IDENTITY_SUBMITTED";
+    private static final String IDENTITY_REJECTED_AUDIT_EVENT = "MEMBERSHIP_IDENTITY_REJECTED";
+    private static final String ADMIN_DENIED_AUDIT_EVENT = "MEMBERSHIP_ADMIN_DENIED";
 
     private final MembershipStore membershipStore;
     private final MembershipActivityStore activityStore;
+    private final ImageReferenceService imageReferenceService;
     private final MembershipLevelTransitionResolver levelTransitionResolver;
     private final UserAccountStore userAccountStore;
     private final UserMfaVerifier userMfaVerifier;
@@ -70,7 +83,6 @@ public class MembershipApplicationService {
     private final Clock clock;
     private final Duration browsingTtl;
 
-    @Autowired
     public MembershipApplicationService(
             MembershipStore membershipStore,
             MembershipActivityStore activityStore,
@@ -88,6 +100,31 @@ public class MembershipApplicationService {
                 userMfaVerifier,
                 idGenerator,
                 auditService,
+                UnconfiguredImageReferenceService.INSTANCE,
+                Clock.systemDefaultZone(),
+                browsingTtl);
+    }
+
+    @Autowired
+    public MembershipApplicationService(
+            MembershipStore membershipStore,
+            MembershipActivityStore activityStore,
+            MembershipLevelTransitionResolver levelTransitionResolver,
+            UserAccountStore userAccountStore,
+            UserMfaVerifier userMfaVerifier,
+            IdGenerator idGenerator,
+            AuditService auditService,
+            ImageReferenceService imageReferenceService,
+            @Value("${app.membership.browsing-ttl:PT168H}") Duration browsingTtl) {
+        this(
+                membershipStore,
+                activityStore,
+                levelTransitionResolver,
+                userAccountStore,
+                userMfaVerifier,
+                idGenerator,
+                auditService,
+                imageReferenceService,
                 Clock.systemDefaultZone(),
                 browsingTtl);
     }
@@ -102,8 +139,35 @@ public class MembershipApplicationService {
             AuditService auditService,
             Clock clock,
             Duration browsingTtl) {
+        this(
+                membershipStore,
+                activityStore,
+                levelTransitionResolver,
+                userAccountStore,
+                userMfaVerifier,
+                idGenerator,
+                auditService,
+                UnconfiguredImageReferenceService.INSTANCE,
+                clock,
+                browsingTtl);
+    }
+
+    MembershipApplicationService(
+            MembershipStore membershipStore,
+            MembershipActivityStore activityStore,
+            MembershipLevelTransitionResolver levelTransitionResolver,
+            UserAccountStore userAccountStore,
+            UserMfaVerifier userMfaVerifier,
+            IdGenerator idGenerator,
+            AuditService auditService,
+            ImageReferenceService imageReferenceService,
+            Clock clock,
+            Duration browsingTtl) {
         this.membershipStore = membershipStore;
         this.activityStore = activityStore;
+        this.imageReferenceService = imageReferenceService == null
+                ? UnconfiguredImageReferenceService.INSTANCE
+                : imageReferenceService;
         this.levelTransitionResolver = levelTransitionResolver;
         this.userAccountStore = userAccountStore;
         this.userMfaVerifier = userMfaVerifier;
@@ -123,7 +187,7 @@ public class MembershipApplicationService {
     @WithSpan("membership.admin.dashboard")
     @Transactional
     public MembershipDashboardDto dashboardAsAdmin(SessionUser currentUser, Long userId) {
-        requireUserId(currentUser);
+        requireMembershipAdmin(currentUser);
         Long targetUserId = requireExistingUserId(userId);
         return dashboardFor(targetUserId, profile(targetUserId), wallet(targetUserId));
     }
@@ -132,15 +196,51 @@ public class MembershipApplicationService {
     @Transactional
     public MembershipDashboardDto verifyIdentity(SessionUser currentUser, RealNameVerifyRequestDto request) {
         Long userId = requireUserId(currentUser);
-        MemberProfile saved = membershipStore.saveProfile(profile(userId)
-                .verifyIdentity(
+        MemberProfile current = profile(userId);
+        MemberProfile saved = membershipStore.saveProfile(current
+                .submitIdentity(
                         requiredText(request.realName(), "realName"),
                         null,
                         requiredText(request.idCardNo(), "idCardNo"),
                         null,
                         now()));
-        audit(AuditService.MEMBERSHIP_IDENTITY_VERIFIED, userId, "membership:" + userId, null, "verified=true");
+        auditAs(
+                IDENTITY_SUBMITTED_AUDIT_EVENT,
+                userId,
+                actorRole(currentUser),
+                "membership:" + userId,
+                null,
+                "status=" + saved.identityStatus());
         return dashboardFor(userId, saved, wallet(userId));
+    }
+
+    @WithSpan("membership.identity.review")
+    @Transactional
+    public MembershipDashboardDto reviewIdentity(
+            SessionUser currentUser, Long userId, IdentityReviewRequestDto request) {
+        UserAccount administrator = requireMembershipAdmin(currentUser);
+        Long targetUserId = requireExistingUserId(userId);
+        IdentityVerificationStatus decision = request.status();
+        String reason = requiredText(request.reason(), "reason");
+        requireTotp(
+                administrator,
+                request.totpCode(),
+                "membership:" + targetUserId,
+                "identity-review");
+
+        MemberProfile saved = membershipStore.saveProfile(
+                profile(targetUserId).reviewIdentity(decision, administrator.id(), reason, now()));
+        String eventType = decision == IdentityVerificationStatus.VERIFIED
+                ? AuditService.MEMBERSHIP_IDENTITY_VERIFIED
+                : IDENTITY_REJECTED_AUDIT_EVENT;
+        auditAs(
+                eventType,
+                administrator.id(),
+                actorRole(currentUser),
+                "membership:" + targetUserId,
+                null,
+                "status=" + decision + ",targetUserId=" + targetUserId + ",reasonProvided=true");
+        return dashboardFor(targetUserId, saved, wallet(targetUserId));
     }
 
     @WithSpan("membership.check-in")
@@ -151,7 +251,24 @@ public class MembershipApplicationService {
         LocalDate today = LocalDate.now(clock);
         return membershipStore
                 .findCheckInByIdempotencyKey(userId, key)
-                .map(existing -> MembershipDtoAssembler.toCheckIn(existing, wallet(userId)))
+                .map(existing -> {
+                    if (!today.equals(existing.checkInDate())) {
+                        throw new BusinessException(
+                                ErrorCode.CONFLICT, "Idempotency key was already used for another check-in date");
+                    }
+                    Optional<PointsLedgerEntry> existingLedger = membershipStore.findLedger(userId, key);
+                    if (existingLedger != null && existingLedger.isPresent()) {
+                        assertReplayMatches(
+                                existingLedger.get(),
+                                PointsLedgerType.CHECK_IN,
+                                existing.rewardPoints(),
+                                null,
+                                "check-in:" + existing.checkInDate(),
+                                key,
+                                userId);
+                    }
+                    return MembershipDtoAssembler.toCheckIn(existing, wallet(userId));
+                })
                 .orElseGet(() -> checkInLocked(userId, key, today));
     }
 
@@ -159,17 +276,28 @@ public class MembershipApplicationService {
     @Transactional
     public PointsLedgerEntryDto earnPoints(
             SessionUser currentUser, PointsEarnRequestDto request, String idempotencyKey) {
+        requireMembershipAdmin(currentUser);
         Long userId = requireUserId(currentUser);
         String key = normalizeIdempotencyKey(idempotencyKey);
         long basePoints = request.amount().setScale(0, RoundingMode.DOWN).longValue();
         long points = Math.max(1, basePoints * profile(userId).level().pointsMultiplier());
-        return applyPoints(userId, PointsLedgerType.PURCHASE, points, request.orderId(), request.referenceKey(), key);
+        return applyPoints(
+                userId,
+                PointsLedgerType.PURCHASE,
+                points,
+                request.orderId(),
+                request.referenceKey(),
+                key,
+                userId,
+                actorRole(currentUser),
+                "targetUserId=" + userId + ",compatibilitySelfOperation=true");
     }
 
     @WithSpan("membership.admin.points.adjust")
     @Transactional
     public PointsLedgerEntryDto earnPointsAsAdmin(
             SessionUser currentUser, Long userId, PointsEarnRequestDto request, String idempotencyKey) {
+        requireMembershipAdmin(currentUser);
         Long actorUserId = requireUserId(currentUser);
         Long targetUserId = requireExistingUserId(userId);
         String reason = requiredText(request.referenceKey(), "referenceKey");
@@ -202,6 +330,7 @@ public class MembershipApplicationService {
     @WithSpan("membership.level.change")
     @Transactional
     public MembershipDashboardDto changeLevel(SessionUser currentUser, LevelChangeRequestDto request) {
+        requireMembershipAdmin(currentUser);
         Long userId = requireUserId(currentUser);
         String reason = StringUtils.hasText(request.reason()) ? request.reason().trim() : "manual";
         return changeLevelFor(currentUser, userId, request, reason);
@@ -211,6 +340,7 @@ public class MembershipApplicationService {
     @Transactional
     public MembershipDashboardDto changeLevelAsAdmin(
             SessionUser currentUser, Long userId, LevelChangeRequestDto request) {
+        requireMembershipAdmin(currentUser);
         requireUserId(currentUser);
         Long targetUserId = requireExistingUserId(userId);
         String reason = requiredText(request.reason(), "reason");
@@ -225,7 +355,7 @@ public class MembershipApplicationService {
                 .findById(actorUserId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User account does not exist"));
         if (!account.mfaEnabled() || !userMfaVerifier.verifyCode(account.totpSecret(), request.totpCode())) {
-            auditAs(
+            auditDenied(
                     AuditService.MEMBERSHIP_LEVEL_DENIED,
                     actorUserId,
                     role,
@@ -307,6 +437,7 @@ public class MembershipApplicationService {
         Long userId = requireUserId(currentUser);
         ProductSnapshot product = product(request.productId());
         LocalDateTime viewedAt = now();
+        retainBrowseImage(product.imageUrl());
         activityStore.record(
                 new BrowseHistoryItem(
                         idGenerator.nextId(),
@@ -319,10 +450,12 @@ public class MembershipApplicationService {
                 browsingTtl);
     }
 
-    @Scheduled(fixedDelayString = "${app.membership.price-drop-scan-delay:PT5M}")
-    @SchedulerLock(
-            name = "membership-price-drop-scan",
-            lockAtMostFor = "${app.membership.price-drop-lock-at-most-for:PT10M}")
+    private void retainBrowseImage(String imagePath) {
+        if (ImageReferenceService.isTrackable(imagePath)) {
+            imageReferenceService.retain(imagePath);
+        }
+    }
+
     @Transactional
     public PriceDropScanResponseDto scanPriceDrops() {
         int scanned = 0;
@@ -357,7 +490,24 @@ public class MembershipApplicationService {
     private CheckInResponseDto checkInLocked(Long userId, String key, LocalDate today) {
         return membershipStore
                 .findCheckIn(userId, today)
-                .map(existing -> MembershipDtoAssembler.toCheckIn(existing, wallet(userId)))
+                .map(existing -> {
+                    if (!Objects.equals(existing.idempotencyKey(), key)) {
+                        throw new BusinessException(
+                                ErrorCode.CONFLICT, "A different idempotency key already completed today's check-in");
+                    }
+                    Optional<PointsLedgerEntry> existingLedger = membershipStore.findLedger(userId, key);
+                    if (existingLedger != null && existingLedger.isPresent()) {
+                        assertReplayMatches(
+                                existingLedger.get(),
+                                PointsLedgerType.CHECK_IN,
+                                existing.rewardPoints(),
+                                null,
+                                "check-in:" + existing.checkInDate(),
+                                key,
+                                userId);
+                    }
+                    return MembershipDtoAssembler.toCheckIn(existing, wallet(userId));
+                })
                 .orElseGet(() -> {
                     int streak = nextStreak(userId, today);
                     long reward = Math.min(50, 10L + Math.max(0, streak - 1) * 2L);
@@ -389,40 +539,53 @@ public class MembershipApplicationService {
             Long actorUserId,
             String actorRole,
             String auditDetail) {
-        return membershipStore
-                .findLedger(userId, idempotencyKey)
-                .map(MembershipDtoAssembler::toLedger)
-                .orElseGet(() -> {
-                    PointsWallet current = wallet(userId);
-                    PointsWallet next = current.apply(points, now());
-                    if (!membershipStore.updateWallet(next)) {
-                        throw new BusinessException(ErrorCode.CONFLICT, "Points wallet changed concurrently");
-                    }
-                    PointsLedgerEntry saved = membershipStore.saveLedger(new PointsLedgerEntry(
-                            idGenerator.nextId(),
-                            userId,
-                            type,
-                            points,
-                            MembershipDtoAssembler.moneyEquivalent(Math.abs(points)),
-                            orderId,
-                            trim(referenceKey),
-                            idempotencyKey,
-                            now()));
-                    if (points > 0) {
-                        membershipStore.saveProfile(profile(userId).addGrowth(points, now()));
-                    }
-                    auditAs(
-                            points >= 0
-                                    ? AuditService.MEMBERSHIP_POINTS_EARNED
-                                    : AuditService.MEMBERSHIP_POINTS_REDEEMED,
-                            actorUserId,
-                            actorRole,
-                            "points:" + saved.id(),
-                            null,
-                            "points=" + points + ",type=" + type
-                                    + (StringUtils.hasText(auditDetail) ? "," + auditDetail : ""));
-                    return MembershipDtoAssembler.toLedger(saved);
-                });
+        String normalizedReferenceKey = trim(referenceKey);
+        String mutationFingerprint = mutationFingerprint(
+                userId, type, points, orderId, normalizedReferenceKey, idempotencyKey);
+        Optional<PointsLedgerEntry> existingLedger = membershipStore.findLedger(userId, idempotencyKey);
+        if (existingLedger != null && existingLedger.isPresent()) {
+            PointsLedgerEntry existing = existingLedger.get();
+            assertReplayMatches(
+                    existing,
+                    type,
+                    points,
+                    orderId,
+                    normalizedReferenceKey,
+                    idempotencyKey,
+                    userId);
+            return MembershipDtoAssembler.toLedger(existing);
+        }
+
+        PointsWallet current = wallet(userId);
+        PointsWallet next = current.apply(points, now());
+        if (!membershipStore.updateWallet(next)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Points wallet changed concurrently");
+        }
+        PointsLedgerEntry saved = membershipStore.saveLedger(new PointsLedgerEntry(
+                idGenerator.nextId(),
+                userId,
+                type,
+                points,
+                MembershipDtoAssembler.moneyEquivalent(Math.abs(points)),
+                orderId,
+                normalizedReferenceKey,
+                idempotencyKey,
+                mutationFingerprint,
+                now()));
+        if (points > 0) {
+            membershipStore.saveProfile(profile(userId).addGrowth(points, now()));
+        }
+        auditAs(
+                points >= 0
+                        ? AuditService.MEMBERSHIP_POINTS_EARNED
+                        : AuditService.MEMBERSHIP_POINTS_REDEEMED,
+                actorUserId,
+                actorRole,
+                "points:" + saved.id(),
+                null,
+                "points=" + points + ",type=" + type
+                        + (StringUtils.hasText(auditDetail) ? "," + auditDetail : ""));
+        return MembershipDtoAssembler.toLedger(saved);
     }
 
     private int nextStreak(Long userId, LocalDate today) {
@@ -483,6 +646,98 @@ public class MembershipApplicationService {
         return userId;
     }
 
+    private UserAccount requireMembershipAdmin(SessionUser currentUser) {
+        Long actorUserId = requireUserId(currentUser);
+        UserAccount account = userAccountStore
+                .findById(actorUserId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User account does not exist"));
+        if (account.authorityNames().stream().noneMatch(MEMBERSHIP_ADMIN_AUTHORITY::equals)) {
+            auditDenied(
+                    ADMIN_DENIED_AUDIT_EVENT,
+                    actorUserId,
+                    actorRole(currentUser),
+                    "membership:" + actorUserId,
+                    null,
+                    "reason=membership-admin-authority-required");
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Membership administrator permission is required");
+        }
+        return account;
+    }
+
+    private void requireTotp(UserAccount account, String totpCode, String subject, String action) {
+        if (account.mfaEnabled() && userMfaVerifier.verifyCode(account.totpSecret(), totpCode)) {
+            return;
+        }
+        auditDenied(
+                action.equals("identity-review")
+                        ? "MEMBERSHIP_IDENTITY_REVIEW_DENIED"
+                        : AuditService.MEMBERSHIP_LEVEL_DENIED,
+                account.id(),
+                account.role(),
+                subject,
+                null,
+                "reason=totp,action=" + action);
+        throw new BusinessException(ErrorCode.FORBIDDEN, "TOTP verification is required for membership changes");
+    }
+
+    private void assertReplayMatches(
+            PointsLedgerEntry existing,
+            PointsLedgerType type,
+            long points,
+            Long orderId,
+            String referenceKey,
+            String idempotencyKey,
+            Long userId) {
+        if (!Objects.equals(existing.type(), type)
+                || existing.points() != points
+                || !Objects.equals(existing.orderId(), orderId)
+                || !Objects.equals(trim(existing.referenceKey()), referenceKey)
+                || !Objects.equals(existing.idempotencyKey(), idempotencyKey)
+                || !Objects.equals(existing.userId(), userId)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Idempotency key was already used for another points intent");
+        }
+        if (StringUtils.hasText(existing.mutationFingerprint())) {
+            String expected = mutationFingerprint(userId, type, points, orderId, referenceKey, idempotencyKey);
+            if (!constantTimeEquals(existing.mutationFingerprint(), expected)) {
+                throw new BusinessException(ErrorCode.CONFLICT, "Idempotency key fingerprint does not match");
+            }
+        }
+    }
+
+    private static String mutationFingerprint(
+            Long userId,
+            PointsLedgerType type,
+            long points,
+            Long orderId,
+            String referenceKey,
+            String idempotencyKey) {
+        String canonical = String.join(
+                "|",
+                canonicalPart(String.valueOf(TenantContext.currentTenantIdOrDefault())),
+                canonicalPart(String.valueOf(userId)),
+                canonicalPart(type == null ? null : type.name()),
+                canonicalPart(String.valueOf(points)),
+                canonicalPart(orderId == null ? null : String.valueOf(orderId)),
+                canonicalPart(referenceKey),
+                canonicalPart(idempotencyKey));
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(
+                    canonical.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is not available", exception);
+        }
+    }
+
+    private static String canonicalPart(String value) {
+        String normalized = value == null ? "" : value;
+        return normalized.getBytes(StandardCharsets.UTF_8).length + ":" + normalized;
+    }
+
+    private static boolean constantTimeEquals(String left, String right) {
+        return MessageDigest.isEqual(
+                left.getBytes(StandardCharsets.US_ASCII), right.getBytes(StandardCharsets.US_ASCII));
+    }
+
     private void audit(String eventType, Long actorUserId, String subject, String sourceIp, String detail) {
         auditAs(eventType, actorUserId, actorUserId == null ? SYSTEM_ROLE : CUSTOMER_ROLE, subject, sourceIp, detail);
     }
@@ -492,6 +747,18 @@ public class MembershipApplicationService {
         auditService.record(
                 eventType,
                 AuditService.OUTCOME_SUCCESS,
+                actorUserId,
+                actorUserId == null ? SYSTEM_ROLE : actorRole,
+                subject,
+                sourceIp,
+                detail);
+    }
+
+    private void auditDenied(
+            String eventType, Long actorUserId, String actorRole, String subject, String sourceIp, String detail) {
+        auditService.record(
+                eventType,
+                AuditService.OUTCOME_DENIED,
                 actorUserId,
                 actorUserId == null ? SYSTEM_ROLE : actorRole,
                 subject,
@@ -548,5 +815,32 @@ public class MembershipApplicationService {
 
     private static String trim(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private enum UnconfiguredImageReferenceService implements ImageReferenceService {
+        INSTANCE;
+
+        @Override
+        public void retain(String imagePath) {
+            if (ImageReferenceService.isTrackable(imagePath)) {
+                throw new IllegalStateException(
+                        "Membership browse history image reference tracking is not configured");
+            }
+        }
+
+        @Override
+        public void release(String imagePath) {
+            throw new UnsupportedOperationException("Membership image reference tracking is not configured");
+        }
+
+        @Override
+        public long referenceCount(String imagePath) {
+            throw new UnsupportedOperationException("Membership image reference tracking is not configured");
+        }
+
+        @Override
+        public void clear() {
+            throw new UnsupportedOperationException("Membership image reference tracking is not configured");
+        }
     }
 }

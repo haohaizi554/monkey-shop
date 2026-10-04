@@ -1,8 +1,10 @@
 package com.example.monkey.membership.infrastructure;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
@@ -19,8 +21,12 @@ import com.example.monkey.membership.domain.PointsLedgerType;
 import com.example.monkey.membership.domain.PointsWallet;
 import com.example.monkey.membership.domain.PriceDropEvent;
 import com.example.monkey.membership.domain.ProductSnapshot;
+import com.example.monkey.shared.application.storage.ImageCleanupService;
+import com.example.monkey.shared.application.tenant.TenantContext;
+import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
 import java.math.BigDecimal;
+import java.sql.ResultSet;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -50,6 +56,12 @@ class JpaMembershipStoreTest {
     private final PriceDropEventRepository priceDropEventRepository = mock(PriceDropEventRepository.class);
     private final JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
     private final PiiCryptoService piiCryptoService = mock(PiiCryptoService.class);
+    private final ImageReferenceService imageReferenceService = mock(ImageReferenceService.class);
+    private final ImageCleanupService imageCleanupService = mock(ImageCleanupService.class);
+    private final MembershipPurchaseRewardRepository purchaseRewardRepository =
+            mock(MembershipPurchaseRewardRepository.class);
+    private final MembershipPurchaseRewardEventRepository purchaseRewardEventRepository =
+            mock(MembershipPurchaseRewardEventRepository.class);
 
     private final JpaMembershipStore store = new JpaMembershipStore(
             profileRepository,
@@ -60,7 +72,11 @@ class JpaMembershipStoreTest {
             collectionRepository,
             priceDropEventRepository,
             jdbcTemplate,
-            piiCryptoService);
+            piiCryptoService,
+            imageReferenceService,
+            imageCleanupService,
+            purchaseRewardRepository,
+            purchaseRewardEventRepository);
 
     @BeforeEach
     void setUp() {
@@ -196,8 +212,16 @@ class JpaMembershipStoreTest {
         when(collectionRepository.findByPriceDropNotifiedFalseAndTargetPriceIsNotNullOrderByUpdateTimeAsc(
                         any(Pageable.class)))
                 .thenAnswer(invocation -> List.of(collectionEntity.get()));
-        when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(101L), eq(1L)))
-                .thenReturn(List.of(new ProductSnapshot(101L, "Phone", "/p.png", BigDecimal.valueOf(89))));
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenAnswer(invocation -> {
+                    RowMapper<ProductSnapshot> rowMapper = invocation.getArgument(1);
+                    ResultSet resultSet = mock(ResultSet.class);
+                    when(resultSet.getLong("id")).thenReturn(101L);
+                    when(resultSet.getString("name")).thenReturn("Phone");
+                    when(resultSet.getString("image_url")).thenReturn("/p.png");
+                    when(resultSet.getBigDecimal("original_price")).thenReturn(BigDecimal.valueOf(89));
+                    return List.of(rowMapper.mapRow(resultSet, 0));
+                });
         when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(1L), eq(USER_ID), eq(20)))
                 .thenReturn(List.of(new CouponWalletEntry(
                         8001L, 8101L, "CP-1", USER_ID, "CLAIMED", 9001L, NOW.minusHours(1), NOW)));
@@ -225,6 +249,17 @@ class JpaMembershipStoreTest {
         ProductSnapshot product = store.findProduct(101L).orElseThrow();
         assertThat(product.name()).isEqualTo("Phone");
         assertThat(product.price()).isEqualByComparingTo("89");
+        ArgumentCaptor<String> productQuery = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Object[]> productArguments = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbcTemplate).query(productQuery.capture(), any(RowMapper.class), productArguments.capture());
+        assertThat(productQuery.getValue())
+                .containsIgnoringCase("FROM product_spu")
+                .containsIgnoringCase("status = 'LISTED'")
+                .containsIgnoringCase("tenant_id = ?")
+                .containsIgnoringCase("deleted = false")
+                .containsIgnoringCase("original_price")
+                .doesNotContainIgnoringCase("FROM monkey");
+        assertThat(productArguments.getValue()).containsExactly(101L, 1L);
         CouponWalletEntry coupon = store.findCouponWallet(USER_ID).getFirst();
         assertThat(coupon.status()).isEqualTo("CLAIMED");
         assertThat(coupon.couponCode()).isEqualTo("CP-1");
@@ -234,8 +269,85 @@ class JpaMembershipStoreTest {
         verify(collectionRepository).deleteByUserIdAndProductId(USER_ID, 101L);
         verify(collectionRepository)
                 .findByPriceDropNotifiedFalseAndTargetPriceIsNotNullOrderByUpdateTimeAsc(any(Pageable.class));
-        verify(jdbcTemplate).query(anyString(), any(RowMapper.class), eq(101L), eq(1L));
-        verify(jdbcTemplate).query(anyString(), any(RowMapper.class), eq(1L), eq(USER_ID), eq(20));
+        verify(jdbcTemplate)
+                .query(
+                        argThat(sql -> sql.contains("marketing_user_coupon")),
+                        any(RowMapper.class),
+                        any(Object[].class));
+    }
+
+    @Test
+    void compatibilityConstructorRejectsTrackableCollectionBeforeRepositorySave() {
+        JpaMembershipStore compatibilityStore = new JpaMembershipStore(
+                profileRepository,
+                levelHistoryRepository,
+                walletRepository,
+                ledgerRepository,
+                checkInRepository,
+                collectionRepository,
+                priceDropEventRepository,
+                jdbcTemplate,
+                piiCryptoService);
+
+        assertThatThrownBy(() -> compatibilityStore.saveCollection(new MemberCollection(
+                        6001L,
+                        USER_ID,
+                        101L,
+                        "Phone",
+                        "/p.png",
+                        BigDecimal.valueOf(99),
+                        BigDecimal.valueOf(90),
+                        false,
+                        0,
+                        NOW.minusDays(2),
+                        NOW)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Image reference");
+
+        verify(collectionRepository, org.mockito.Mockito.never()).save(any(MemberCollectionEntity.class));
+    }
+
+    @Test
+    void compatibilityConstructorRejectsDeletingTrackableCollectionBeforeRepositoryDelete() {
+        MemberCollectionEntity existing = new MemberCollectionEntity();
+        existing.setProductImage("/p.png");
+        when(collectionRepository.findByUserIdAndProductId(USER_ID, 101L)).thenReturn(Optional.of(existing));
+        JpaMembershipStore compatibilityStore = new JpaMembershipStore(
+                profileRepository,
+                levelHistoryRepository,
+                walletRepository,
+                ledgerRepository,
+                checkInRepository,
+                collectionRepository,
+                priceDropEventRepository,
+                jdbcTemplate,
+                piiCryptoService);
+
+        assertThatThrownBy(() -> compatibilityStore.deleteCollection(USER_ID, 101L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Image reference");
+
+        verify(collectionRepository, org.mockito.Mockito.never()).deleteByUserIdAndProductId(USER_ID, 101L);
+    }
+
+    @Test
+    void findProductDoesNotResolveUnlistedOrForeignTenantCatalogProducts() {
+        TenantContext.setTenantId(22L);
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+        assertThat(store.findProduct(9001L)).isEmpty();
+
+        ArgumentCaptor<String> productQuery = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Object[]> productArguments = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbcTemplate).query(productQuery.capture(), any(RowMapper.class), productArguments.capture());
+        assertThat(productQuery.getValue())
+                .containsIgnoringCase("FROM product_spu")
+                .containsIgnoringCase("status = 'LISTED'")
+                .containsIgnoringCase("tenant_id = ?")
+                .containsIgnoringCase("deleted = false")
+                .doesNotContainIgnoringCase("FROM monkey");
+        assertThat(productArguments.getValue()).containsExactly(9001L, 22L);
+        TenantContext.clear();
     }
 
     private static String prefixed(String prefix, org.mockito.invocation.InvocationOnMock invocation) {
