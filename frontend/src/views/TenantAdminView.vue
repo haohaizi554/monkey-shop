@@ -1,25 +1,18 @@
 <script setup lang="ts">
-import {
-  ArrowLeft,
-  CircleCheck,
-  Clock,
-  Download,
-  InfoFilled,
-  Plus,
-  Refresh,
-  WarningFilled,
-} from '@element-plus/icons-vue'
+import { ArrowLeft, Download, Plus, Refresh } from '@element-plus/icons-vue'
 import type { FormInstance, FormRules } from 'element-plus'
-import { computed, onMounted, reactive, ref, watch, type Component } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import * as tenantApi from '@/api/tenant'
 import type { TenantExportJob } from '@/api/tenant'
 import { normalizeApiId, parsePositiveApiId, sameApiId, type ApiId } from '@/api/ids'
+import AdminPageToolbar from '@/components/admin/AdminPageToolbar.vue'
 import MetricStrip, { type MetricItem } from '@/components/admin/MetricStrip.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import DataTableShell from '@/components/ui/DataTableShell.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import StatusTag, { type StatusTone } from '@/components/ui/StatusTag.vue'
 import { useAsyncState, type AsyncState } from '@/composables/useAsyncState'
 import { useNotify } from '@/composables/useNotify'
 import type {
@@ -59,6 +52,7 @@ const activeTab = ref('config')
 const createDialogOpen = ref(false)
 const createFormRef = ref<FormInstance>()
 const mobileDetailVisible = ref(false)
+const tenantQueryValue = ref(firstQueryValue(route.query.tenant))
 const pendingKeys = ref(new Set<string>())
 const configError = ref('')
 const billError = ref('')
@@ -191,8 +185,22 @@ function firstQueryValue(value: unknown): string {
 }
 
 function queryTenantId(): ApiId | undefined {
-  const rawValue = firstQueryValue(route.query.tenant).trim()
-  return parsePositiveApiId(rawValue)
+  return parsePositiveApiId(tenantQueryValue.value.trim())
+}
+
+function replaceTenantQuery(tenantId?: number) {
+  const nextValue = tenantId === undefined ? '' : String(tenantId)
+  const nextQuery = {
+    ...route.query,
+    tenant: tenantId === undefined ? undefined : nextValue,
+  }
+  tenantQueryValue.value = nextValue
+  if (typeof window === 'undefined') {
+    void router.replace({ query: nextQuery })
+    return
+  }
+  const resolved = router.resolve({ query: nextQuery })
+  window.history.replaceState(window.history.state, '', resolved.href)
 }
 
 function formatSuccessfulRefresh(value?: Date): string {
@@ -247,12 +255,19 @@ function renderConfigDraft(
 function persistActiveConfigDraft() {
   const tenantId = activeConfigTenantId.value
   if (!tenantId) return
-  configDrafts.set(configDraftKey(tenantId, activeConfigType.value), {
+  const key = configDraftKey(tenantId, activeConfigType.value)
+  const current = configDrafts.get(key)
+  const next = {
     provider: configForm.provider,
     enabled: configForm.enabled,
     settingsText: configForm.settingsText,
-    dirty: true,
-  })
+  }
+  const changed =
+    !current ||
+    current.provider !== next.provider ||
+    current.enabled !== next.enabled ||
+    current.settingsText !== next.settingsText
+  configDrafts.set(key, { ...next, dirty: Boolean(current?.dirty || changed) })
 }
 
 function prepareTenantConfigDraft(tenantId: ApiId) {
@@ -330,28 +345,29 @@ function tenantStatusType(status: TenantStatus): 'success' | 'warning' | 'danger
   return 'info'
 }
 
-function statusIcon(status: string): Component {
+function resourceStatusTone(status: string): StatusTone {
   if (
     status === 'ACTIVE' ||
     status === 'SUCCEEDED' ||
     status === 'COMPLETED' ||
-    status === 'RECONCILED'
+    status === 'RECONCILED' ||
+    status === 'GENERATED'
   ) {
-    return CircleCheck
-  }
-  if (status === 'TRIAL' || status === 'QUEUED' || status === 'RUNNING' || status === 'GENERATED') {
-    return Clock
+    return 'success'
   }
   if (
-    status === 'EXPIRED' ||
+    status === 'TRIAL' ||
+    status === 'QUEUED' ||
+    status === 'RUNNING' ||
     status === 'SUSPENDED' ||
-    status === 'FAILED' ||
-    status === 'UNAVAILABLE' ||
     status === 'DOWNGRADED'
   ) {
-    return WarningFilled
+    return 'warning'
   }
-  return InfoFilled
+  if (status === 'EXPIRED' || status === 'FAILED' || status === 'UNAVAILABLE') {
+    return 'danger'
+  }
+  return 'neutral'
 }
 
 function tenantDisplayName(name?: string): string {
@@ -411,7 +427,7 @@ async function loadTenantList() {
     configState.reset()
     billState.reset()
     exportState.reset()
-    await router.replace({ query: { ...route.query, tenant: undefined } })
+    replaceTenantQuery()
     return
   }
 
@@ -420,7 +436,7 @@ async function loadTenantList() {
   const selected = requestedTenant ?? result.tenants[0]
   if (!selected) return
   if (!sameApiId(requestedId, selected.id)) {
-    await router.replace({ query: { ...route.query, tenant: String(selected.id) } })
+    replaceTenantQuery(selected.id)
   }
   if (sameApiId(selectedTenantId.value, selected.id)) return
   await selectTenant(selected, { revealMobile: false, syncUrl: false })
@@ -472,11 +488,18 @@ async function selectTenant(
   tenant: Tenant,
   options: { revealMobile?: boolean; syncUrl?: boolean } = {},
 ) {
+  // Capture the active form before changing the tenant id. This is a second
+  // guard alongside the sync watcher for fast switches while an input event
+  // and a route transition are being flushed in the same tick.
+  persistActiveConfigDraft()
+  const hadSelectedTenant = selectedTenantId.value !== undefined
   selectedTenantId.value = tenant.id
   prepareTenantConfigDraft(tenant.id)
-  mobileDetailVisible.value = options.revealMobile ?? true
-  if (options.syncUrl !== false && !sameApiId(firstQueryValue(route.query.tenant), tenant.id)) {
-    await router.replace({ query: { ...route.query, tenant: String(tenant.id) } })
+  if (options.revealMobile !== false || !hadSelectedTenant) {
+    mobileDetailVisible.value = options.revealMobile ?? true
+  }
+  if (options.syncUrl !== false && !sameApiId(tenantQueryValue.value, tenant.id)) {
+    replaceTenantQuery(tenant.id)
   }
   await loadTenantDetails(tenant.id)
 }
@@ -668,8 +691,8 @@ async function synchronizeTenantFromRoute() {
   if (!requestedTenant) {
     const fallback = selectedTenant.value ?? tenantList.value[0]
     if (!fallback) return
-    if (!sameApiId(firstQueryValue(route.query.tenant), fallback.id)) {
-      await router.replace({ query: { ...route.query, tenant: String(fallback.id) } })
+    if (!sameApiId(tenantQueryValue.value, fallback.id)) {
+      replaceTenantQuery(fallback.id)
     }
     if (!sameApiId(selectedTenantId.value, fallback.id)) {
       await selectTenant(fallback, { syncUrl: false })
@@ -691,7 +714,8 @@ watch(
 
 watch(
   () => route.query.tenant,
-  () => {
+  (value) => {
+    tenantQueryValue.value = firstQueryValue(value)
     void synchronizeTenantFromRoute()
   },
 )
@@ -700,7 +724,7 @@ onMounted(loadTenantList)
 </script>
 
 <template>
-  <div class="route-view tenant-page">
+  <div class="route-view tenant-page" data-observatory="tenants">
     <PageHeader
       :eyebrow="t('tenant.operations')"
       :title="t('tenant.title')"
@@ -712,6 +736,27 @@ onMounted(loadTenantList)
         </el-button>
       </template>
     </PageHeader>
+
+    <AdminPageToolbar class="tenant-toolbar" :aria-label="t('tenant.title')">
+      <template #search>
+        <span class="tenant-toolbar__scope">{{ t('tenant.tenantList') }}</span>
+      </template>
+      <template #filters>
+        <span class="tenant-toolbar__status" data-state="tenant-count">
+          {{ tenantList.length }}
+        </span>
+      </template>
+      <template #actions>
+        <el-button
+          type="primary"
+          :icon="Plus"
+          :disabled="isPending('tenant:create')"
+          @click="createDialogOpen = true"
+        >
+          {{ t('tenant.createTenant') }}
+        </el-button>
+      </template>
+    </AdminPageToolbar>
 
     <AsyncStateView
       :status="listState.status.value"
@@ -738,28 +783,30 @@ onMounted(loadTenantList)
         class="tenant-workspace"
         :class="{ 'tenant-workspace--detail': mobileDetailVisible }"
       >
-        <section class="tenant-master" :aria-labelledby="'tenant-list-title'">
+        <section
+          class="tenant-master"
+          data-surface="tenant-master"
+          :aria-labelledby="'tenant-list-title'"
+        >
           <div class="section-heading">
             <div>
               <h2 id="tenant-list-title">{{ t('tenant.tenantList') }}</h2>
               <p>{{ tenantList.length }}</p>
             </div>
-            <el-button
-              type="primary"
-              :icon="Plus"
-              :disabled="isPending('tenant:create')"
-              @click="createDialogOpen = true"
-            >
-              {{ t('tenant.createTenant') }}
-            </el-button>
           </div>
           <DataTableShell
+            class="tenant-list-surface"
             :aria-label="t('tenant.tenantList')"
             :empty="tenantList.length === 0"
             :busy="listState.status.value === 'updating'"
           >
             <template #empty>{{ t('tenant.noTenants') }}</template>
-            <el-table :data="tenantList" row-key="id" :highlight-current-row="true">
+            <el-table
+              class="tenant-list-table"
+              :data="tenantList"
+              row-key="id"
+              :highlight-current-row="true"
+            >
               <el-table-column :label="t('tenant.name')" min-width="180">
                 <template #default="{ row }">
                   <button
@@ -778,21 +825,22 @@ onMounted(loadTenantList)
               </el-table-column>
               <el-table-column :label="t('tenant.status')" width="130">
                 <template #default="{ row }">
-                  <el-tag :type="tenantStatusType(row.status)" effect="plain">
-                    <span class="status-label">
-                      <el-icon aria-hidden="true"
-                        ><component :is="statusIcon(row.status)"
-                      /></el-icon>
-                      {{ tenantStatusLabel(row.status) }}
-                    </span>
-                  </el-tag>
+                  <StatusTag
+                    :status="row.status"
+                    :tone="tenantStatusType(row.status)"
+                    :label="tenantStatusLabel(row.status)"
+                  />
                 </template>
               </el-table-column>
             </el-table>
           </DataTableShell>
         </section>
 
-        <section class="tenant-detail" :aria-labelledby="'tenant-detail-title'">
+        <section
+          class="tenant-detail"
+          data-surface="tenant-detail"
+          :aria-labelledby="'tenant-detail-title'"
+        >
           <el-button
             class="tenant-back-button"
             text
@@ -808,14 +856,11 @@ onMounted(loadTenantList)
               <p>{{ selectedTenant.code }} · {{ planLabel(selectedTenant.plan) }}</p>
             </div>
             <div class="tenant-actions">
-              <el-tag :type="tenantStatusType(selectedTenant.status)" effect="plain">
-                <span class="status-label">
-                  <el-icon aria-hidden="true">
-                    <component :is="statusIcon(selectedTenant.status)" />
-                  </el-icon>
-                  {{ tenantStatusLabel(selectedTenant.status) }}
-                </span>
-              </el-tag>
+              <StatusTag
+                :status="selectedTenant.status"
+                :tone="tenantStatusType(selectedTenant.status)"
+                :label="tenantStatusLabel(selectedTenant.status)"
+              />
               <el-button
                 :loading="isPending(`tenant:${selectedTenant.id}:renew`)"
                 :disabled="isLifecyclePending(selectedTenant.id)"
@@ -837,7 +882,7 @@ onMounted(loadTenantList)
 
           <div v-else class="tenant-placeholder" role="status">{{ t('tenant.selectTenant') }}</div>
 
-          <div v-if="selectedTenant" class="tenant-detail-content">
+          <div v-if="selectedTenant" class="tenant-detail-content" data-surface="tenant-tasks">
             <el-tabs v-model="activeTab" class="tenant-tabs">
               <el-tab-pane :label="t('tenant.config')" name="config">
                 <AsyncStateView
@@ -845,7 +890,7 @@ onMounted(loadTenantList)
                   :error="configState.error.value"
                   @retry="loadTenantConfigs(selectedTenant.id)"
                 >
-                  <div class="tenant-task-form">
+                  <div class="tenant-task-form" data-surface="tenant-config-form">
                     <el-select
                       :model-value="configForm.configType"
                       :aria-label="t('tenant.type')"
@@ -891,9 +936,13 @@ onMounted(loadTenantList)
                       {{ t('tenant.saveConfig') }}
                     </el-button>
                   </div>
-                  <DataTableShell :empty="configs.length === 0" :aria-label="t('tenant.config')">
+                  <DataTableShell
+                    class="tenant-config-surface"
+                    :empty="configs.length === 0"
+                    :aria-label="t('tenant.config')"
+                  >
                     <template #empty>{{ t('tenant.noConfigs') }}</template>
-                    <el-table :data="configs" row-key="id" size="small">
+                    <el-table class="tenant-config-table" :data="configs" row-key="id" size="small">
                       <el-table-column :label="t('tenant.type')" width="130">
                         <template #default="{ row }">{{
                           configTypeLabel(row.configType)
@@ -906,12 +955,10 @@ onMounted(loadTenantList)
                       />
                       <el-table-column :label="t('tenant.status')" width="120">
                         <template #default="{ row }">
-                          <span class="status-label">
-                            <el-icon aria-hidden="true">
-                              <component :is="statusIcon(row.enabled ? 'ACTIVE' : 'SUSPENDED')" />
-                            </el-icon>
-                            {{ row.enabled ? t('tenant.enabled') : t('tenant.disabled') }}
-                          </span>
+                          <StatusTag
+                            :status="row.enabled ? 'ACTIVE' : 'SUSPENDED'"
+                            :label="row.enabled ? t('tenant.enabled') : t('tenant.disabled')"
+                          />
                         </template>
                       </el-table-column>
                       <el-table-column
@@ -950,7 +997,11 @@ onMounted(loadTenantList)
                       {{ billError }}
                     </p>
                   </div>
-                  <DataTableShell :empty="bills.length === 0" :aria-label="t('tenant.bill')">
+                  <DataTableShell
+                    class="tenant-bill-surface"
+                    :empty="bills.length === 0"
+                    :aria-label="t('tenant.bill')"
+                  >
                     <template #empty>{{ t('tenant.noBills') }}</template>
                     <el-table :data="bills" row-key="id" size="small">
                       <el-table-column prop="billingMonth" :label="t('tenant.month')" width="110" />
@@ -964,12 +1015,11 @@ onMounted(loadTenantList)
                       </el-table-column>
                       <el-table-column :label="t('tenant.status')" width="140">
                         <template #default="{ row }">
-                          <span class="status-label">
-                            <el-icon aria-hidden="true">
-                              <component :is="statusIcon(row.status)" />
-                            </el-icon>
-                            {{ billStatusLabel(row.status) }}
-                          </span>
+                          <StatusTag
+                            :status="row.status"
+                            :tone="resourceStatusTone(row.status)"
+                            :label="billStatusLabel(row.status)"
+                          />
                         </template>
                       </el-table-column>
                     </el-table>
@@ -1002,7 +1052,11 @@ onMounted(loadTenantList)
                       {{ t('tenant.submitExport') }}
                     </el-button>
                   </div>
-                  <DataTableShell :empty="exports.length === 0" :aria-label="t('tenant.export')">
+                  <DataTableShell
+                    class="tenant-export-surface"
+                    :empty="exports.length === 0"
+                    :aria-label="t('tenant.export')"
+                  >
                     <template #empty>{{ t('tenant.noExports') }}</template>
                     <el-table :data="exports" row-key="id" size="small" :scrollbar-tabindex="0">
                       <el-table-column :label="t('tenant.type')" width="120">
@@ -1012,12 +1066,11 @@ onMounted(loadTenantList)
                       </el-table-column>
                       <el-table-column :label="t('tenant.status')" width="140">
                         <template #default="{ row }">
-                          <span class="status-label">
-                            <el-icon aria-hidden="true">
-                              <component :is="statusIcon(row.status)" />
-                            </el-icon>
-                            {{ exportStatusLabel(row.status) }}
-                          </span>
+                          <StatusTag
+                            :status="row.status"
+                            :tone="resourceStatusTone(row.status)"
+                            :label="exportStatusLabel(row.status)"
+                          />
                         </template>
                       </el-table-column>
                       <el-table-column :label="t('tenant.archiveAvailability')" min-width="170">
@@ -1107,24 +1160,47 @@ onMounted(loadTenantList)
 .tenant-page {
   display: grid;
   gap: var(--space-5);
+  width: 100%;
   min-width: 0;
+}
+
+.tenant-toolbar {
+  align-self: stretch;
+}
+
+.tenant-toolbar__scope,
+.tenant-toolbar__status {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  min-height: var(--control-height-compact);
+  color: var(--admin-ink);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.tenant-toolbar__status {
+  color: var(--admin-muted);
+  font-weight: var(--font-weight-medium);
 }
 
 .data-freshness {
   margin: 0;
-  color: var(--color-text-muted);
+  color: var(--admin-muted);
   font-size: var(--text-sm);
   text-align: right;
 }
 
 .data-freshness.is-stale {
-  color: var(--color-danger);
+  color: var(--admin-danger);
 }
 
 .tenant-workspace {
   display: grid;
-  grid-template-columns: minmax(360px, 0.9fr) minmax(0, 1.35fr);
+  grid-template-columns: minmax(320px, 0.84fr) minmax(0, 1.4fr);
   gap: var(--space-6);
+  align-items: start;
   min-width: 0;
 }
 
@@ -1137,8 +1213,8 @@ onMounted(loadTenantList)
 }
 
 .tenant-detail {
-  padding-left: var(--space-6);
-  border-left: 1px solid var(--color-line);
+  padding-inline-start: var(--space-6);
+  border-inline-start: 1px solid var(--admin-line);
 }
 
 .section-heading,
@@ -1165,20 +1241,13 @@ onMounted(loadTenantList)
 
 .section-heading p {
   margin-top: var(--space-1);
-  color: var(--color-text-muted);
+  color: var(--admin-muted);
   font-size: var(--text-sm);
 }
 
 .tenant-actions {
   justify-content: flex-end;
   flex-wrap: wrap;
-}
-
-.status-label {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  white-space: nowrap;
 }
 
 .export-artifact-cell {
@@ -1198,37 +1267,48 @@ onMounted(loadTenantList)
 
 .tenant-select-button {
   display: grid;
+  align-content: center;
   gap: var(--space-1);
   width: 100%;
-  padding: var(--space-1);
-  border: 0;
-  color: var(--color-text);
+  min-height: var(--touch-target-min);
+  padding: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  color: var(--admin-ink);
   background: transparent;
   text-align: left;
   cursor: pointer;
+  transition:
+    border-color var(--motion-fast),
+    background-color var(--motion-fast),
+    color var(--motion-fast);
 }
 
 .tenant-select-button span {
-  color: var(--color-text-muted);
+  color: var(--admin-muted);
   font-size: var(--text-xs);
 }
 
-.tenant-select-button:hover strong,
-.tenant-select-button.is-selected strong {
-  color: var(--color-brand);
+.tenant-select-button:hover,
+.tenant-select-button:focus-visible,
+.tenant-select-button.is-selected {
+  border-color: var(--admin-primary);
+  color: var(--admin-primary-strong);
+  background: var(--admin-primary-soft);
 }
 
 .tenant-select-button:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
+  outline: var(--focus-width) solid var(--admin-primary);
+  outline-offset: var(--focus-offset);
 }
 
 .tenant-task-form {
   display: grid;
   grid-template-columns: minmax(150px, 0.7fr) minmax(180px, 1fr);
   gap: var(--space-3);
-  margin-bottom: var(--space-4);
-  padding-block: var(--space-3);
+  margin-block: var(--space-4);
+  padding-block: var(--space-4);
+  border-block: 1px solid var(--admin-line);
 }
 
 .tenant-task-form :deep(.el-textarea),
@@ -1236,10 +1316,23 @@ onMounted(loadTenantList)
   grid-column: 1 / -1;
 }
 
+.tenant-task-form :deep(.el-input),
+.tenant-task-form :deep(.el-select) {
+  width: 100%;
+  min-width: 0;
+}
+
+.tenant-task-form > .el-button {
+  justify-self: end;
+  min-width: min(220px, 100%);
+}
+
 .tenant-task-form--inline {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-start;
+  align-items: flex-end;
+  padding-block: var(--space-3);
 }
 
 .tenant-task-form--inline :deep(.el-input),
@@ -1248,7 +1341,7 @@ onMounted(loadTenantList)
 }
 
 .inline-form-error {
-  color: var(--color-danger);
+  color: var(--admin-danger);
   font-size: var(--text-sm);
 }
 
@@ -1263,13 +1356,14 @@ onMounted(loadTenantList)
 
 .tenant-placeholder {
   padding: var(--space-8) 0;
-  color: var(--color-text-muted);
+  color: var(--admin-muted);
   text-align: center;
 }
 
 .tenant-back-button {
   display: none;
   justify-self: start;
+  min-height: var(--control-height-compact);
 }
 
 .create-form-grid {
@@ -1285,28 +1379,38 @@ onMounted(loadTenantList)
   }
 
   .tenant-detail {
-    padding-left: var(--space-4);
+    padding-inline-start: var(--space-4);
   }
 }
 
 @media (max-width: 760px) {
+  .tenant-toolbar :deep(.admin-page-toolbar__search),
+  .tenant-toolbar :deep(.admin-page-toolbar__filters),
+  .tenant-toolbar :deep(.admin-page-toolbar__actions) {
+    flex: 0 1 auto;
+  }
+
   .tenant-workspace {
     display: block;
   }
 
   .tenant-detail {
     display: none;
-    padding-left: 0;
-    border-left: 0;
+    padding-inline-start: 0;
+    border-inline-start: 0;
   }
 
   .tenant-workspace--detail .tenant-master {
     display: none;
   }
 
-  .tenant-workspace--detail .tenant-detail,
-  .tenant-back-button {
+  .tenant-workspace--detail .tenant-detail {
     display: grid;
+  }
+
+  .tenant-back-button {
+    display: inline-flex;
+    min-height: var(--touch-target-min);
   }
 
   .tenant-detail-heading,
@@ -1322,10 +1426,57 @@ onMounted(loadTenantList)
     flex-direction: column;
   }
 
+  .tenant-actions {
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .tenant-actions > :deep(.el-button) {
+    flex: 1 1 100%;
+    min-height: var(--touch-target-min);
+  }
+
+  .tenant-detail :deep(.el-tabs__item) {
+    min-height: var(--touch-target-min);
+  }
+
+  .tenant-detail
+    :deep(
+      button,
+      input,
+      select,
+      textarea,
+      [role='combobox'],
+      .el-input__wrapper,
+      .el-select__wrapper,
+      .el-input-number,
+      .el-switch
+    ) {
+    min-height: var(--touch-target-min);
+  }
+
+  .tenant-detail :deep(.el-textarea__inner) {
+    min-height: var(--touch-target-min);
+  }
+
   .tenant-task-form--inline :deep(.el-input),
   .tenant-task-form--inline :deep(.el-select),
   .tenant-task-form--inline :deep(.el-button) {
     width: 100%;
+  }
+
+  .tenant-task-form > .el-button {
+    justify-self: stretch;
+  }
+
+  .data-freshness {
+    text-align: left;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tenant-select-button {
+    transition: none;
   }
 }
 </style>

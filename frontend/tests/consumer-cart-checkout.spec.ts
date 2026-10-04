@@ -627,6 +627,11 @@ test('mobile cart uses labeled line items and keeps its summary above navigation
 
   const summary = page.locator('.cart-summary')
   const navigation = page.locator('.consumer-bottom-nav')
+  await expect(summary).toHaveAttribute('data-surface', 'transaction-summary')
+  await expect(page.locator('.data-table-shell__scroller').first()).toHaveAttribute(
+    'data-surface',
+    'data-table-scroll',
+  )
   await expect(summary).toHaveCSS('position', 'fixed')
   await expect
     .poll(async () => {
@@ -685,8 +690,14 @@ test('mobile checkout preserves its form and preview after a sanitized submit fa
   await expect(mobileLine).toBeVisible()
   const summary = page.locator('.checkout-summary')
   const navigation = page.locator('.consumer-bottom-nav')
+  await expect(summary).toHaveAttribute('data-surface', 'transaction-summary')
+  await expect(page.locator('.data-table-shell__scroller').first()).toHaveAttribute(
+    'data-surface',
+    'data-table-scroll',
+  )
   await expect(summary).toHaveCSS('position', 'fixed')
   await expect(navigation).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Submit', exact: true })).toBeVisible()
   await expect
     .poll(async () => {
       const summaryBox = await summary.boundingBox()
@@ -702,4 +713,15 @@ test('mobile checkout preserves its form and preview after a sanitized submit fa
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   )
   expect(overflow).toBeLessThanOrEqual(1)
+
+  await province.focus()
+  const focusedControlClearance = await page.evaluate(() => {
+    const focused = document.activeElement?.getBoundingClientRect()
+    const summaryBox = document
+      .querySelector<HTMLElement>('.checkout-summary')
+      ?.getBoundingClientRect()
+    if (!focused || !summaryBox) return false
+    return focused.bottom <= summaryBox.top || focused.top >= summaryBox.bottom
+  })
+  expect(focusedControlClearance).toBe(true)
 })

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CircleCheck, InfoFilled, WarningFilled } from '@element-plus/icons-vue'
+import { CircleCheck, Close, InfoFilled, WarningFilled } from '@element-plus/icons-vue'
 import { computed, onBeforeUnmount, ref, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -70,7 +70,14 @@ onBeforeUnmount(stopCountdown)
 </script>
 
 <template>
-  <aside class="inline-notice" :data-severity="severity" :role="role" aria-atomic="true">
+  <aside
+    class="inline-notice"
+    data-surface="inline-notice"
+    :data-severity="severity"
+    :data-tone="severity"
+    :role="role"
+    aria-atomic="true"
+  >
     <el-icon class="inline-notice__icon" aria-hidden="true">
       <component :is="icon" />
     </el-icon>
@@ -94,7 +101,7 @@ onBeforeUnmount(stopCountdown)
       :aria-label="t('common.dismiss')"
       @click="$emit('dismiss')"
     >
-      &times;
+      <el-icon aria-hidden="true"><Close /></el-icon>
     </button>
   </aside>
 </template>
@@ -172,8 +179,8 @@ onBeforeUnmount(stopCountdown)
 
 .inline-notice__retry button,
 .inline-notice__dismiss {
-  min-width: 36px;
-  min-height: 36px;
+  min-width: var(--touch-target-min);
+  min-height: var(--touch-target-min);
   padding: 0 var(--space-2);
   border: 0;
   border-radius: var(--radius-control);

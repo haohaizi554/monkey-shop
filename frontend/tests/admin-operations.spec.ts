@@ -61,7 +61,21 @@ const orders = [
   },
 ]
 
-async function installAdminMocks(page: Page) {
+const canonicalStatusCases = [
+  { status: 'PENDING_PAYMENT', label: 'Pending payment', tone: 'warning' },
+  { status: 'FULFILLING', label: 'Fulfilling', tone: 'info' },
+  { status: 'CANCELLED', label: 'Cancelled', tone: 'neutral' },
+  { status: 'FAILED', label: 'Failed', tone: 'danger' },
+] as const
+
+const canonicalStatusOrders = canonicalStatusCases.map((statusCase, index) => ({
+  ...orders[0],
+  id: 21 + index,
+  orderNo: `ORDER-${statusCase.status}`,
+  status: statusCase.status,
+}))
+
+async function installAdminMocks(page: Page, orderRows = orders) {
   await page.addInitScript(() => {
     localStorage.setItem('monkeyshop-locale', 'en')
     localStorage.setItem('monkeyshop-theme', 'light')
@@ -90,12 +104,12 @@ async function installAdminMocks(page: Page) {
       const keyword = (url.searchParams.get('keyword') ?? '').trim().toLocaleLowerCase()
       data = pageResult(
         keyword
-          ? orders.filter((order) =>
+          ? orderRows.filter((order) =>
               [order.orderNo, order.productName, order.buyerName].some((value) =>
                 value.toLocaleLowerCase().includes(keyword),
               ),
             )
-          : orders,
+          : orderRows,
       )
     } else if (pathname === '/monkeys/1' && request.method() === 'DELETE') {
       await new Promise((resolve) => setTimeout(resolve, 450))
@@ -122,11 +136,47 @@ async function installAdminMocks(page: Page) {
   })
 }
 
+test('admin order status tags use canonical labels and tones for valid states', async ({ page }) => {
+  await installAdminMocks(page, canonicalStatusOrders)
+  await page.goto('/admin')
+
+  for (const [index, statusCase] of canonicalStatusCases.entries()) {
+    const row = page.locator(`.admin-data-row--order-${21 + index}`)
+    await expect(row).toBeVisible()
+    await expect(row.locator('.status-tag')).toContainText(statusCase.label)
+    await expect(row.locator('.status-tag')).toHaveAttribute('data-tone', statusCase.tone)
+  }
+  await expect(page.locator('.order-table')).not.toContainText('Unknown')
+})
+
 test('admin product mutation is row-scoped while trace and URL order search stay usable', async ({
   page,
 }) => {
   await installAdminMocks(page)
   await page.goto('/admin')
+  await expect(page.locator('.admin-page')).toHaveAttribute(
+    'data-surface',
+    'operations-observatory',
+  )
+  await expect(page.locator('.admin-page .page-header')).toHaveAttribute(
+    'data-surface',
+    'page-heading',
+  )
+  await expect(page.locator('.admin-page .admin-page-toolbar')).toHaveCount(3)
+  for (const toolbar of await page.locator('.admin-page .admin-page-toolbar').all()) {
+    await expect(toolbar).toHaveAttribute('data-density', 'compact')
+  }
+  await expect(page.locator('.admin-page .metric-strip')).toHaveAttribute(
+    'data-surface',
+    'signal-strip',
+  )
+  await expect(page.locator('.product-table .data-table-shell__scroller')).toHaveAttribute(
+    'data-surface',
+    'data-table-scroll',
+  )
+  await expect(page.locator('.product-table [data-row-key="catalog:1"]')).toBeVisible()
+  await expect(page.locator('.order-table [data-row-key="order:11"]')).toBeVisible()
+  await expect(page.locator('.order-table .status-tag').first()).toContainText('Paid')
   await expect(page.getByText('Golden Monkey', { exact: true }).first()).toBeVisible()
   const productImageBox = await page.getByRole('img', { name: 'Golden Monkey' }).boundingBox()
   expect(productImageBox?.width).toBeLessThanOrEqual(64)

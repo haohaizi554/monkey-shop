@@ -126,9 +126,8 @@ const passwordRequirements = computed(() => [
 
 const mascotPose = computed<MascotPose>(() => {
   if (retryActive.value) return 'hourglass'
-  if (registerStep.value === 'complete') return 'celebrate'
+  if (activeMode.value === 'register' && registerStep.value === 'complete') return 'celebrate'
   if (authNotice.value?.pose) return authNotice.value.pose
-  if (activeMode.value === 'register') return 'clipboard'
   if (activeMode.value === 'reset') return 'shield'
   return 'welcome'
 })
@@ -288,7 +287,9 @@ function handleAuthError(error: unknown, fallbackKey: string, mode: AuthMode) {
     showAuthNotice('warning', t('feedback.rateLimited'), 'hourglass', mode)
     return
   }
-  const pose: MascotPose = error instanceof ApiError && error.status === 403 ? 'shield' : 'warning'
+  const challenge = authChallenge(error instanceof Error ? error.message : '')
+  const pose: MascotPose =
+    challenge || (error instanceof ApiError && error.status === 403) ? 'shield' : 'warning'
   showAuthNotice('danger', authErrorMessage(error, fallbackKey), pose, mode)
 }
 
@@ -462,7 +463,12 @@ onMounted(() => {
 
 <template>
   <div class="route-view auth-page">
-    <section class="auth-workspace" aria-labelledby="auth-page-title">
+    <section
+      class="auth-workspace"
+      data-surface="secure-checkpoint"
+      :data-mode="activeMode"
+      aria-labelledby="auth-page-title"
+    >
       <header class="auth-brand-region">
         <div class="auth-brand-copy">
           <p class="auth-eyebrow">{{ $t('auth.secureAccess') }}</p>
@@ -474,11 +480,16 @@ onMounted(() => {
         </div>
       </header>
 
-      <section class="auth-surface" :aria-labelledby="`auth-panel-${activeMode}`">
+      <section
+        class="auth-surface"
+        data-surface="checkpoint-form"
+        :aria-labelledby="`auth-panel-${activeMode}`"
+      >
         <div
           class="auth-mode-switch"
           role="tablist"
           tabindex="-1"
+          aria-orientation="horizontal"
           :aria-label="$t('auth.modeNavigation')"
           @keydown="handleModeKeydown"
         >
@@ -624,7 +635,11 @@ onMounted(() => {
             <p>{{ $t('auth.registrationDescription') }}</p>
           </header>
 
-          <ol class="register-stepper" :aria-label="$t('auth.registrationProgress')">
+          <ol
+            class="register-stepper"
+            data-surface="checkpoint-stepper"
+            :aria-label="$t('auth.registrationProgress')"
+          >
             <li :data-state="registerStep === 'account' ? 'active' : 'complete'">
               <span>1</span>{{ $t('auth.stepAccount') }}
             </li>
@@ -850,7 +865,20 @@ onMounted(() => {
             label-position="top"
             @submit.prevent="resetStage === 'identity' ? requestResetCode() : submitReset()"
           >
-            <div v-if="resetStage === 'identity'" class="reset-stage">
+            <ol
+              class="reset-stepper"
+              data-surface="checkpoint-stepper"
+              :aria-label="$t('auth.reset')"
+            >
+              <li :data-state="resetStage === 'identity' ? 'active' : 'complete'">
+                <span>1</span>{{ $t('auth.username') }}
+              </li>
+              <li :data-state="resetStage === 'challenge' ? 'active' : 'pending'">
+                <span>2</span>{{ $t('auth.otp') }}
+              </li>
+            </ol>
+
+            <div v-if="resetStage === 'identity'" class="reset-stage" data-stage="identity">
               <el-form-item :label="$t('auth.username')" prop="username">
                 <el-input v-model="resetForm.username" autocomplete="username" />
               </el-form-item>
@@ -879,7 +907,7 @@ onMounted(() => {
               </el-button>
             </div>
 
-            <div v-else class="reset-stage">
+            <div v-else class="reset-stage" data-stage="challenge">
               <button class="auth-back-button" type="button" @click="resetStage = 'identity'">
                 <el-icon aria-hidden="true"><Back /></el-icon>
                 <span>{{ $t('auth.changeIdentity') }}</span>
@@ -941,18 +969,18 @@ onMounted(() => {
 
 .auth-workspace {
   display: grid;
-  gap: var(--space-5);
-  width: min(920px, 100%);
+  gap: var(--space-6);
+  width: min(800px, 100%);
   margin: 0 auto;
-  padding-block: var(--space-3) var(--space-8);
+  padding-block: var(--space-2) var(--space-8);
 }
 
 .auth-brand-region {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 192px;
+  grid-template-columns: minmax(0, 1fr) 176px;
   gap: var(--space-6);
   align-items: center;
-  min-height: 190px;
+  min-height: 164px;
   padding-inline: clamp(var(--space-2), 4vw, var(--space-8));
 }
 
@@ -963,28 +991,36 @@ onMounted(() => {
 
 .auth-eyebrow {
   margin: 0 0 var(--space-2);
-  color: var(--color-cobalt);
+  color: var(--auth-primary);
   font-size: var(--text-sm);
-  font-weight: 800;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .auth-brand-copy h1 {
   margin: 0;
-  color: var(--color-ink);
-  font-size: var(--text-4xl);
-  line-height: 1.12;
+  color: var(--auth-ink);
+  font-size: clamp(var(--text-3xl), 5vw, var(--text-display));
+  line-height: var(--leading-tight);
   overflow-wrap: anywhere;
 }
 
 .auth-brand-copy > p:last-child {
   max-width: 52ch;
   margin: var(--space-3) 0 0;
-  color: var(--color-muted);
+  color: var(--auth-muted);
   line-height: var(--leading-relaxed);
 }
 
 .auth-mascot-frame {
-  width: 192px;
+  display: grid;
+  place-items: center;
+  width: 176px;
+  padding: var(--space-2);
+  border: 1px solid var(--auth-line);
+  border-radius: var(--radius-surface);
+  background: color-mix(in srgb, var(--auth-primary-soft) 70%, var(--auth-canvas));
   justify-self: end;
 }
 
@@ -993,10 +1029,10 @@ onMounted(() => {
   gap: var(--space-5);
   width: min(680px, 100%);
   justify-self: center;
-  padding: var(--space-6);
-  border: 1px solid var(--color-line);
+  padding: clamp(var(--space-4), 3vw, var(--space-6));
+  border: 1px solid var(--auth-line);
   border-radius: var(--radius-surface);
-  background: var(--color-surface);
+  background: var(--auth-surface);
   box-shadow: var(--shadow-surface);
 }
 
@@ -1005,9 +1041,9 @@ onMounted(() => {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-1);
   padding: var(--space-1);
-  border: 1px solid var(--color-line);
+  border: 1px solid var(--auth-line);
   border-radius: var(--radius-surface);
-  background: var(--color-surface-subtle);
+  background: var(--auth-surface-subtle);
 }
 
 .auth-mode-tab {
@@ -1016,21 +1052,30 @@ onMounted(() => {
   padding: var(--space-2) var(--space-3);
   border: 0;
   border-radius: var(--radius-control);
-  color: var(--color-ink);
+  color: var(--auth-ink);
   background: transparent;
-  font-weight: 750;
+  font-weight: var(--font-weight-bold);
   cursor: pointer;
+  transition:
+    color var(--motion-fast),
+    background-color var(--motion-fast),
+    box-shadow var(--motion-fast);
 }
 
 .auth-mode-tab[aria-selected='true'] {
-  color: var(--color-primary);
-  background: var(--color-surface);
+  color: var(--auth-primary-strong);
+  background: var(--auth-surface-raised);
   box-shadow: var(--shadow-control);
+}
+
+.auth-mode-tab:focus-visible {
+  outline: var(--focus-width) solid var(--auth-primary);
+  outline-offset: calc(var(--focus-offset) + 1px);
 }
 
 .auth-inline-notice :deep(p) {
   margin: var(--space-1) 0 0;
-  color: var(--color-muted);
+  color: var(--auth-muted);
   font-size: var(--text-xs);
 }
 
@@ -1046,7 +1091,7 @@ onMounted(() => {
 .auth-form-heading h2,
 .register-complete h3 {
   margin: 0;
-  color: var(--color-ink);
+  color: var(--auth-ink);
   font-size: var(--text-xl);
   line-height: var(--leading-tight);
 }
@@ -1056,14 +1101,14 @@ onMounted(() => {
 .reset-stage__description {
   max-width: 58ch;
   margin: var(--space-2) 0 0;
-  color: var(--color-muted);
+  color: var(--auth-muted);
   font-size: var(--text-sm);
   line-height: var(--leading-relaxed);
 }
 
 .auth-primary-action {
   width: 100%;
-  min-height: 46px;
+  min-height: var(--control-height-large);
 }
 
 .register-stepper {
@@ -1075,37 +1120,51 @@ onMounted(() => {
   list-style: none;
 }
 
-.register-stepper li {
+.reset-stepper {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.register-stepper li,
+.reset-stepper li {
   display: flex;
   gap: var(--space-2);
   align-items: center;
   min-width: 0;
-  color: var(--color-muted);
+  color: var(--auth-muted);
   font-size: var(--text-xs);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
 }
 
-.register-stepper li > span {
+.register-stepper li > span,
+.reset-stepper li > span {
   display: inline-grid;
   place-items: center;
   flex: 0 0 auto;
   width: 26px;
   height: 26px;
-  border: 1px solid var(--color-line);
+  border: 1px solid var(--auth-line);
   border-radius: var(--radius-circle);
-  background: var(--color-surface);
+  background: var(--auth-surface);
   font-variant-numeric: tabular-nums;
 }
 
-.register-stepper li[data-state='active'] {
-  color: var(--color-primary);
+.register-stepper li[data-state='active'],
+.reset-stepper li[data-state='active'] {
+  color: var(--auth-primary-strong);
 }
 
 .register-stepper li[data-state='active'] > span,
-.register-stepper li[data-state='complete'] > span {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-  background: var(--color-primary-soft);
+.register-stepper li[data-state='complete'] > span,
+.reset-stepper li[data-state='active'] > span,
+.reset-stepper li[data-state='complete'] > span {
+  border-color: var(--auth-primary);
+  color: var(--auth-primary-strong);
+  background: var(--auth-primary-soft);
 }
 
 .password-policy {
@@ -1121,13 +1180,13 @@ onMounted(() => {
   display: flex;
   gap: var(--space-2);
   align-items: flex-start;
-  color: var(--color-muted);
+  color: var(--auth-muted);
   font-size: var(--text-xs);
   line-height: var(--leading-normal);
 }
 
 .password-policy li[data-met='true'] {
-  color: var(--color-primary);
+  color: var(--auth-primary-strong);
 }
 
 .password-policy .el-icon {
@@ -1138,7 +1197,7 @@ onMounted(() => {
 .server-field-error {
   width: 100%;
   margin: var(--space-1) 0 0;
-  color: var(--color-danger);
+  color: var(--auth-danger);
   font-size: var(--text-xs);
   line-height: var(--leading-normal);
 }
@@ -1172,25 +1231,31 @@ onMounted(() => {
   gap: var(--space-2);
   align-items: center;
   justify-self: start;
-  min-height: 40px;
-  padding: 0;
+  min-height: var(--touch-target-min);
+  padding: 0 var(--space-2);
   border: 0;
-  color: var(--color-primary);
+  border-radius: var(--radius-control);
+  color: var(--auth-primary-strong);
   background: transparent;
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   cursor: pointer;
+}
+
+.auth-back-button:focus-visible {
+  outline: var(--focus-width) solid var(--auth-primary);
+  outline-offset: var(--focus-offset);
 }
 
 .auth-footer {
   display: flex;
   justify-content: center;
   padding-top: var(--space-4);
-  border-top: 1px solid var(--color-line);
+  border-top: 1px solid var(--auth-line);
 }
 
 .auth-footer a {
-  color: var(--color-primary);
-  font-weight: 700;
+  color: var(--auth-primary-strong);
+  font-weight: var(--font-weight-bold);
 }
 
 @media (max-width: 640px) {
@@ -1219,6 +1284,19 @@ onMounted(() => {
     width: 128px;
   }
 
+  .auth-workspace:not([data-mode='login']) .auth-brand-region {
+    grid-template-columns: minmax(0, 1fr) 88px;
+    min-height: 88px;
+  }
+
+  .auth-workspace:not([data-mode='login']) .auth-brand-copy > p:last-child {
+    display: none;
+  }
+
+  .auth-workspace:not([data-mode='login']) .auth-mascot-frame {
+    width: 88px;
+  }
+
   .auth-surface {
     gap: var(--space-4);
     padding: var(--space-4);
@@ -1228,26 +1306,36 @@ onMounted(() => {
     min-height: 48px;
     padding-inline: var(--space-2);
   }
-
-  .password-policy {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 340px) {
   .auth-brand-region {
-    grid-template-columns: minmax(0, 1fr) 96px;
+    grid-template-columns: minmax(0, 1fr) 88px;
   }
 
   .auth-mascot-frame {
-    width: 96px;
+    width: 88px;
   }
 
   .auth-mode-tab {
     font-size: var(--text-xs);
   }
 
-  .register-stepper li {
+  .auth-brand-copy h1 {
+    font-size: var(--text-2xl);
+  }
+
+  .auth-workspace:not([data-mode='login']) .auth-brand-region {
+    grid-template-columns: minmax(0, 1fr) 60px;
+    min-height: 60px;
+  }
+
+  .auth-workspace:not([data-mode='login']) .auth-mascot-frame {
+    width: 60px;
+  }
+
+  .register-stepper li,
+  .reset-stepper li {
     display: grid;
     justify-items: center;
     text-align: center;

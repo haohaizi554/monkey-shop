@@ -297,6 +297,139 @@ test('risk review locks only its exact action and keeps local retry context afte
   await expect(drawer.getByRole('textbox', { name: 'Resolution note' })).toHaveValue('retry note')
 })
 
+test('risk workbench exposes compact decision surfaces and stable row identity hooks', async ({
+  page,
+}) => {
+  await installRiskMocks(page)
+  await page.goto('/risk')
+
+  const workbench = page.locator('[data-surface="risk-workbench"]')
+  await expect(workbench).toBeVisible()
+  await expect(workbench.locator('[data-surface="risk-assessment"]')).toBeVisible()
+  await expect(workbench.locator('[data-surface="risk-queue"]')).toBeVisible()
+  await expect(workbench.locator('.admin-page-toolbar')).toHaveAttribute('data-density', 'compact')
+  await expect(workbench.locator('.metric-strip')).toHaveAttribute('data-surface', 'signal-strip')
+
+  const scroller = workbench.locator('[data-surface="data-table-scroll"]')
+  await expect(scroller).toBeVisible()
+  await expect(scroller).toHaveCSS('overflow-x', 'auto')
+
+  const row = workbench.locator('tr.risk-table-row--101')
+  await expect(row).toHaveCount(1)
+  await expect(row.locator('[data-risk-case-id="101"]')).toHaveAttribute(
+    'data-row-focus',
+    'case-101',
+  )
+  await expect(row.locator('[data-surface="status-tag"]')).toContainText('Pending')
+
+  await page.getByRole('button', { name: 'Approve case 101' }).click()
+  const drawer = page.locator('.el-drawer')
+  await expect(drawer).toHaveAttribute('data-surface', 'risk-decision-panel')
+  await expect(drawer).toHaveAttribute('data-risk-case-id', '101')
+})
+
+test('risk assessment keeps touch targets and primary actions usable across admin widths', async ({
+  page,
+}) => {
+  await installRiskMocks(page)
+  const viewports = [
+    { width: 1440, height: 900 },
+    { width: 1024, height: 768 },
+    { width: 900, height: 768 },
+    { width: 760, height: 768 },
+    { width: 390, height: 844 },
+    { width: 320, height: 720 },
+  ]
+
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport)
+    await page.goto('/risk')
+    await expect(page.locator('[data-surface="risk-assessment"]')).toBeVisible()
+    expect(
+      await page.locator('html').evaluate((element) => element.scrollWidth <= element.clientWidth),
+    ).toBeTruthy()
+
+    if (viewport.width <= 390) {
+      const assessment = page.locator('[data-surface="risk-assessment"]')
+      const fields = [
+        page.getByRole('textbox', { name: 'Phone', exact: true }),
+        page.getByRole('textbox', { name: 'Device fingerprint', exact: true }),
+        page.getByRole('textbox', { name: 'Client IP', exact: true }),
+        page.getByRole('spinbutton', { name: 'Product', exact: true }),
+        page.getByRole('spinbutton', { name: 'Order', exact: true }),
+        page.getByRole('spinbutton', { name: 'Seckill activity', exact: true }),
+        page.getByRole('spinbutton', { name: 'Seller', exact: true }),
+        page.getByRole('spinbutton', { name: 'Price before change', exact: true }),
+        page.getByRole('spinbutton', { name: 'Price after change', exact: true }),
+        page.getByRole('textbox', { name: 'Admin TOTP', exact: true }),
+      ]
+      for (const field of fields) {
+        await expect(field).toBeVisible()
+        expect((await field.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44)
+      }
+
+      async function expectFocusedControlNotOccluded(field: ReturnType<typeof page.getByRole>) {
+        await field.evaluate((element) => {
+          const top = element.getBoundingClientRect().top + window.scrollY
+          window.scrollTo(0, Math.max(0, top - window.innerHeight + 60))
+        })
+        await field.focus()
+        const result = await field.evaluate((element) => {
+          const rect = element.getBoundingClientRect()
+          const action = document.querySelector('.assessment-form__actions')
+          const actionRect = action?.getBoundingClientRect()
+          const center = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+          const hit = document.elementFromPoint(center.x, center.y)
+          const overlaps =
+            actionRect !== undefined &&
+            rect.left < actionRect.right &&
+            rect.right > actionRect.left &&
+            rect.top < actionRect.bottom &&
+            rect.bottom > actionRect.top
+          return {
+            active: document.activeElement === element,
+            hitInside: hit === element || element.contains(hit),
+            overlaps,
+            top: rect.top,
+            bottom: rect.bottom,
+          }
+        })
+        expect(result.active).toBeTruthy()
+        expect(result.hitInside).toBeTruthy()
+        expect(result.overlaps).toBeFalsy()
+        expect(result.top).toBeGreaterThanOrEqual(0)
+        expect(result.bottom).toBeLessThanOrEqual(viewport.height)
+      }
+
+      await expectFocusedControlNotOccluded(
+        page.getByRole('textbox', { name: 'Admin TOTP', exact: true }),
+      )
+      await expectFocusedControlNotOccluded(
+        page.getByRole('spinbutton', { name: 'Minimum score', exact: true }),
+      )
+      await expectFocusedControlNotOccluded(
+        page.getByRole('spinbutton', { name: 'Maximum score', exact: true }),
+      )
+
+      await page.getByRole('button', { name: 'Review case 101' }).click()
+      const radioButtons = page.locator('.el-drawer .el-radio-button')
+      await expect(radioButtons).toHaveCount(3)
+      for (const radioButton of await radioButtons.all()) {
+        expect((await radioButton.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44)
+      }
+
+      await page.keyboard.press('Escape')
+      await assessment.scrollIntoViewIfNeeded()
+      const assess = assessment.getByRole('button', { name: 'Assess', exact: true })
+      const assessBox = await assess.boundingBox()
+      expect(assessBox?.y ?? Number.POSITIVE_INFINITY).toBeGreaterThanOrEqual(0)
+      expect(
+        (assessBox?.y ?? Number.POSITIVE_INFINITY) + (assessBox?.height ?? 0),
+      ).toBeLessThanOrEqual(viewport.height)
+    }
+  }
+})
+
 test('risk review renders without page overflow at desktop and mobile workbench sizes', async ({
   page,
 }) => {
@@ -314,6 +447,10 @@ test('risk review renders without page overflow at desktop and mobile workbench 
   const manualReview = page.getByRole('heading', { name: 'Manual review', exact: true })
   await expect(manualReview).toBeVisible()
   expect((await manualReview.boundingBox())?.y).toBeLessThan(844)
+  await expect(page.locator('[data-surface="risk-queue"]')).toHaveAttribute(
+    'data-layout',
+    'stable-detail',
+  )
   await page.getByRole('button', { name: 'Review case 101' }).click()
   const drawer = page.locator('.el-drawer')
   await drawer.getByText('Reject', { exact: true }).click()

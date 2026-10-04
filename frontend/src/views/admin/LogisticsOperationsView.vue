@@ -7,6 +7,8 @@ import { isPositiveApiId, normalizeApiId, sameApiId, type ApiId } from '@/api/id
 import * as ordersApi from '@/api/orders'
 import type { OrderShipmentPayload } from '@/api/orders'
 import AdminCommerceNav from '@/components/admin/AdminCommerceNav.vue'
+import AdminPageToolbar from '@/components/admin/AdminPageToolbar.vue'
+import MetricStrip, { type MetricItem } from '@/components/admin/MetricStrip.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import DataTableShell from '@/components/ui/DataTableShell.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -66,6 +68,30 @@ const canCreate = computed(
     trackingNo.value.trim().length > 0 &&
     !createPending.value,
 )
+const metrics = computed<MetricItem[]>(() => [
+  {
+    key: 'eligible-orders',
+    label: t('adminCommerce.ordersTitle'),
+    value: logisticsOrders.value.length,
+    tone: 'info',
+  },
+  {
+    key: 'selected-order',
+    label: t('adminCommerce.selectedOrder'),
+    value: selectedOrder.value?.orderNo ?? '-',
+  },
+  {
+    key: 'selected-status',
+    label: t('common.status'),
+    value: selectedOrder.value ? normalizeAdminOrderStatus(selectedOrder.value.status) : '-',
+  },
+  {
+    key: 'shipments',
+    label: t('adminCommerce.shipments'),
+    value: shipments.value.length,
+    tone: shipments.value.length > 0 ? 'success' : 'neutral',
+  },
+])
 
 async function loadShipments(orderId: ApiId | undefined = selectedOrderId.value) {
   const normalizedOrderId = normalizeApiId(orderId)
@@ -149,8 +175,11 @@ watch(
 watch(
   logisticsOrders,
   (rows) => {
-    if (!selectedOrderId.value && rows[0]) {
-      void selectOrder(rows[0].id)
+    if (!selectedOrderId.value && !route.query.orderId && rows[0]) {
+      // Selecting an implicit first row must not synthesize a query navigation:
+      // RouterView remounts on that update and repeats the bounded list request.
+      selectedOrderId.value = rows[0].id
+      void loadShipments(rows[0].id)
     }
   },
   { immediate: true },
@@ -158,20 +187,38 @@ watch(
 </script>
 
 <template>
-  <div class="route-view commerce-page">
+  <div
+    class="route-view commerce-page"
+    data-surface="commerce-observatory"
+    data-observatory="commerce"
+    data-workspace="logistics"
+  >
     <PageHeader
       :eyebrow="t('adminCommerce.workspace')"
       :title="t('adminCommerce.logisticsTitle')"
       :description="t('adminCommerce.logisticsDescription')"
     >
       <template #actions>
-        <el-button :icon="RefreshRight" :loading="orderStatus === 'updating'" @click="loadOrders">
+        <el-button :icon="RefreshRight" :loading="orderStatus === 'updating'" @click="loadOrders()">
           {{ t('adminCommerce.refreshOrders') }}
         </el-button>
       </template>
     </PageHeader>
 
     <AdminCommerceNav />
+
+    <AdminPageToolbar :aria-label="t('adminCommerce.logisticsTitle')">
+      <template #search>
+        <span class="commerce-toolbar__scope">{{ t('adminCommerce.selectOrder') }}</span>
+      </template>
+      <template #filters>
+        <span class="commerce-toolbar__state" data-state="shipment-selection">
+          {{ t('adminCommerce.shipments') }}
+        </span>
+      </template>
+    </AdminPageToolbar>
+
+    <MetricStrip :items="metrics" />
 
     <AsyncStateView
       :status="orderStatus"
@@ -180,7 +227,11 @@ watch(
       preserve-content-on-error
       @retry="loadOrders"
     >
-      <section class="commerce-section" :aria-labelledby="'shipment-create-title'">
+      <section
+        class="commerce-section"
+        data-workspace="shipment-create"
+        :aria-labelledby="'shipment-create-title'"
+      >
         <div class="commerce-section__heading">
           <div>
             <h2 id="shipment-create-title">{{ t('adminCommerce.createShipment') }}</h2>
@@ -257,7 +308,11 @@ watch(
         />
       </section>
 
-      <section class="commerce-section" :aria-labelledby="'shipment-list-title'">
+      <section
+        class="commerce-section"
+        data-workspace="shipment-list"
+        :aria-labelledby="'shipment-list-title'"
+      >
         <div class="commerce-section__heading">
           <div>
             <h2 id="shipment-list-title">{{ t('adminCommerce.shipments') }}</h2>
@@ -300,7 +355,11 @@ watch(
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="shipment in shipments" :key="shipment.id">
+                <tr
+                  v-for="shipment in shipments"
+                  :key="shipment.id"
+                  :data-shipment-id="shipment.id"
+                >
                   <td>{{ shipment.shipmentNo }}</td>
                   <td>{{ shipment.carrier }}</td>
                   <td>{{ shipment.trackingNo }}</td>

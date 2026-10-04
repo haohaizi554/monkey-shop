@@ -17,8 +17,8 @@ function goBack() {
 </script>
 
 <template>
-  <div class="route-view not-found-page">
-    <section class="not-found-band">
+  <div class="route-view not-found-page" data-surface="route-recovery">
+    <section class="not-found-band" aria-labelledby="not-found-title">
       <div class="not-found-visual">
         <strong aria-hidden="true">404</strong>
         <MascotState pose="warning" size="md" :alt="t('common.notFoundMascotAlt')" eager />
@@ -26,9 +26,9 @@ function goBack() {
 
       <div class="not-found-copy">
         <span>MonkeyShop / 404</span>
-        <h1>{{ t('common.notFound') }}</h1>
+        <h1 id="not-found-title">{{ t('common.notFound') }}</h1>
         <p>{{ t('common.notFoundHint') }}</p>
-        <div class="not-found-actions">
+        <div class="not-found-actions" data-surface="recovery-actions">
           <el-button :icon="Back" @click="goBack">{{ t('common.back') }}</el-button>
           <el-button type="primary" :icon="House" @click="router.push('/shop')">
             {{ t('nav.shop') }}
@@ -44,6 +44,7 @@ function goBack() {
   display: grid;
   align-content: center;
   min-height: calc(100dvh - var(--consumer-header-height) - var(--space-8));
+  min-width: 0;
 }
 
 .not-found-band {
@@ -51,8 +52,10 @@ function goBack() {
   grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.2fr);
   min-height: 480px;
   overflow: hidden;
-  border-block: 1px solid var(--color-line);
-  background: var(--color-surface-raised);
+  border: 1px solid var(--consumer-line);
+  border-radius: var(--radius-surface);
+  background: var(--consumer-surface-raised);
+  box-shadow: var(--shadow-surface);
 }
 
 .not-found-visual,
@@ -65,18 +68,18 @@ function goBack() {
   justify-items: center;
   gap: var(--space-2);
   padding: var(--space-6);
-  border-right: 1px solid var(--color-line-strong);
-  background: var(--color-brand-soft);
+  border-right: 1px solid var(--consumer-line-strong);
+  background: var(--consumer-primary-soft);
 }
 
 .not-found-visual strong {
-  color: var(--color-brand);
-  font-size: 72px;
+  color: var(--consumer-primary-strong);
+  font-size: clamp(var(--text-3xl), 8vw, 4.5rem);
   line-height: 0.9;
 }
 
 .not-found-visual :deep(.mascot-state) {
-  filter: drop-shadow(0 10px 16px color-mix(in srgb, var(--color-text) 14%, transparent));
+  filter: drop-shadow(0 10px 16px color-mix(in srgb, var(--consumer-ink) 14%, transparent));
 }
 
 .not-found-copy {
@@ -86,9 +89,9 @@ function goBack() {
 }
 
 .not-found-copy > span {
-  color: var(--color-brand);
+  color: var(--consumer-primary-strong);
   font-size: var(--text-sm);
-  font-weight: 800;
+  font-weight: var(--font-weight-bold);
   text-transform: uppercase;
 }
 
@@ -103,8 +106,8 @@ function goBack() {
 
 .not-found-copy p {
   max-width: 48ch;
-  color: var(--color-text-muted);
-  line-height: 1.65;
+  color: var(--consumer-muted);
+  line-height: var(--leading-relaxed);
 }
 
 .not-found-actions {
@@ -112,6 +115,15 @@ function goBack() {
   flex-wrap: wrap;
   gap: var(--space-2);
   margin-top: var(--space-2);
+}
+
+.not-found-actions :deep(.el-button) {
+  min-height: var(--touch-target-min);
+}
+
+.not-found-actions :deep(.el-button:focus-visible) {
+  outline: var(--focus-width) solid var(--consumer-primary);
+  outline-offset: var(--focus-offset);
 }
 
 @media (max-width: 640px) {
@@ -127,7 +139,7 @@ function goBack() {
   .not-found-visual {
     padding: var(--space-5);
     border-right: 0;
-    border-bottom: 1px solid var(--color-line-strong);
+    border-bottom: 1px solid var(--consumer-line-strong);
   }
 
   .not-found-visual strong {

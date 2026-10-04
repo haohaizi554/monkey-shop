@@ -262,6 +262,7 @@ function eventLabel(event: OrderTimelineLogisticsEvent): string {
 <template>
   <section
     class="order-status-timeline"
+    data-surface="status-spine"
     :aria-label="localized('Order progress', '\u8ba2\u5355\u8fdb\u5ea6')"
   >
     <div class="order-status-timeline__current" role="status">
@@ -305,12 +306,16 @@ function eventLabel(event: OrderTimelineLogisticsEvent): string {
   display: grid;
   gap: var(--space-3);
   min-width: 0;
+  padding-inline-start: var(--space-4);
+  border-inline-start: 3px solid var(--color-primary-soft);
 }
 
 .order-status-timeline__current {
   align-items: center;
   display: flex;
   gap: var(--space-2);
+  min-height: 28px;
+  color: var(--color-primary-strong);
 }
 
 .order-status-timeline__current svg,
@@ -328,11 +333,13 @@ function eventLabel(event: OrderTimelineLogisticsEvent): string {
   margin: 0;
   overflow-x: auto;
   padding: 0 0 4px;
+  scrollbar-color: var(--color-line-strong) transparent;
+  scrollbar-width: thin;
 }
 
 .order-status-timeline__steps li {
   align-content: start;
-  color: var(--el-text-color-placeholder);
+  color: var(--color-text-muted);
   display: grid;
   font-size: var(--text-xs);
   gap: var(--space-1);
@@ -342,7 +349,7 @@ function eventLabel(event: OrderTimelineLogisticsEvent): string {
 }
 
 .order-status-timeline__steps li::before {
-  background: var(--el-border-color);
+  background: var(--color-line);
   content: '';
   height: 2px;
   left: 24px;
@@ -357,16 +364,16 @@ function eventLabel(event: OrderTimelineLogisticsEvent): string {
 
 .order-status-timeline__steps li.is-complete,
 .order-status-timeline__steps li.is-current {
-  color: var(--el-text-color-primary);
+  color: var(--color-text);
 }
 
 .order-status-timeline__steps li.is-complete::before {
-  background: var(--el-color-success);
+  background: var(--color-success);
 }
 
 .order-status-timeline__icon {
   align-items: center;
-  background: var(--el-bg-color);
+  background: var(--color-surface);
   border: 1px solid currentColor;
   border-radius: var(--radius-circle);
   display: inline-flex;
@@ -378,11 +385,11 @@ function eventLabel(event: OrderTimelineLogisticsEvent): string {
 }
 
 .is-complete .order-status-timeline__icon {
-  color: var(--el-color-success);
+  color: var(--color-success);
 }
 
 .is-current .order-status-timeline__icon {
-  color: var(--el-color-primary);
+  color: var(--color-primary);
 }
 
 .order-status-timeline__icon svg {
@@ -395,12 +402,12 @@ function eventLabel(event: OrderTimelineLogisticsEvent): string {
 }
 
 .order-status-timeline time {
-  color: var(--el-text-color-secondary);
+  color: var(--color-text-muted);
   font-size: var(--text-xs);
 }
 
 .order-status-timeline__events {
-  border-top: 1px solid var(--el-border-color-lighter);
+  border-top: 1px solid var(--color-line);
   display: grid;
   gap: var(--space-2);
   list-style: none;
@@ -423,6 +430,10 @@ function eventLabel(event: OrderTimelineLogisticsEvent): string {
 }
 
 @media (max-width: 640px) {
+  .order-status-timeline {
+    padding-inline-start: var(--space-3);
+  }
+
   .order-status-timeline__events li {
     grid-template-columns: auto minmax(0, 1fr);
   }

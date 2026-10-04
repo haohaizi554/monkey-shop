@@ -589,7 +589,7 @@ onUnmounted(() => orderResource.cancel())
 <style scoped>
 .orders-view {
   display: grid;
-  gap: var(--space-5);
+  gap: var(--space-6);
 }
 
 .orders-toolbar {
@@ -599,6 +599,10 @@ onUnmounted(() => orderResource.cancel())
   gap: var(--space-4);
   padding-bottom: var(--space-4);
   border-bottom: 1px solid var(--color-line);
+}
+
+.orders-toolbar :deep(.el-segmented) {
+  min-height: 44px;
 }
 
 .orders-pagination {
@@ -632,7 +636,7 @@ onUnmounted(() => orderResource.cancel())
 .order-row {
   display: block;
   min-width: 0;
-  padding: var(--space-5) 0;
+  padding: var(--space-6) 0;
   border: 0;
   border-bottom: 1px solid var(--color-line);
   border-radius: 0;
@@ -655,6 +659,8 @@ onUnmounted(() => orderResource.cancel())
   width: 96px;
   height: 96px;
   aspect-ratio: 1;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-control);
 }
 
 .order-main {
@@ -674,6 +680,7 @@ onUnmounted(() => orderResource.cancel())
   margin: var(--space-1) 0 0;
   overflow-wrap: anywhere;
   font-size: var(--text-base);
+  line-height: var(--leading-normal);
 }
 
 .order-number {
@@ -692,6 +699,7 @@ onUnmounted(() => orderResource.cancel())
 
 .order-title__amount strong {
   font-size: var(--text-lg);
+  font-variant-numeric: tabular-nums;
 }
 
 .order-meta {
@@ -714,6 +722,10 @@ onUnmounted(() => orderResource.cancel())
   margin: 0;
 }
 
+.row-actions :deep(.el-button--primary) {
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--color-accent) 68%, transparent);
+}
+
 .order-details-toggle {
   grid-column: 2;
   justify-self: start;
@@ -731,6 +743,13 @@ onUnmounted(() => orderResource.cancel())
   margin-top: var(--space-4);
   padding: var(--space-5) 0 0 112px;
   border-top: 1px dashed var(--color-line);
+}
+
+.order-details > :deep(.order-status-timeline) {
+  padding: var(--space-4);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-surface);
+  background: var(--color-surface-subtle);
 }
 
 .order-facts {
@@ -766,6 +785,7 @@ onUnmounted(() => orderResource.cancel())
   margin: var(--space-1) 0 0;
   overflow-wrap: anywhere;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .shipment-section {
@@ -797,6 +817,8 @@ onUnmounted(() => orderResource.cancel())
   gap: var(--space-4);
   align-items: center;
   padding: var(--space-3) 0;
+  border-left: 3px solid var(--color-primary-soft);
+  padding-left: var(--space-3);
   border-bottom: 1px solid var(--color-line);
 }
 
@@ -875,6 +897,11 @@ onUnmounted(() => orderResource.cancel())
   text-decoration: none;
 }
 
+.orders-empty__action:focus-visible {
+  outline: var(--focus-width) solid var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
 @media (max-width: 980px) {
   .order-row__summary {
     grid-template-columns: 88px minmax(0, 1fr);
@@ -910,6 +937,10 @@ onUnmounted(() => orderResource.cancel())
   .order-shipment {
     grid-template-columns: 1fr;
   }
+
+  .order-details > :deep(.order-status-timeline) {
+    padding: var(--space-3);
+  }
 }
 
 @media (max-width: 720px) {
@@ -929,6 +960,10 @@ onUnmounted(() => orderResource.cancel())
   .order-row__summary {
     grid-template-columns: 72px minmax(0, 1fr);
     gap: var(--space-3);
+  }
+
+  .order-row {
+    padding-block: var(--space-5);
   }
 
   .order-row__summary :deep(.product-image) {
@@ -979,6 +1014,12 @@ onUnmounted(() => orderResource.cancel())
 
   .order-facts__address {
     display: grid !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orders-empty__action {
+    transition: none;
   }
 }
 </style>

@@ -127,7 +127,11 @@ onMounted(() => {
     </PageHeader>
 
     <div class="review-workspace">
-      <section class="review-composer" :aria-label="$t('common.submitReview')">
+      <section
+        class="review-composer"
+        data-surface="review-composer"
+        :aria-label="$t('common.submitReview')"
+      >
         <header class="section-heading">
           <div>
             <h2>{{ $t('reviews.composeTitle') }}</h2>
@@ -252,7 +256,11 @@ onMounted(() => {
         </form>
       </section>
 
-      <section class="review-history" :aria-label="$t('reviews.historyTitle')">
+      <section
+        class="review-history"
+        data-surface="review-history"
+        :aria-label="$t('reviews.historyTitle')"
+      >
         <header class="section-heading">
           <div>
             <h2>{{ $t('reviews.historyTitle') }}</h2>
@@ -321,7 +329,7 @@ onMounted(() => {
 <style scoped>
 .review-view {
   display: grid;
-  gap: var(--space-5);
+  gap: var(--space-6);
 }
 
 .review-workspace {
@@ -347,6 +355,11 @@ onMounted(() => {
   align-content: start;
   gap: var(--space-5);
   min-width: 0;
+}
+
+.review-composer {
+  padding-left: var(--space-5);
+  border-left: 3px solid var(--color-primary-soft);
 }
 
 .review-history {
@@ -392,7 +405,7 @@ onMounted(() => {
 }
 
 .review-form {
-  gap: var(--space-5);
+  gap: var(--space-6);
 }
 
 .review-field,
@@ -468,11 +481,16 @@ onMounted(() => {
   color: var(--color-text-muted);
   cursor: pointer;
   font-size: var(--text-xs);
+  transition:
+    border-color var(--motion-fast),
+    color var(--motion-fast),
+    background-color var(--motion-fast);
 }
 
 .upload-control:hover {
   border-color: var(--color-brand);
   color: var(--color-brand);
+  background: var(--color-brand-soft);
 }
 
 .upload-control:focus-within {
@@ -523,7 +541,7 @@ onMounted(() => {
 
 .review-submit .el-button {
   min-width: 160px;
-  min-height: 42px;
+  min-height: 44px;
 }
 
 .history-empty {
@@ -587,6 +605,11 @@ onMounted(() => {
     border-top: 1px solid var(--color-line);
     border-left: 0;
   }
+
+  .review-composer {
+    padding-left: 0;
+    border-left: 0;
+  }
 }
 
 @media (max-width: 560px) {
@@ -603,6 +626,18 @@ onMounted(() => {
   .review-submit .el-button {
     width: 100%;
     min-height: 44px;
+  }
+
+  .review-view :deep(input),
+  .review-view :deep(textarea),
+  .review-view :deep(button) {
+    scroll-margin-bottom: var(--space-5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .upload-control {
+    transition: none;
   }
 }
 </style>

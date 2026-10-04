@@ -419,7 +419,11 @@ onMounted(() => {
       </div>
     </section>
 
-    <section class="payment-task lookup-task" :aria-label="$t('common.search')">
+    <section
+      class="payment-task lookup-task"
+      data-surface="payment-lookup"
+      :aria-label="$t('common.search')"
+    >
       <h2>
         <el-icon aria-hidden="true"><Search /></el-icon>
         {{ $t('common.search') }} {{ $t('common.payment') }}
@@ -443,7 +447,11 @@ onMounted(() => {
     </section>
 
     <div class="payment-workspace">
-      <section class="payment-task create-task" :aria-label="$t('payment.createPayment')">
+      <section
+        class="payment-task create-task"
+        data-surface="payment-action"
+        :aria-label="$t('payment.createPayment')"
+      >
         <h2>
           <el-icon aria-hidden="true"><Wallet /></el-icon>
           {{ $t('payment.createPayment') }}
@@ -532,7 +540,11 @@ onMounted(() => {
 
         <DataTableShell v-if="payment" :aria-label="$t('payment.paymentStatus')">
           <section class="payment-task current-payment">
-            <div class="payment-status-stage" :data-status="payment.status">
+            <div
+              class="payment-status-stage"
+              data-surface="payment-status"
+              :data-status="payment.status"
+            >
               <MascotState :pose="paymentPose" size="md" :alt="paymentStateTitle" />
               <div class="payment-status-stage__copy">
                 <span class="payment-status-stage__eyebrow">
@@ -605,10 +617,12 @@ onMounted(() => {
             <form
               v-if="refundable > 0"
               class="refund-task task-form"
+              data-surface="payment-refund"
               @submit.prevent="submitRefund"
             >
               <h3>{{ $t('common.refund') }}</h3>
               <el-input-number
+                :key="paymentControlsLocked ? 'locked' : 'unlocked'"
                 v-model="refundAmount"
                 :min="0"
                 :max="refundable"
@@ -643,13 +657,13 @@ onMounted(() => {
 <style scoped>
 .payment-view {
   display: grid;
-  gap: var(--space-5);
+  gap: var(--space-6);
 }
 
 .order-queue {
   display: grid;
   gap: var(--space-3);
-  padding: var(--space-3) 0;
+  padding: var(--space-4) 0;
   border-top: 1px solid var(--color-line);
   border-bottom: 1px solid var(--color-line);
 }
@@ -680,7 +694,7 @@ onMounted(() => {
 }
 
 .order-queue__item {
-  min-height: 38px;
+  min-height: 44px;
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-line);
   border-radius: var(--radius-control);
@@ -697,6 +711,11 @@ onMounted(() => {
   color: var(--color-brand);
 }
 
+.order-queue__item.is-current {
+  box-shadow: inset 0 -3px 0 var(--color-accent);
+  font-weight: 750;
+}
+
 .order-queue__item:focus-visible {
   outline: var(--focus-width) solid var(--focus-ring);
   outline-offset: var(--focus-offset);
@@ -710,7 +729,7 @@ onMounted(() => {
 .payment-workspace {
   display: grid;
   grid-template-columns: minmax(280px, 0.72fr) minmax(0, 1.28fr);
-  gap: var(--space-6);
+  gap: var(--space-8);
   align-items: start;
 }
 
@@ -718,8 +737,13 @@ onMounted(() => {
   display: grid;
   gap: var(--space-4);
   min-width: 0;
-  padding-top: var(--space-4);
+  padding-top: var(--space-5);
   border-top: 1px solid var(--color-line);
+}
+
+.payment-task[data-surface='payment-action'] {
+  padding-right: var(--space-5);
+  border-right: 1px solid var(--color-line);
 }
 
 .payment-task h2,
@@ -746,12 +770,17 @@ onMounted(() => {
 
 .task-form > .el-button {
   justify-self: start;
-  min-height: 40px;
+  min-height: 44px;
 }
 
 .create-task {
   position: sticky;
   top: calc(var(--consumer-header-height, 72px) + var(--space-4));
+}
+
+.create-task h2,
+.lookup-task h2 {
+  color: var(--color-primary-strong);
 }
 
 .payment-create-lock {
@@ -769,8 +798,8 @@ onMounted(() => {
   grid-template-columns: minmax(132px, 180px) minmax(0, 1fr);
   gap: var(--space-5);
   align-items: center;
-  padding: var(--space-5);
-  border: 1px solid var(--color-line);
+  padding: var(--space-6);
+  border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-surface);
   background: var(--color-surface-subtle);
 }
@@ -840,7 +869,7 @@ onMounted(() => {
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: var(--space-3);
   margin: 0;
-  padding: var(--space-4) 0;
+  padding: var(--space-5) 0;
   border-top: 1px dashed var(--color-line);
   border-bottom: 1px dashed var(--color-line);
 }
@@ -868,6 +897,11 @@ onMounted(() => {
   margin-top: var(--space-1);
   padding-top: var(--space-4);
   border-top: 1px solid var(--color-line);
+}
+
+.refund-task[data-surface='payment-refund'] {
+  grid-template-columns: minmax(160px, 0.55fr) minmax(220px, 1fr) auto;
+  padding-top: var(--space-5);
 }
 
 .refund-task h3,
@@ -901,6 +935,11 @@ onMounted(() => {
 
   .create-task {
     position: static;
+  }
+
+  .payment-task[data-surface='payment-action'] {
+    padding-right: 0;
+    border-right: 0;
   }
 
   .task-form {
@@ -946,6 +985,16 @@ onMounted(() => {
     display: grid;
     justify-items: center;
     text-align: center;
+  }
+
+  .refund-task[data-surface='payment-refund'] {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .order-queue__item {
+    transition: none;
   }
 }
 </style>

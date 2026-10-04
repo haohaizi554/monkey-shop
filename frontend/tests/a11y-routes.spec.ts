@@ -651,11 +651,68 @@ for (const routeCase of consumerRoutes) {
 
 test('not found route presents branded recovery actions', async ({ page }) => {
   const unhandled = await installApiMocks(page, 'user')
+  await page.goto('/shop')
+  await expect(page.getByRole('heading', { name: 'MonkeyShop', level: 1 })).toBeVisible()
   await settleRoute(page, consumerRoute('not found'))
 
+  await expect(page.locator('.not-found-page[data-surface="route-recovery"]')).toBeVisible()
+  await expect(page.locator('.not-found-page h1')).toHaveCount(1)
   await expect(page.locator('img.mascot-state[data-pose="warning"]')).toBeVisible()
+  await expect(page.locator('.not-found-page img.mascot-state')).toHaveCount(1)
+  await expect(page.locator('.not-found-actions')).toHaveCount(1)
   await expect(page.getByRole('button', { name: 'Back', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Shop', exact: true })).toBeVisible()
+
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 320, height: 800 },
+  ]) {
+    await page.setViewportSize(viewport)
+    const geometry = await page.evaluate(() => {
+      const overflowOwners = Array.from(
+        document.querySelectorAll<HTMLElement>('.not-found-page, .not-found-page *'),
+      )
+        .filter((element) => element.scrollWidth > element.clientWidth + 1)
+        .map((element) => `${element.tagName.toLowerCase()}.${element.className}`)
+      const controls = Array.from(
+        document.querySelectorAll<HTMLElement>('.not-found-actions button'),
+      )
+      return {
+        documentOverflow:
+          document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        controls: controls.map((element) => {
+          const rect = element.getBoundingClientRect()
+          const hit = document.elementFromPoint(
+            Math.min(window.innerWidth - 1, Math.max(0, rect.left + rect.width / 2)),
+            Math.min(window.innerHeight - 1, Math.max(0, rect.top + rect.height / 2)),
+          )
+          return {
+            height: rect.height,
+            visible: rect.top >= -1 && rect.bottom <= window.innerHeight + 1,
+            uncovered: Boolean(
+              hit && (hit === element || element.contains(hit) || hit.contains(element)),
+            ),
+          }
+        }),
+        overflowOwners,
+      }
+    })
+    expect(geometry.documentOverflow).toBeLessThanOrEqual(1)
+    expect(geometry.overflowOwners).toEqual([])
+    expect(geometry.controls).toHaveLength(2)
+    for (const control of geometry.controls) {
+      expect(control.height).toBeGreaterThanOrEqual(44)
+      expect(control.visible).toBe(true)
+      expect(control.uncovered).toBe(true)
+    }
+  }
+
+  await page.getByRole('button', { name: 'Back', exact: true }).click()
+  await expect(page).toHaveURL(/\/shop$/)
+  await page.goto('/route-that-does-not-exist')
+  await expect(page.getByRole('heading', { name: 'Page not found', level: 1 })).toBeVisible()
+  await page.getByRole('button', { name: 'Shop', exact: true }).click()
+  await expect(page).toHaveURL(/\/shop$/)
   expect(unhandled).toEqual([])
 })
 

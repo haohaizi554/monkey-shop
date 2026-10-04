@@ -110,6 +110,12 @@ test('commerce operations are four linked admin workspaces without callback simu
   ] as const) {
     await page.goto(path)
     await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
+    await expect(page.locator('.route-view[data-surface="commerce-observatory"]')).toHaveAttribute(
+      'data-observatory',
+      'commerce',
+    )
+    await expect(page.locator('.admin-page-toolbar')).toHaveAttribute('data-density', 'compact')
+    await expect(page.locator('.metric-strip')).toHaveAttribute('data-surface', 'signal-strip')
     await expect(page.locator('body')).not.toContainText(/Push webhook|Simulate callback/)
   }
 })
@@ -208,6 +214,7 @@ test('payment lookup keeps a Snowflake order ID exact in query, input, URL, and 
   page,
 }) => {
   const lookups: string[] = []
+  let reconciliationPayload: unknown
 
   await installAdminMocks(page)
   await page.route('**/api/v1/payments/admin/orders/*', async (route) => {
@@ -229,6 +236,16 @@ test('payment lookup keeps a Snowflake order ID exact in query, input, URL, and 
       createTime: '2026-07-12T08:30:00',
     })
   })
+  await page.route('**/api/v1/payments/reconciliation', async (route) => {
+    reconciliationPayload = route.request().postDataJSON()
+    await fulfillOk(route, {
+      status: 'COMPLETED',
+      platformAmount: '128.00',
+      providerAmount: '128.00',
+      diffAmount: '0.00',
+      issueCount: 0,
+    })
+  })
 
   await page.goto(`/admin/payments?orderId=${SNOWFLAKE_ID}`)
 
@@ -237,6 +254,57 @@ test('payment lookup keeps a Snowflake order ID exact in query, input, URL, and 
   await expect(orderIdInput).toHaveValue(SNOWFLAKE_ID)
   await expect(page.getByRole('spinbutton', { name: 'Order ID' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Issue refund', exact: true })).toBeEnabled()
+
+  const reconciliationLines = page.locator('.commerce-line-editor')
+  const firstEditorKey = await reconciliationLines.nth(0).getAttribute('data-editor-key')
+  const firstPaymentInputId = await reconciliationLines
+    .nth(0)
+    .getByRole('textbox', { name: 'Payment number', exact: true })
+    .getAttribute('id')
+  expect(firstEditorKey).toMatch(/^reconciliation-line-/)
+  await page.getByRole('button', { name: 'Add row', exact: true }).click()
+  await expect(reconciliationLines).toHaveCount(2)
+  const secondEditorKey = await reconciliationLines.nth(1).getAttribute('data-editor-key')
+  const secondPaymentInputId = await reconciliationLines
+    .nth(1)
+    .getByRole('textbox', { name: 'Payment number', exact: true })
+    .getAttribute('id')
+  expect(secondEditorKey).toMatch(/^reconciliation-line-/)
+  expect(secondEditorKey).not.toBe(firstEditorKey)
+  expect(secondPaymentInputId).not.toBe(firstPaymentInputId)
+  await reconciliationLines.nth(0).getByRole('button', { name: 'Remove row', exact: true }).click()
+  await expect(reconciliationLines).toHaveCount(1)
+  await expect(reconciliationLines.nth(0)).toHaveAttribute('data-editor-key', secondEditorKey!)
+  await expect(
+    reconciliationLines.nth(0).getByRole('textbox', { name: 'Payment number', exact: true }),
+  ).toHaveAttribute('id', secondPaymentInputId!)
+
+  await reconciliationLines
+    .nth(0)
+    .getByRole('textbox', { name: 'Payment number', exact: true })
+    .fill(`PAY-${SNOWFLAKE_ID}`)
+  await reconciliationLines
+    .nth(0)
+    .getByRole('textbox', { name: 'Provider trade number', exact: true })
+    .fill(`PROVIDER-${SNOWFLAKE_ID}`)
+  await reconciliationLines
+    .nth(0)
+    .getByRole('textbox', { name: 'Provider amount', exact: true })
+    .fill('128')
+  await page.getByRole('button', { name: 'Run reconciliation', exact: true }).click()
+  await expect.poll(() => reconciliationPayload).not.toBeUndefined()
+  expect(reconciliationPayload).toEqual({
+    provider: 'WECHAT',
+    reportDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    lines: [
+      {
+        paymentNo: `PAY-${SNOWFLAKE_ID}`,
+        providerTradeNo: `PROVIDER-${SNOWFLAKE_ID}`,
+        amount: '128.00',
+      },
+    ],
+  })
+  expect(JSON.stringify(reconciliationPayload)).not.toContain('editorKey')
 
   await orderIdInput.fill('12')
   await page.getByRole('button', { name: 'Load payment', exact: true }).click()
@@ -249,6 +317,7 @@ test('payment lookup keeps a Snowflake order ID exact in query, input, URL, and 
 test('logistics creation is scoped to one paid order and blocks duplicate submission', async ({
   page,
 }) => {
+  const orderPages: string[] = []
   let createCalls = 0
   let releaseCreate!: () => void
   const createGate = new Promise<void>((resolve) => {
@@ -266,6 +335,10 @@ test('logistics creation is scoped to one paid order and blocks duplicate submis
   }
 
   await installAdminMocks(page)
+  await page.route('**/api/v1/orders/all**', async (route) => {
+    orderPages.push(new URL(route.request().url()).searchParams.get('page') ?? '')
+    await fulfillOk(route, pageResult(orders))
+  })
   await page.route('**/api/v1/orders/shipments/11', async (route) => {
     createCalls += 1
     expect(route.request().postDataJSON()).toEqual({
@@ -278,6 +351,14 @@ test('logistics creation is scoped to one paid order and blocks duplicate submis
   })
 
   await page.goto('/admin/logistics?orderId=11')
+  await expect.poll(() => orderPages.length).toBe(1)
+  const refreshOrdersButton = page.getByRole('button', { name: 'Refresh orders', exact: true })
+  await refreshOrdersButton.click()
+  await expect.poll(() => orderPages.length).toBe(2)
+  expect(orderPages).toEqual(['0', '0'])
+  expect(
+    orderPages.every((pageNumber) => /^\d+$/.test(pageNumber) && Number(pageNumber) <= 100),
+  ).toBe(true)
   await page.getByLabel('Tracking number').fill('SF-NEW-11')
   const createButton = page.getByRole('button', { name: 'Create shipment', exact: true })
   await createButton.click()

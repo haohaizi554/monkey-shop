@@ -18,7 +18,13 @@ const descriptionId = computed(() => (props.description ? `${sectionId}-descript
 </script>
 
 <template>
-  <fieldset class="form-section" :disabled="disabled" :aria-describedby="descriptionId">
+  <fieldset
+    class="form-section"
+    data-surface="form-section"
+    :data-tone="disabled ? 'disabled' : 'default'"
+    :disabled="disabled"
+    :aria-describedby="descriptionId"
+  >
     <legend class="form-section__legend">{{ title }}</legend>
     <p v-if="description" :id="descriptionId" class="form-section__description">
       {{ description }}

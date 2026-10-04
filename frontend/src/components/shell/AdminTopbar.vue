@@ -1,16 +1,21 @@
 <script setup lang="ts">
 import {
   Box,
+  CreditCard,
   DataAnalysis,
   Discount,
+  List,
   Menu,
   Moon,
   OfficeBuilding,
+  RefreshLeft,
   Search,
   Setting,
   Sunny,
   SwitchButton,
   User,
+  UserFilled,
+  Van,
   Warning,
 } from '@element-plus/icons-vue'
 import type { InputInstance } from 'element-plus'
@@ -49,6 +54,36 @@ const commandRoutes = computed<CommandRoute[]>(() => [
   { to: '/admin', label: t('nav.admin'), group: t('nav.adminStore'), icon: Setting },
   { to: '/inventory', label: t('nav.inventory'), group: t('nav.adminStore'), icon: Box },
   { to: '/marketing', label: t('nav.marketing'), group: t('nav.adminStore'), icon: Discount },
+  {
+    to: '/admin/orders',
+    label: t('nav.adminOrders'),
+    group: t('nav.adminCommerce'),
+    icon: List,
+  },
+  {
+    to: '/admin/returns',
+    label: t('nav.adminReturns'),
+    group: t('nav.adminCommerce'),
+    icon: RefreshLeft,
+  },
+  {
+    to: '/admin/payments',
+    label: t('nav.adminPayments'),
+    group: t('nav.adminCommerce'),
+    icon: CreditCard,
+  },
+  {
+    to: '/admin/logistics',
+    label: t('nav.adminLogistics'),
+    group: t('nav.adminCommerce'),
+    icon: Van,
+  },
+  {
+    to: '/admin/members',
+    label: t('nav.adminMembers'),
+    group: t('nav.adminCommerce'),
+    icon: UserFilled,
+  },
   { to: '/dashboard', label: t('nav.dashboard'), group: t('nav.adminOps'), icon: DataAnalysis },
   { to: '/risk', label: t('nav.riskReview'), group: t('nav.adminOps'), icon: Warning },
   { to: '/tenants', label: t('nav.tenants'), group: t('nav.adminOps'), icon: OfficeBuilding },
@@ -105,7 +140,7 @@ defineExpose({ focusNavigationTrigger })
 </script>
 
 <template>
-  <header class="app-header admin-topbar">
+  <header class="app-header admin-topbar" data-surface="admin-chrome" data-tone="chrome">
     <button
       ref="navigationTrigger"
       class="icon-button admin-topbar__menu"

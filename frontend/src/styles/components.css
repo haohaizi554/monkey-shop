@@ -899,7 +899,7 @@ html.dark .el-button--primary {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 40px;
+  min-height: var(--touch-target-min);
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   padding: 0 14px;
@@ -926,7 +926,7 @@ html.dark .el-button--primary {
 
 .icon-button {
   gap: 0;
-  width: 40px;
+  width: var(--icon-button-size);
   padding: 0;
   border-color: var(--line);
 }
@@ -1194,6 +1194,11 @@ html.dark .el-message--success {
 
   .el-button + .el-button {
     margin-left: 0;
+  }
+
+  .el-button,
+  .el-button.is-text {
+    min-height: var(--touch-target-min);
   }
 }
 
@@ -1858,4 +1863,68 @@ html.dark .el-message--success {
 .app-shell[data-area='admin'] .admin-page-toolbar .field-control > span {
   color: var(--color-text);
   font-weight: 650;
+}
+
+/* Shared surface hooks keep visual responsibility explicit without creating
+ * another card system for individual pages. */
+[data-surface='page-heading'] {
+  container-type: inline-size;
+}
+
+.app-shell[data-area='consumer'] [data-surface='page-heading'] h1 {
+  font-size: var(--text-display);
+}
+
+.app-shell[data-area='admin'] [data-surface='page-heading'] {
+  background: transparent;
+}
+
+[data-surface='data-table'] {
+  container-type: inline-size;
+}
+
+[data-surface='data-table'][data-state='updating'] {
+  border-color: var(--color-line-strong);
+}
+
+[data-surface='data-table-scroll'] {
+  overscroll-behavior-inline: contain;
+  scrollbar-color: var(--color-line-strong) transparent;
+  scrollbar-width: thin;
+}
+
+[data-surface='inline-notice'] {
+  min-width: 0;
+}
+
+[data-surface='inline-notice'] :is(button, a):focus-visible {
+  position: relative;
+  z-index: 1;
+}
+
+[data-surface='inline-notice'] :is(.inline-notice__retry button, .inline-notice__dismiss) {
+  min-width: var(--touch-target-min);
+  min-height: var(--touch-target-min);
+}
+
+[data-surface='form-section'] {
+  min-width: 0;
+}
+
+[data-surface='form-section'][data-tone='disabled'] {
+  color: var(--color-muted);
+}
+
+[data-surface='status-tag'] {
+  min-width: 0;
+}
+
+@media (max-width: 760px) {
+  .app-shell[data-area='consumer'] [data-surface='page-heading'] h1 {
+    font-size: var(--text-2xl);
+  }
+
+  [data-surface='data-table-scroll'] {
+    max-width: 100%;
+  }
 }

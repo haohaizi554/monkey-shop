@@ -245,7 +245,11 @@ onMounted(() => {
       :error="dashboardResource.error.value"
       @retry="loadDashboard"
     >
-      <section class="member-hero" :aria-label="$t('membership.center')">
+      <section
+        class="member-hero"
+        data-surface="membership-overview"
+        :aria-label="$t('membership.center')"
+      >
         <div class="member-hero__mascot">
           <MascotState pose="celebrate" size="sm" eager :alt="$t('membership.heroMascotAlt')" />
         </div>
@@ -307,7 +311,11 @@ onMounted(() => {
         </div>
       </section>
 
-      <section class="membership-section" data-membership-section="identity">
+      <section
+        class="membership-section"
+        data-membership-section="identity"
+        data-surface="membership-section"
+      >
         <header class="section-heading">
           <div>
             <h2>{{ $t('membership.identityStatus') }}</h2>
@@ -347,7 +355,11 @@ onMounted(() => {
         </form>
       </section>
 
-      <section class="membership-section" data-membership-section="points">
+      <section
+        class="membership-section"
+        data-membership-section="points"
+        data-surface="membership-section"
+      >
         <header class="section-heading">
           <div>
             <h2>{{ $t('membership.pointsAccount') }}</h2>
@@ -396,7 +408,11 @@ onMounted(() => {
         </dl>
       </section>
 
-      <section class="membership-section" data-membership-section="price-watch">
+      <section
+        class="membership-section"
+        data-membership-section="price-watch"
+        data-surface="membership-section"
+      >
         <header class="section-heading">
           <div>
             <h2>{{ $t('membership.priceWatch') }}</h2>
@@ -476,7 +492,11 @@ onMounted(() => {
         </DataTableShell>
       </section>
 
-      <section class="membership-section" data-membership-section="coupons">
+      <section
+        class="membership-section"
+        data-membership-section="coupons"
+        data-surface="membership-section"
+      >
         <header class="section-heading">
           <div>
             <h2>{{ $t('membership.couponAccount') }}</h2>
@@ -501,7 +521,11 @@ onMounted(() => {
         </DataTableShell>
       </section>
 
-      <section class="membership-section" data-membership-section="history">
+      <section
+        class="membership-section"
+        data-membership-section="history"
+        data-surface="membership-section"
+      >
         <header class="section-heading">
           <div>
             <h2>{{ $t('membership.browseHistory') }}</h2>
@@ -553,7 +577,7 @@ onMounted(() => {
 
 .membership-page,
 .membership-page :deep(.async-state-view__content) {
-  gap: var(--space-5);
+  gap: var(--space-6);
 }
 
 .member-hero {
@@ -561,8 +585,10 @@ onMounted(() => {
   gap: var(--space-5);
   align-items: center;
   padding: var(--space-5) var(--space-6);
-  border-block: 1px solid var(--color-line);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-surface);
   background: var(--color-brand-soft);
+  box-shadow: var(--shadow-surface);
 }
 
 .member-hero__mascot {
@@ -644,6 +670,7 @@ onMounted(() => {
 .membership-metrics dd strong {
   font-size: var(--text-2xl);
   font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 
 .benefit-list {
@@ -670,6 +697,10 @@ onMounted(() => {
   gap: var(--space-4);
   padding-bottom: var(--space-5);
   border-bottom: 1px solid var(--color-line);
+}
+
+.membership-section[data-surface='membership-section'] {
+  container-type: inline-size;
 }
 
 .membership-section:last-child {
@@ -721,7 +752,7 @@ onMounted(() => {
 .identity-form > .el-button,
 .redeem-form > .el-button,
 .collection-form > .el-button {
-  min-height: 40px;
+  min-height: 44px;
   min-width: 160px;
   justify-self: start;
 }
@@ -780,6 +811,12 @@ onMounted(() => {
   border-bottom: 1px solid var(--color-line);
 }
 
+.collection-row > *,
+.coupon-row > *,
+.history-row > * {
+  min-width: 0;
+}
+
 .collection-row:last-child,
 .coupon-row:last-child,
 .history-row:last-child {
@@ -805,12 +842,22 @@ onMounted(() => {
   gap: var(--space-1);
 }
 
+.collection-row__main strong,
+.coupon-row strong,
+.history-row > strong {
+  overflow-wrap: anywhere;
+}
+
 .collection-row__target {
   justify-items: end;
 }
 
 .coupon-row {
   grid-template-columns: minmax(0, 1fr) auto minmax(160px, auto);
+}
+
+.coupon-row time {
+  overflow-wrap: anywhere;
 }
 
 .history-row {
@@ -865,6 +912,11 @@ onMounted(() => {
     grid-template-columns: 88px minmax(0, 1fr);
     gap: var(--space-3);
     padding: var(--space-4);
+  }
+
+  .member-progress__title {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .member-hero__mascot :deep(.mascot-state) {
@@ -945,6 +997,13 @@ onMounted(() => {
 
   .coupon-row > .el-tag {
     justify-self: end;
+    max-width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .member-hero {
+    transition: none;
   }
 }
 </style>
