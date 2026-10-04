@@ -3,6 +3,7 @@ import { Delete, Refresh } from '@element-plus/icons-vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getCart, removeCartItem, selectCartItem, updateCartItem } from '@/api/cart'
+import { normalizeApiId, sameApiId, type ApiId } from '@/api/ids'
 import MascotState from '@/components/mascot/MascotState.vue'
 import ProductImage from '@/components/ProductImage.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
@@ -18,8 +19,8 @@ const cart = ref<Cart | null>(null)
 const cartStatus = ref<AsyncStatus>('idle')
 const cartError = ref<string | null>(null)
 const pendingMutations = reactive(new Set<string>())
-const pendingRows = reactive(new Set<number>())
-const rowErrors = reactive(new Map<number, string>())
+const pendingRows = reactive(new Set<string>())
+const rowErrors = reactive(new Map<string, string>())
 const cartReadPending = computed(
   () => cartStatus.value === 'loading' || cartStatus.value === 'updating',
 )
@@ -28,16 +29,16 @@ let mutationQueue: Promise<void> = Promise.resolve()
 
 type MutationAction = 'quantity' | 'select' | 'remove'
 
-function mutationKey(action: MutationAction, rowSkuId: number) {
-  return `${action}:${rowSkuId}`
+function mutationKey(action: MutationAction, rowSkuId: ApiId) {
+  return `${action}:${normalizeApiId(rowSkuId)}`
 }
 
-function mutationPending(action: MutationAction, rowSkuId: number) {
+function mutationPending(action: MutationAction, rowSkuId: ApiId) {
   return pendingMutations.has(mutationKey(action, rowSkuId))
 }
 
-function rowMutationPending(rowSkuId: number) {
-  return pendingRows.has(rowSkuId)
+function rowMutationPending(rowSkuId: ApiId) {
+  return pendingRows.has(normalizeApiId(rowSkuId))
 }
 
 function enqueueCartMutation<T>(operation: () => Promise<T>): Promise<T> {
@@ -75,9 +76,10 @@ async function loadCart() {
   }
 }
 
-async function updateQuantity(rowSkuId: number, nextQuantity: number) {
+async function updateQuantity(rowSkuId: ApiId, nextQuantity: number) {
   const key = mutationKey('quantity', rowSkuId)
-  const currentRow = cart.value?.items.find((item) => item.skuId === rowSkuId)
+  const rowKey = normalizeApiId(rowSkuId)
+  const currentRow = cart.value?.items.find((item) => sameApiId(item.skuId, rowSkuId))
   if (
     !currentRow ||
     cartReadPending.value ||
@@ -87,34 +89,35 @@ async function updateQuantity(rowSkuId: number, nextQuantity: number) {
     return
   }
 
-  rowErrors.delete(rowSkuId)
-  pendingRows.add(rowSkuId)
+  rowErrors.delete(rowKey)
+  pendingRows.add(rowKey)
   pendingMutations.add(key)
   try {
     await enqueueCartMutation(async () => {
-      const row = cart.value?.items.find((item) => item.skuId === rowSkuId)
+      const row = cart.value?.items.find((item) => sameApiId(item.skuId, rowSkuId))
       if (!row || row.quantity === nextQuantity) return
       const previousQuantity = row.quantity
       row.quantity = nextQuantity
       try {
         replaceCart(await updateCartItem(rowSkuId, { quantity: nextQuantity }))
       } catch (error) {
-        const latestRow = cart.value?.items.find((item) => item.skuId === rowSkuId)
+        const latestRow = cart.value?.items.find((item) => sameApiId(item.skuId, rowSkuId))
         if (latestRow) latestRow.quantity = previousQuantity
         throw error
       }
     })
   } catch {
-    rowErrors.set(rowSkuId, t('cart.quantityUpdateFailed'))
+    rowErrors.set(rowKey, t('cart.quantityUpdateFailed'))
   } finally {
     pendingMutations.delete(key)
-    pendingRows.delete(rowSkuId)
+    pendingRows.delete(rowKey)
   }
 }
 
-async function updateSelection(rowSkuId: number, nextSelected: boolean) {
+async function updateSelection(rowSkuId: ApiId, nextSelected: boolean) {
   const key = mutationKey('select', rowSkuId)
-  const currentRow = cart.value?.items.find((item) => item.skuId === rowSkuId)
+  const rowKey = normalizeApiId(rowSkuId)
+  const currentRow = cart.value?.items.find((item) => sameApiId(item.skuId, rowSkuId))
   if (
     !currentRow ||
     cartReadPending.value ||
@@ -124,47 +127,48 @@ async function updateSelection(rowSkuId: number, nextSelected: boolean) {
     return
   }
 
-  rowErrors.delete(rowSkuId)
-  pendingRows.add(rowSkuId)
+  rowErrors.delete(rowKey)
+  pendingRows.add(rowKey)
   pendingMutations.add(key)
   try {
     await enqueueCartMutation(async () => {
-      const row = cart.value?.items.find((item) => item.skuId === rowSkuId)
+      const row = cart.value?.items.find((item) => sameApiId(item.skuId, rowSkuId))
       if (!row || row.selected === nextSelected) return
       const previousSelected = row.selected
       row.selected = nextSelected
       try {
         replaceCart(await selectCartItem(rowSkuId, { selected: nextSelected }))
       } catch (error) {
-        const latestRow = cart.value?.items.find((item) => item.skuId === rowSkuId)
+        const latestRow = cart.value?.items.find((item) => sameApiId(item.skuId, rowSkuId))
         if (latestRow) latestRow.selected = previousSelected
         throw error
       }
     })
   } catch {
-    rowErrors.set(rowSkuId, t('cart.selectUpdateFailed'))
+    rowErrors.set(rowKey, t('cart.selectUpdateFailed'))
   } finally {
     pendingMutations.delete(key)
-    pendingRows.delete(rowSkuId)
+    pendingRows.delete(rowKey)
   }
 }
 
-async function removeItem(rowSkuId: number) {
+async function removeItem(rowSkuId: ApiId) {
   const key = mutationKey('remove', rowSkuId)
   if (cartReadPending.value || rowMutationPending(rowSkuId)) {
     return
   }
 
-  rowErrors.delete(rowSkuId)
-  pendingRows.add(rowSkuId)
+  const rowKey = normalizeApiId(rowSkuId)
+  rowErrors.delete(rowKey)
+  pendingRows.add(rowKey)
   pendingMutations.add(key)
   try {
     await enqueueCartMutation(async () => replaceCart(await removeCartItem(rowSkuId)))
   } catch {
-    rowErrors.set(rowSkuId, t('cart.removeFailed'))
+    rowErrors.set(rowKey, t('cart.removeFailed'))
   } finally {
     pendingMutations.delete(key)
-    pendingRows.delete(rowSkuId)
+    pendingRows.delete(rowKey)
   }
 }
 
@@ -260,8 +264,12 @@ onMounted(loadCart)
                     controls-position="right"
                     @change="(value: number | undefined) => updateQuantity(row.skuId, value ?? 1)"
                   />
-                  <p v-if="rowErrors.get(row.skuId)" class="cart-line-error" role="alert">
-                    {{ rowErrors.get(row.skuId) }}
+                  <p
+                    v-if="rowErrors.get(normalizeApiId(row.skuId))"
+                    class="cart-line-error"
+                    role="alert"
+                  >
+                    {{ rowErrors.get(normalizeApiId(row.skuId)) }}
                   </p>
                 </div>
               </template>
@@ -342,8 +350,12 @@ onMounted(loadCart)
                   />
                 </div>
               </div>
-              <p v-if="rowErrors.get(row.skuId)" class="cart-line-error" role="alert">
-                {{ rowErrors.get(row.skuId) }}
+              <p
+                v-if="rowErrors.get(normalizeApiId(row.skuId))"
+                class="cart-line-error"
+                role="alert"
+              >
+                {{ rowErrors.get(normalizeApiId(row.skuId)) }}
               </p>
             </article>
           </div>

@@ -1,4 +1,5 @@
 import { request } from './http'
+import type { ApiId } from './ids'
 import type {
   Cart,
   CartAddItemRequest,
@@ -12,17 +13,17 @@ import type {
 export interface CartCheckoutSubOrderResult extends CartSubOrder {
   storeDiscountAmount: string | number
   platformDiscountAmount: string | number
-  formalOrderId?: number
+  formalOrderId?: ApiId
 }
 
 export interface CartCheckoutResult extends Omit<CartCheckout, 'subOrders'> {
   subOrders: CartCheckoutSubOrderResult[]
-  orderIds: number[]
+  orderIds: ApiId[]
 }
 
 export interface CartDirectCheckoutRequest extends CartCheckoutRequest {
-  skuId: number
-  shopId: number
+  skuId: ApiId
+  shopId: ApiId
   quantity: number
 }
 
@@ -38,7 +39,7 @@ export function addCartItem(requestBody: CartAddItemRequest): Promise<Cart> {
   })
 }
 
-export function updateCartItem(skuId: number, requestBody: CartUpdateItemRequest): Promise<Cart> {
+export function updateCartItem(skuId: ApiId, requestBody: CartUpdateItemRequest): Promise<Cart> {
   return request<Cart>({
     url: `/cart/items/${skuId}`,
     method: 'PATCH',
@@ -46,7 +47,7 @@ export function updateCartItem(skuId: number, requestBody: CartUpdateItemRequest
   })
 }
 
-export function selectCartItem(skuId: number, requestBody: CartSelectItemRequest): Promise<Cart> {
+export function selectCartItem(skuId: ApiId, requestBody: CartSelectItemRequest): Promise<Cart> {
   return request<Cart>({
     url: `/cart/items/${skuId}/select`,
     method: 'POST',
@@ -54,7 +55,7 @@ export function selectCartItem(skuId: number, requestBody: CartSelectItemRequest
   })
 }
 
-export function removeCartItem(skuId: number): Promise<Cart> {
+export function removeCartItem(skuId: ApiId): Promise<Cart> {
   return request<Cart>({
     url: `/cart/items/${skuId}`,
     method: 'DELETE',

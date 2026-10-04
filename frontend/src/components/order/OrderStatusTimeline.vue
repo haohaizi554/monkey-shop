@@ -2,6 +2,7 @@
 import { CircleCheck, Clock, CreditCard, Goods, RefreshLeft, Van } from '@element-plus/icons-vue'
 import { computed, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
+import type { ApiId } from '@/api/ids'
 import { dateTime } from '@/utils/format'
 
 export interface OrderTimelineTimestamps {
@@ -16,7 +17,7 @@ export interface OrderTimelineTimestamps {
 }
 
 export interface OrderTimelineLogisticsEvent {
-  id?: number | string
+  id?: ApiId
   eventType?: string
   fromStatus?: string
   toStatus?: string

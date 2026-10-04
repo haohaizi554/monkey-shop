@@ -4,8 +4,21 @@ import type { FormInstance, FormRules } from 'element-plus'
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { LocationQuery, LocationQueryRaw } from 'vue-router'
-import { auditTrace, stats as fetchStats, type AuditTraceEvent } from '@/api/admin'
-import { addMonkey, deleteMonkey, listMonkeyPage, updateMonkey, uploadImage } from '@/api/catalog'
+import {
+  auditTrace,
+  auditTraceEventText,
+  stats as fetchStats,
+  type AuditTraceEvent,
+} from '@/api/admin'
+import { normalizeApiId, sameApiId, type ApiId } from '@/api/ids'
+import {
+  createCatalogSpu,
+  listCatalogSpuPage,
+  retireCatalogSpu,
+  transitionCatalogSpuStatus,
+  updateCatalogSpu,
+  uploadImage,
+} from '@/api/catalog'
 import * as ordersApi from '@/api/orders'
 import type { PageEnvelope } from '@/api/page'
 import { adminPaymentForOrder, adminRefundPayment } from '@/api/payments'
@@ -18,22 +31,45 @@ import PageHeader from '@/components/ui/PageHeader.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { useNotify } from '@/composables/useNotify'
 import { useRouteQueryState, type RouteQuerySchema } from '@/composables/useRouteQueryState'
-import type { Monkey, MonkeyRequest, Order, Stats } from '@/types'
+import type { CatalogSpu, Order, ProductStatus, Stats } from '@/types'
+import {
+  allowedCatalogStatusTargets,
+  catalogAdminFormPayload,
+  catalogToAdminForm,
+  emptyCatalogAdminForm,
+  type CatalogAdminForm,
+} from '@/utils/catalogAdmin'
 import { dateTime, money, orderStatusKey, orderStatusLabel, statusType } from '@/utils/format'
 
 defineOptions({ name: 'AdminView' })
 
 interface AdminQuery {
   order: string
+  productKeyword: string
+  productStatus: string
 }
 
 const adminQuerySchema: RouteQuerySchema<AdminQuery> = {
   parse(query: LocationQuery) {
     const raw = Array.isArray(query.order) ? query.order[0] : query.order
-    return { order: String(raw ?? '') }
+    const productKeyword = Array.isArray(query.productKeyword)
+      ? query.productKeyword[0]
+      : query.productKeyword
+    const productStatus = Array.isArray(query.productStatus)
+      ? query.productStatus[0]
+      : query.productStatus
+    return {
+      order: String(raw ?? ''),
+      productKeyword: String(productKeyword ?? ''),
+      productStatus: String(productStatus ?? ''),
+    }
   },
   serialize(value: AdminQuery): LocationQueryRaw {
-    return value.order.trim() ? { order: value.order.trim() } : {}
+    const query: LocationQueryRaw = {}
+    if (value.order.trim()) query.order = value.order.trim()
+    if (value.productKeyword.trim()) query.productKeyword = value.productKeyword.trim()
+    if (value.productStatus.trim()) query.productStatus = value.productStatus.trim()
+    return query
   },
 }
 
@@ -41,7 +77,7 @@ const { t } = useI18n()
 const notify = useNotify()
 const { state: query } = useRouteQueryState(adminQuerySchema, { debounceMs: 250 })
 const statsState = useAsyncState<Stats>({ preserveData: true })
-const productsState = useAsyncState<PageEnvelope<Monkey>>({ preserveData: true })
+const productsState = useAsyncState<PageEnvelope<CatalogSpu>>({ preserveData: true })
 const ordersState = useAsyncState<PageEnvelope<Order>>({ preserveData: true })
 const traceState = useAsyncState<AuditTraceEvent[]>({ preserveData: false })
 const pendingKeys = ref(new Set<string>())
@@ -49,44 +85,57 @@ const productPageNumber = ref(0)
 const orderPageNumber = ref(0)
 const productPageSize = 20
 const orderPageSize = 25
+const productStatuses: ProductStatus[] = [
+  'DRAFT',
+  'PENDING_REVIEW',
+  'APPROVED',
+  'LISTED',
+  'UNLISTED',
+  'RECYCLED',
+]
 const productDialog = ref(false)
 const uploadingProductImage = ref(false)
 const productFormRef = ref<FormInstance>()
 const traceKeyword = ref('')
-const refundKeys = new Map<number, string>()
+const refundKeys = new Map<string, string>()
 let productSnapshot = ''
 let orderSearchTimer: ReturnType<typeof setTimeout> | null = null
 
-const productForm = reactive<MonkeyRequest>({
-  id: null,
-  name: '',
-  breed: '',
-  price: '',
-  description: '',
-  imageUrl: '',
-  stock: 0,
-})
+const productForm = reactive<CatalogAdminForm>(emptyCatalogAdminForm())
 
 const productRules = computed<FormRules>(() => ({
   name: [{ required: true, message: t('admin.nameRequired'), trigger: 'blur' }],
-  breed: [{ required: true, message: t('admin.breedRequired'), trigger: 'blur' }],
-  price: [
+  title: [{ required: true, message: t('admin.titleRequired'), trigger: 'blur' }],
+  categoryId: [{ required: true, message: t('admin.categoryRequired'), trigger: 'blur' }],
+  shopId: [{ required: true, message: t('admin.shopRequired'), trigger: 'blur' }],
+  originalPrice: [
     {
       validator: (_rule, value, callback) => {
         const numeric = Number(value)
         if (value === '' || !Number.isFinite(numeric) || numeric <= 0) {
-          callback(new Error(t('admin.priceRequired')))
+          callback(new Error(t('admin.originalPriceRequired')))
         } else callback()
       },
       trigger: 'blur',
     },
   ],
-  stock: [
+  specificationsJson: [
     {
       validator: (_rule, value, callback) => {
-        const numeric = Number(value)
-        if (!Number.isFinite(numeric) || numeric < 0) callback(new Error(t('admin.stockRequired')))
-        else callback()
+        try {
+          const dimensions = JSON.parse(String(value || '{}')) as Record<string, unknown>
+          if (
+            !dimensions ||
+            Array.isArray(dimensions) ||
+            typeof dimensions !== 'object' ||
+            Object.keys(dimensions).length === 0
+          ) {
+            throw new Error()
+          }
+          callback()
+        } catch {
+          callback(new Error(t('admin.specificationsRequired')))
+        }
       },
       trigger: 'blur',
     },
@@ -118,15 +167,7 @@ function setPending(key: string, value: boolean) {
 }
 
 function serializeProductForm(): string {
-  return JSON.stringify({
-    id: productForm.id ?? null,
-    name: productForm.name.trim(),
-    breed: productForm.breed.trim(),
-    price: String(productForm.price),
-    description: productForm.description?.trim() ?? '',
-    imageUrl: productForm.imageUrl,
-    stock: Number(productForm.stock),
-  })
+  return JSON.stringify(productForm)
 }
 
 async function loadStats() {
@@ -136,7 +177,14 @@ async function loadStats() {
 async function loadProducts(pageNumber = productPageNumber.value) {
   productPageNumber.value = pageNumber
   await productsState.load(
-    ({ signal }) => listMonkeyPage({ page: pageNumber, size: productPageSize, signal }),
+    ({ signal }) =>
+      listCatalogSpuPage({
+        page: pageNumber,
+        size: productPageSize,
+        keyword: query.productKeyword.trim() || undefined,
+        status: (query.productStatus.trim() || undefined) as ProductStatus | undefined,
+        signal,
+      }),
     {
       preserveData: true,
       isEmpty: (page) => page.content.length === 0,
@@ -173,16 +221,8 @@ function refreshAdmin() {
   void Promise.allSettled([loadStats(), loadProducts(), loadOrders()])
 }
 
-function openProductDialog(monkey?: Monkey) {
-  Object.assign(productForm, {
-    id: monkey?.id ?? null,
-    name: monkey?.name ?? '',
-    breed: monkey?.breed ?? '',
-    price: monkey?.price ?? '',
-    description: monkey?.description ?? '',
-    imageUrl: monkey?.imageUrl ?? '',
-    stock: monkey?.stock ?? 0,
-  })
+function openProductDialog(product?: CatalogSpu) {
+  Object.assign(productForm, product ? catalogToAdminForm(product) : emptyCatalogAdminForm())
   productSnapshot = serializeProductForm()
   productDialog.value = true
   void nextTick(() => productFormRef.value?.clearValidate())
@@ -226,11 +266,11 @@ async function uploadProductImage(event: Event) {
   }
 }
 
-function patchProduct(product: Monkey, created = false) {
+function patchProduct(product: CatalogSpu, created = false) {
   const page = productsState.data.value
   const rows = page?.content
   if (!rows) return
-  const index = rows.findIndex((row) => row.id === product.id)
+  const index = rows.findIndex((row) => sameApiId(row.id, product.id))
   if (index >= 0) rows.splice(index, 1, product)
   else {
     rows.unshift(product)
@@ -248,9 +288,10 @@ async function saveProduct() {
     statsState.cancel()
     productsState.cancel()
     const created = !productForm.id
+    const payload = catalogAdminFormPayload(productForm)
     const saved = productForm.id
-      ? await updateMonkey({ ...productForm })
-      : await addMonkey({ ...productForm })
+      ? await updateCatalogSpu(productForm.id, payload)
+      : await createCatalogSpu(payload)
     patchProduct(saved, created)
     productSnapshot = serializeProductForm()
     productDialog.value = false
@@ -262,7 +303,7 @@ async function saveProduct() {
   }
 }
 
-async function removeProduct(product: Monkey) {
+async function removeProduct(product: CatalogSpu) {
   const key = `product:delete:${product.id}`
   if (isPending(key)) return
   setPending(key, true)
@@ -275,17 +316,7 @@ async function removeProduct(product: Monkey) {
     if (!confirmed) return
     statsState.cancel()
     productsState.cancel()
-    await deleteMonkey(product.id)
-    const page = productsState.data.value
-    const rows = page?.content
-    const index = rows?.findIndex((row) => row.id === product.id) ?? -1
-    if (rows && index >= 0) {
-      rows.splice(index, 1)
-      if (page) page.totalElements = Math.max(0, page.totalElements - 1)
-      if (rows.length === 0 && productPageNumber.value > 0) {
-        void loadProducts(productPageNumber.value - 1)
-      }
-    }
+    patchProduct(await retireCatalogSpu(product.id))
     notify.success(t('admin.productDeleted'), { key: 'admin:product:deleted' })
   } catch (error) {
     notify.fromApiError(error, 'common.unableToDeleteProduct')
@@ -294,9 +325,25 @@ async function removeProduct(product: Monkey) {
   }
 }
 
+async function transitionProductStatus(product: CatalogSpu, targetStatus: ProductStatus) {
+  const key = `product:status:${product.id}:${targetStatus}`
+  if (isPending(key)) return
+  setPending(key, true)
+  try {
+    statsState.cancel()
+    productsState.cancel()
+    patchProduct(await transitionCatalogSpuStatus(product.id, targetStatus))
+    notify.success(t('admin.productStatusChanged'), { key: `admin:product:status:${product.id}` })
+  } catch (error) {
+    notify.fromApiError(error, 'common.unableToSaveProduct')
+  } finally {
+    setPending(key, false)
+  }
+}
+
 function patchOrder(order: Order) {
   const rows = ordersState.data.value?.content
-  const index = rows?.findIndex((row) => row.id === order.id) ?? -1
+  const index = rows?.findIndex((row) => sameApiId(row.id, order.id)) ?? -1
   if (rows && index >= 0) rows.splice(index, 1, order)
 }
 
@@ -334,8 +381,9 @@ async function refundAndConfirm(order: Order) {
     let refundCompleted = payment.status === 'REFUNDED'
     if (payment.paymentNo) {
       if (!refundCompleted) {
-        const idempotencyKey = refundKeys.get(order.id) ?? createRefundKey(order.id)
-        refundKeys.set(order.id, idempotencyKey)
+        const orderKey = normalizeApiId(order.id)
+        const idempotencyKey = refundKeys.get(orderKey) ?? createRefundKey(order.id)
+        refundKeys.set(orderKey, idempotencyKey)
         await adminRefundPayment(
           {
             paymentNo: payment.paymentNo,
@@ -361,7 +409,7 @@ async function refundAndConfirm(order: Order) {
       }
       throw error
     }
-    refundKeys.delete(order.id)
+    refundKeys.delete(normalizeApiId(order.id))
     notify.success(t('admin.orderUpdated'), { key: `admin:order:${order.id}` })
   } catch (error) {
     notify.fromApiError(error, 'common.unableToUpdateOrder')
@@ -370,7 +418,7 @@ async function refundAndConfirm(order: Order) {
   }
 }
 
-function createRefundKey(orderId: number): string {
+function createRefundKey(orderId: ApiId): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return `admin-refund:${orderId}:${crypto.randomUUID()}`
   }
@@ -405,6 +453,13 @@ watch(
       orderSearchTimer = null
       void loadOrders(0)
     }, 250)
+  },
+)
+
+watch(
+  () => [query.productKeyword, query.productStatus],
+  () => {
+    void loadProducts(0)
   },
 )
 
@@ -460,6 +515,23 @@ refreshAdmin()
           t('admin.createProduct')
         }}</el-button>
       </div>
+      <p class="catalog-inventory-hint">{{ t('admin.catalogInventoryHint') }}</p>
+      <AdminPageToolbar :aria-label="t('admin.catalog')">
+        <template #search>
+          <el-input
+            v-model="query.productKeyword"
+            clearable
+            :aria-label="t('admin.catalogSearch')"
+            :placeholder="t('admin.catalogSearch')"
+          />
+        </template>
+        <template #filters>
+          <el-select v-model="query.productStatus" clearable :aria-label="t('admin.statusFilter')">
+            <el-option :label="t('admin.allProductStatuses')" value="" />
+            <el-option v-for="status in productStatuses" :key="status" :label="status" :value="status" />
+          </el-select>
+        </template>
+      </AdminPageToolbar>
       <AsyncStateView
         :status="productsState.status.value"
         :error="productsState.error.value"
@@ -480,12 +552,19 @@ refreshAdmin()
               </template>
             </el-table-column>
             <el-table-column prop="name" :label="t('common.name')" min-width="160" />
-            <el-table-column prop="breed" :label="t('common.breed')" min-width="130" />
+            <el-table-column prop="title" :label="t('admin.productTitle')" min-width="180" />
             <el-table-column :label="t('common.price')" width="130">
-              <template #default="{ row }">{{ money(row.price) }}</template>
+              <template #default="{ row }">{{ money(row.originalPrice) }}</template>
             </el-table-column>
-            <el-table-column prop="stock" :label="t('common.stock')" width="100" />
-            <el-table-column :label="t('common.action')" width="190" fixed="right">
+            <el-table-column :label="t('common.status')" width="140">
+              <template #default="{ row }">
+                <el-tag :type="statusType(row.status)" effect="plain">{{ row.status }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column :label="t('admin.skuCount')" width="100">
+              <template #default="{ row }">{{ row.skus.length }}</template>
+            </el-table-column>
+            <el-table-column :label="t('common.action')" min-width="300" fixed="right">
               <template #default="{ row }">
                 <el-button
                   size="small"
@@ -495,14 +574,23 @@ refreshAdmin()
                   {{ t('common.edit') }}
                 </el-button>
                 <el-button
+                  v-for="targetStatus in allowedCatalogStatusTargets(row.status)"
+                  :key="`${row.id}-${targetStatus}`"
+                  size="small"
+                  :loading="isPending(`product:status:${row.id}:${targetStatus}`)"
+                  @click="transitionProductStatus(row, targetStatus)"
+                >
+                  {{ t('admin.changeToStatus', { status: targetStatus }) }}
+                </el-button>
+                <el-button
                   size="small"
                   type="danger"
                   plain
-                  :aria-label="t('admin.deleteProductNamed', { name: row.name })"
+                  :aria-label="t('admin.retireProductNamed', { name: row.name })"
                   :loading="isPending(`product:delete:${row.id}`)"
                   @click="removeProduct(row)"
                 >
-                  {{ t('common.delete') }}
+                  {{ t('admin.retireProduct') }}
                 </el-button>
               </template>
             </el-table-column>
@@ -660,9 +748,9 @@ refreshAdmin()
             placement="top"
           >
             <h3>{{ auditEventLabel(event.eventType) }}</h3>
-            <p>{{ event.description }}</p>
-            <p v-if="event.userId || event.traceId" class="trace-event-meta">
-              <code v-if="event.userId">user {{ event.userId }}</code>
+            <p :aria-label="auditTraceEventText(event)">{{ event.detail }}</p>
+            <p v-if="event.actorUserId || event.traceId" class="trace-event-meta">
+              <code v-if="event.actorUserId">user {{ event.actorUserId }}</code>
               <code v-if="event.traceId">trace {{ event.traceId }}</code>
             </p>
           </el-timeline-item>
@@ -681,18 +769,45 @@ refreshAdmin()
           <el-form-item :label="t('common.name')" prop="name"
             ><el-input v-model="productForm.name"
           /></el-form-item>
-          <el-form-item :label="t('common.breed')" prop="breed"
-            ><el-input v-model="productForm.breed"
+          <el-form-item :label="t('admin.productTitle')" prop="title"
+            ><el-input v-model="productForm.title"
           /></el-form-item>
-          <el-form-item :label="t('common.price')" prop="price"
-            ><el-input v-model="productForm.price" type="number"
+          <el-form-item :label="t('admin.categoryId')" prop="categoryId"
+            ><el-input v-model="productForm.categoryId" inputmode="numeric"
           /></el-form-item>
-          <el-form-item :label="t('common.stock')" prop="stock"
-            ><el-input v-model.number="productForm.stock" type="number"
+          <el-form-item :label="t('admin.shopId')" prop="shopId"
+            ><el-input v-model="productForm.shopId" inputmode="numeric"
+          /></el-form-item>
+          <el-form-item :label="t('admin.originalPrice')" prop="originalPrice"
+            ><el-input v-model="productForm.originalPrice" type="number"
+          /></el-form-item>
+          <el-form-item :label="t('admin.memberPrice')"
+            ><el-input v-model="productForm.memberPrice" type="number"
+          /></el-form-item>
+          <el-form-item :label="t('admin.strikePrice')"
+            ><el-input v-model="productForm.strikePrice" type="number"
           /></el-form-item>
         </div>
-        <el-form-item :label="t('common.description')"
-          ><el-input v-model="productForm.description" type="textarea" :rows="3"
+        <el-form-item :label="t('admin.specifications')" prop="specificationsJson"
+          ><el-input
+            v-model="productForm.specificationsJson"
+            type="textarea"
+            :rows="4"
+            :placeholder="'{&quot;color&quot;: [&quot;Black&quot;, &quot;White&quot;]}'"
+          />
+          <small class="form-help">{{ t('admin.specificationsHint') }}</small>
+        </el-form-item>
+        <el-form-item :label="t('admin.attributes')"
+          ><el-input v-model="productForm.attributesJson" type="textarea" :rows="3"
+        /></el-form-item>
+        <el-form-item :label="t('admin.regionPrices')"
+          ><el-input v-model="productForm.regionPricesJson" type="textarea" :rows="2"
+        /></el-form-item>
+        <el-form-item :label="t('admin.detailJsonLd')"
+          ><el-input v-model="productForm.detailJsonLd" type="textarea" :rows="2"
+        /></el-form-item>
+        <el-form-item :label="t('admin.supplierPrivateRemark')"
+          ><el-input v-model="productForm.supplierPrivateRemark" type="textarea" :rows="2"
         /></el-form-item>
         <el-form-item :label="t('common.image')">
           <div class="product-image-editor">
@@ -714,6 +829,7 @@ refreshAdmin()
             />
           </div>
         </el-form-item>
+        <p class="form-help">{{ t('admin.catalogInventoryHint') }}</p>
       </el-form>
       <template #footer>
         <el-button @click="closeProductDialog">{{ t('common.cancel') }}</el-button>
@@ -769,6 +885,25 @@ refreshAdmin()
 }
 
 .section-heading p {
+  margin-top: var(--space-1);
+}
+
+.catalog-inventory-hint,
+.form-help {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.catalog-inventory-hint {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-subtle);
+}
+
+.form-help {
+  display: block;
   margin-top: var(--space-1);
 }
 

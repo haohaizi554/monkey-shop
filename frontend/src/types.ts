@@ -1,3 +1,5 @@
+import type { ApiId } from '@/api/ids'
+
 export type Role = 'ADMIN' | 'USER' | string
 
 export interface ApiResult<T> {
@@ -91,14 +93,15 @@ export interface PasswordResetRequest extends PasswordResetChallenge {
 }
 
 export interface Monkey {
-  id: number
+  id: ApiId
+  shopId?: ApiId
   name: string
   breed: string
   price: string | number
   description?: string
   imageUrl: string
   stock: number
-  categoryId?: number
+  categoryId?: ApiId
   categoryName?: string
   status?: ProductStatus
   memberPrice?: string | number
@@ -107,11 +110,11 @@ export interface Monkey {
   attributes?: Record<string, unknown>
   detailJsonLd?: string
   skus?: CatalogSku[]
-  selectedSkuId?: number
+  selectedSkuId?: ApiId
 }
 
 export interface MonkeyRequest {
-  id?: number | null
+  id?: ApiId | null
   name: string
   breed: string
   price: string | number
@@ -121,7 +124,7 @@ export interface MonkeyRequest {
 }
 
 export interface Address {
-  id: number
+  id: ApiId
   receiverName: string
   phone: string
   detailAddress: string
@@ -131,12 +134,12 @@ export interface Address {
 export type AddressRequest = Pick<Address, 'receiverName' | 'phone' | 'detailAddress'>
 
 export interface Order {
-  id: number
+  id: ApiId
   orderNo: string
-  userId: number
+  userId: ApiId
   buyerName: string
   buyerAvatar?: string
-  productId: number
+  productId: ApiId
   productName: string
   productImage: string
   price: string | number
@@ -150,14 +153,14 @@ export interface Order {
 }
 
 export interface OrderShipmentLine {
-  skuId: number
+  skuId: ApiId
   productName: string
   quantity: number
 }
 
 export interface OrderShipment {
-  id: number
-  orderId: number
+  id: ApiId
+  orderId: ApiId
   shipmentNo: string
   carrier: string
   trackingNo: string
@@ -168,7 +171,7 @@ export interface OrderShipment {
 }
 
 export interface OrderShipmentLineRequest {
-  skuId: number
+  skuId: ApiId
   productName?: string
   quantity: number
   orderedQuantity: number
@@ -181,7 +184,7 @@ export interface OrderShipmentRequest {
 }
 
 export interface OrderReviewRequest {
-  skuId?: number
+  skuId?: ApiId
   rating: number
   content?: string
   imageUrls: string[]
@@ -189,10 +192,10 @@ export interface OrderReviewRequest {
 }
 
 export interface OrderReview {
-  id: number
-  orderId: number
-  userId: number
-  skuId: number
+  id: ApiId
+  orderId: ApiId
+  userId: ApiId
+  skuId: ApiId
   rating: number
   content?: string
   imageUrls: string[]
@@ -206,17 +209,17 @@ export type PaymentStatus =
   'PENDING' | 'PAID' | 'PARTIALLY_REFUNDED' | 'REFUNDED' | 'SUSPENDED' | 'FAILED'
 
 export interface PaymentCreateRequest {
-  orderId: number
+  orderId: ApiId
   method: PaymentMethod
   bankCardNo?: string
   totpCode?: string
 }
 
 export interface PaymentResponse {
-  id: number
+  id: ApiId
   paymentNo: string
-  orderId: number
-  userId: number
+  orderId: ApiId
+  userId: ApiId
   method: PaymentMethod
   amount: string | number
   paidAmount: string | number
@@ -236,7 +239,7 @@ export interface PaymentRefundRequest {
 }
 
 export interface PaymentRefundResponse {
-  ledgerId: number
+  ledgerId: ApiId
   paymentNo: string
   amount: string | number
   refundedAmount: string | number
@@ -261,7 +264,7 @@ export interface PaymentReconciliationRequest {
 }
 
 export interface PaymentReconciliationResponse {
-  id: number
+  id: ApiId
   provider: PaymentMethod
   reportDate: string
   platformAmount: string | number
@@ -278,7 +281,7 @@ export type TrackingEvent = 'PICKUP' | 'TRANSIT' | 'DISPATCH' | 'SIGN'
 export type FreightChargeMode = 'WEIGHT' | 'ITEM' | 'REGION'
 
 export interface ShipmentCreateRequest {
-  orderId: number
+  orderId: ApiId
   carrier: LogisticsCarrier
   recipientPhone?: string
   addressText?: string
@@ -330,7 +333,7 @@ export interface TrackingWebhookRequest {
 }
 
 export interface TrackingEventRecord {
-  id: number
+  id: ApiId
   eventType: TrackingEvent
   fromStatus: TrackingStatus
   toStatus: TrackingStatus
@@ -341,10 +344,10 @@ export interface TrackingEventRecord {
 }
 
 export interface LogisticsTracking {
-  id: number
+  id: ApiId
   trackingNo: string
-  orderId: number
-  userId: number
+  orderId: ApiId
+  userId: ApiId
   carrier: LogisticsCarrier
   status: TrackingStatus
   province?: string
@@ -382,9 +385,31 @@ export interface UploadResponse {
 export type ProductStatus =
   'DRAFT' | 'PENDING_REVIEW' | 'APPROVED' | 'LISTED' | 'UNLISTED' | 'RECYCLED'
 
+export interface CatalogSpecificationDimension {
+  name: string
+  values: string[]
+}
+
+/** Canonical catalog writes intentionally omit stock; inventory is SKU+warehouse owned. */
+export interface CatalogSpuWriteRequest {
+  categoryId: ApiId
+  shopId: ApiId
+  name: string
+  title: string
+  originalPrice: string | number
+  memberPrice?: string | number | null
+  strikePrice?: string | number | null
+  regionPrices?: Record<string, string | number>
+  attributes?: Record<string, unknown>
+  detailJsonLd?: string | null
+  supplierPrivateRemark?: string | null
+  imageUrl?: string | null
+  specifications: CatalogSpecificationDimension[]
+}
+
 export interface CatalogSku {
-  id: number
-  spuId: number
+  id: ApiId
+  spuId: ApiId
   skuCode: string
   specification: Record<string, string>
   originalPrice: string | number
@@ -395,8 +420,9 @@ export interface CatalogSku {
 }
 
 export interface CatalogSpu {
-  id: number
-  categoryId: number
+  id: ApiId
+  categoryId: ApiId
+  shopId: ApiId
   name: string
   title: string
   status: ProductStatus
@@ -411,15 +437,15 @@ export interface CatalogSpu {
 }
 
 export interface CatalogPriceQuote {
-  spuId: number
+  spuId: ApiId
   salePrice: string | number
   strikePrice?: string | number
   strategy: string
 }
 
 export interface CategoryNode {
-  id: number
-  parentId?: number | null
+  id: ApiId
+  parentId?: ApiId | null
   level: number
   code: string
   name: string
@@ -427,8 +453,8 @@ export interface CategoryNode {
 }
 
 export interface WarehouseStock {
-  skuId: number
-  warehouseId: number
+  skuId: ApiId
+  warehouseId: ApiId
   warehouseCode?: string
   province?: string
   availableQuantity: number
@@ -441,27 +467,27 @@ export interface WarehouseStock {
 }
 
 export interface InventoryReserveRequest {
-  skuId: number
-  warehouseId?: number
+  skuId: ApiId
+  warehouseId?: ApiId
   province?: string
-  orderId?: number
+  orderId?: ApiId
   quantity: number
   reservationKey: string
 }
 
 export interface InventoryCompensateRequest {
-  skuId: number
-  warehouseId: number
-  orderId?: number
+  skuId: ApiId
+  warehouseId: ApiId
+  orderId?: ApiId
   quantity: number
   idempotencyKey: string
 }
 
 export interface InventoryReservation {
   reservationKey: string
-  skuId: number
-  warehouseId: number
-  orderId?: number
+  skuId: ApiId
+  warehouseId: ApiId
+  orderId?: ApiId
   quantity: number
   status: 'RESERVED' | 'RELEASED' | 'DEDUCTED' | 'EXPIRED'
   expiresAt: string
@@ -474,8 +500,8 @@ export interface InventoryReconciliation {
 }
 
 export interface InventoryDiscrepancy {
-  skuId: number
-  warehouseId: number
+  skuId: ApiId
+  warehouseId: ApiId
   actualLocked: number
   expectedLocked: number
   actualDeducted: number
@@ -483,37 +509,51 @@ export interface InventoryDiscrepancy {
 }
 
 export interface CouponClaimRequest {
-  couponId: number
+  couponId: ApiId
   idempotencyKey: string
 }
 
 export interface CouponRedeemRequest {
   couponCode: string
-  orderId: number
+  orderId: ApiId
 }
 
 export interface CouponReturnRequest {
   couponCode: string
-  orderId: number
+  orderId: ApiId
 }
 
 export interface CouponWalletEntry {
-  id: number
-  couponId: number
+  id: ApiId
+  couponId: ApiId
   couponCode: string
-  userId: number
+  userId: ApiId
   status: 'CLAIMED' | 'USED' | 'RETURNED' | 'EXPIRED'
-  orderId?: number
+  orderId?: ApiId
   claimedAt: string
   usedAt?: string
 }
 
 export interface MarketingPriceRequest {
   orderAmount: string | number
-  userId?: number
-  categoryId?: number
-  shopId?: number
+  userId?: ApiId
+  categoryId?: ApiId
+  shopId?: ApiId
   couponCodes: string[]
+  lines?: MarketingPriceLine[]
+}
+
+export interface MarketingPriceLine {
+  lineId: ApiId
+  amount: string | number
+  categoryId?: ApiId
+  shopId?: ApiId
+}
+
+export interface MarketingPriceAllocation {
+  lineId: ApiId
+  discountAmount: string | number
+  appliedCoupons: string[]
 }
 
 export interface MarketingPriceQuote {
@@ -521,38 +561,39 @@ export interface MarketingPriceQuote {
   discountAmount: string | number
   payableAmount: string | number
   appliedCoupons: string[]
+  allocations: MarketingPriceAllocation[]
 }
 
 export interface SeckillRequest {
-  activityId: number
-  orderId?: number
+  activityId: ApiId
+  orderId?: ApiId
   quantity: number
   idempotencyKey: string
   turnstileToken?: string
 }
 
 export interface SeckillOrder {
-  id: number
-  activityId: number
-  skuId: number
-  userId: number
-  orderId?: number
+  id: ApiId
+  activityId: ApiId
+  skuId: ApiId
+  userId: ApiId
+  orderId?: ApiId
   quantity: number
   idempotencyKey: string
   createdAt: string
 }
 
 export interface GroupBuyJoinRequest {
-  activityId: number
-  teamId?: number
+  activityId: ApiId
+  teamId?: ApiId
   idempotencyKey: string
 }
 
 export interface GroupBuyTeam {
-  id: number
-  activityId: number
-  skuId: number
-  leaderUserId: number
+  id: ApiId
+  activityId: ApiId
+  skuId: ApiId
+  leaderUserId: ApiId
   targetSize: number
   joinedCount: number
   status: 'OPEN' | 'SUCCEEDED' | 'CANCELLED'
@@ -560,8 +601,8 @@ export interface GroupBuyTeam {
 }
 
 export interface CartAddItemRequest {
-  skuId: number
-  shopId: number
+  skuId: ApiId
+  shopId: ApiId
   quantity: number
   selected: boolean
 }
@@ -575,8 +616,8 @@ export interface CartSelectItemRequest {
 }
 
 export interface CartItem {
-  skuId: number
-  shopId: number
+  skuId: ApiId
+  shopId: ApiId
   productName: string
   productImage?: string
   unitPrice: string | number
@@ -587,23 +628,23 @@ export interface CartItem {
 }
 
 export interface Cart {
-  userId: number
+  userId: ApiId
   items: CartItem[]
   selectedQuantity: number
   selectedAmount: string | number
 }
 
 export interface CartCheckoutRequest {
-  addressId: number
+  addressId: ApiId
   province?: string
   couponCodes: string[]
 }
 
 export interface CartCheckoutLine {
-  id: number
-  skuId: number
-  shopId: number
-  categoryId?: number
+  id: ApiId
+  skuId: ApiId
+  shopId: ApiId
+  categoryId?: ApiId
   productName: string
   productImage?: string
   quantity: number
@@ -613,12 +654,12 @@ export interface CartCheckoutLine {
   payableAmount: string | number
   couponCodes: string[]
   reservationKey: string
-  warehouseId?: number
+  warehouseId?: ApiId
 }
 
 export interface CartSubOrder {
-  id: number
-  shopId: number
+  id: ApiId
+  shopId: ApiId
   orderNo: string
   originalAmount: string | number
   discountAmount: string | number
@@ -628,10 +669,10 @@ export interface CartSubOrder {
 }
 
 export interface CartCheckout {
-  id: number
+  id: ApiId
   checkoutNo: string
-  userId: number
-  addressId: number
+  userId: ApiId
+  addressId: ApiId
   originalAmount: string | number
   discountAmount: string | number
   payableAmount: string | number
@@ -643,19 +684,24 @@ export interface CartCheckout {
 
 export type MembershipLevel = 'BASIC' | 'SILVER' | 'GOLD' | 'DIAMOND'
 
+export type IdentityVerificationStatus = 'PENDING' | 'VERIFIED' | 'REJECTED'
+
 export interface MemberProfile {
-  userId: number
+  userId: ApiId
   level: MembershipLevel
   growthValue: number
+  identityStatus: IdentityVerificationStatus
   verified: boolean
   maskedRealName?: string
   maskedIdCardNo?: string
+  identitySubmittedAt?: string
+  identityReviewedAt?: string
   version: number
   benefits: string[]
 }
 
 export interface PointsWallet {
-  userId: number
+  userId: ApiId
   balance: number
   totalEarned: number
   totalSpent: number
@@ -664,18 +710,18 @@ export interface PointsWallet {
 }
 
 export interface MembershipCouponWalletEntry {
-  id: number
-  couponId: number
+  id: ApiId
+  couponId: ApiId
   couponCode: string
   status: 'CLAIMED' | 'USED' | 'RETURNED' | 'EXPIRED'
-  orderId?: number
+  orderId?: ApiId
   claimedAt: string
   usedAt?: string
 }
 
 export interface MemberCollection {
-  id: number
-  productId: number
+  id: ApiId
+  productId: ApiId
   productName: string
   productImage?: string
   lastPrice: string | number
@@ -686,7 +732,7 @@ export interface MemberCollection {
 }
 
 export interface BrowseHistoryEntry {
-  productId: number
+  productId: ApiId
   productName: string
   productImage?: string
   viewedAt: string
@@ -706,8 +752,14 @@ export interface RealNameVerifyRequest {
   idCardNo: string
 }
 
+export interface IdentityReviewRequest {
+  status: Exclude<IdentityVerificationStatus, 'PENDING'>
+  reason: string
+  totpCode: string
+}
+
 export interface PointsEarnRequest {
-  orderId?: number
+  orderId?: ApiId
   amount: string | number
   referenceKey?: string
 }
@@ -724,12 +776,12 @@ export interface LevelChangeRequest {
 }
 
 export interface CollectionRequest {
-  productId: number
+  productId: ApiId
   targetPrice?: string | number
 }
 
 export interface BrowseRecordRequest {
-  productId: number
+  productId: ApiId
 }
 
 export interface CheckInResponse {
@@ -740,11 +792,11 @@ export interface CheckInResponse {
 }
 
 export interface PointsLedgerEntry {
-  id: number
+  id: ApiId
   type: 'CHECK_IN' | 'PURCHASE' | 'ACTIVITY' | 'REDEEM' | 'ADJUST'
   points: number
   moneyEquivalent: string | number
-  orderId?: number
+  orderId?: ApiId
   referenceKey?: string
   createdAt: string
 }
@@ -758,23 +810,27 @@ export type SearchSort = 'RELEVANCE' | 'PRICE_ASC' | 'PRICE_DESC' | 'NEWEST' | '
 
 export interface SearchQuery {
   keyword?: string
-  categoryId?: number
+  categoryId?: ApiId
   attributeKey?: string
   attributeValue?: string
+  minPrice?: string | number
+  maxPrice?: string | number
+  inStock?: boolean
   sort?: SearchSort
   page?: number
   size?: number
 }
 
 export interface SearchProduct {
-  productId: number
-  categoryId?: number | null
+  productId: ApiId
+  categoryId?: ApiId | null
   name: string
   title?: string
   imageUrl?: string
   originalPrice: string | number
   memberPrice?: string | number
   attributes: Record<string, unknown>
+  stock: number
   score: number
 }
 
@@ -800,7 +856,7 @@ export interface HotKeyword {
 }
 
 export interface Recommendation {
-  productId: number
+  productId: ApiId
   name: string
   title?: string
   imageUrl?: string
@@ -814,7 +870,7 @@ export interface SearchProfileRequest {
 }
 
 export interface SearchProfile {
-  userId: number
+  userId: ApiId
   maskedInterestProfile: string
   tags: string[]
   updatedAt: string
@@ -823,7 +879,7 @@ export interface SearchProfile {
 
 export interface SearchConversionRequest {
   keyword?: string
-  productId: number
+  productId: ApiId
   source?: string
 }
 
@@ -848,38 +904,38 @@ export interface RiskAssessmentRequest {
   phone?: string
   deviceFingerprint?: string
   clientIp?: string
-  productId?: number
-  orderId?: number
-  seckillActivityId?: number
-  sellerUserId?: number
+  productId?: ApiId
+  orderId?: ApiId
+  seckillActivityId?: ApiId
+  sellerUserId?: ApiId
   priceBefore?: string | number
   priceAfter?: string | number
   totpCode?: string
 }
 
 export interface RiskAssessmentResponse {
-  userId: number
+  userId: ApiId
   score: number
   decision: RiskDecision
   signals: RiskSignal[]
-  reviewCaseId?: number
+  reviewCaseId?: ApiId
   productAutoUnlisted: boolean
   userTokensRevoked: boolean
   assessedAt: string
 }
 
 export interface RiskReviewCase {
-  id: number
-  userId: number
-  orderId?: number
-  productId?: number
+  id: ApiId
+  userId: ApiId
+  orderId?: ApiId
+  productId?: ApiId
   type: RiskSignalType
   score: number
   status: RiskReviewStatus
   detail?: string
   createdAt: string
   handledAt?: string
-  handlerUserId?: number
+  handlerUserId?: ApiId
   resolution?: string
 }
 
@@ -899,23 +955,28 @@ export type TrackingEventType =
   | 'PAYMENT_SUCCESS'
   | 'UI_ERROR'
 
+export type ClientTrackingEventType = Exclude<
+  TrackingEventType,
+  'ORDER_CREATED' | 'PAYMENT_SUCCESS'
+>
+
 export interface TrackingEventRequest {
-  eventType: TrackingEventType
+  eventType: ClientTrackingEventType
   sessionId?: string
   traceId?: string
   page?: string
   source?: string
-  productId?: number
-  categoryId?: number
-  orderId?: number
+  productId?: ApiId
+  categoryId?: ApiId
+  orderId?: ApiId
   amount?: string | number
   attributes?: Record<string, string>
   occurredAt?: string
 }
 
 export interface TrackingEventResponse {
-  id: number
-  userId?: number
+  id: ApiId
+  userId?: ApiId
   sessionId: string
   traceId: string
   eventType: TrackingEventType
@@ -924,7 +985,7 @@ export interface TrackingEventResponse {
 }
 
 export interface UserProfileTag {
-  userId: number
+  userId: ApiId
   profileSummary: string
   behaviorTags: string[]
   interestTags: string[]
@@ -933,8 +994,8 @@ export interface UserProfileTag {
 }
 
 export interface ProductProfile {
-  productId: number
-  categoryId?: number
+  productId: ApiId
+  categoryId?: ApiId
   tagVector: string[]
   salesCount: number
   reviewScore: string | number
@@ -965,7 +1026,7 @@ export type TenantBillStatus = 'GENERATED' | 'RECONCILED' | 'SUSPENDED'
 export type TenantExportStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'UNAVAILABLE'
 
 export interface Tenant {
-  id: number
+  id: ApiId
   code: string
   name: string
   status: TenantStatus
@@ -1003,8 +1064,8 @@ export interface TenantDowngradeRequest {
 }
 
 export interface TenantConfig {
-  id: number
-  tenantId: number
+  id: ApiId
+  tenantId: ApiId
   configType: TenantConfigType
   provider: string
   settings: Record<string, string>
@@ -1021,8 +1082,8 @@ export interface TenantConfigRequest {
 }
 
 export interface TenantBill {
-  id: number
-  tenantId: number
+  id: ApiId
+  tenantId: ApiId
   billingMonth: string
   plan: TenantPlan
   orderCount: number
@@ -1041,12 +1102,12 @@ export interface TenantBillGenerateRequest {
 }
 
 export interface TenantExportJob {
-  id: number
-  tenantId: number
+  id: ApiId
+  tenantId: ApiId
   exportType: string
   status: TenantExportStatus
   artifactAvailable: boolean
-  requestedBy: number
+  requestedBy: ApiId
   requestedAt: string
   completedAt?: string
   auditTraceId?: string

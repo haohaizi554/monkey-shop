@@ -13,6 +13,7 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import * as ordersApi from '@/api/orders'
+import { normalizeApiId, sameApiId, type ApiId } from '@/api/ids'
 import type { OrderSummary } from '@/api/orders'
 import type { PageEnvelope } from '@/api/page'
 import MascotState from '@/components/mascot/MascotState.vue'
@@ -46,10 +47,10 @@ const router = useRouter()
 const { t } = useI18n()
 const notify = useNotify()
 const orderResource = useAsyncState<PageEnvelope<OrderSummary>>({ timeoutMs: 20000 })
-const actionInProgress = reactive<Record<number, string | undefined>>({})
-const actionErrors = reactive<Record<number, string | undefined>>({})
-const shipmentStates = reactive<Record<number, ShipmentState>>({})
-const expandedOrders = reactive(new Set<number>())
+const actionInProgress = reactive<Record<string, string | undefined>>({})
+const actionErrors = reactive<Record<string, string | undefined>>({})
+const shipmentStates = reactive<Record<string, ShipmentState>>({})
+const expandedOrders = reactive(new Set<string>())
 const activeFilter = ref<OrderFilter>('all')
 const currentPage = ref(0)
 const pageSize = 10
@@ -79,16 +80,20 @@ function openReview(order: OrderSummary) {
   })
 }
 
-function actionKey(action: string, targetId: number): string {
-  return `${action}:${targetId}`
+function orderKey(orderId: ApiId): string {
+  return normalizeApiId(orderId)
 }
 
-function isActionPending(orderId: number, action: string, targetId = orderId): boolean {
-  return actionInProgress[orderId] === actionKey(action, targetId)
+function actionKey(action: string, targetId: ApiId): string {
+  return `${action}:${normalizeApiId(targetId)}`
 }
 
-function isOrderUpdating(orderId: number): boolean {
-  return Boolean(actionInProgress[orderId])
+function isActionPending(orderId: ApiId, action: string, targetId = orderId): boolean {
+  return actionInProgress[orderKey(orderId)] === actionKey(action, targetId)
+}
+
+function isOrderUpdating(orderId: ApiId): boolean {
+  return Boolean(actionInProgress[orderKey(orderId)])
 }
 
 function hasAction(order: OrderSummary, action: Parameters<typeof hasConsumerOrderAction>[1]) {
@@ -124,13 +129,14 @@ function maskPhone(value: string): string {
     : normalized
 }
 
-function shipmentState(orderId: number): ShipmentState {
-  shipmentStates[orderId] ??= { status: 'idle', items: [], error: null }
-  return shipmentStates[orderId]
+function shipmentState(orderId: ApiId): ShipmentState {
+  const key = orderKey(orderId)
+  shipmentStates[key] ??= { status: 'idle', items: [], error: null }
+  return shipmentStates[key]
 }
 
-function detailsId(orderId: number): string {
-  return `order-details-${orderId}`
+function detailsId(orderId: ApiId): string {
+  return `order-details-${orderKey(orderId)}`
 }
 
 async function loadOrders(page = currentPage.value) {
@@ -155,7 +161,7 @@ function changePage(page: number) {
   void loadOrders(page - 1)
 }
 
-async function loadShipments(orderId: number, force = false) {
+async function loadShipments(orderId: ApiId, force = false) {
   const state = shipmentState(orderId)
   if (!force && ['loading', 'success', 'empty'].includes(state.status)) {
     return
@@ -172,19 +178,20 @@ async function loadShipments(orderId: number, force = false) {
 }
 
 async function toggleOrderDetails(order: OrderSummary) {
-  if (expandedOrders.has(order.id)) {
-    expandedOrders.delete(order.id)
+  const orderId = orderKey(order.id)
+  if (expandedOrders.has(orderId)) {
+    expandedOrders.delete(orderId)
     return
   }
   shipmentState(order.id)
-  expandedOrders.add(order.id)
+  expandedOrders.add(orderId)
   if (normalizeConsumerOrderStatus(order.status) !== 'PAYMENT_PENDING') {
     await loadShipments(order.id)
   }
 }
 
 async function runAction(
-  orderId: number,
+  orderId: ApiId,
   action: string,
   confirmationKey: string,
   operation: () => Promise<unknown>,
@@ -193,8 +200,9 @@ async function runAction(
     return
   }
 
-  actionInProgress[orderId] = actionKey(action, orderId)
-  delete actionErrors[orderId]
+  const key = orderKey(orderId)
+  actionInProgress[key] = actionKey(action, orderId)
+  delete actionErrors[key]
   try {
     const confirmed = await notify.confirm({
       content: t(confirmationKey),
@@ -208,18 +216,19 @@ async function runAction(
     notify.success(t('common.updated'), { key: `order:${orderId}:${action}:success` })
     await loadOrders()
   } catch {
-    actionErrors[orderId] = t('common.unableToUpdateOrder')
+    actionErrors[key] = t('common.unableToUpdateOrder')
   } finally {
-    delete actionInProgress[orderId]
+    delete actionInProgress[key]
   }
 }
 
-async function receiveShipment(orderId: number, shipment: OrderShipment) {
+async function receiveShipment(orderId: ApiId, shipment: OrderShipment) {
   if (isOrderUpdating(orderId)) {
     return
   }
-  actionInProgress[orderId] = actionKey('receive-shipment', shipment.id)
-  delete actionErrors[orderId]
+  const key = orderKey(orderId)
+  actionInProgress[key] = actionKey('receive-shipment', shipment.id)
+  delete actionErrors[key]
   try {
     const confirmed = await notify.confirm({
       content: t('orders.receiveShipmentConfirm'),
@@ -230,26 +239,27 @@ async function receiveShipment(orderId: number, shipment: OrderShipment) {
     }
     const received = await ordersApi.receiveShipment(shipment.id)
     const state = shipmentState(orderId)
-    state.items = state.items.map((item) => (item.id === received.id ? received : item))
+    state.items = state.items.map((item) => (sameApiId(item.id, received.id) ? received : item))
     notify.success(t('orders.shipmentReceived'), {
       key: `order:${orderId}:shipment:${shipment.id}:received`,
     })
     await loadOrders()
   } catch {
-    actionErrors[orderId] = t('orders.receiveShipmentFailed')
+    actionErrors[key] = t('orders.receiveShipmentFailed')
   } finally {
-    delete actionInProgress[orderId]
+    delete actionInProgress[key]
   }
 }
 
 async function hideOrder(order: OrderSummary) {
-  delete actionErrors[order.id]
+  const key = orderKey(order.id)
+  delete actionErrors[key]
   try {
     await ordersApi.hideOrder(order.id)
     notify.success(t('orders.hidden'), { key: `order:${order.id}:hidden` })
     await loadOrders()
   } catch (error) {
-    actionErrors[order.id] = t('common.unableToUpdateOrder')
+    actionErrors[key] = t('common.unableToUpdateOrder')
     throw error
   }
 }
@@ -344,8 +354,8 @@ onUnmounted(() => orderResource.cancel())
                   <span>{{ order.receiverName }} / {{ maskPhone(order.receiverPhone) }}</span>
                 </div>
 
-                <p v-if="actionErrors[order.id]" class="task-error" role="alert">
-                  {{ actionErrors[order.id] }}
+                <p v-if="actionErrors[orderKey(order.id)]" class="task-error" role="alert">
+                  {{ actionErrors[orderKey(order.id)] }}
                 </p>
               </div>
 
@@ -436,18 +446,22 @@ onUnmounted(() => orderResource.cancel())
               <el-button
                 class="order-details-toggle"
                 text
-                :icon="expandedOrders.has(order.id) ? ArrowUp : ArrowDown"
+                :icon="expandedOrders.has(orderKey(order.id)) ? ArrowUp : ArrowDown"
                 :aria-label="`${$t('orders.viewDetails')} ${order.orderNo}`"
-                :aria-expanded="expandedOrders.has(order.id)"
+                :aria-expanded="expandedOrders.has(orderKey(order.id))"
                 :aria-controls="detailsId(order.id)"
                 @click="toggleOrderDetails(order)"
               >
-                {{ expandedOrders.has(order.id) ? $t('orders.hideDetails') : $t('orders.details') }}
+                {{
+                  expandedOrders.has(orderKey(order.id))
+                    ? $t('orders.hideDetails')
+                    : $t('orders.details')
+                }}
               </el-button>
             </div>
 
             <section
-              v-if="expandedOrders.has(order.id)"
+              v-if="expandedOrders.has(orderKey(order.id))"
               :id="detailsId(order.id)"
               class="order-details"
             >

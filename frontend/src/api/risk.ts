@@ -1,4 +1,5 @@
 import { request } from './http'
+import type { ApiId } from './ids'
 import type {
   RiskAssessmentRequest,
   RiskAssessmentResponse,
@@ -15,7 +16,7 @@ export function riskReviews(): Promise<RiskReviewCase[]> {
 }
 
 export function resolveRiskReview(
-  caseId: number,
+  caseId: ApiId,
   payload: RiskReviewResolveRequest,
 ): Promise<RiskReviewCase> {
   return request<RiskReviewCase>({

@@ -1,4 +1,5 @@
 import { request } from './http'
+import type { ApiId } from './ids'
 import type {
   InventoryReconciliation,
   InventoryReservation,
@@ -6,7 +7,7 @@ import type {
   WarehouseStock,
 } from '@/types'
 
-export function inventoryStocks(skuId: number): Promise<WarehouseStock[]> {
+export function inventoryStocks(skuId: ApiId): Promise<WarehouseStock[]> {
   return request<WarehouseStock[]>({ url: `/inventory/skus/${skuId}/stocks` })
 }
 

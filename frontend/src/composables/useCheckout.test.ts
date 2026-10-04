@@ -64,6 +64,17 @@ describe('cart checkout flow helpers', () => {
     ).toEqual([701, 702])
   })
 
+  it('preserves an unsafe persisted order id instead of dropping it as an unsafe number', () => {
+    const unsafeOrderId = '338329504114688001'
+
+    expect(
+      checkoutOrderIds({
+        orderIds: [unsafeOrderId],
+        subOrders: [{ formalOrderId: unsafeOrderId }],
+      }),
+    ).toEqual([unsafeOrderId])
+  })
+
   it('preserves the selected sku and quantity in a direct checkout intent', () => {
     expect(
       buildDirectCheckoutIntent(

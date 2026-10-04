@@ -11,13 +11,13 @@ import type {
 
 export function createPayment(
   payload: Omit<PaymentCreateRequest, 'orderId'> & { orderId: ApiId },
-  idempotencyKey?: string,
+  idempotencyKey: string,
 ): Promise<PaymentResponse> {
   return request<PaymentResponse>({
     url: '/payments/pay',
     method: 'POST',
     data: payload,
-    headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+    headers: { 'Idempotency-Key': idempotencyKey },
   })
 }
 
@@ -31,25 +31,25 @@ export function adminPaymentForOrder(orderId: ApiId): Promise<PaymentResponse> {
 
 export function refundPayment(
   payload: PaymentRefundRequest,
-  idempotencyKey?: string,
+  idempotencyKey: string,
 ): Promise<PaymentRefundResponse> {
   return request<PaymentRefundResponse>({
     url: '/payments/refund',
     method: 'POST',
     data: payload,
-    headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+    headers: { 'Idempotency-Key': idempotencyKey },
   })
 }
 
 export function adminRefundPayment(
   payload: PaymentRefundRequest,
-  idempotencyKey?: string,
+  idempotencyKey: string,
 ): Promise<PaymentRefundResponse> {
   return request<PaymentRefundResponse>({
     url: '/payments/admin/refund',
     method: 'POST',
     data: payload,
-    headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+    headers: { 'Idempotency-Key': idempotencyKey },
   })
 }
 

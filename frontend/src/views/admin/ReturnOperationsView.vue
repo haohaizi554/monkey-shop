@@ -3,6 +3,7 @@ import { Check, RefreshRight, Search, Wallet } from '@element-plus/icons-vue'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as ordersApi from '@/api/orders'
+import { normalizeApiId, type ApiId } from '@/api/ids'
 import { adminPaymentForOrder, adminRefundPayment } from '@/api/payments'
 import AdminCommerceNav from '@/components/admin/AdminCommerceNav.vue'
 import AdminPageToolbar from '@/components/admin/AdminPageToolbar.vue'
@@ -22,7 +23,7 @@ defineOptions({ name: 'ReturnOperationsView' })
 const { t } = useI18n()
 const notify = useNotify()
 const keyword = ref('')
-const pendingOrderIds = ref(new Set<number>())
+const pendingOrderIds = ref(new Set<string>())
 const returnStatuses = ['RETURN_REQUESTED', 'WAITING_RETURN_SHIPMENT', 'RETURN_SHIPPING'] as const
 let filterTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -53,16 +54,17 @@ onUnmounted(() => {
   if (filterTimer !== null) clearTimeout(filterTimer)
 })
 
-function isPending(orderId: number) {
-  return pendingOrderIds.value.has(orderId)
+function isPending(orderId: ApiId) {
+  return pendingOrderIds.value.has(normalizeApiId(orderId))
 }
 
-function setPending(orderId: number, pending: boolean) {
+function setPending(orderId: ApiId, pending: boolean) {
+  const orderKey = normalizeApiId(orderId)
   const next = new Set(pendingOrderIds.value)
   if (pending) {
-    next.add(orderId)
+    next.add(orderKey)
   } else {
-    next.delete(orderId)
+    next.delete(orderKey)
   }
   pendingOrderIds.value = next
 }

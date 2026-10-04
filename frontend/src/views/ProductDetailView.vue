@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { addCartItem } from '@/api/cart'
 import { getCatalogPrice, getCatalogSpu } from '@/api/catalog'
+import { parsePositiveApiId, sameApiId, type ApiId } from '@/api/ids'
 import { inventoryStocks } from '@/api/inventory'
 import { quoteMarketingPrice } from '@/api/marketing'
 import {
@@ -51,18 +52,19 @@ const priceState = useAsyncState<CatalogPriceQuote | null>({ timeoutMs: 10000 })
 const inventoryState = useAsyncState<WarehouseStock[]>({ timeoutMs: 10000 })
 const marketingState = useAsyncState<MarketingPriceQuote | null>({ timeoutMs: 10000 })
 const membershipState = useAsyncState<MembershipDashboard | null>({ timeoutMs: 10000 })
-const selectedSkuId = ref<number | null>(null)
+const selectedSkuId = ref<ApiId | null>(null)
 const quantity = ref(1)
 const cartBusy = ref(false)
 const collectionBusy = ref(false)
 const savedCollection = ref<MemberCollection | null>(null)
 const addressFormRef = ref<FormInstance>()
-let recordedBrowseProductId: number | null = null
+let recordedBrowseProductId: ApiId | null = null
 const productId = computed(() => String(route.params.productId))
 const product = computed(() => productState.data.value)
 const skuOptions = computed(() => product.value?.skus?.filter((sku) => sku.active) ?? [])
 const selectedSku = computed(
-  () => skuOptions.value.find((sku) => sameId(sku.id, selectedSkuId.value)) ?? skuOptions.value[0],
+  () =>
+    skuOptions.value.find((sku) => sameApiId(sku.id, selectedSkuId.value)) ?? skuOptions.value[0],
 )
 const displayPrice = computed(
   () =>
@@ -92,10 +94,7 @@ const lowStock = computed(
 )
 const soldOut = computed(() => availableQuantity.value <= 0)
 const isSaved = computed(() => savedCollection.value !== null)
-const resolvedShopId = computed(() => {
-  const candidate = Number(product.value?.attributes?.shopId)
-  return Number.isFinite(candidate) && candidate > 0 ? candidate : 1
-})
+const resolvedShopId = computed(() => parsePositiveApiId(product.value?.shopId))
 const checkoutProduct = computed(() => {
   if (!product.value) {
     return null
@@ -120,10 +119,6 @@ const addressRules = computed<FormRules<AddressRequest>>(() => ({
 }))
 
 useJsonLd('monkeyshop-product-jsonld', productStructuredData)
-
-function sameId(left: unknown, right: unknown): boolean {
-  return String(left) === String(right)
-}
 
 function showNotice(level: NoticeLevel, message: string) {
   if (level === 'error') {
@@ -171,10 +166,9 @@ function resetProductContext() {
 }
 
 async function loadPricingContext(loadedProduct: Monkey) {
-  const quote = await priceState.load(({ signal }) =>
-    getCatalogPrice(productId.value, auth.isLoggedIn ? 'MEMBER' : 'ANONYMOUS', '', signal),
-  )
-  if (!auth.isLoggedIn || !quote) {
+  const quote = await priceState.load(({ signal }) => getCatalogPrice(productId.value, '', signal))
+  const shopId = resolvedShopId.value
+  if (!auth.isLoggedIn || !quote || shopId === undefined) {
     marketingState.reset()
     return
   }
@@ -182,7 +176,7 @@ async function loadPricingContext(loadedProduct: Monkey) {
     quoteMarketingPrice({
       orderAmount: quote.salePrice,
       categoryId: loadedProduct.categoryId,
-      shopId: resolvedShopId.value,
+      shopId,
       couponCodes: [],
     }),
   )
@@ -196,11 +190,12 @@ async function loadMembershipContext(loadedProduct: Monkey) {
   }
   const dashboard = await membershipState.load(() => membershipDashboard())
   savedCollection.value =
-    dashboard?.collections.find((collection) => sameId(collection.productId, loadedProduct.id)) ??
-    null
+    dashboard?.collections.find((collection) =>
+      sameApiId(collection.productId, loadedProduct.id),
+    ) ?? null
 }
 
-async function loadInventoryContext(skuId: number | null) {
+async function loadInventoryContext(skuId: ApiId | null) {
   if (!auth.isLoggedIn || skuId === null) {
     inventoryState.reset()
     return
@@ -212,7 +207,7 @@ async function loadInventoryContext(skuId: number | null) {
 }
 
 function recordProductBrowse(loadedProduct: Monkey) {
-  if (!auth.isLoggedIn || sameId(recordedBrowseProductId, loadedProduct.id)) {
+  if (!auth.isLoggedIn || sameApiId(recordedBrowseProductId, loadedProduct.id)) {
     return
   }
   recordedBrowseProductId = loadedProduct.id
@@ -227,11 +222,16 @@ async function loadCatalogProduct(signal: AbortSignal): Promise<Monkey> {
 }
 
 function catalogSpuToMonkey(spu: CatalogSpu): Monkey {
+  const shopId = parsePositiveApiId(spu.shopId)
+  if (shopId === undefined) {
+    throw new Error('Catalog SPU is missing its canonical shop ownership')
+  }
   const firstSku = spu.skus.find((sku) => sku.active) ?? spu.skus[0]
   const description =
     typeof spu.attributes.description === 'string' ? spu.attributes.description : spu.title
   return {
     id: spu.id,
+    shopId,
     name: spu.name,
     breed: spu.title,
     price: firstSku?.memberPrice ?? spu.memberPrice ?? firstSku?.originalPrice ?? spu.originalPrice,
@@ -287,14 +287,15 @@ async function toggleCollection() {
 
 async function addCurrentSkuToCart() {
   const sku = selectedSku.value
-  if (cartBusy.value || !sku || soldOut.value || !(await requireLogin())) {
+  const shopId = resolvedShopId.value
+  if (cartBusy.value || !sku || shopId === undefined || soldOut.value || !(await requireLogin())) {
     return
   }
   cartBusy.value = true
   try {
     await addCartItem({
       skuId: sku.id,
-      shopId: resolvedShopId.value,
+      shopId,
       quantity: Math.max(1, Math.trunc(quantity.value)),
       selected: true,
     })
@@ -314,10 +315,11 @@ async function addCurrentSkuToCart() {
 
 async function buyCurrentProduct() {
   const sku = selectedSku.value
-  if (checkoutProduct.value && sku && (await requireLogin())) {
+  const shopId = resolvedShopId.value
+  if (checkoutProduct.value && sku && shopId !== undefined && (await requireLogin())) {
     await openCheckout(checkoutProduct.value, {
       skuId: sku.id,
-      shopId: resolvedShopId.value,
+      shopId,
       quantity: Math.max(1, Math.trunc(quantity.value)),
     })
   }
@@ -486,7 +488,7 @@ watch(selectedSkuId, (skuId) => {
               <el-button
                 class="purchase-action"
                 type="primary"
-                :loading="sameId(openingCheckoutId, product.id)"
+                :loading="sameApiId(openingCheckoutId, product.id)"
                 :disabled="soldOut || openingCheckoutId !== null"
                 @click="buyCurrentProduct"
               >

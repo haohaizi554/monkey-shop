@@ -9,6 +9,7 @@ import {
   releaseInventory,
   reserveInventory,
 } from '@/api/inventory'
+import { parsePositiveApiId, sameApiId, type ApiId } from '@/api/ids'
 import AdminPageToolbar from '@/components/admin/AdminPageToolbar.vue'
 import MetricStrip, { type MetricItem } from '@/components/admin/MetricStrip.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
@@ -27,7 +28,7 @@ import type {
 defineOptions({ name: 'InventoryView' })
 
 interface InventoryQuery {
-  skuId: number | null
+  skuId: ApiId | null
   region: string
 }
 
@@ -36,10 +37,10 @@ type ReservationStatus = InventoryReservation['status']
 const inventoryQuerySchema: RouteQuerySchema<InventoryQuery> = {
   parse(query: LocationQuery) {
     const rawSku = Array.isArray(query.skuId) ? query.skuId[0] : query.skuId
-    const parsedSku = Number.parseInt(rawSku ?? '', 10)
+    const parsedSku = parsePositiveApiId(rawSku)
     const rawRegion = Array.isArray(query.region) ? query.region[0] : query.region
     return {
-      skuId: Number.isInteger(parsedSku) && parsedSku > 0 ? parsedSku : null,
+      skuId: parsedSku ?? null,
       region: String(rawRegion ?? '').trim(),
     }
   },
@@ -138,7 +139,9 @@ function patchStock(nextStock: WarehouseStock) {
   const rows = stocksState.data.value
   if (!rows) return
   const index = rows.findIndex(
-    (stock) => stock.skuId === nextStock.skuId && stock.warehouseId === nextStock.warehouseId,
+    (stock) =>
+      sameApiId(stock.skuId, nextStock.skuId) &&
+      sameApiId(stock.warehouseId, nextStock.warehouseId),
   )
   if (index >= 0) rows.splice(index, 1, nextStock)
   else rows.push(nextStock)
@@ -150,7 +153,7 @@ function patchReservation(nextReservation: InventoryReservation) {
   )
   if (index >= 0) reservations.value.splice(index, 1, nextReservation)
   else reservations.value.unshift(nextReservation)
-  if (query.skuId === nextReservation.skuId) patchStock(nextReservation.stock)
+  if (sameApiId(query.skuId, nextReservation.skuId)) patchStock(nextReservation.stock)
 }
 
 function discrepancyKey(row: InventoryDiscrepancy): string {
@@ -221,7 +224,7 @@ async function reserveCurrentSku() {
       quantity: reserveQuantity.value,
       reservationKey: keyValue,
     })
-    if (query.skuId === reservation.skuId) stocksState.cancel()
+    if (sameApiId(query.skuId, reservation.skuId)) stocksState.cancel()
     patchReservation(reservation)
     reservationKey.value = ''
     notify.success(t('inventory.reserved'), { key: 'inventory:reserve:success' })
@@ -238,7 +241,7 @@ async function releaseReservation(reservation: InventoryReservation) {
   setPending(pendingKey, true)
   try {
     const releasedReservation = await releaseInventory(reservation.reservationKey)
-    if (query.skuId === releasedReservation.skuId) stocksState.cancel()
+    if (sameApiId(query.skuId, releasedReservation.skuId)) stocksState.cancel()
     patchReservation(releasedReservation)
     notify.success(t('inventory.released'), { key: 'inventory:release:success' })
   } catch (error) {
@@ -287,11 +290,10 @@ onBeforeUnmount(() => {
       <template #search>
         <div class="field-control">
           <span>{{ t('inventory.skuId') }}</span>
-          <el-input-number
+          <el-input
             v-model="query.skuId"
-            :min="1"
-            controls-position="right"
             :aria-label="t('inventory.skuId')"
+            :placeholder="t('inventory.skuId')"
           />
         </div>
       </template>

@@ -11,6 +11,7 @@ import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { LocationQuery, LocationQueryRaw } from 'vue-router'
 import * as riskApi from '@/api/risk'
+import { isPositiveApiId, sameApiId, type ApiId } from '@/api/ids'
 import AdminPageToolbar from '@/components/admin/AdminPageToolbar.vue'
 import MetricStrip, { type MetricItem } from '@/components/admin/MetricStrip.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
@@ -83,10 +84,10 @@ const assessmentForm = reactive({
   phone: '13800000000',
   deviceFingerprint: 'browser-fingerprint-demo',
   clientIp: '',
-  productId: 1,
-  orderId: undefined as number | undefined,
-  seckillActivityId: undefined as number | undefined,
-  sellerUserId: undefined as number | undefined,
+  productId: '1' as ApiId,
+  orderId: undefined as ApiId | undefined,
+  seckillActivityId: undefined as ApiId | undefined,
+  sellerUserId: undefined as ApiId | undefined,
   priceBefore: 100,
   priceAfter: 160,
   totpCode: '',
@@ -136,11 +137,11 @@ const signalLabels = computed<Record<RiskSignalType, string>>(() => ({
   ACCOUNT_BLOCKED: t('risk.signalAccountBlocked'),
 }))
 
-function pendingKey(id: number, status: RiskReviewResolveRequest['status']): string {
+function pendingKey(id: ApiId, status: RiskReviewResolveRequest['status']): string {
   return `review:${id}:${status}`
 }
 
-function isCasePending(id: number): boolean {
+function isCasePending(id: ApiId): boolean {
   return ['APPROVED', 'REJECTED', 'BLOCKED'].some((status) =>
     isPending(pendingKey(id, status as RiskReviewResolveRequest['status'])),
   )
@@ -188,6 +189,10 @@ function statusType(status: RiskReviewStatus): 'success' | 'warning' | 'danger' 
   return 'warning'
 }
 
+function validApiId(value: unknown): ApiId | undefined {
+  return isPositiveApiId(value) ? (value as ApiId) : undefined
+}
+
 async function loadReviews() {
   await reviewsState.load(() => riskApi.riskReviews(), {
     preserveData: true,
@@ -198,9 +203,10 @@ async function assessRisk() {
   if (assessmentState.isLoading.value) return
   const payload = {
     ...assessmentForm,
-    orderId: assessmentForm.orderId || undefined,
-    seckillActivityId: assessmentForm.seckillActivityId || undefined,
-    sellerUserId: assessmentForm.sellerUserId || undefined,
+    productId: validApiId(assessmentForm.productId),
+    orderId: validApiId(assessmentForm.orderId),
+    seckillActivityId: validApiId(assessmentForm.seckillActivityId),
+    sellerUserId: validApiId(assessmentForm.sellerUserId),
     totpCode: assessmentForm.totpCode.trim() || undefined,
   }
   const result = await assessmentState.load(() => riskApi.assessRisk(payload), {
@@ -254,9 +260,9 @@ async function saveDecision() {
     }
     const updated = await riskApi.resolveRiskReview(item.id, { status, resolution, totpCode })
     reviewsState.cancel()
-    const index = reviews.value.findIndex((review) => review.id === updated.id)
+    const index = reviews.value.findIndex((review) => sameApiId(review.id, updated.id))
     if (index >= 0) reviews.value.splice(index, 1, updated)
-    if (activeReview.value?.id === updated.id) activeReview.value = updated
+    if (sameApiId(activeReview.value?.id, updated.id)) activeReview.value = updated
     notify.success(t('risk.reviewUpdated', { status: statusLabel(updated.status) }), {
       key: `risk:review:${updated.id}`,
     })
@@ -308,30 +314,26 @@ void loadReviews()
             :aria-label="t('risk.clientIp')"
             :placeholder="t('risk.clientIp')"
           />
-          <el-input-number
+          <el-input
             v-model="assessmentForm.productId"
             :disabled="assessmentState.isLoading.value"
-            :min="1"
             :aria-label="t('risk.product')"
           />
-          <el-input-number
+          <el-input
             v-model="assessmentForm.orderId"
             :disabled="assessmentState.isLoading.value"
-            :min="1"
             :aria-label="t('risk.order')"
             :placeholder="t('risk.order')"
           />
-          <el-input-number
+          <el-input
             v-model="assessmentForm.seckillActivityId"
             :disabled="assessmentState.isLoading.value"
-            :min="1"
             :aria-label="t('risk.seckillActivity')"
             :placeholder="t('risk.seckillActivity')"
           />
-          <el-input-number
+          <el-input
             v-model="assessmentForm.sellerUserId"
             :disabled="assessmentState.isLoading.value"
-            :min="1"
             :aria-label="t('risk.seller')"
             :placeholder="t('risk.seller')"
           />

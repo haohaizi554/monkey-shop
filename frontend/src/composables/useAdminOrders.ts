@@ -1,5 +1,6 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { allOrderPage } from '@/api/orders'
+import { sameApiId } from '@/api/ids'
 import type { OrderSummary } from '@/api/orders'
 import type { PageEnvelope } from '@/api/page'
 import { useAsyncState } from '@/composables/useAsyncState'
@@ -44,7 +45,7 @@ export function useAdminOrders(options: AdminOrderQueryOptions = {}) {
     if (!rows) {
       return
     }
-    const index = rows.findIndex((candidate) => candidate.id === order.id)
+    const index = rows.findIndex((candidate) => sameApiId(candidate.id, order.id))
     if (index >= 0) {
       rows.splice(index, 1, order)
     } else {

@@ -2,6 +2,7 @@
 import { Refresh, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { parsePositiveApiId, sameApiId, type ApiId } from '@/api/ids'
 import { currentTrackingProfile, trackingDashboard, trackingProductProfile } from '@/api/tracking'
 import MetricStrip, { type MetricItem } from '@/components/admin/MetricStrip.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
@@ -20,9 +21,9 @@ const profileState = useAsyncState<UserProfileTag>()
 const productState = useAsyncState<ProductProfile>()
 const visibility = usePageVisibility()
 const polling = ref(true)
-const productId = ref<number | null>(1)
+const productId = ref<ApiId | null>(1)
 const productInputError = ref(false)
-const loadedProductId = ref<number>()
+const loadedProductId = ref<ApiId>()
 const dashboardLastSuccessAt = ref<Date>()
 const profileLastSuccessAt = ref<Date>()
 const productLastSuccessAt = ref<Date>()
@@ -136,9 +137,8 @@ function tagLabel(tag: string): string {
   return tag === 'popular' ? t('dashboard.tagPopular') : t('common.unknown')
 }
 
-function productIdValue(value: unknown): number | null {
-  const parsed = typeof value === 'number' ? value : Number(value)
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
+function productIdValue(value: unknown): ApiId | null {
+  return parsePositiveApiId(value) ?? null
 }
 
 function loadDashboard(): Promise<void> {
@@ -177,19 +177,19 @@ async function loadProductProfile() {
   }
 
   productInputError.value = false
-  const isCurrentProduct = loadedProductId.value === requestedProductId
+  const isCurrentProduct = sameApiId(loadedProductId.value, requestedProductId)
   if (!isCurrentProduct) productLastSuccessAt.value = undefined
   const result = await productState.load(() => trackingProductProfile(requestedProductId), {
     preserveData: isCurrentProduct,
   })
-  if (result && requestedProductId === productIdValue(productId.value)) {
+  if (result && sameApiId(requestedProductId, productIdValue(productId.value))) {
     loadedProductId.value = requestedProductId
     productLastSuccessAt.value = new Date()
   }
 }
 
-function handleProductIdChange(value: number | undefined) {
-  productId.value = value ?? null
+function handleProductIdChange(value: unknown) {
+  productId.value = productIdValue(value)
   productInputError.value = productIdValue(productId.value) === null
   if (productInputError.value) {
     loadedProductId.value = undefined
@@ -344,12 +344,12 @@ onMounted(() => {
         </div>
         <div class="product-profile-control">
           <span>{{ t('dashboard.productId') }}</span>
-          <el-input-number
+          <el-input
             v-model="productId"
-            :step="1"
             size="small"
             :aria-label="t('dashboard.productId')"
-            @change="handleProductIdChange"
+            :placeholder="t('dashboard.productId')"
+            @input="handleProductIdChange"
           />
           <el-button
             text

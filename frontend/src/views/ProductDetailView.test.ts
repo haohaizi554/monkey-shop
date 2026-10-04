@@ -3,6 +3,7 @@ import ElementPlus from 'element-plus'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp, nextTick, type App } from 'vue'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
+import type { ApiId } from '@/api/ids'
 import { i18n } from '@/locales'
 import ProductDetailView from './ProductDetailView.vue'
 
@@ -19,7 +20,7 @@ vi.mock('@/api/cart', () => ({
 }))
 
 vi.mock('@/api/inventory', () => ({
-  inventoryStocks: vi.fn(async (skuId: number) => [
+  inventoryStocks: vi.fn(async (skuId: ApiId) => [
     {
       skuId,
       warehouseId: 1,
@@ -54,13 +55,13 @@ vi.mock('@/composables/useCheckout', async () => {
   const { reactive, ref } = await import('vue')
   return {
     useCheckout: () => ({
-      openingCheckoutId: ref<number | null>(null),
+      openingCheckoutId: ref<ApiId | null>(null),
       submittingOrder: ref(false),
       savingAddress: ref(false),
       checkoutOpen: ref(false),
       addresses: ref([]),
       selectedMonkey: ref(null),
-      selectedAddressId: ref<number | null>(null),
+      selectedAddressId: ref<ApiId | null>(null),
       newAddress: reactive({ receiverName: '', phone: '', detailAddress: '' }),
       openCheckout: checkoutMock.openCheckout,
       saveAddress: vi.fn(),
@@ -99,9 +100,11 @@ const mounted: MountedView[] = []
 
 const canonicalSpuId = '338329504114688001'
 const canonicalSkuId = '338329504114688101'
+const canonicalShopId = '338329504114688201'
 const canonicalSpu = {
   id: canonicalSpuId,
   categoryId: 7,
+  shopId: canonicalShopId,
   name: 'Canonical Capuchin',
   title: 'Rainforest Explorer',
   status: 'LISTED',
@@ -211,6 +214,7 @@ describe('ProductDetailView canonical catalog loading', () => {
     )
     expect(spuRequest?.signal).toBeInstanceOf(AbortSignal)
     expect(priceRequest?.signal).toBeInstanceOf(AbortSignal)
+    expect(priceRequest?.params).toEqual({ region: '' })
 
     const buyButton = host.querySelector<HTMLButtonElement>('.purchase-action')
     expect(buyButton).not.toBeNull()
@@ -224,7 +228,7 @@ describe('ProductDetailView canonical catalog loading', () => {
         name: canonicalSpu.name,
         selectedSkuId: canonicalSkuId,
       }),
-      { skuId: canonicalSkuId, shopId: 9, quantity: 1 },
+      { skuId: canonicalSkuId, shopId: canonicalShopId, quantity: 1 },
     )
   })
 })

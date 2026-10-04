@@ -6,6 +6,7 @@ import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { captchaConfig as loadCaptchaConfig, captchaUrl } from '@/api/auth'
 import { uploadImage } from '@/api/catalog'
+import { normalizeApiId, type ApiId } from '@/api/ids'
 import type { PageEnvelope } from '@/api/page'
 import * as userApi from '@/api/user'
 import HumanVerification from '@/components/HumanVerification.vue'
@@ -35,7 +36,7 @@ const currentPasswordInput = ref<{ focus: () => void }>()
 const passwordFormError = ref('')
 const editDialogOpen = ref(false)
 const forgetDialogOpen = ref(false)
-const editingAddressId = ref<number | null>(null)
+const editingAddressId = ref<ApiId | null>(null)
 const editTrigger = ref<HTMLElement | null>(null)
 const editSnapshot = ref('')
 const allowRouteLeave = ref(false)
@@ -46,8 +47,8 @@ const pending = reactive({
   addressEdit: false,
   forget: false,
 })
-const deletingAddressIds = reactive(new Set<number>())
-const defaultAddressIds = reactive(new Set<number>())
+const deletingAddressIds = reactive(new Set<string>())
+const defaultAddressIds = reactive(new Set<string>())
 const { t } = useI18n()
 const router = useRouter()
 const auth = useAuthStore()
@@ -310,15 +311,16 @@ async function saveAddress() {
   }
 }
 
-async function removeAddress(id: number) {
+async function removeAddress(id: ApiId) {
   const confirmed = await notify.confirm({
     title: t('common.confirm'),
     content: t('auth.deleteAddressConfirm'),
     type: 'warning',
   })
-  if (!confirmed || deletingAddressIds.has(id)) return
+  const addressKey = normalizeApiId(id)
+  if (!confirmed || deletingAddressIds.has(addressKey)) return
 
-  deletingAddressIds.add(id)
+  deletingAddressIds.add(addressKey)
   try {
     await userApi.deleteAddress(id)
     const refreshed = await refreshAddresses()
@@ -329,14 +331,15 @@ async function removeAddress(id: number) {
   } catch (caught) {
     notify.fromApiError(caught, 'common.operationFailed')
   } finally {
-    deletingAddressIds.delete(id)
+    deletingAddressIds.delete(addressKey)
   }
 }
 
-async function setDefaultAddress(id: number, enabled: boolean) {
-  if (!enabled || defaultAddressIds.has(id)) return
+async function setDefaultAddress(id: ApiId, enabled: boolean) {
+  const addressKey = normalizeApiId(id)
+  if (!enabled || defaultAddressIds.has(addressKey)) return
 
-  defaultAddressIds.add(id)
+  defaultAddressIds.add(addressKey)
   try {
     await userApi.setDefaultAddress(id)
     await refreshAddresses(0)
@@ -344,7 +347,7 @@ async function setDefaultAddress(id: number, enabled: boolean) {
   } catch (caught) {
     notify.fromApiError(caught, 'common.operationFailed')
   } finally {
-    defaultAddressIds.delete(id)
+    defaultAddressIds.delete(addressKey)
   }
 }
 
@@ -628,8 +631,8 @@ onBeforeUnmount(() => {
                     <el-switch
                       :model-value="address.isDefault === 1"
                       :aria-label="`${$t('common.default')} ${maskName(address.receiverName)}`"
-                      :loading="defaultAddressIds.has(address.id)"
-                      :disabled="defaultAddressIds.has(address.id)"
+                      :loading="defaultAddressIds.has(normalizeApiId(address.id))"
+                      :disabled="defaultAddressIds.has(normalizeApiId(address.id))"
                       @update:model-value="(value: boolean) => setDefaultAddress(address.id, value)"
                     />
                   </div>
@@ -638,7 +641,7 @@ onBeforeUnmount(() => {
                       plain
                       :icon="Edit"
                       :data-address-edit="address.id"
-                      :disabled="deletingAddressIds.has(address.id)"
+                      :disabled="deletingAddressIds.has(normalizeApiId(address.id))"
                       @click="openEditDialog(address, $event)"
                     >
                       {{ $t('common.edit') }}
@@ -646,8 +649,8 @@ onBeforeUnmount(() => {
                     <el-button
                       type="danger"
                       plain
-                      :loading="deletingAddressIds.has(address.id)"
-                      :disabled="deletingAddressIds.has(address.id)"
+                      :loading="deletingAddressIds.has(normalizeApiId(address.id))"
+                      :disabled="deletingAddressIds.has(normalizeApiId(address.id))"
                       @click="removeAddress(address.id)"
                     >
                       {{ $t('common.delete') }}

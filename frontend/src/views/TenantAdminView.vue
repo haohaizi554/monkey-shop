@@ -15,6 +15,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import * as tenantApi from '@/api/tenant'
 import type { TenantExportJob } from '@/api/tenant'
+import { normalizeApiId, parsePositiveApiId, sameApiId, type ApiId } from '@/api/ids'
 import MetricStrip, { type MetricItem } from '@/components/admin/MetricStrip.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import DataTableShell from '@/components/ui/DataTableShell.vue'
@@ -53,7 +54,7 @@ const listState = useAsyncState<TenantDashboard>()
 const configState = useAsyncState<TenantConfig[]>({ preserveData: false })
 const billState = useAsyncState<TenantBill[]>({ preserveData: false })
 const exportState = useAsyncState<TenantExportJob[]>({ preserveData: false })
-const selectedTenantId = ref<number>()
+const selectedTenantId = ref<ApiId>()
 const activeTab = ref('config')
 const createDialogOpen = ref(false)
 const createFormRef = ref<FormInstance>()
@@ -62,10 +63,10 @@ const pendingKeys = ref(new Set<string>())
 const configError = ref('')
 const billError = ref('')
 const tenantDashboardLastSuccessAt = ref<Date>()
-const activeConfigTenantId = ref<number>()
+const activeConfigTenantId = ref<ApiId>()
 const activeConfigType = ref<TenantConfigType>('PAYMENT')
 const configDrafts = new Map<string, TenantConfigDraft>()
-const selectedConfigTypeByTenant = new Map<number, TenantConfigType>()
+const selectedConfigTypeByTenant = new Map<string, TenantConfigType>()
 const configTypes: TenantConfigType[] = ['PAYMENT', 'LOGISTICS', 'MARKETING', 'ROLLOUT']
 let detailRequestVersion = 0
 let syncingConfigForm = false
@@ -118,7 +119,7 @@ const createRules = computed<FormRules>(() => ({
 const dashboard = computed(() => listState.data.value)
 const tenantList = computed(() => dashboard.value?.tenants ?? [])
 const selectedTenant = computed(() =>
-  tenantList.value.find((tenant) => tenant.id === selectedTenantId.value),
+  tenantList.value.find((tenant) => sameApiId(tenant.id, selectedTenantId.value)),
 )
 const configs = computed(() => configState.data.value ?? [])
 const bills = computed(() => billState.data.value ?? [])
@@ -189,11 +190,9 @@ function firstQueryValue(value: unknown): string {
   return Array.isArray(value) ? String(value[0] ?? '') : String(value ?? '')
 }
 
-function queryTenantId(): number | undefined {
+function queryTenantId(): ApiId | undefined {
   const rawValue = firstQueryValue(route.query.tenant).trim()
-  if (!/^[1-9]\d*$/.test(rawValue)) return undefined
-  const value = Number(rawValue)
-  return Number.isSafeInteger(value) ? value : undefined
+  return parsePositiveApiId(rawValue)
 }
 
 function formatSuccessfulRefresh(value?: Date): string {
@@ -204,8 +203,8 @@ function formatSuccessfulRefresh(value?: Date): string {
   }).format(value)
 }
 
-function configDraftKey(tenantId: number, configType: TenantConfigType): string {
-  return `${tenantId}:${configType}`
+function configDraftKey(tenantId: ApiId, configType: TenantConfigType): string {
+  return `${normalizeApiId(tenantId)}:${configType}`
 }
 
 function configDraftFromServer(
@@ -230,7 +229,7 @@ function configDraftFromServer(
 }
 
 function renderConfigDraft(
-  tenantId: number,
+  tenantId: ApiId,
   configType: TenantConfigType,
   draft: TenantConfigDraft,
 ) {
@@ -256,13 +255,13 @@ function persistActiveConfigDraft() {
   })
 }
 
-function prepareTenantConfigDraft(tenantId: number) {
-  const configType = selectedConfigTypeByTenant.get(tenantId) ?? 'PAYMENT'
+function prepareTenantConfigDraft(tenantId: ApiId) {
+  const configType = selectedConfigTypeByTenant.get(normalizeApiId(tenantId)) ?? 'PAYMENT'
   const draft = configDrafts.get(configDraftKey(tenantId, configType))
   renderConfigDraft(tenantId, configType, draft ?? configDraftFromServer(configType, []))
 }
 
-function initializeTenantConfigDrafts(tenantId: number, rows: TenantConfig[]) {
+function initializeTenantConfigDrafts(tenantId: ApiId, rows: TenantConfig[]) {
   for (const configType of configTypes) {
     const key = configDraftKey(tenantId, configType)
     const current = configDrafts.get(key)
@@ -270,8 +269,9 @@ function initializeTenantConfigDrafts(tenantId: number, rows: TenantConfig[]) {
       configDrafts.set(key, configDraftFromServer(configType, rows))
     }
   }
-  const configType = selectedConfigTypeByTenant.get(tenantId) ?? 'PAYMENT'
-  selectedConfigTypeByTenant.set(tenantId, configType)
+  const tenantKey = normalizeApiId(tenantId)
+  const configType = selectedConfigTypeByTenant.get(tenantKey) ?? 'PAYMENT'
+  selectedConfigTypeByTenant.set(tenantKey, configType)
   const draft = configDrafts.get(configDraftKey(tenantId, configType))
   if (draft) renderConfigDraft(tenantId, configType, draft)
 }
@@ -280,7 +280,7 @@ function selectConfigType(value: string | number | boolean | undefined) {
   const configType = value as TenantConfigType
   const tenantId = selectedTenantId.value
   if (!tenantId || !configTypes.includes(configType)) return
-  selectedConfigTypeByTenant.set(tenantId, configType)
+  selectedConfigTypeByTenant.set(normalizeApiId(tenantId), configType)
   const key = configDraftKey(tenantId, configType)
   const draft = configDrafts.get(key) ?? configDraftFromServer(configType, configs.value)
   configDrafts.set(key, draft)
@@ -363,7 +363,7 @@ function isPending(key: string): boolean {
   return pendingKeys.value.has(key)
 }
 
-function isLifecyclePending(tenantId: number): boolean {
+function isLifecyclePending(tenantId: ApiId): boolean {
   return isPending(`tenant:${tenantId}:renew`) || isPending(`tenant:${tenantId}:downgrade`)
 }
 
@@ -391,7 +391,7 @@ function patchTenant(nextTenant: Tenant) {
   listState.cancel()
   const current = listState.data.value
   if (!current) return
-  const index = current.tenants.findIndex((tenant) => tenant.id === nextTenant.id)
+  const index = current.tenants.findIndex((tenant) => sameApiId(tenant.id, nextTenant.id))
   if (index >= 0) current.tenants.splice(index, 1, nextTenant)
   else current.tenants.unshift(nextTenant)
 }
@@ -416,40 +416,46 @@ async function loadTenantList() {
   }
 
   const requestedId = queryTenantId()
-  const requestedTenant = result.tenants.find((tenant) => tenant.id === requestedId)
+  const requestedTenant = result.tenants.find((tenant) => sameApiId(tenant.id, requestedId))
   const selected = requestedTenant ?? result.tenants[0]
   if (!selected) return
-  if (requestedId !== selected.id) {
+  if (!sameApiId(requestedId, selected.id)) {
     await router.replace({ query: { ...route.query, tenant: String(selected.id) } })
   }
-  if (selectedTenantId.value === selected.id) return
+  if (sameApiId(selectedTenantId.value, selected.id)) return
   await selectTenant(selected, { revealMobile: false, syncUrl: false })
 }
 
-async function loadTenantConfigs(tenantId: number, requestVersion = detailRequestVersion) {
+async function loadTenantConfigs(tenantId: ApiId, requestVersion = detailRequestVersion) {
   const result = await configState.load(() => tenantApi.tenantConfigs(tenantId), {
     preserveData: false,
   })
-  if (result && selectedTenantId.value === tenantId && requestVersion === detailRequestVersion) {
+  if (
+    result &&
+    sameApiId(selectedTenantId.value, tenantId) &&
+    requestVersion === detailRequestVersion
+  ) {
     initializeTenantConfigDrafts(tenantId, result)
   }
 }
 
-async function loadTenantBills(tenantId: number, requestVersion = detailRequestVersion) {
+async function loadTenantBills(tenantId: ApiId, requestVersion = detailRequestVersion) {
   await billState.load(() => tenantApi.tenantBills(tenantId), {
     preserveData: false,
   })
-  if (selectedTenantId.value !== tenantId || requestVersion !== detailRequestVersion) return
+  if (!sameApiId(selectedTenantId.value, tenantId) || requestVersion !== detailRequestVersion)
+    return
 }
 
-async function loadTenantExports(tenantId: number, requestVersion = detailRequestVersion) {
+async function loadTenantExports(tenantId: ApiId, requestVersion = detailRequestVersion) {
   await exportState.load(() => tenantApi.tenantExports(tenantId), {
     preserveData: false,
   })
-  if (selectedTenantId.value !== tenantId || requestVersion !== detailRequestVersion) return
+  if (!sameApiId(selectedTenantId.value, tenantId) || requestVersion !== detailRequestVersion)
+    return
 }
 
-async function loadTenantDetails(tenantId: number) {
+async function loadTenantDetails(tenantId: ApiId) {
   const requestVersion = ++detailRequestVersion
   billError.value = ''
   configState.reset()
@@ -469,7 +475,7 @@ async function selectTenant(
   selectedTenantId.value = tenant.id
   prepareTenantConfigDraft(tenant.id)
   mobileDetailVisible.value = options.revealMobile ?? true
-  if (options.syncUrl !== false && firstQueryValue(route.query.tenant) !== String(tenant.id)) {
+  if (options.syncUrl !== false && !sameApiId(firstQueryValue(route.query.tenant), tenant.id)) {
     await router.replace({ query: { ...route.query, tenant: String(tenant.id) } })
   }
   await loadTenantDetails(tenant.id)
@@ -586,10 +592,10 @@ async function saveConfig() {
     })
     const savedDraft = configDraftFromServer(configType, [saved])
     configDrafts.set(configDraftKey(tenantId, configType), savedDraft)
-    if (activeConfigTenantId.value === tenantId && activeConfigType.value === configType) {
+    if (sameApiId(activeConfigTenantId.value, tenantId) && activeConfigType.value === configType) {
       renderConfigDraft(tenantId, configType, savedDraft)
     }
-    if (selectedTenantId.value === tenantId) {
+    if (sameApiId(selectedTenantId.value, tenantId)) {
       await commitResourceRow(configState, saved, (row) => row.configType === saved.configType)
     }
     notify.success(t('tenant.configSaved'), { key: 'tenant:config:success' })
@@ -614,8 +620,8 @@ async function generateBill() {
     const bill = await tenantApi.generateTenantBill(tenantId, {
       billingMonth: billForm.billingMonth,
     })
-    if (selectedTenantId.value === tenantId) {
-      await commitResourceRow(billState, bill, (row) => row.id === bill.id)
+    if (sameApiId(selectedTenantId.value, tenantId)) {
+      await commitResourceRow(billState, bill, (row) => sameApiId(row.id, bill.id))
     }
     notify.success(t('tenant.billGenerated'), { key: 'tenant:bill:success' })
   } catch (error) {
@@ -640,8 +646,8 @@ async function requestExport() {
     const job = await tenantApi.requestTenantExport(tenantId, {
       exportType: exportForm.exportType,
     })
-    if (selectedTenantId.value === tenantId) {
-      await commitResourceRow(exportState, job, (row) => row.id === job.id)
+    if (sameApiId(selectedTenantId.value, tenantId)) {
+      await commitResourceRow(exportState, job, (row) => sameApiId(row.id, job.id))
     }
     if (job.status === 'FAILED' || job.status === 'UNAVAILABLE') {
       notify.warning(exportAvailabilityLabel(job), { key: 'tenant:export:unavailable' })
@@ -658,19 +664,19 @@ async function requestExport() {
 async function synchronizeTenantFromRoute() {
   if (!tenantList.value.length) return
   const requestedId = queryTenantId()
-  const requestedTenant = tenantList.value.find((row) => row.id === requestedId)
+  const requestedTenant = tenantList.value.find((row) => sameApiId(row.id, requestedId))
   if (!requestedTenant) {
     const fallback = selectedTenant.value ?? tenantList.value[0]
     if (!fallback) return
-    if (firstQueryValue(route.query.tenant) !== String(fallback.id)) {
+    if (!sameApiId(firstQueryValue(route.query.tenant), fallback.id)) {
       await router.replace({ query: { ...route.query, tenant: String(fallback.id) } })
     }
-    if (selectedTenantId.value !== fallback.id) {
+    if (!sameApiId(selectedTenantId.value, fallback.id)) {
       await selectTenant(fallback, { syncUrl: false })
     }
     return
   }
-  if (requestedTenant.id !== selectedTenantId.value) {
+  if (!sameApiId(requestedTenant.id, selectedTenantId.value)) {
     await selectTenant(requestedTenant, { syncUrl: false })
   }
 }
@@ -758,7 +764,7 @@ onMounted(loadTenantList)
                 <template #default="{ row }">
                   <button
                     class="tenant-select-button"
-                    :class="{ 'is-selected': row.id === selectedTenantId }"
+                    :class="{ 'is-selected': sameApiId(row.id, selectedTenantId) }"
                     :aria-label="t('tenant.openTenant', { name: tenantDisplayName(row.name) })"
                     @click="selectTenant(row)"
                   >

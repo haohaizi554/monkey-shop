@@ -1,4 +1,5 @@
 import { request } from './http'
+import type { ApiId } from './ids'
 import type { PageEnvelope } from './page'
 import type { Address, AddressRequest, AvatarUpdateRequest, UserProfile } from '@/types'
 
@@ -26,15 +27,15 @@ export function addAddress(payload: AddressRequest): Promise<Address> {
   return request<Address>({ url: '/addresses', method: 'POST', data: payload })
 }
 
-export function updateAddress(id: number, payload: AddressRequest): Promise<Address> {
+export function updateAddress(id: ApiId, payload: AddressRequest): Promise<Address> {
   return request<Address>({ url: `/addresses/${id}`, method: 'PUT', data: payload })
 }
 
-export function setDefaultAddress(id: number): Promise<Address> {
+export function setDefaultAddress(id: ApiId): Promise<Address> {
   return request<Address>({ url: `/addresses/set-default/${id}`, method: 'POST' })
 }
 
-export async function deleteAddress(id: number): Promise<void> {
+export async function deleteAddress(id: ApiId): Promise<void> {
   await request<void>({ url: `/addresses/${id}`, method: 'DELETE' })
 }
 

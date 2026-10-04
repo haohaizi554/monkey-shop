@@ -92,15 +92,16 @@ describe('business API idempotency keys', () => {
     )
   })
 
-  it('keeps all existing call signatures valid when no explicit key is supplied', async () => {
-    await createOrder(11, 22)
-    await createPayment({ orderId: 11, method: 'ALIPAY' })
-    await refundPayment({ paymentNo: 'PAY-11', amount: 10 })
+  it('does not silently omit an explicitly supplied idempotency header', async () => {
+    await createOrder(11, 22, '')
+    await createPayment({ orderId: 11, method: 'ALIPAY' }, '')
+    await refundPayment({ paymentNo: 'PAY-11', amount: 10 }, '')
+    await adminRefundPayment({ paymentNo: 'PAY-11', amount: 10 }, '')
     await createOrderShipment(11, { lines: [] })
 
-    expect(requestMock).toHaveBeenCalledTimes(4)
-    for (const [config] of requestMock.mock.calls) {
-      expect(config.headers).toBeUndefined()
+    expect(requestMock).toHaveBeenCalledTimes(5)
+    for (const [config] of requestMock.mock.calls.slice(0, 4)) {
+      expect(config.headers).toEqual({ 'Idempotency-Key': '' })
     }
   })
 })

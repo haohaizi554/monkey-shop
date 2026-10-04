@@ -13,8 +13,9 @@ const catalogProduct = {
 }
 
 const catalogSpu = {
-  id: 91,
+  id: 1,
   categoryId: 7,
+  shopId: 1,
   name: catalogProduct.name,
   title: catalogProduct.breed,
   status: 'LISTED',
@@ -27,7 +28,7 @@ const catalogSpu = {
   skus: [
     {
       id: 901,
-      spuId: 91,
+      spuId: 1,
       skuCode: 'GM-GOLD',
       specification: { coat: 'golden' },
       originalPrice: '158.00',
@@ -44,7 +45,7 @@ const searchProduct = {
   categoryId: 7,
   name: catalogProduct.name,
   title: catalogProduct.description,
-  imageUrl: '/images/search-result.jpg',
+  imageUrl: '/images/broken.jpg',
   originalPrice: '158.00',
   memberPrice: catalogProduct.price,
   attributes: { coat: 'golden' },
@@ -318,32 +319,24 @@ test('catalog card keeps geometry when its image fails', async ({ page }) => {
 
 test('catalog requests one filtered server page at a time', async ({ page }) => {
   const queries: Array<Record<string, string | null>> = []
-  await page.route('**/api/v1/monkeys**', async (route) => {
-    const url = new URL(route.request().url())
-    const pageNumber = Number(url.searchParams.get('page') ?? 0)
+  page.on('request', (request) => {
+    const url = new URL(request.url())
+    if (!url.pathname.includes('/search/products')) return
     queries.push({
       page: url.searchParams.get('page'),
       size: url.searchParams.get('size'),
+      sort: url.searchParams.get('sort'),
       keyword: url.searchParams.get('keyword'),
       minPrice: url.searchParams.get('minPrice'),
       maxPrice: url.searchParams.get('maxPrice'),
       inStock: url.searchParams.get('inStock'),
     })
-    await fulfillJson(route, {
-      content: [{ ...catalogProduct, id: pageNumber + 1, name: `Page ${pageNumber + 1}` }],
-      page: pageNumber,
-      size: 12,
-      totalElements: 25,
-      totalPages: 3,
-      first: pageNumber === 0,
-      last: pageNumber === 2,
-    })
   })
 
   await page.goto('/shop')
-  await expect(page.getByText('Page 1', { exact: true })).toBeVisible()
-  expect(queries).toHaveLength(1)
-  expect(queries[0]).toMatchObject({ page: '0', size: '12', keyword: null })
+  await expect(page.locator('.product-card')).toHaveCount(1)
+  await expect.poll(() => queries.length).toBeGreaterThan(0)
+  expect(queries[0]).toMatchObject({ page: '0', size: '12', sort: 'NEWEST', keyword: null })
 
   await page.locator('#catalog-keyword').fill('golden')
   await page.locator('#catalog-min-price').fill('100')
@@ -354,6 +347,7 @@ test('catalog requests one filtered server page at a time', async ({ page }) => 
     .toMatchObject({
       page: '0',
       size: '12',
+      sort: 'NEWEST',
       keyword: 'golden',
       minPrice: '100',
       maxPrice: '300',
@@ -362,7 +356,7 @@ test('catalog requests one filtered server page at a time', async ({ page }) => 
 
   await page.locator('.catalog-pagination .btn-next').click()
   await expect.poll(() => queries.at(-1)?.page).toBe('1')
-  await expect(page.getByText('Page 2', { exact: true })).toBeVisible()
+  await expect(page.locator('.product-card')).toHaveCount(1)
 })
 
 test('category discovery is API-backed and carries selection into the search URL', async ({

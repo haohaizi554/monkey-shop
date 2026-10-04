@@ -1,4 +1,5 @@
 import { request } from '@/api/http'
+import { normalizeApiId, parsePositiveApiId, type ApiId } from '@/api/ids'
 import type {
   Tenant,
   TenantBill,
@@ -20,11 +21,11 @@ export interface TenantExportJob extends TenantExportJobContract {
 export function tenantExportDownloadUri(job: TenantExportJob): string | undefined {
   if (job.status !== 'SUCCEEDED' || !job.artifactAvailable) return undefined
 
-  const tenantId = String(job.tenantId)
-  const jobId = String(job.id)
-  if (!/^\d+$/.test(tenantId) || !/^\d+$/.test(jobId)) return undefined
+  const tenantId = parsePositiveApiId(job.tenantId)
+  const jobId = parsePositiveApiId(job.id)
+  if (tenantId === undefined || jobId === undefined) return undefined
 
-  const expected = `/api/v1/tenants/${tenantId}/exports/${jobId}/artifact`
+  const expected = `/api/v1/tenants/${normalizeApiId(tenantId)}/exports/${normalizeApiId(jobId)}/artifact`
   return job.artifactDownloadUri === expected ? expected : undefined
 }
 
@@ -40,23 +41,20 @@ export function createTenant(payload: TenantCreateRequest): Promise<Tenant> {
   return request<Tenant>({ url: '/tenants', method: 'POST', data: payload })
 }
 
-export function renewTenant(tenantId: number, payload: TenantRenewRequest): Promise<Tenant> {
+export function renewTenant(tenantId: ApiId, payload: TenantRenewRequest): Promise<Tenant> {
   return request<Tenant>({ url: `/tenants/${tenantId}/renew`, method: 'POST', data: payload })
 }
 
-export function downgradeTenant(
-  tenantId: number,
-  payload: TenantDowngradeRequest,
-): Promise<Tenant> {
+export function downgradeTenant(tenantId: ApiId, payload: TenantDowngradeRequest): Promise<Tenant> {
   return request<Tenant>({ url: `/tenants/${tenantId}/downgrade`, method: 'POST', data: payload })
 }
 
-export function tenantConfigs(tenantId: number): Promise<TenantConfig[]> {
+export function tenantConfigs(tenantId: ApiId): Promise<TenantConfig[]> {
   return request<TenantConfig[]>({ url: `/tenants/${tenantId}/configs` })
 }
 
 export function upsertTenantConfig(
-  tenantId: number,
+  tenantId: ApiId,
   payload: TenantConfigRequest,
 ): Promise<TenantConfig> {
   return request<TenantConfig>({
@@ -67,18 +65,18 @@ export function upsertTenantConfig(
 }
 
 export function generateTenantBill(
-  tenantId: number,
+  tenantId: ApiId,
   payload: TenantBillGenerateRequest,
 ): Promise<TenantBill> {
   return request<TenantBill>({ url: `/tenants/${tenantId}/bills`, method: 'POST', data: payload })
 }
 
-export function tenantBills(tenantId: number): Promise<TenantBill[]> {
+export function tenantBills(tenantId: ApiId): Promise<TenantBill[]> {
   return request<TenantBill[]>({ url: `/tenants/${tenantId}/bills` })
 }
 
 export function requestTenantExport(
-  tenantId: number,
+  tenantId: ApiId,
   payload: TenantExportRequest,
 ): Promise<TenantExportJob> {
   return request<TenantExportJob>({
@@ -88,6 +86,6 @@ export function requestTenantExport(
   })
 }
 
-export function tenantExports(tenantId: number): Promise<TenantExportJob[]> {
+export function tenantExports(tenantId: ApiId): Promise<TenantExportJob[]> {
   return request<TenantExportJob[]>({ url: `/tenants/${tenantId}/exports` })
 }

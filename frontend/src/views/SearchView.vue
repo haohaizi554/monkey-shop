@@ -4,6 +4,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { flattenCategoryTree, getCategoryTree } from '@/api/catalog'
+import { parsePositiveApiId, type ApiId } from '@/api/ids'
 import * as searchApi from '@/api/search'
 import MascotState from '@/components/mascot/MascotState.vue'
 import ProductCard from '@/components/product/ProductCard.vue'
@@ -107,9 +108,8 @@ function sortLabel(sort: typeof query.sort): string {
   return t(keys[sort])
 }
 
-function categoryId(category: string): number | undefined {
-  const parsed = Number.parseInt(category, 10)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+function categoryId(category: string): ApiId | undefined {
+  return parsePositiveApiId(category)
 }
 
 function categoryLabel(category: string): string {

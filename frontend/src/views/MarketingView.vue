@@ -10,6 +10,7 @@ import {
   redeemCoupon,
   returnCoupon,
 } from '@/api/marketing'
+import { isPositiveApiId, type ApiId } from '@/api/ids'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { useNotify } from '@/composables/useNotify'
 import type { CouponWalletEntry, GroupBuyTeam, MarketingPriceQuote, SeckillOrder } from '@/types'
@@ -21,17 +22,17 @@ type TaskKey = 'coupon' | 'quote' | 'seckill' | 'group'
 
 const { t } = useI18n()
 const notify = useNotify()
-const couponId = ref(2400000000001)
+const couponId = ref<ApiId>('2400000000001')
 const couponClaimKey = ref(`coupon-${Date.now()}`)
 const couponCode = ref('')
-const couponOrderId = ref<number | null>(null)
+const couponOrderId = ref<ApiId | null>(null)
 const quoteAmount = ref(128)
 const quoteCouponCodes = ref('PLATFORM-20,SHOP-10')
-const seckillActivityId = ref(2500000000001)
+const seckillActivityId = ref<ApiId>('2500000000001')
 const seckillQuantity = ref(1)
 const seckillOrderKey = ref(`flash-${Date.now()}`)
-const groupActivityId = ref(2600000000001)
-const groupTeamId = ref<number | null>(null)
+const groupActivityId = ref<ApiId>('2600000000001')
+const groupTeamId = ref<ApiId | null>(null)
 const groupKey = ref(`group-${Date.now()}`)
 const pendingKeys = ref(new Set<string>())
 const taskErrors = reactive<Record<TaskKey, string>>({
@@ -88,7 +89,8 @@ function groupStatus(status: string): string {
 }
 
 async function runClaimCoupon() {
-  if (!validate('coupon', couponId.value > 0, 'marketing.positiveValueRequired')) return
+  if (!validate('coupon', isPositiveApiId(couponId.value), 'marketing.positiveValueRequired'))
+    return
   if (!validate('coupon', Boolean(couponClaimKey.value.trim()), 'marketing.idempotencyKeyRequired'))
     return
   const key = 'coupon:claim'
@@ -113,7 +115,7 @@ async function runRedeemCoupon() {
   if (
     !validate(
       'coupon',
-      Boolean(couponCode.value.trim() && couponOrderId.value && couponOrderId.value > 0),
+      Boolean(couponCode.value.trim() && isPositiveApiId(couponOrderId.value)),
       'marketing.couponCodeAndOrderRequired',
     )
   )
@@ -139,7 +141,7 @@ async function runReturnCoupon() {
   if (
     !validate(
       'coupon',
-      Boolean(couponCode.value.trim() && couponOrderId.value && couponOrderId.value > 0),
+      Boolean(couponCode.value.trim() && isPositiveApiId(couponOrderId.value)),
       'marketing.couponCodeAndOrderRequired',
     )
   )
@@ -185,7 +187,7 @@ async function runSeckill() {
   if (
     !validate(
       'seckill',
-      seckillActivityId.value > 0 && seckillQuantity.value > 0,
+      isPositiveApiId(seckillActivityId.value) && seckillQuantity.value > 0,
       'marketing.positiveValueRequired',
     )
   )
@@ -216,7 +218,8 @@ async function runJoinGroup() {
   if (
     !validate(
       'group',
-      groupActivityId.value > 0 && (groupTeamId.value === null || groupTeamId.value > 0),
+      isPositiveApiId(groupActivityId.value) &&
+        (groupTeamId.value === null || isPositiveApiId(groupTeamId.value)),
       'marketing.positiveValueRequired',
     )
   )
@@ -227,7 +230,7 @@ async function runJoinGroup() {
   try {
     latestGroup.value = await joinGroupBuy({
       activityId: groupActivityId.value,
-      teamId: groupTeamId.value || undefined,
+      teamId: groupTeamId.value ?? undefined,
       idempotencyKey: groupKey.value.trim(),
     })
     groupTeamId.value = latestGroup.value.id
@@ -263,11 +266,7 @@ async function runJoinGroup() {
         <div class="task-form-grid">
           <div class="field-control">
             <span>{{ t('marketing.couponId') }}</span
-            ><el-input-number
-              v-model="couponId"
-              controls-position="right"
-              :aria-label="t('marketing.couponId')"
-            />
+            ><el-input v-model="couponId" :aria-label="t('marketing.couponId')" />
           </div>
           <div class="field-control">
             <span>{{ t('marketing.idempotencyKey') }}</span
@@ -285,11 +284,7 @@ async function runJoinGroup() {
           </div>
           <div class="field-control">
             <span>{{ t('marketing.orderId') }}</span
-            ><el-input-number
-              v-model="couponOrderId"
-              controls-position="right"
-              :aria-label="t('marketing.orderId')"
-            />
+            ><el-input v-model="couponOrderId" :aria-label="t('marketing.orderId')" />
           </div>
           <div class="task-actions">
             <el-button :loading="isPending('coupon:redeem')" @click="runRedeemCoupon">{{
@@ -393,11 +388,7 @@ async function runJoinGroup() {
         <div class="task-form-grid">
           <div class="field-control">
             <span>{{ t('marketing.activityId') }}</span
-            ><el-input-number
-              v-model="seckillActivityId"
-              controls-position="right"
-              :aria-label="t('marketing.activityId')"
-            />
+            ><el-input v-model="seckillActivityId" :aria-label="t('marketing.activityId')" />
           </div>
           <div class="field-control">
             <span>{{ t('marketing.quantity') }}</span
@@ -438,19 +429,11 @@ async function runJoinGroup() {
         <div class="task-form-grid">
           <div class="field-control">
             <span>{{ t('marketing.activityId') }}</span
-            ><el-input-number
-              v-model="groupActivityId"
-              controls-position="right"
-              :aria-label="t('marketing.activityId')"
-            />
+            ><el-input v-model="groupActivityId" :aria-label="t('marketing.activityId')" />
           </div>
           <div class="field-control">
             <span>{{ t('marketing.teamId') }}</span
-            ><el-input-number
-              v-model="groupTeamId"
-              controls-position="right"
-              :aria-label="t('marketing.teamId')"
-            />
+            ><el-input v-model="groupTeamId" :aria-label="t('marketing.teamId')" />
           </div>
           <div class="field-control field-control--wide">
             <span>{{ t('marketing.idempotencyKey') }}</span

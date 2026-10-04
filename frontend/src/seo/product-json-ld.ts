@@ -1,3 +1,4 @@
+import { sameApiId } from '@/api/ids'
 import type { Monkey } from '@/types'
 
 const siteOrigin = 'https://monkeyshop.example.com'
@@ -14,7 +15,7 @@ function absoluteUrl(value?: string): string {
 
 export function productJsonLd(monkey: Monkey) {
   const selectedSku =
-    monkey.skus?.find((sku) => sku.id === monkey.selectedSkuId) ??
+    monkey.skus?.find((sku) => sameApiId(sku.id, monkey.selectedSkuId)) ??
     monkey.skus?.find((sku) => sku.active)
   const offerPrice = selectedSku?.memberPrice ?? selectedSku?.originalPrice ?? monkey.price
   return {

@@ -2,13 +2,12 @@ import { onScopeDispose, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { directCheckoutCart, type CartDirectCheckoutRequest } from '@/api/cart'
-import { browserDeviceFingerprint } from '@/api/http'
 import { createOrder } from '@/api/orders'
-import { assessRisk } from '@/api/risk'
 import { addAddress, addressPage as fetchAddressPage } from '@/api/user'
+import { normalizeApiId, parsePositiveApiId, sameApiId, type ApiId } from '@/api/ids'
 import { useNotify } from '@/composables/useNotify'
 import { useAuthStore } from '@/stores/auth'
-import type { Address, AddressRequest, CartCheckoutRequest, Monkey, RiskDecision } from '@/types'
+import type { Address, AddressRequest, CartCheckoutRequest, Monkey } from '@/types'
 import { getIdempotencyIntent } from '@/utils/idempotencyIntent'
 
 type NoticeLevel = 'error' | 'success' | 'warning'
@@ -19,18 +18,9 @@ interface CheckoutOptions {
 }
 
 export interface DirectPurchaseSelection {
-  skuId: number
-  shopId: number
+  skuId: ApiId
+  shopId: ApiId
   quantity: number
-}
-
-class CheckoutRiskError extends Error {
-  readonly decision: RiskDecision
-
-  constructor(decision: RiskDecision) {
-    super('checkout-risk-blocked')
-    this.decision = decision
-  }
 }
 
 interface CheckoutDiscountAllocation {
@@ -39,8 +29,8 @@ interface CheckoutDiscountAllocation {
 }
 
 interface CheckoutOrderReference {
-  orderIds?: Array<number | null | undefined>
-  subOrders?: Array<{ formalOrderId?: number | null }>
+  orderIds?: Array<ApiId | null | undefined>
+  subOrders?: Array<{ formalOrderId?: ApiId | null }>
 }
 
 export function normalizeCartCheckoutIntent(input: CartCheckoutRequest): CartCheckoutRequest {
@@ -70,23 +60,26 @@ export function checkoutDiscountTotals(subOrders: CheckoutDiscountAllocation[]):
   return { store: totals.store / 100, platform: totals.platform / 100 }
 }
 
-export function checkoutOrderIds(checkout: CheckoutOrderReference): number[] {
+export function checkoutOrderIds(checkout: CheckoutOrderReference): ApiId[] {
   const candidates = checkout.orderIds?.length
     ? checkout.orderIds
     : (checkout.subOrders ?? []).map((order) => order.formalOrderId)
-  return Array.from(
-    new Set(
-      candidates.filter(
-        (value): value is number =>
-          typeof value === 'number' && Number.isSafeInteger(value) && value > 0,
-      ),
-    ),
-  )
+  const seen = new Set<string>()
+  const ids: ApiId[] = []
+  for (const candidate of candidates) {
+    const id = parsePositiveApiId(candidate)
+    if (id === undefined) continue
+    const key = normalizeApiId(id)
+    if (seen.has(key)) continue
+    seen.add(key)
+    ids.push(id)
+  }
+  return ids
 }
 
 export function buildDirectCheckoutIntent(
   selection: DirectPurchaseSelection,
-  addressId: number,
+  addressId: ApiId,
 ): CartDirectCheckoutRequest {
   return {
     skuId: selection.skuId,
@@ -102,7 +95,7 @@ export function useCheckout(options: CheckoutOptions = {}) {
   const auth = useAuthStore()
   const { t } = useI18n()
   const appNotify = useNotify()
-  const openingCheckoutId = ref<number | null>(null)
+  const openingCheckoutId = ref<ApiId | null>(null)
   const submittingOrder = ref(false)
   const savingAddress = ref(false)
   const loadingAddresses = ref(false)
@@ -113,7 +106,7 @@ export function useCheckout(options: CheckoutOptions = {}) {
   const addressTotal = ref(0)
   const selectedMonkey = ref<Monkey | null>(null)
   const selectedDirectPurchase = ref<DirectPurchaseSelection | null>(null)
-  const selectedAddressId = ref<number | null>(null)
+  const selectedAddressId = ref<ApiId | null>(null)
   const newAddress = reactive<AddressRequest>({
     receiverName: '',
     phone: '',
@@ -140,7 +133,7 @@ export function useCheckout(options: CheckoutOptions = {}) {
 
   async function loadCheckoutAddresses(
     pageNumber = addressPageNumber.value,
-    preferredAddressId: number | null = selectedAddressId.value,
+    preferredAddressId: ApiId | null = selectedAddressId.value,
   ): Promise<boolean> {
     const requestId = ++addressRequestSequence
     addressController?.abort()
@@ -159,7 +152,9 @@ export function useCheckout(options: CheckoutOptions = {}) {
       addressPageNumber.value = result.page
       addressTotal.value = result.totalElements
       addresses.value = result.content
-      selectedAddressId.value = result.content.some((item) => item.id === preferredAddressId)
+      selectedAddressId.value = result.content.some((item) =>
+        sameApiId(item.id, preferredAddressId),
+      )
         ? preferredAddressId
         : (result.content.find((item) => item.isDefault === 1)?.id ?? result.content[0]?.id ?? null)
       return true
@@ -213,7 +208,7 @@ export function useCheckout(options: CheckoutOptions = {}) {
     try {
       const saved = await addAddress(payload)
       await loadCheckoutAddresses(0, saved.id)
-      if (!addresses.value.some((address) => address.id === saved.id)) {
+      if (!addresses.value.some((address) => sameApiId(address.id, saved.id))) {
         addresses.value = [saved, ...addresses.value].slice(0, addressPageSize)
       }
       selectedAddressId.value = saved.id
@@ -237,7 +232,6 @@ export function useCheckout(options: CheckoutOptions = {}) {
     }
     submittingOrder.value = true
     try {
-      await ensureRiskAllowed(monkey.id)
       if (selectedDirectPurchase.value) {
         const payload = buildDirectCheckoutIntent(selectedDirectPurchase.value, addressId)
         const intent = getIdempotencyIntent('cart:checkout:direct', payload)
@@ -255,34 +249,10 @@ export function useCheckout(options: CheckoutOptions = {}) {
       await options.afterOrderCreated?.()
       await router.push('/orders')
     } catch (error) {
-      if (error instanceof CheckoutRiskError) {
-        notify('warning', riskDecisionMessage(error.decision))
-      } else {
-        notifyApiError(error, 'checkout.createFailed')
-      }
+      notifyApiError(error, 'checkout.createFailed')
     } finally {
       submittingOrder.value = false
     }
-  }
-
-  async function ensureRiskAllowed(monkeyId: number) {
-    const assessment = await assessRisk({
-      deviceFingerprint: browserDeviceFingerprint(),
-      productId: monkeyId,
-    })
-    if (assessment.decision !== 'ALLOW') {
-      throw new CheckoutRiskError(assessment.decision)
-    }
-  }
-
-  function riskDecisionMessage(decision: RiskDecision) {
-    if (decision === 'RATE_LIMIT') {
-      return t('checkout.riskRateLimit')
-    }
-    if (decision === 'TOTP_REQUIRED') {
-      return t('checkout.riskTotpRequired')
-    }
-    return t('checkout.riskReview')
   }
 
   async function submitOrder() {

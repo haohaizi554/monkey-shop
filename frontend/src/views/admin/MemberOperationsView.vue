@@ -7,14 +7,21 @@ import {
   adminChangeLevel,
   adminEarnPoints,
   adminMembershipDashboard,
+  adminReviewIdentity,
   scanPriceDrops,
 } from '@/api/membership'
+import { parsePositiveApiId, sameApiId, type ApiId } from '@/api/ids'
 import AdminCommerceNav from '@/components/admin/AdminCommerceNav.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { useNotify } from '@/composables/useNotify'
-import type { MembershipDashboard, MembershipLevel, PriceDropScanResult } from '@/types'
+import type {
+  IdentityVerificationStatus,
+  MembershipDashboard,
+  MembershipLevel,
+  PriceDropScanResult,
+} from '@/types'
 import { membershipLevelLabel } from '@/utils/format'
 import { getIdempotencyIntent } from '@/utils/idempotencyIntent'
 
@@ -26,22 +33,40 @@ const route = useRoute()
 const router = useRouter()
 const notify = useNotify()
 const dashboardState = useAsyncState<MembershipDashboard>({ preserveData: true })
-const targetUserId = ref<number>()
+const targetUserId = ref<ApiId>()
 const pointsAmount = ref<number>()
 const adjustmentReason = ref('')
 const selectedLevel = ref<MembershipLevel>('BASIC')
 const levelReason = ref('')
 const totpCode = ref('')
+const identityDecision = ref<Exclude<IdentityVerificationStatus, 'PENDING'>>('VERIFIED')
+const identityReason = ref('')
+const identityTotpCode = ref('')
 const pointsPending = ref(false)
 const levelPending = ref(false)
+const identityReviewPending = ref(false)
 const scanPending = ref(false)
 const scanResult = ref<PriceDropScanResult>()
 const dashboard = computed(() => dashboardState.data.value)
 const activeMemberId = computed(() => dashboard.value?.profile.userId)
+const identityStatus = computed<IdentityVerificationStatus>(() => {
+  const profile = dashboard.value?.profile
+  return profile?.identityStatus ?? (profile?.verified ? 'VERIFIED' : 'PENDING')
+})
+const identityStatusLabel = computed(() => {
+  if (identityStatus.value === 'VERIFIED') return t('adminCommerce.identityApproved')
+  if (identityStatus.value === 'REJECTED') return t('adminCommerce.identityRejected')
+  return t('adminCommerce.identityPending')
+})
+const identityStatusTone = computed<'success' | 'warning' | 'danger'>(() => {
+  if (identityStatus.value === 'VERIFIED') return 'success'
+  if (identityStatus.value === 'REJECTED') return 'danger'
+  return 'warning'
+})
 const loadedTargetReady = computed(
   () =>
     Boolean(activeMemberId.value) &&
-    activeMemberId.value === Number(targetUserId.value) &&
+    sameApiId(activeMemberId.value, targetUserId.value) &&
     !dashboardState.isLoading.value,
 )
 const canAdjustPoints = computed(
@@ -60,8 +85,17 @@ const canChangeLevel = computed(
     /^\d{6}$/.test(totpCode.value.trim()) &&
     !levelPending.value,
 )
+const canReviewIdentity = computed(
+  () =>
+    loadedTargetReady.value &&
+    identityStatus.value === 'PENDING' &&
+    Boolean(dashboard.value?.profile.identitySubmittedAt) &&
+    identityReason.value.trim().length > 0 &&
+    /^\d{6}$/.test(identityTotpCode.value.trim()) &&
+    !identityReviewPending.value,
+)
 
-async function loadMember(userId: number) {
+async function loadMember(userId: ApiId) {
   const loaded = await dashboardState.load(() => adminMembershipDashboard(userId), {
     preserveData: true,
   })
@@ -71,12 +105,15 @@ async function loadMember(userId: number) {
     adjustmentReason.value = ''
     levelReason.value = ''
     totpCode.value = ''
+    identityDecision.value = 'VERIFIED'
+    identityReason.value = ''
+    identityTotpCode.value = ''
   }
 }
 
 async function submitLookup() {
-  const userId = Number(targetUserId.value)
-  if (!Number.isInteger(userId) || userId <= 0) {
+  const userId = parsePositiveApiId(targetUserId.value)
+  if (userId === undefined) {
     return
   }
   const queryUserId = String(userId)
@@ -166,6 +203,50 @@ async function changeLevel() {
   }
 }
 
+async function reviewIdentity() {
+  const userId = activeMemberId.value
+  if (!userId || !canReviewIdentity.value) return
+  const payload = {
+    status: identityDecision.value,
+    reason: identityReason.value.trim(),
+    totpCode: identityTotpCode.value.trim(),
+  }
+  const accepted = await notify.confirm({
+    content: t('adminCommerce.identityReviewConfirm', {
+      decision:
+        payload.status === 'VERIFIED'
+          ? t('adminCommerce.identityApproved')
+          : t('adminCommerce.identityRejected'),
+      userId,
+      reason: payload.reason,
+    }),
+    confirmText: t('adminCommerce.reviewIdentity'),
+    type: 'warning',
+  })
+  if (!accepted) return
+
+  identityReviewPending.value = true
+  try {
+    const updated = await adminReviewIdentity(userId, payload)
+    dashboardState.data.value = updated
+    dashboardState.status.value = 'success'
+    identityReason.value = ''
+    identityTotpCode.value = ''
+    notify.success(
+      t(
+        payload.status === 'VERIFIED'
+          ? 'adminCommerce.identityApproved'
+          : 'adminCommerce.identityRejectedSuccess',
+      ),
+      { key: `member:identity:${userId}` },
+    )
+  } catch (caught) {
+    notify.fromApiError(caught, 'adminCommerce.unableToReviewIdentity')
+  } finally {
+    identityReviewPending.value = false
+  }
+}
+
 async function runPriceDropScan() {
   if (scanPending.value) {
     return
@@ -187,8 +268,8 @@ watch(
   () => route.query.userId,
   (value) => {
     const raw = Array.isArray(value) ? value[0] : value
-    const userId = Number(raw)
-    if (Number.isInteger(userId) && userId > 0) {
+    const userId = parsePositiveApiId(raw)
+    if (userId !== undefined) {
       targetUserId.value = userId
       void loadMember(userId)
     }
@@ -218,12 +299,9 @@ watch(
       <div class="commerce-form-grid">
         <div class="commerce-field">
           <span>{{ t('adminCommerce.memberId') }}</span>
-          <el-input-number
+          <el-input
             id="member-user-id"
             v-model="targetUserId"
-            :min="1"
-            :step="1"
-            controls-position="right"
             :aria-label="t('adminCommerce.memberId')"
             @keyup.enter="submitLookup"
           />
@@ -286,11 +364,74 @@ watch(
             <dd>{{ dashboard.wallet.totalSpent }}</dd>
           </div>
           <div>
-            <dt>{{ t('adminCommerce.verified') }}</dt>
-            <dd>{{ t(dashboard.profile.verified ? 'common.yes' : 'common.no') }}</dd>
+            <dt>{{ t('adminCommerce.identityStatus') }}</dt>
+            <dd><el-tag :type="identityStatusTone" disable-transitions>{{ identityStatusLabel }}</el-tag></dd>
           </div>
         </dl>
       </AsyncStateView>
+    </section>
+
+    <section class="commerce-section" aria-labelledby="member-identity-title">
+      <div class="commerce-section__heading">
+        <div>
+          <h2 id="member-identity-title">{{ t('adminCommerce.identityReviewTitle') }}</h2>
+          <p>{{ t('adminCommerce.identityReviewDescription') }}</p>
+        </div>
+      </div>
+
+      <div v-if="dashboard" class="commerce-form-grid" data-columns="3">
+        <div class="commerce-field">
+          <span>{{ t('adminCommerce.identityReviewDecision') }}</span>
+          <el-select
+            id="member-identity-decision"
+            v-model="identityDecision"
+            :aria-label="t('adminCommerce.identityReviewDecision')"
+            :disabled="identityStatus !== 'PENDING'"
+          >
+            <el-option
+              value="VERIFIED"
+              :label="t('adminCommerce.identityApproved')"
+            />
+            <el-option
+              value="REJECTED"
+              :label="t('adminCommerce.identityRejected')"
+            />
+          </el-select>
+        </div>
+        <div class="commerce-field">
+          <span>{{ t('adminCommerce.identityReviewReason') }}</span>
+          <el-input
+            id="member-identity-reason"
+            v-model="identityReason"
+            :placeholder="t('adminCommerce.identityReviewReasonPlaceholder')"
+            :aria-label="t('adminCommerce.identityReviewReason')"
+            :disabled="identityStatus !== 'PENDING'"
+          />
+        </div>
+        <div class="commerce-field">
+          <span>{{ t('adminCommerce.identityReviewTotp') }}</span>
+          <el-input
+            id="member-identity-totp"
+            v-model="identityTotpCode"
+            inputmode="numeric"
+            maxlength="6"
+            autocomplete="one-time-code"
+            :placeholder="t('adminCommerce.totpPlaceholder')"
+            :aria-label="t('adminCommerce.identityReviewTotp')"
+            :disabled="identityStatus !== 'PENDING'"
+          />
+        </div>
+        <div class="commerce-actions commerce-actions--end commerce-field--wide">
+          <el-button
+            type="primary"
+            :loading="identityReviewPending"
+            :disabled="!canReviewIdentity"
+            @click="reviewIdentity"
+          >
+            {{ t('adminCommerce.reviewIdentity') }}
+          </el-button>
+        </div>
+      </div>
     </section>
 
     <section class="commerce-section" aria-labelledby="member-points-title">

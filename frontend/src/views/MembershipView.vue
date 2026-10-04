@@ -10,11 +10,17 @@ import DataTableShell from '@/components/ui/DataTableShell.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { useAsyncState } from '@/composables/useAsyncState'
 import { useNotify } from '@/composables/useNotify'
-import type { MembershipDashboard, MembershipLevel, PointsLedgerEntry } from '@/types'
+import { isPositiveApiId, normalizeApiId, type ApiId } from '@/api/ids'
+import type {
+  IdentityVerificationStatus,
+  MembershipDashboard,
+  MembershipLevel,
+  PointsLedgerEntry,
+} from '@/types'
 import { couponStatusLabel, dateTime, membershipLevelLabel, money } from '@/utils/format'
 import { getIdempotencyIntent } from '@/utils/idempotencyIntent'
 
-type MembershipMutation = 'checkIn' | 'verifyIdentity' | 'redeemPoints' | 'addCollection'
+type MembershipMutation = 'checkIn' | 'submitIdentity' | 'redeemPoints' | 'addCollection'
 
 const notify = useNotify()
 const { t } = useI18n()
@@ -23,17 +29,17 @@ const levels: MembershipLevel[] = ['BASIC', 'SILVER', 'GOLD', 'DIAMOND']
 const identityForm = reactive({ realName: '', idCardNo: '' })
 const redeemForm = reactive({ points: 100 })
 const collectionForm = reactive({
-  productId: undefined as number | undefined,
+  productId: undefined as ApiId | undefined,
   targetPrice: undefined as number | undefined,
 })
 const recentLedger = ref<PointsLedgerEntry | null>(null)
 const pending = reactive<Record<MembershipMutation, boolean>>({
   checkIn: false,
-  verifyIdentity: false,
+  submitIdentity: false,
   redeemPoints: false,
   addCollection: false,
 })
-const removingCollectionIds = reactive(new Set<number>())
+const removingCollectionIds = reactive(new Set<string>())
 
 const dashboard = dashboardResource.data
 const profile = computed(() => dashboard.value?.profile)
@@ -41,11 +47,36 @@ const wallet = computed(() => dashboard.value?.wallet)
 const coupons = computed(() => dashboard.value?.coupons ?? [])
 const collections = computed(() => dashboard.value?.collections ?? [])
 const browseHistory = computed(() => dashboard.value?.browseHistory ?? [])
-const identitySummary = computed(() => {
-  if (!profile.value?.verified) return t('membership.notVerified')
-  const maskedValues = [profile.value.maskedRealName, profile.value.maskedIdCardNo].filter(Boolean)
-  return maskedValues.length ? maskedValues.join(' / ') : t('membership.verified')
+const identityStatus = computed<IdentityVerificationStatus>(() => {
+  const current = profile.value
+  if (!current) return 'PENDING'
+  return current.identityStatus ?? (current.verified ? 'VERIFIED' : 'PENDING')
 })
+const identityStatusLabel = computed(() => {
+  if (identityStatus.value === 'VERIFIED') return t('membership.identityVerified')
+  if (identityStatus.value === 'REJECTED') return t('membership.identityRejected')
+  return t('membership.identityPending')
+})
+const identityTagType = computed<'success' | 'warning' | 'danger'>(() => {
+  if (identityStatus.value === 'VERIFIED') return 'success'
+  if (identityStatus.value === 'REJECTED') return 'danger'
+  return 'warning'
+})
+const identitySummary = computed(() => {
+  if (identityStatus.value === 'PENDING') {
+    return profile.value?.identitySubmittedAt
+      ? t('membership.identityPendingHint')
+      : t('membership.identityNotSubmitted')
+  }
+  if (identityStatus.value === 'REJECTED') return t('membership.identityRejectedHint')
+  const maskedValues = [profile.value?.maskedRealName, profile.value?.maskedIdCardNo].filter(Boolean)
+  return maskedValues.length ? maskedValues.join(' / ') : t('membership.identityVerified')
+})
+const identityFormVisible = computed(
+  () =>
+    identityStatus.value === 'REJECTED' ||
+    (identityStatus.value === 'PENDING' && !profile.value?.identitySubmittedAt),
+)
 const progress = computed(() => {
   const value = profile.value?.growthValue ?? 0
   const current = profile.value?.level ?? 'BASIC'
@@ -69,8 +100,7 @@ const canRedeem = computed(() => {
 })
 const canAddCollection = computed(
   () =>
-    Number.isFinite(collectionForm.productId) &&
-    Number(collectionForm.productId) > 0 &&
+    isPositiveApiId(collectionForm.productId) &&
     (collectionForm.targetPrice === undefined || collectionForm.targetPrice >= 0),
 )
 
@@ -119,12 +149,12 @@ async function checkIn() {
   })
 }
 
-async function verifyIdentity() {
+async function submitIdentity() {
   if (!canVerify.value) return
-  await runMutation('verifyIdentity', async () => {
-    dashboard.value = await membershipApi.verifyIdentity({ ...identityForm })
+  await runMutation('submitIdentity', async () => {
+    dashboard.value = await membershipApi.submitIdentity({ ...identityForm })
     Object.assign(identityForm, { realName: '', idCardNo: '' })
-    notify.success(t('membership.verified'), { key: 'membership:identity:verified' })
+    notify.success(t('membership.identitySubmitted'), { key: 'membership:identity:submitted' })
   })
 }
 
@@ -144,10 +174,11 @@ async function redeemPoints() {
 }
 
 async function addCollection() {
-  if (!canAddCollection.value || collectionForm.productId === undefined) return
+  const productId = collectionForm.productId
+  if (!canAddCollection.value || productId === undefined) return
   await runMutation('addCollection', async () => {
     await membershipApi.addCollection({
-      productId: collectionForm.productId as number,
+      productId,
       targetPrice: collectionForm.targetPrice,
     })
     notify.success(t('membership.collectionAdded'), { key: 'membership:collection:added' })
@@ -156,15 +187,16 @@ async function addCollection() {
   })
 }
 
-async function removeCollection(productId: number) {
+async function removeCollection(productId: ApiId) {
   const confirmed = await notify.confirm({
     title: t('common.confirm'),
     content: t('membership.removeConfirm'),
     type: 'warning',
   })
-  if (!confirmed || removingCollectionIds.has(productId)) return
+  const collectionKey = normalizeApiId(productId)
+  if (!confirmed || removingCollectionIds.has(collectionKey)) return
 
-  removingCollectionIds.add(productId)
+  removingCollectionIds.add(collectionKey)
   try {
     await membershipApi.removeCollection(productId)
     notify.success(t('common.updated'), { key: `membership:collection:${productId}:removed` })
@@ -172,7 +204,7 @@ async function removeCollection(productId: number) {
   } catch (caught) {
     notify.fromApiError(caught, 'membership.actionFailed')
   } finally {
-    removingCollectionIds.delete(productId)
+    removingCollectionIds.delete(collectionKey)
   }
 }
 
@@ -281,12 +313,15 @@ onMounted(() => {
             <h2>{{ $t('membership.identityStatus') }}</h2>
             <p>{{ identitySummary }}</p>
           </div>
-          <el-tag :type="profile?.verified ? 'success' : 'warning'" disable-transitions>
-            {{ profile?.verified ? $t('membership.verified') : $t('membership.notVerified') }}
+          <el-tag :type="identityTagType" disable-transitions>
+            {{ identityStatusLabel }}
           </el-tag>
         </header>
 
-        <form v-if="!profile?.verified" class="identity-form" @submit.prevent="verifyIdentity">
+        <p v-if="identityStatus === 'PENDING' && profile?.identitySubmittedAt" class="identity-note">
+          {{ $t('membership.identityPendingHint') }}
+        </p>
+        <form v-if="identityFormVisible" class="identity-form" @submit.prevent="submitIdentity">
           <el-input
             v-model="identityForm.realName"
             :aria-label="$t('membership.realName')"
@@ -303,11 +338,11 @@ onMounted(() => {
           <el-button
             type="primary"
             native-type="button"
-            :loading="pending.verifyIdentity"
-            :disabled="pending.verifyIdentity || !canVerify"
-            @click="verifyIdentity"
+            :loading="pending.submitIdentity"
+            :disabled="pending.submitIdentity || !canVerify"
+            @click="submitIdentity"
           >
-            {{ $t('membership.verify') }}
+            {{ $t('membership.submitIdentity') }}
           </el-button>
         </form>
       </section>
@@ -370,12 +405,10 @@ onMounted(() => {
         </header>
 
         <form class="collection-form" @submit.prevent="addCollection">
-          <el-input-number
+          <el-input
             v-model="collectionForm.productId"
             :aria-label="$t('common.product')"
             :placeholder="$t('membership.productIdPlaceholder')"
-            :min="1"
-            controls-position="right"
           />
           <el-input-number
             v-model="collectionForm.targetPrice"
@@ -432,8 +465,8 @@ onMounted(() => {
               <el-button
                 type="danger"
                 plain
-                :loading="removingCollectionIds.has(item.productId)"
-                :disabled="removingCollectionIds.has(item.productId)"
+                :loading="removingCollectionIds.has(normalizeApiId(item.productId))"
+                :disabled="removingCollectionIds.has(normalizeApiId(item.productId))"
                 @click="removeCollection(item.productId)"
               >
                 {{ $t('common.delete') }}
@@ -664,6 +697,12 @@ onMounted(() => {
   display: grid;
   align-items: start;
   gap: var(--space-3);
+}
+
+.identity-note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
 }
 
 .identity-form {

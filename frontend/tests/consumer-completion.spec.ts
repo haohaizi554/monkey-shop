@@ -62,21 +62,22 @@ async function installStorefrontMocks(page: Page) {
     let data: unknown = null
     if (pathname === '/users/me') {
       data = { isLogin: false }
-    } else if (pathname === '/monkeys') {
+    } else if (pathname === '/search/products') {
       data = {
         content: [
           {
-            id: 1,
+            productId: 1,
             name: 'Golden Monkey',
-            breed: 'Golden',
-            price: '128.00',
-            description: 'A calm companion.',
+            title: 'Golden',
+            originalPrice: '128.00',
+            memberPrice: '128.00',
             imageUrl: '/images/default_product.jpg',
-            stock: 8,
+            attributes: {},
+            score: 1,
           },
         ],
         page: 0,
-        size: 100,
+        size: 12,
         totalElements: 1,
         totalPages: 1,
         first: true,

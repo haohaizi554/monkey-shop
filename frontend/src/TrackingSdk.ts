@@ -1,6 +1,7 @@
 import type { Router } from 'vue-router'
 import { recordTrackingEvent } from '@/api/tracking'
-import type { TrackingEventRequest, TrackingEventType } from '@/types'
+import { parsePositiveApiId, type ApiId } from '@/api/ids'
+import type { ClientTrackingEventType, TrackingEventRequest } from '@/types'
 
 const sessionKey = 'monkeyshop-tracking-session'
 let clickListenerInstalled = false
@@ -25,7 +26,7 @@ function sessionId(): string {
   return created
 }
 
-function send(eventType: TrackingEventType, payload: Partial<TrackingEventRequest>) {
+function send(eventType: ClientTrackingEventType, payload: Partial<TrackingEventRequest>) {
   void recordTrackingEvent({
     eventType,
     sessionId: sessionId(),
@@ -41,13 +42,13 @@ function send(eventType: TrackingEventType, payload: Partial<TrackingEventReques
   }).catch(() => undefined)
 }
 
-function inferProductId(path: string): number | undefined {
+function inferProductId(path: string): ApiId | undefined {
   const match = path.match(/^\/shop\/(\d+)/)
-  return match ? Number(match[1]) : undefined
+  return match ? parsePositiveApiId(match[1]) : undefined
 }
 
 export function trackEvent(
-  eventType: TrackingEventType,
+  eventType: ClientTrackingEventType,
   payload: Partial<TrackingEventRequest> = {},
 ) {
   send(eventType, payload)

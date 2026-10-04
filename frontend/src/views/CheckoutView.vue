@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { checkoutCart, getCart, previewCartCheckout, type CartCheckoutResult } from '@/api/cart'
+import { sameApiId, type ApiId } from '@/api/ids'
 import { addressPage as fetchAddressPage } from '@/api/user'
 import MascotState from '@/components/mascot/MascotState.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
@@ -28,7 +29,7 @@ const addresses = ref<Address[]>([])
 const addressPageNumber = ref(0)
 const addressPageSize = 6
 const addressTotal = ref(0)
-const addressId = ref<number | null>(null)
+const addressId = ref<ApiId | null>(null)
 const province = ref('')
 const couponText = ref('')
 const cartStatus = ref<AsyncStatus>('idle')
@@ -45,7 +46,7 @@ let addressRequestSequence = 0
 let addressController: AbortController | null = null
 
 interface CheckoutInputSnapshot {
-  addressId: number | null
+  addressId: ApiId | null
   province: string
   couponCodes: string[]
 }
@@ -86,7 +87,7 @@ const currentPreview = computed(() => {
 })
 const previewPending = computed(() => activePreviewRequestId.value !== null)
 const selectedAddress = computed(
-  () => addresses.value.find((address) => address.id === addressId.value) ?? null,
+  () => addresses.value.find((address) => sameApiId(address.id, addressId.value)) ?? null,
 )
 const discountTotals = computed(() => checkoutDiscountTotals(currentPreview.value?.subOrders ?? []))
 const storeDiscount = computed(() => amount(discountTotals.value.store))
@@ -152,7 +153,7 @@ async function loadAddresses(pageNumber = addressPageNumber.value) {
     addressPageNumber.value = result.page
     addressTotal.value = result.totalElements
     addresses.value = result.content
-    if (!result.content.some((address) => address.id === addressId.value)) {
+    if (!result.content.some((address) => sameApiId(address.id, addressId.value))) {
       addressId.value =
         result.content.find((address) => address.isDefault === 1)?.id ??
         result.content[0]?.id ??

@@ -66,12 +66,12 @@ export function allOrderPage(query: OrderPageQuery): Promise<PageEnvelope<OrderS
 export function createOrder(
   monkeyId: ApiId,
   addressId: ApiId,
-  idempotencyKey?: string,
+  idempotencyKey: string,
 ): Promise<OrderSummary> {
   return request<OrderSummary>({
     url: '/orders/create',
     method: 'POST',
-    headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+    headers: { 'Idempotency-Key': idempotencyKey },
     data: { monkeyId, addressId },
   })
 }

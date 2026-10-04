@@ -3,7 +3,13 @@ import { Search } from '@element-plus/icons-vue'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { flattenCategoryTree, getCategoryTree, listMonkeyPage } from '@/api/catalog'
+import {
+  flattenCategoryTree,
+  getCategoryTree,
+  getCatalogSpu,
+  listCatalogProductPage,
+} from '@/api/catalog'
+import { parsePositiveApiId, sameApiId, type ApiId } from '@/api/ids'
 import type { PageEnvelope } from '@/api/page'
 import ProductImage from '@/components/ProductImage.vue'
 import MascotState from '@/components/mascot/MascotState.vue'
@@ -15,7 +21,7 @@ import { useCheckout } from '@/composables/useCheckout'
 import { useNotify } from '@/composables/useNotify'
 import { productListJsonLd } from '@/seo/product-json-ld'
 import { useJsonLd } from '@/seo/useJsonLd'
-import type { Address, CategoryNode, Monkey } from '@/types'
+import type { Address, CatalogSpu, CategoryNode, Monkey, SearchProduct } from '@/types'
 import { money } from '@/utils/format'
 
 type NoticeLevel = 'error' | 'success' | 'warning'
@@ -30,9 +36,10 @@ const filters = reactive({
   inStockOnly: false,
 })
 const notify = useNotify()
-const catalogState = useAsyncState<PageEnvelope<Monkey>>({ timeoutMs: 20000 })
+const catalogState = useAsyncState<PageEnvelope<SearchProduct>>({ timeoutMs: 20000 })
 const categoryState = useAsyncState<CategoryNode[]>({ timeoutMs: 10000 })
 const currentPage = ref(0)
+const catalogCheckoutId = ref<ApiId | null>(null)
 const pageSize = 12
 let filterTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -48,14 +55,14 @@ function showNotice(level: NoticeLevel, message: string) {
   notify.notify(level, message)
 }
 
-async function loadMonkeys(page = currentPage.value) {
+async function loadCatalogProducts(page = currentPage.value) {
   currentPage.value = page
   await catalogState.load(
     ({ signal }) =>
-      listMonkeyPage({
+      listCatalogProductPage({
         page,
         size: pageSize,
-        sort: 'id,asc',
+        sort: 'NEWEST',
         keyword: filters.keyword.trim() || undefined,
         minPrice: String(filters.minPrice).trim() || undefined,
         maxPrice: String(filters.maxPrice).trim() || undefined,
@@ -74,12 +81,12 @@ function scheduleFilterReload() {
   currentPage.value = 0
   filterTimer = setTimeout(() => {
     filterTimer = null
-    void loadMonkeys(0)
+    void loadCatalogProducts(0)
   }, 250)
 }
 
 function changePage(page: number) {
-  void loadMonkeys(page - 1)
+  void loadCatalogProducts(page - 1)
 }
 
 watch(filters, scheduleFilterReload, { deep: true })
@@ -113,10 +120,22 @@ const {
   changeAddressPage,
   saveAddress,
   submitOrder,
-} = useCheckout({ afterOrderCreated: loadMonkeys, notify: showNotice })
+} = useCheckout({ afterOrderCreated: loadCatalogProducts, notify: showNotice })
 
 const catalogPage = computed(() => catalogState.data.value)
-const monkeysList = computed(() => catalogPage.value?.content ?? [])
+const monkeysList = computed<Monkey[]>(() =>
+  (catalogPage.value?.content ?? []).map((product) => ({
+    id: product.productId,
+    name: product.name,
+    breed: product.title ?? '',
+    price: product.memberPrice ?? product.originalPrice,
+    description: product.title,
+    imageUrl: product.imageUrl ?? '',
+    stock: product.stock,
+    categoryId: product.categoryId ?? undefined,
+    memberPrice: product.memberPrice,
+  })),
+)
 const categories = computed(() => flattenCategoryTree(categoryState.data.value ?? []))
 const hasActiveFilters = computed(
   () =>
@@ -138,12 +157,71 @@ function clearFilters() {
   filters.inStockOnly = false
 }
 
-function openProductDetails(productId: string | number) {
+function openProductDetails(productId: ApiId) {
   void router.push(`/shop/${productId}`)
 }
 
+function catalogSpuToCheckoutProduct(
+  spu: CatalogSpu,
+  stock: number,
+): {
+  product: Monkey
+  skuId: ApiId
+  shopId: ApiId
+} {
+  const shopId = parsePositiveApiId(spu.shopId)
+  const sku = spu.skus.find((item) => item.active) ?? spu.skus[0]
+  if (shopId === undefined || !sku) {
+    throw new Error('Catalog product is missing purchasable identity')
+  }
+  const description =
+    typeof spu.attributes.description === 'string' ? spu.attributes.description : spu.title
+  return {
+    product: {
+      id: spu.id,
+      shopId,
+      name: spu.name,
+      breed: spu.title,
+      price: sku.memberPrice ?? spu.memberPrice ?? sku.originalPrice ?? spu.originalPrice,
+      description,
+      imageUrl: spu.imageUrl ?? '',
+      stock,
+      categoryId: spu.categoryId,
+      status: spu.status,
+      memberPrice: spu.memberPrice,
+      strikePrice: spu.strikePrice,
+      regionPrices: spu.regionPrices,
+      attributes: spu.attributes,
+      detailJsonLd: spu.detailJsonLd,
+      skus: spu.skus,
+      selectedSkuId: sku.id,
+    },
+    skuId: sku.id,
+    shopId,
+  }
+}
+
+async function openCatalogCheckout(product: Monkey) {
+  if (catalogCheckoutId.value !== null) {
+    return
+  }
+  catalogCheckoutId.value = product.id
+  try {
+    const {
+      product: checkoutProduct,
+      skuId,
+      shopId,
+    } = catalogSpuToCheckoutProduct(await getCatalogSpu(product.id), product.stock)
+    await openCheckout(checkoutProduct, { skuId, shopId, quantity: 1 })
+  } catch {
+    showNotice('error', t('feedback.requestFailed'))
+  } finally {
+    catalogCheckoutId.value = null
+  }
+}
+
 onMounted(() => {
-  void Promise.all([loadMonkeys(), loadCategories()])
+  void Promise.all([loadCatalogProducts(), loadCategories()])
 })
 </script>
 
@@ -213,7 +291,7 @@ onMounted(() => {
       :error="catalogState.error.value"
       :empty-title="$t('shop.emptyTitle')"
       :empty-description="$t('shop.emptyDescription')"
-      @retry="loadMonkeys"
+      @retry="loadCatalogProducts"
     >
       <template #loading>
         <div class="skeleton-grid" aria-busy="true">
@@ -225,7 +303,9 @@ onMounted(() => {
         <div class="catalog-error" role="alert">
           <el-icon class="state-error-icon" aria-hidden="true"><Search /></el-icon>
           <p>{{ $t('common.unableToLoadCatalog') }}</p>
-          <el-button type="primary" @click="loadMonkeys">{{ $t('common.retry') }}</el-button>
+          <el-button type="primary" @click="loadCatalogProducts">{{
+            $t('common.retry')
+          }}</el-button>
         </div>
       </template>
 
@@ -250,10 +330,12 @@ onMounted(() => {
           v-for="monkey in monkeysList"
           :key="monkey.id"
           :product="monkey"
-          :pending="openingCheckoutId === monkey.id"
-          :disabled="monkey.stock <= 0 || openingCheckoutId !== null"
-          :primary-action-label="monkey.stock > 0 ? $t('shop.buy') : $t('shop.soldOut')"
-          @primary="openCheckout(monkey)"
+          :pending="
+            sameApiId(openingCheckoutId, monkey.id) || sameApiId(catalogCheckoutId, monkey.id)
+          "
+          :disabled="monkey.stock <= 0 || openingCheckoutId !== null || catalogCheckoutId !== null"
+          :primary-action-label="$t('shop.buy')"
+          @primary="openCatalogCheckout(monkey)"
           @secondary="openProductDetails(monkey.id)"
         />
       </div>
