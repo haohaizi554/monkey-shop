@@ -13,6 +13,8 @@ public interface LogisticsStore {
 
     LogisticsTracking saveTracking(LogisticsTracking tracking);
 
+    void deleteTracking(Long trackingId);
+
     TrackingEventRecord saveEvent(TrackingEventRecord event);
 
     List<TrackingEventRecord> findEvents(String trackingNo);

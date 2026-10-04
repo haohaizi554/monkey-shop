@@ -5,6 +5,7 @@ import com.example.monkey.logistics.domain.LogisticsCarrier;
 import com.example.monkey.logistics.domain.LogisticsStore;
 import com.example.monkey.logistics.domain.LogisticsTracking;
 import com.example.monkey.logistics.domain.TrackingEventRecord;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
 import java.util.ArrayList;
 import java.util.List;
@@ -48,7 +49,8 @@ public class JpaLogisticsStore implements LogisticsStore {
     @Override
     public Optional<LogisticsTracking> findByUserIdAndIdempotencyKey(Long userId, String idempotencyKey) {
         return trackingRepository
-                .findByUserIdAndIdempotencyKey(userId, idempotencyKey)
+                .findByTenantIdAndUserIdAndIdempotencyKey(
+                        TenantContext.currentTenantIdOrDefault(), userId, idempotencyKey)
                 .map(JpaLogisticsStore::toDomain);
     }
 
@@ -58,6 +60,13 @@ public class JpaLogisticsStore implements LogisticsStore {
                 ? null
                 : trackingRepository.findById(tracking.id()).orElse(null);
         return toDomain(trackingRepository.save(toEntity(tracking, existing)));
+    }
+
+    @Override
+    public void deleteTracking(Long trackingId) {
+        if (trackingId != null) {
+            trackingRepository.deleteById(trackingId);
+        }
     }
 
     @Override
@@ -111,6 +120,7 @@ public class JpaLogisticsStore implements LogisticsStore {
         entity.setFreightAmount(tracking.freightAmount());
         entity.setEtaHours(tracking.etaHours());
         entity.setIdempotencyKey(tracking.idempotencyKey());
+        entity.setRequestFingerprint(tracking.requestFingerprint());
         entity.setPickedUpAt(tracking.pickedUpAt());
         entity.setInTransitAt(tracking.inTransitAt());
         entity.setOutForDeliveryAt(tracking.outForDeliveryAt());
@@ -144,7 +154,8 @@ public class JpaLogisticsStore implements LogisticsStore {
                 entity.getOutForDeliveryAt(),
                 entity.getSignedAt(),
                 entity.getCreateTime(),
-                entity.getUpdateTime());
+                entity.getUpdateTime(),
+                entity.getRequestFingerprint());
     }
 
     private static LogisticsTrackingEventEntity toEntity(TrackingEventRecord event) {

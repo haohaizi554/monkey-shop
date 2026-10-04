@@ -9,11 +9,17 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "logistics_freight_template")
+@Table(
+        name = "logistics_freight_template",
+        uniqueConstraints =
+                @UniqueConstraint(
+                        name = "uk_logistics_freight_template",
+                        columnNames = {"tenant_id", "carrier", "province", "charge_mode"}))
 public class FreightTemplateEntity extends TenantScopedJpaEntity {
 
     @Id

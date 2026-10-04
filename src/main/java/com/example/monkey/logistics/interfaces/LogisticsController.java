@@ -35,7 +35,7 @@ public class LogisticsController {
     }
 
     @PostMapping("/shipments")
-    @PreAuthorize("hasAuthority('ORDER_READ_OWN')")
+    @PreAuthorize("hasAuthority('ORDER_MANAGE')")
     public Result<LogisticsTrackingResponseDto> createShipment(
             @RequestHeader(value = "Idempotency-Key") @NotBlank String idempotencyKey,
             @Valid @RequestBody ShipmentCreateRequestDto request,

@@ -9,5 +9,6 @@ public interface LogisticsTrackingRepository extends JpaRepository<LogisticsTrac
 
     Optional<LogisticsTrackingEntity> findFirstByOrderIdAndUserIdOrderByCreateTimeDesc(Long orderId, Long userId);
 
-    Optional<LogisticsTrackingEntity> findByUserIdAndIdempotencyKey(Long userId, String idempotencyKey);
+    Optional<LogisticsTrackingEntity> findByTenantIdAndUserIdAndIdempotencyKey(
+            Long tenantId, Long userId, String idempotencyKey);
 }

@@ -9,18 +9,24 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.Version;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "logistics_tracking")
+@Table(
+        name = "logistics_tracking",
+        uniqueConstraints =
+                @UniqueConstraint(
+                        name = "uk_logistics_tracking_no",
+                        columnNames = {"tenant_id", "tracking_no"}))
 public class LogisticsTrackingEntity extends TenantScopedJpaEntity {
 
     @Id
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 64)
+    @Column(nullable = false, length = 64)
     private String trackingNo;
 
     @Column(nullable = false)
@@ -69,6 +75,9 @@ public class LogisticsTrackingEntity extends TenantScopedJpaEntity {
 
     @Column(nullable = false, length = 128)
     private String idempotencyKey;
+
+    @Column(name = "request_fingerprint", length = 64)
+    private String requestFingerprint;
 
     private LocalDateTime pickedUpAt;
 
@@ -221,6 +230,14 @@ public class LogisticsTrackingEntity extends TenantScopedJpaEntity {
 
     public void setIdempotencyKey(String idempotencyKey) {
         this.idempotencyKey = idempotencyKey;
+    }
+
+    public String getRequestFingerprint() {
+        return requestFingerprint;
+    }
+
+    public void setRequestFingerprint(String requestFingerprint) {
+        this.requestFingerprint = requestFingerprint;
     }
 
     public LocalDateTime getPickedUpAt() {

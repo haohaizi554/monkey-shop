@@ -10,10 +10,16 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "logistics_tracking_event")
+@Table(
+        name = "logistics_tracking_event",
+        uniqueConstraints =
+                @UniqueConstraint(
+                        name = "uk_logistics_event_carrier_id",
+                        columnNames = {"tenant_id", "carrier", "event_id"}))
 public class LogisticsTrackingEventEntity extends TenantScopedJpaEntity {
 
     @Id

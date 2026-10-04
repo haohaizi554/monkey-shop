@@ -1,5 +1,6 @@
 package com.example.monkey.logistics.interfaces;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
@@ -11,9 +12,12 @@ import com.example.monkey.logistics.application.LogisticsApplicationService;
 import com.example.monkey.logistics.application.dto.FreightQuoteResponseDto;
 import com.example.monkey.logistics.application.dto.LogisticsTrackingResponseDto;
 import com.example.monkey.logistics.application.dto.ParsedAddressDto;
+import com.example.monkey.logistics.application.dto.ShipmentCreateRequestDto;
 import com.example.monkey.logistics.domain.FreightChargeMode;
 import com.example.monkey.logistics.domain.LogisticsCarrier;
 import com.example.monkey.logistics.domain.TrackingStatus;
+import com.example.monkey.shared.application.security.SessionUser;
+import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -21,6 +25,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -68,6 +73,14 @@ class LogisticsControllerTest {
                                         "{\"carrier\":\"SF\",\"trackingNo\":\"SF7000\",\"eventId\":\"event-1\",\"event\":\"PICKUP\",\"signature\":\"valid-signature\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.trackingNo").value("SF7000"));
+    }
+
+    @Test
+    void shipmentCreationRequiresOrderManagementAuthority() throws NoSuchMethodException {
+        Method method = LogisticsController.class.getDeclaredMethod(
+                "createShipment", String.class, ShipmentCreateRequestDto.class, SessionUser.class);
+
+        assertThat(method.getAnnotation(PreAuthorize.class).value()).isEqualTo("hasAuthority('ORDER_MANAGE')");
     }
 
     private static LogisticsTrackingResponseDto tracking() {

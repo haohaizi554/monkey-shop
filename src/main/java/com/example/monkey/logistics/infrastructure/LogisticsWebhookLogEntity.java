@@ -8,10 +8,16 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "logistics_webhook_log")
+@Table(
+        name = "logistics_webhook_log",
+        uniqueConstraints =
+                @UniqueConstraint(
+                        name = "uk_logistics_webhook_carrier_event",
+                        columnNames = {"tenant_id", "carrier", "event_id"}))
 public class LogisticsWebhookLogEntity extends TenantScopedJpaEntity {
 
     @Id

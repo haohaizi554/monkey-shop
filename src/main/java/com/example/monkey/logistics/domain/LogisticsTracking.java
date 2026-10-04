@@ -26,7 +26,60 @@ public record LogisticsTracking(
         LocalDateTime outForDeliveryAt,
         LocalDateTime signedAt,
         LocalDateTime createTime,
-        LocalDateTime updateTime) {
+        LocalDateTime updateTime,
+        String requestFingerprint) {
+
+    /** Compatibility constructor for legacy projections that predate request fingerprints. */
+    public LogisticsTracking(
+            Long id,
+            String trackingNo,
+            Long orderId,
+            Long userId,
+            LogisticsCarrier carrier,
+            TrackingStatus status,
+            String recipientPhone,
+            String recipientPhoneBlindIndex,
+            String addressSnapshot,
+            String addressBlindIndex,
+            String province,
+            String city,
+            String district,
+            String detailSummary,
+            BigDecimal freightAmount,
+            int etaHours,
+            String idempotencyKey,
+            LocalDateTime pickedUpAt,
+            LocalDateTime inTransitAt,
+            LocalDateTime outForDeliveryAt,
+            LocalDateTime signedAt,
+            LocalDateTime createTime,
+            LocalDateTime updateTime) {
+        this(
+                id,
+                trackingNo,
+                orderId,
+                userId,
+                carrier,
+                status,
+                recipientPhone,
+                recipientPhoneBlindIndex,
+                addressSnapshot,
+                addressBlindIndex,
+                province,
+                city,
+                district,
+                detailSummary,
+                freightAmount,
+                etaHours,
+                idempotencyKey,
+                pickedUpAt,
+                inTransitAt,
+                outForDeliveryAt,
+                signedAt,
+                createTime,
+                updateTime,
+                null);
+    }
 
     public LogisticsTracking advance(TrackingStatus nextStatus, LocalDateTime eventTime) {
         LocalDateTime effectiveTime = eventTime == null ? updateTime : eventTime;
@@ -55,7 +108,8 @@ public record LogisticsTracking(
                         : outForDeliveryAt,
                 nextStatus == TrackingStatus.SIGNED && signedAt == null ? effectiveTime : signedAt,
                 createTime,
-                effectiveTime);
+                effectiveTime,
+                requestFingerprint);
     }
 
     public LogisticsTracking withGatewayResult(LogisticsGatewayResult result, LocalDateTime now) {
@@ -82,6 +136,7 @@ public record LogisticsTracking(
                 outForDeliveryAt,
                 signedAt,
                 createTime,
-                now);
+                now,
+                requestFingerprint);
     }
 }

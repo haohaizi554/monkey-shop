@@ -7,7 +7,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConditionalOnProperty(name = "app.logistics.gateway", havingValue = "sandbox", matchIfMissing = true)
+@ConditionalOnProperty(name = "app.logistics.gateway", havingValue = "sandbox", matchIfMissing = false)
 public class SandboxLogisticsGateway implements LogisticsGateway {
 
     @Override

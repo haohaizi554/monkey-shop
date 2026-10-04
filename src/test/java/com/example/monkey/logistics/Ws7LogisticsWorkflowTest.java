@@ -43,7 +43,9 @@ class Ws7LogisticsWorkflowTest {
                         "idGenerator.nextId");
         assertThat(controller).contains("/shipments", "/freight/quote", "/address/parse", "/webhook");
         assertThat(store).contains("piiCryptoService.encrypt", "piiCryptoService.blindIndex");
-        assertThat(replayGuard).contains("setIfAbsent", "LogisticsWebhookLogRepository");
+        assertThat(replayGuard)
+                .contains("publishAfterCommit", "LogisticsWebhookLogRepository")
+                .doesNotContain("setIfAbsent");
         assertThat(stateMachine).contains("PICKUP", "DISPATCH", "SIGN");
         assertThat(addressParser).contains("Hangzou", "Hangzhou", "ParsedAddress");
         assertThat(rateLimit).contains("LOGISTICS(\"logistics\", 20");
