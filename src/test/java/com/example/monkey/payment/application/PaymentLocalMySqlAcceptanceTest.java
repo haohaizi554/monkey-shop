@@ -57,6 +57,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -109,7 +110,6 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 class PaymentLocalMySqlAcceptanceTest {
 
     private static final SessionUser USER = new SessionUser(42L, "USER");
-    private static final String LATEST_SCHEMA_VERSION = "54";
 
     private final PaymentOrderRepository paymentOrderRepository;
     private final PaymentLedgerRepository paymentLedgerRepository;
@@ -185,13 +185,14 @@ class PaymentLocalMySqlAcceptanceTest {
 
     @Test
     void emptySchemaMigratesThroughLatestVersionAndHibernateValidates() {
+        Flyway flyway = Flyway.configure().dataSource(dataSource).load();
         assertThat(jdbcTemplate.queryForObject("""
                         SELECT version
                         FROM flyway_schema_history
                         WHERE success = 1
                         ORDER BY installed_rank DESC
                         LIMIT 1
-                        """, String.class)).isEqualTo(LATEST_SCHEMA_VERSION);
+                        """, String.class)).isEqualTo(latestAvailableMigrationVersion(flyway));
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM payment_order", Long.class))
                 .isZero();
     }
@@ -373,12 +374,12 @@ class PaymentLocalMySqlAcceptanceTest {
         latest.migrate();
 
         assertThat(jdbcTemplate.queryForObject("""
-                            SELECT version
+                        SELECT version
                             FROM flyway_schema_history
                             WHERE success = 1
                             ORDER BY installed_rank DESC
                             LIMIT 1
-                            """, String.class)).isEqualTo(LATEST_SCHEMA_VERSION);
+                            """, String.class)).isEqualTo(latestAvailableMigrationVersion(latest));
         assertThat(jdbcTemplate.queryForMap("""
                             SELECT operation_state, attempt_count, lease_expires_at,
                                    last_failure_classification, terminal_failure_code
@@ -1069,6 +1070,15 @@ class PaymentLocalMySqlAcceptanceTest {
                 Flyway.configure().dataSource(dataSource).cleanDisabled(false).load();
         latest.clean();
         latest.migrate();
+    }
+
+    private static String latestAvailableMigrationVersion(Flyway flyway) {
+        return Arrays.stream(flyway.info().all())
+                .map(info -> info.getVersion())
+                .filter(version -> version != null)
+                .max((left, right) -> left.compareTo(right))
+                .map(MigrationVersion::getVersion)
+                .orElseThrow(() -> new IllegalStateException("No versioned Flyway migrations were discovered"));
     }
 
     private static int recoverAfter(CountDownLatch start, PaymentApplicationService service) throws Exception {

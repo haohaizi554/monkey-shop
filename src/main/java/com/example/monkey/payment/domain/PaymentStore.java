@@ -52,6 +52,16 @@ public interface PaymentStore {
 
     Optional<PaymentOrder> findByPaymentNo(String paymentNo);
 
+    /**
+     * Returns the tenant that owns a payment number, even when the current tenant filter hides that row.
+     *
+     * <p>The default keeps lightweight in-memory stores source-compatible; the JPA store overrides it with a
+     * tenant-independent lookup so signed provider callbacks cannot be replayed in another tenant context.
+     */
+    default Optional<Long> findTenantIdByPaymentNo(String paymentNo) {
+        return Optional.empty();
+    }
+
     Optional<PaymentOrder> findById(Long paymentId);
 
     Optional<PaymentOrder> findByOrderIdAndUserId(Long orderId, Long userId);

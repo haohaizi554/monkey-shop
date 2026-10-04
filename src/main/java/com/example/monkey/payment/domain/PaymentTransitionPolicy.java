@@ -31,4 +31,9 @@ public final class PaymentTransitionPolicy {
                 .map(PaymentTransition::target)
                 .findFirst();
     }
+
+    public static boolean allowsRefund(PaymentStatus currentStatus) {
+        return nextStatus(currentStatus, PaymentEvent.REFUND_PARTIAL).isPresent()
+                || nextStatus(currentStatus, PaymentEvent.REFUND_ALL).isPresent();
+    }
 }

@@ -55,6 +55,11 @@ public class JpaPaymentStore implements PaymentStore {
     }
 
     @Override
+    public Optional<Long> findTenantIdByPaymentNo(String paymentNo) {
+        return paymentOrderRepository.findTenantIdByPaymentNo(paymentNo);
+    }
+
+    @Override
     public Optional<PaymentOrder> findById(Long paymentId) {
         return paymentOrderRepository.findById(paymentId).map(this::toDomain);
     }

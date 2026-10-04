@@ -7,7 +7,8 @@ describe('resolvePaymentRedirectUrl', () => {
   it.each([
     ['/provider/checkout?payment=PAY-42', 'http://localhost:5173/provider/checkout?payment=PAY-42'],
     ['http://localhost:5173/provider/checkout', 'http://localhost:5173/provider/checkout'],
-    ['https://pay.example.test/checkout/PAY-42', 'https://pay.example.test/checkout/PAY-42'],
+    ['https://pay.weixin.qq.com/checkout/PAY-42', 'https://pay.weixin.qq.com/checkout/PAY-42'],
+    ['https://openapi.alipay.com/gateway.do', 'https://openapi.alipay.com/gateway.do'],
   ])('accepts a safe payment destination: %s', (candidate, expected) => {
     expect(resolvePaymentRedirectUrl(candidate, CURRENT_PAGE)).toBe(expected)
   })
@@ -19,6 +20,8 @@ describe('resolvePaymentRedirectUrl', () => {
     'data:text/html,<script>alert(1)</script>',
     'file:///etc/passwd',
     'http://pay.example.test/checkout/PAY-42',
+    'https://pay.example.test/checkout/PAY-42',
+    'https://evil.pay.weixin.qq.com.attacker.test/checkout',
     '//pay.example.test/checkout/PAY-42',
     'https://user:password@pay.example.test/checkout/PAY-42',
     'not a valid payment URL',
@@ -31,9 +34,9 @@ describe('navigateToPaymentProvider', () => {
   it('uses top-level navigation for the validated destination', () => {
     const assign = vi.fn()
 
-    navigateToPaymentProvider('https://pay.example.test/checkout/PAY-42', { assign })
+    navigateToPaymentProvider('https://pay.weixin.qq.com/checkout/PAY-42', { assign })
 
     expect(assign).toHaveBeenCalledOnce()
-    expect(assign).toHaveBeenCalledWith('https://pay.example.test/checkout/PAY-42')
+    expect(assign).toHaveBeenCalledWith('https://pay.weixin.qq.com/checkout/PAY-42')
   })
 })

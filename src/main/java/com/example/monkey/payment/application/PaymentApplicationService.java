@@ -29,17 +29,21 @@ import com.example.monkey.payment.domain.PaymentOperationState;
 import com.example.monkey.payment.domain.PaymentOrder;
 import com.example.monkey.payment.domain.PaymentQueryAttempt;
 import com.example.monkey.payment.domain.PaymentReconciliationReport;
+import com.example.monkey.payment.domain.PaymentReconciliationSource;
 import com.example.monkey.payment.domain.PaymentRecoveryTenantSource;
 import com.example.monkey.payment.domain.PaymentRequestFingerprint;
 import com.example.monkey.payment.domain.PaymentResponseSnapshot;
 import com.example.monkey.payment.domain.PaymentStatus;
 import com.example.monkey.payment.domain.PaymentStore;
+import com.example.monkey.payment.domain.PaymentTransitionPolicy;
 import com.example.monkey.payment.domain.PaymentTransitionResolver;
 import com.example.monkey.payment.domain.ReconciliationLine;
 import com.example.monkey.payment.domain.ReconciliationStatus;
 import com.example.monkey.payment.domain.RefundAuditIntent;
 import com.example.monkey.payment.domain.RefundAuditState;
 import com.example.monkey.payment.domain.RefundResponseSnapshot;
+import com.example.monkey.risk.domain.CommercialRiskGate;
+import com.example.monkey.membership.domain.PurchasePointsLifecycle;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.application.tenant.TenantContext;
@@ -47,6 +51,7 @@ import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
 import com.example.monkey.shared.domain.inventory.InventoryReservationLifecycle;
+import com.example.monkey.tracking.domain.AuthoritativeTrackingPort;
 import com.example.monkey.user.domain.UserAccountStore;
 import com.example.monkey.user.domain.UserAccountStore.UserAccount;
 import com.example.monkey.user.domain.UserMfaVerifier;
@@ -100,6 +105,11 @@ public class PaymentApplicationService {
     private static final Set<String> PAYMENT_RESERVATION_CONSTRAINTS =
             Set.of("uk_payment_order_user_key", "uk_payment_order_active_order");
     private static final Set<String> REFUND_RESERVATION_CONSTRAINTS = Set.of("uk_payment_ledger_request");
+    private static final Set<PaymentStatus> CREATE_GATEWAY_STATUSES = Set.of(PaymentStatus.PENDING, PaymentStatus.PAID);
+    private static final Set<PaymentStatus> QUERY_GATEWAY_STATUSES =
+            Set.of(PaymentStatus.PENDING, PaymentStatus.PAID, PaymentStatus.FAILED);
+    private static final Set<PaymentStatus> REFUND_GATEWAY_STATUSES =
+            Set.of(PaymentStatus.REFUNDED, PaymentStatus.PARTIALLY_REFUNDED);
 
     private final PaymentStore paymentStore;
     private final PaymentGateway paymentGateway;
@@ -111,6 +121,10 @@ public class PaymentApplicationService {
     private final UserMfaVerifier userMfaVerifier;
     private final IdGenerator idGenerator;
     private final AuditService auditService;
+    private final AuthoritativeTrackingPort authoritativeTrackingPort;
+    private final PurchasePointsLifecycle purchasePointsLifecycle;
+    private final PaymentReconciliationSource reconciliationSource;
+    private final CommercialRiskGate commercialRiskGate;
     private final PaymentTransactions paymentTransactions;
     private final PaymentRecoveryTenantSource recoveryTenantSource;
     private final Clock clock;
@@ -135,12 +149,228 @@ public class PaymentApplicationService {
             AuditService auditService,
             PaymentTransactions paymentTransactions,
             PaymentRecoveryTenantSource recoveryTenantSource,
+            AuthoritativeTrackingPort authoritativeTrackingPort,
+            PaymentReconciliationSource reconciliationSource,
+            CommercialRiskGate commercialRiskGate,
+            PurchasePointsLifecycle purchasePointsLifecycle,
             @Value("${app.payment.callback-ttl:PT24H}") Duration callbackTtl,
             @Value("${app.payment.query-after:PT5M}") Duration queryAfter,
             @Value("${app.payment.operation-lease:PT2M}") Duration operationLease,
             @Value("${app.payment.retry-after:PT30S}") Duration retryAfter,
             @Value("${app.payment.high-value-threshold:5000}") BigDecimal highValueThreshold,
             @Value("${app.payment.callback-secret:}") String callbackSecret) {
+        this(
+                paymentStore,
+                paymentGateway,
+                callbackReplayGuard,
+                transitionResolver,
+                orderStore,
+                inventoryReservationLifecycle,
+                userAccountStore,
+                userMfaVerifier,
+                idGenerator,
+                auditService,
+                paymentTransactions,
+                recoveryTenantSource,
+                Clock.systemDefaultZone(),
+                callbackTtl,
+                queryAfter,
+                operationLease,
+                retryAfter,
+                highValueThreshold,
+                callbackSecret,
+                authoritativeTrackingPort,
+                reconciliationSource,
+                commercialRiskGate,
+                purchasePointsLifecycle);
+    }
+
+    PaymentApplicationService(
+            PaymentStore paymentStore,
+            PaymentGateway paymentGateway,
+            PaymentCallbackReplayGuard callbackReplayGuard,
+            PaymentTransitionResolver transitionResolver,
+            OrderStore orderStore,
+            InventoryReservationLifecycle inventoryReservationLifecycle,
+            UserAccountStore userAccountStore,
+            UserMfaVerifier userMfaVerifier,
+            IdGenerator idGenerator,
+            AuditService auditService,
+            PaymentTransactions paymentTransactions,
+            Clock clock,
+            Duration callbackTtl,
+            Duration queryAfter,
+            BigDecimal highValueThreshold,
+            String callbackSecret) {
+        this(
+                paymentStore,
+                paymentGateway,
+                callbackReplayGuard,
+                transitionResolver,
+                orderStore,
+                inventoryReservationLifecycle,
+                userAccountStore,
+                userMfaVerifier,
+                idGenerator,
+                auditService,
+                paymentTransactions,
+                PaymentRecoveryTenantSource.none(),
+                clock,
+                callbackTtl,
+                queryAfter,
+                Duration.ofMinutes(2),
+                Duration.ofSeconds(30),
+                highValueThreshold,
+                callbackSecret,
+                compatibilityTrackingPort());
+    }
+
+    PaymentApplicationService(
+            PaymentStore paymentStore,
+            PaymentGateway paymentGateway,
+            PaymentCallbackReplayGuard callbackReplayGuard,
+            PaymentTransitionResolver transitionResolver,
+            OrderStore orderStore,
+            InventoryReservationLifecycle inventoryReservationLifecycle,
+            UserAccountStore userAccountStore,
+            UserMfaVerifier userMfaVerifier,
+            IdGenerator idGenerator,
+            AuditService auditService,
+            PaymentTransactions paymentTransactions,
+            Clock clock,
+            Duration callbackTtl,
+            Duration queryAfter,
+            BigDecimal highValueThreshold,
+            String callbackSecret,
+            PaymentReconciliationSource reconciliationSource) {
+        this(
+                paymentStore,
+                paymentGateway,
+                callbackReplayGuard,
+                transitionResolver,
+                orderStore,
+                inventoryReservationLifecycle,
+                userAccountStore,
+                userMfaVerifier,
+                idGenerator,
+                auditService,
+                paymentTransactions,
+                PaymentRecoveryTenantSource.none(),
+                clock,
+                callbackTtl,
+                queryAfter,
+                Duration.ofMinutes(2),
+                Duration.ofSeconds(30),
+                highValueThreshold,
+                callbackSecret,
+                compatibilityTrackingPort(),
+                reconciliationSource);
+    }
+
+    PaymentApplicationService(
+            PaymentStore paymentStore,
+            PaymentGateway paymentGateway,
+            PaymentCallbackReplayGuard callbackReplayGuard,
+            PaymentTransitionResolver transitionResolver,
+            OrderStore orderStore,
+            InventoryReservationLifecycle inventoryReservationLifecycle,
+            UserAccountStore userAccountStore,
+            UserMfaVerifier userMfaVerifier,
+            IdGenerator idGenerator,
+            AuditService auditService,
+            PaymentTransactions paymentTransactions,
+            Clock clock,
+            Duration callbackTtl,
+            Duration queryAfter,
+            BigDecimal highValueThreshold,
+            String callbackSecret,
+            CommercialRiskGate commercialRiskGate) {
+        this(
+                paymentStore,
+                paymentGateway,
+                callbackReplayGuard,
+                transitionResolver,
+                orderStore,
+                inventoryReservationLifecycle,
+                userAccountStore,
+                userMfaVerifier,
+                idGenerator,
+                auditService,
+                paymentTransactions,
+                PaymentRecoveryTenantSource.none(),
+                clock,
+                callbackTtl,
+                queryAfter,
+                Duration.ofMinutes(2),
+                Duration.ofSeconds(30),
+                highValueThreshold,
+                callbackSecret,
+                compatibilityTrackingPort(),
+                defaultReconciliationSource(),
+                commercialRiskGate);
+    }
+
+    PaymentApplicationService(
+            PaymentStore paymentStore,
+            PaymentGateway paymentGateway,
+            PaymentCallbackReplayGuard callbackReplayGuard,
+            PaymentTransitionResolver transitionResolver,
+            OrderStore orderStore,
+            InventoryReservationLifecycle inventoryReservationLifecycle,
+            UserAccountStore userAccountStore,
+            UserMfaVerifier userMfaVerifier,
+            IdGenerator idGenerator,
+            AuditService auditService,
+            PaymentTransactions paymentTransactions,
+            PaymentRecoveryTenantSource recoveryTenantSource,
+            Clock clock,
+            Duration callbackTtl,
+            Duration queryAfter,
+            BigDecimal highValueThreshold,
+            String callbackSecret,
+            AuthoritativeTrackingPort authoritativeTrackingPort) {
+        this(
+                paymentStore,
+                paymentGateway,
+                callbackReplayGuard,
+                transitionResolver,
+                orderStore,
+                inventoryReservationLifecycle,
+                userAccountStore,
+                userMfaVerifier,
+                idGenerator,
+                auditService,
+                paymentTransactions,
+                recoveryTenantSource,
+                clock,
+                callbackTtl,
+                queryAfter,
+                Duration.ofMinutes(2),
+                Duration.ofSeconds(30),
+                highValueThreshold,
+                callbackSecret,
+                authoritativeTrackingPort);
+    }
+
+    public PaymentApplicationService(
+            PaymentStore paymentStore,
+            PaymentGateway paymentGateway,
+            PaymentCallbackReplayGuard callbackReplayGuard,
+            PaymentTransitionResolver transitionResolver,
+            OrderStore orderStore,
+            InventoryReservationLifecycle inventoryReservationLifecycle,
+            UserAccountStore userAccountStore,
+            UserMfaVerifier userMfaVerifier,
+            IdGenerator idGenerator,
+            AuditService auditService,
+            PaymentTransactions paymentTransactions,
+            PaymentRecoveryTenantSource recoveryTenantSource,
+            Duration callbackTtl,
+            Duration queryAfter,
+            Duration operationLease,
+            Duration retryAfter,
+            BigDecimal highValueThreshold,
+            String callbackSecret) {
         this(
                 paymentStore,
                 paymentGateway,
@@ -175,45 +405,6 @@ public class PaymentApplicationService {
             IdGenerator idGenerator,
             AuditService auditService,
             PaymentTransactions paymentTransactions,
-            Clock clock,
-            Duration callbackTtl,
-            Duration queryAfter,
-            BigDecimal highValueThreshold,
-            String callbackSecret) {
-        this(
-                paymentStore,
-                paymentGateway,
-                callbackReplayGuard,
-                transitionResolver,
-                orderStore,
-                inventoryReservationLifecycle,
-                userAccountStore,
-                userMfaVerifier,
-                idGenerator,
-                auditService,
-                paymentTransactions,
-                PaymentRecoveryTenantSource.none(),
-                clock,
-                callbackTtl,
-                queryAfter,
-                Duration.ofMinutes(2),
-                Duration.ofSeconds(30),
-                highValueThreshold,
-                callbackSecret);
-    }
-
-    PaymentApplicationService(
-            PaymentStore paymentStore,
-            PaymentGateway paymentGateway,
-            PaymentCallbackReplayGuard callbackReplayGuard,
-            PaymentTransitionResolver transitionResolver,
-            OrderStore orderStore,
-            InventoryReservationLifecycle inventoryReservationLifecycle,
-            UserAccountStore userAccountStore,
-            UserMfaVerifier userMfaVerifier,
-            IdGenerator idGenerator,
-            AuditService auditService,
-            PaymentTransactions paymentTransactions,
             PaymentRecoveryTenantSource recoveryTenantSource,
             Clock clock,
             Duration callbackTtl,
@@ -280,7 +471,200 @@ public class PaymentApplicationService {
                 operationLease,
                 retryAfter,
                 highValueThreshold,
-                callbackSecret);
+                callbackSecret,
+                compatibilityTrackingPort());
+    }
+
+    PaymentApplicationService(
+            PaymentStore paymentStore,
+            PaymentGateway paymentGateway,
+            PaymentCallbackReplayGuard callbackReplayGuard,
+            PaymentTransitionResolver transitionResolver,
+            OrderStore orderStore,
+            InventoryReservationLifecycle inventoryReservationLifecycle,
+            UserAccountStore userAccountStore,
+            UserMfaVerifier userMfaVerifier,
+            IdGenerator idGenerator,
+            AuditService auditService,
+            PaymentTransactions paymentTransactions,
+            PaymentRecoveryTenantSource recoveryTenantSource,
+            Clock clock,
+            Duration callbackTtl,
+            Duration queryAfter,
+            Duration operationLease,
+            Duration retryAfter,
+            BigDecimal highValueThreshold,
+            String callbackSecret,
+            AuthoritativeTrackingPort authoritativeTrackingPort) {
+        this(
+                paymentStore,
+                paymentGateway,
+                callbackReplayGuard,
+                transitionResolver,
+                orderStore,
+                inventoryReservationLifecycle,
+                userAccountStore,
+                userMfaVerifier,
+                idGenerator,
+                auditService,
+                paymentTransactions,
+                recoveryTenantSource,
+                clock,
+                callbackTtl,
+                queryAfter,
+                operationLease,
+                retryAfter,
+                highValueThreshold,
+                callbackSecret,
+                authoritativeTrackingPort,
+                defaultReconciliationSource());
+    }
+
+    PaymentApplicationService(
+            PaymentStore paymentStore,
+            PaymentGateway paymentGateway,
+            PaymentCallbackReplayGuard callbackReplayGuard,
+            PaymentTransitionResolver transitionResolver,
+            OrderStore orderStore,
+            InventoryReservationLifecycle inventoryReservationLifecycle,
+            UserAccountStore userAccountStore,
+            UserMfaVerifier userMfaVerifier,
+            IdGenerator idGenerator,
+            AuditService auditService,
+            PaymentTransactions paymentTransactions,
+            PaymentRecoveryTenantSource recoveryTenantSource,
+            Clock clock,
+            Duration callbackTtl,
+            Duration queryAfter,
+            Duration operationLease,
+            Duration retryAfter,
+            BigDecimal highValueThreshold,
+            String callbackSecret,
+            AuthoritativeTrackingPort authoritativeTrackingPort,
+            PaymentReconciliationSource reconciliationSource) {
+        this(
+                paymentStore,
+                paymentGateway,
+                callbackReplayGuard,
+                transitionResolver,
+                orderStore,
+                inventoryReservationLifecycle,
+                userAccountStore,
+                userMfaVerifier,
+                idGenerator,
+                auditService,
+                paymentTransactions,
+                recoveryTenantSource,
+                clock,
+                callbackTtl,
+                queryAfter,
+                operationLease,
+                retryAfter,
+                highValueThreshold,
+                callbackSecret,
+                authoritativeTrackingPort,
+                reconciliationSource,
+                allowingCommercialRiskGate());
+    }
+
+    PaymentApplicationService(
+            PaymentStore paymentStore,
+            PaymentGateway paymentGateway,
+            PaymentCallbackReplayGuard callbackReplayGuard,
+            PaymentTransitionResolver transitionResolver,
+            OrderStore orderStore,
+            InventoryReservationLifecycle inventoryReservationLifecycle,
+            UserAccountStore userAccountStore,
+            UserMfaVerifier userMfaVerifier,
+            IdGenerator idGenerator,
+            AuditService auditService,
+            PaymentTransactions paymentTransactions,
+            PaymentRecoveryTenantSource recoveryTenantSource,
+            Clock clock,
+            Duration callbackTtl,
+            Duration queryAfter,
+            Duration operationLease,
+            Duration retryAfter,
+            BigDecimal highValueThreshold,
+            String callbackSecret,
+            AuthoritativeTrackingPort authoritativeTrackingPort,
+            PaymentReconciliationSource reconciliationSource,
+            CommercialRiskGate commercialRiskGate) {
+        this(
+                paymentStore,
+                paymentGateway,
+                callbackReplayGuard,
+                transitionResolver,
+                orderStore,
+                inventoryReservationLifecycle,
+                userAccountStore,
+                userMfaVerifier,
+                idGenerator,
+                auditService,
+                paymentTransactions,
+                recoveryTenantSource,
+                clock,
+                callbackTtl,
+                queryAfter,
+                operationLease,
+                retryAfter,
+                highValueThreshold,
+                callbackSecret,
+                authoritativeTrackingPort,
+                reconciliationSource,
+                commercialRiskGate,
+                compatibilityPurchasePointsLifecycle());
+    }
+
+    PaymentApplicationService(
+            PaymentStore paymentStore,
+            PaymentGateway paymentGateway,
+            PaymentCallbackReplayGuard callbackReplayGuard,
+            PaymentTransitionResolver transitionResolver,
+            OrderStore orderStore,
+            InventoryReservationLifecycle inventoryReservationLifecycle,
+            UserAccountStore userAccountStore,
+            UserMfaVerifier userMfaVerifier,
+            IdGenerator idGenerator,
+            AuditService auditService,
+            PaymentTransactions paymentTransactions,
+            PaymentRecoveryTenantSource recoveryTenantSource,
+            Clock clock,
+            Duration callbackTtl,
+            Duration queryAfter,
+            Duration operationLease,
+            Duration retryAfter,
+            BigDecimal highValueThreshold,
+            String callbackSecret,
+            AuthoritativeTrackingPort authoritativeTrackingPort,
+            PaymentReconciliationSource reconciliationSource,
+            CommercialRiskGate commercialRiskGate,
+            PurchasePointsLifecycle purchasePointsLifecycle) {
+        this.paymentStore = paymentStore;
+        this.paymentGateway = paymentGateway;
+        this.callbackReplayGuard = callbackReplayGuard;
+        this.transitionResolver = transitionResolver;
+        this.orderStore = orderStore;
+        this.inventoryReservationLifecycle = inventoryReservationLifecycle;
+        this.userAccountStore = userAccountStore;
+        this.userMfaVerifier = userMfaVerifier;
+        this.idGenerator = idGenerator;
+        this.auditService = auditService;
+        this.authoritativeTrackingPort = Objects.requireNonNull(
+                authoritativeTrackingPort, "authoritativeTrackingPort");
+        this.purchasePointsLifecycle = Objects.requireNonNull(
+                purchasePointsLifecycle, "purchasePointsLifecycle");
+        this.reconciliationSource = Objects.requireNonNull(reconciliationSource, "reconciliationSource");
+        this.commercialRiskGate = Objects.requireNonNull(commercialRiskGate, "commercialRiskGate");
+        this.paymentTransactions = paymentTransactions;
+        this.recoveryTenantSource = recoveryTenantSource;
+        this.clock = clock;
+        this.callbackTtl = callbackTtl == null ? Duration.ofHours(24) : callbackTtl;
+        this.queryAfter = queryAfter == null ? Duration.ofMinutes(5) : queryAfter;
+        this.operationLease = requirePositiveDuration(operationLease, Duration.ofMinutes(2), "operationLease");
+        this.retryAfter = requirePositiveDuration(retryAfter, Duration.ofSeconds(30), "retryAfter");
+        this.highValueThreshold = highValueThreshold == null ? DEFAULT_HIGH_VALUE_THRESHOLD : highValueThreshold;
+        this.callbackSecret = requireCallbackSecret(callbackSecret);
     }
 
     PaymentApplicationService(
@@ -303,36 +687,60 @@ public class PaymentApplicationService {
             Duration retryAfter,
             BigDecimal highValueThreshold,
             String callbackSecret) {
-        this.paymentStore = paymentStore;
-        this.paymentGateway = paymentGateway;
-        this.callbackReplayGuard = callbackReplayGuard;
-        this.transitionResolver = transitionResolver;
-        this.orderStore = orderStore;
-        this.inventoryReservationLifecycle = inventoryReservationLifecycle;
-        this.userAccountStore = userAccountStore;
-        this.userMfaVerifier = userMfaVerifier;
-        this.idGenerator = idGenerator;
-        this.auditService = auditService;
-        this.paymentTransactions = paymentTransactions;
-        this.recoveryTenantSource = recoveryTenantSource;
-        this.clock = clock;
-        this.callbackTtl = callbackTtl == null ? Duration.ofHours(24) : callbackTtl;
-        this.queryAfter = queryAfter == null ? Duration.ofMinutes(5) : queryAfter;
-        this.operationLease = requirePositiveDuration(operationLease, Duration.ofMinutes(2), "operationLease");
-        this.retryAfter = requirePositiveDuration(retryAfter, Duration.ofSeconds(30), "retryAfter");
-        this.highValueThreshold = highValueThreshold == null ? DEFAULT_HIGH_VALUE_THRESHOLD : highValueThreshold;
-        this.callbackSecret = requireCallbackSecret(callbackSecret);
+        this(
+                paymentStore,
+                paymentGateway,
+                callbackReplayGuard,
+                transitionResolver,
+                orderStore,
+                inventoryReservationLifecycle,
+                userAccountStore,
+                userMfaVerifier,
+                idGenerator,
+                auditService,
+                paymentTransactions,
+                recoveryTenantSource,
+                clock,
+                callbackTtl,
+                queryAfter,
+                operationLease,
+                retryAfter,
+                highValueThreshold,
+                callbackSecret,
+                compatibilityTrackingPort());
     }
 
     @WithSpan("payment.create")
     public PaymentResponseDto createPayment(
             SessionUser currentUser, PaymentCreateRequestDto request, String idempotencyKey) {
+        return createPayment(currentUser, request, idempotencyKey, null, null);
+    }
+
+    /**
+     * Creates a payment after applying the commercial risk decision inside the application boundary. The controller
+     * supplies only transport signals; order ownership and amount always come from the server-side order lookup.
+     */
+    public PaymentResponseDto createPayment(
+            SessionUser currentUser,
+            PaymentCreateRequestDto request,
+            String idempotencyKey,
+            String deviceFingerprint,
+            String clientIp) {
         Long userId = requireUserId(currentUser);
         String key = normalizeIdempotencyKey(idempotencyKey);
         OrderRecord order = orderStore
                 .findVisibleByIdAndUserId(request.orderId(), userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN, "Order is not available for payment"));
         BigDecimal amount = money(order.price());
+        commercialRiskGate.requireAllowed(
+                userId,
+                null,
+                null,
+                order.id(),
+                deviceFingerprint,
+                clientIp,
+                "payment.create",
+                request.totpCode());
         PaymentRequestFingerprint fingerprint =
                 PaymentRequestFingerprint.of(order.id(), request.method(), amount, "CNY");
         PaymentStore.PaymentIntent existing = paymentTransactions.execute(
@@ -372,6 +780,7 @@ public class PaymentApplicationService {
     @Transactional
     public PaymentResponseDto handleCallback(PaymentCallbackRequestDto request, String sourceIp) {
         verifySignature(request);
+        verifyCallbackTenant(request.paymentNo());
         return paymentStore
                 .withLockedPayment(request.paymentNo(), payment -> handleLockedCallback(request, sourceIp, payment))
                 .map(PaymentDtoAssembler::toResponse)
@@ -380,13 +789,14 @@ public class PaymentApplicationService {
 
     private PaymentOrder handleLockedCallback(
             PaymentCallbackRequestDto request, String sourceIp, PaymentOrder payment) {
+        assertProviderMatches(payment.method(), request.provider());
+        assertAmountMatches(payment.amount(), request.amount());
         if (!callbackReplayGuard.reserve(request.provider(), request.paymentNo(), request.callbackId(), callbackTtl)) {
             return payment;
         }
         if (PaymentStatus.PAID.equals(payment.status())) {
             return payment;
         }
-        assertAmountMatches(payment.amount(), request.amount());
         boolean successful = "SUCCESS".equalsIgnoreCase(request.status());
         if (successful && PaymentStatus.FAILED.equals(payment.status())) {
             throw new BusinessException(
@@ -396,7 +806,10 @@ public class PaymentApplicationService {
             return payment;
         }
         PaymentOrder updated = successful
-                ? confirmPayment(payment, request.providerTradeNo(), request.callbackId())
+                ? confirmPayment(
+                        payment,
+                        request.providerTradeNo(),
+                        "payment:callback:" + request.provider() + ":" + request.callbackId())
                 : failPayment(payment, request.callbackId());
         audit(
                 AuditService.PAYMENT_CALLBACK_ACCEPTED,
@@ -659,8 +1072,22 @@ public class PaymentApplicationService {
                 retryPaymentQuery(execution);
                 continue;
             }
-            if (applyPaymentQueryResult(execution, result)) {
-                handled++;
+            try {
+                if (applyPaymentQueryResult(execution, result)) {
+                    handled++;
+                }
+            } catch (PaymentTransitionFailure exception) {
+                // A transition resolver failure belongs to this payment only. Retry the claimed item while
+                // allowing later payments in the batch to proceed.
+                retryPaymentQuery(execution);
+            } catch (BusinessException exception) {
+                // A provider/status/amount or domain transition conflict belongs to this payment only. The
+                // query lease is released with the existing retry schedule so later candidates still run.
+                retryPaymentQuery(execution);
+            } catch (RuntimeException exception) {
+                // Tracking and other local completion failures belong to this payment only. The transaction that
+                // applied the result has already rolled back, so immediately release the lease for a retry.
+                retryPaymentQuery(execution);
             }
         }
         return handled;
@@ -712,11 +1139,13 @@ public class PaymentApplicationService {
                     if (!ownsQueryAttempt(latest, expectedAttempt)) {
                         return false;
                     }
+                    assertGatewayStatus(result, QUERY_GATEWAY_STATUSES, "query");
                     if (PaymentStatus.PAID.equals(result.status())) {
+                        assertGatewayAmountMatches(latest.payment().amount(), result.amount());
                         PaymentOrder paid = confirmPayment(
                                 latest.payment(),
                                 result.providerTradeNo(),
-                                "query:" + latest.payment().paymentNo());
+                                "payment:query:" + latest.payment().paymentNo());
                         paymentStore.savePaymentQueryAttempt(
                                 paid, latest.queryAttempt().stop());
                         return true;
@@ -762,14 +1191,20 @@ public class PaymentApplicationService {
                         || PaymentOperationState.LEGACY_UNREPLAYABLE.equals(payment.operationState()));
     }
 
-    @Scheduled(cron = "${app.payment.reconciliation-cron:0 35 3 * * *}")
-    @SchedulerLock(
-            name = "payment-daily-reconciliation",
-            lockAtMostFor = "${app.payment.reconciliation-lock-at-most-for:PT30M}")
     @Transactional
     public PaymentReconciliationResponseDto reconcileYesterday() {
+        PaymentMethod provider = PaymentMethod.WECHAT;
+        LocalDate reportDate = LocalDate.now(clock).minusDays(1);
+        PaymentReconciliationSource.Statement statement = reconciliationSource.fetch(provider, reportDate);
+        if (statement == null
+                || !provider.equals(statement.provider())
+                || !reportDate.equals(statement.reportDate())) {
+            throw new BusinessException(
+                    ErrorCode.SERVICE_UNAVAILABLE,
+                    "Payment reconciliation provider statement is incomplete or for the wrong report date");
+        }
         return PaymentDtoAssembler.toResponse(
-                reconcileInternal(PaymentMethod.WECHAT, LocalDate.now(clock).minusDays(1), List.of()));
+                reconcileInternal(provider, reportDate, statement.lines(), true));
     }
 
     private PaymentReservation reservePayment(
@@ -918,8 +1353,12 @@ public class PaymentApplicationService {
                     if (latest.operation().attemptCount() != expectedAttempt) {
                         throw paymentConflict("Payment operation attempt is stale");
                     }
-                    PaymentOrder completed =
-                            latest.payment().withProviderTradeNo(gatewayResult.providerTradeNo(), now());
+                    PaymentOrder completed = PaymentStatus.PAID.equals(gatewayResult.status())
+                            ? confirmPayment(
+                                    latest.payment(),
+                                    gatewayResult.providerTradeNo(),
+                                    "payment:create:" + latest.payment().paymentNo())
+                            : latest.payment().withProviderTradeNo(gatewayResult.providerTradeNo(), now());
                     PaymentResponseSnapshot responseSnapshot =
                             PaymentResponseSnapshot.capture(completed, gatewayResult.paymentUrl());
                     PaymentStore.PaymentIntent saved = paymentStore.savePayment(
@@ -955,12 +1394,14 @@ public class PaymentApplicationService {
             recordPaymentGatewayFailure(execution, PaymentFailureClassification.UNKNOWN, null);
             throw exception;
         }
-        if (PaymentStatus.FAILED.equals(gatewayResult.status())) {
+        if (PaymentStatus.FAILED.equals(gatewayResult == null ? null : gatewayResult.status())) {
             PaymentGatewayException rejected =
                     PaymentGatewayException.rejected("Payment provider rejected the request");
             recordPaymentGatewayFailure(execution, rejected.classification(), rejected.providerCode());
             throw rejected;
         }
+        assertGatewayStatus(gatewayResult, CREATE_GATEWAY_STATUSES, "create");
+        assertGatewayAmountMatches(execution.payment().amount(), gatewayResult.amount());
         try {
             return completePayment(
                     execution.payment().paymentNo(),
@@ -1109,8 +1550,15 @@ public class PaymentApplicationService {
         PaymentStore.RefundRequest existing =
                 paymentStore.findRefundRequest(payment.id(), key).orElse(null);
         if (existing != null) {
+            if (!PaymentOperationState.COMPLETED.equals(existing.operationState())
+                    && !PaymentOperationState.TERMINAL_FAILED.equals(existing.operationState())) {
+                requireRefundablePaymentStatus(payment);
+                requireRefundableOrderStatus(payment);
+            }
             return new RefundReservation(payment, claimRefundForExecution(existing, fingerprint), fingerprint);
         }
+        requireRefundablePaymentStatus(payment);
+        requireRefundableOrderStatus(payment);
         BigDecimal amount = money(request.amount());
         BigDecimal reservedAmount = money(paymentStore.sumAcceptedRefundAmount(payment.id()));
         BigDecimal availableAmount = money(payment.refundableAmount().subtract(reservedAmount));
@@ -1225,11 +1673,27 @@ public class PaymentApplicationService {
                     if (amount.compareTo(payment.refundableAmount()) > 0) {
                         throw paymentConflict("Reserved refund exceeds the remaining refundable amount");
                     }
-                    PaymentEvent event = amount.compareTo(payment.refundableAmount()) == 0
+                    boolean fullRefund = amount.compareTo(payment.refundableAmount()) == 0;
+                    if (fullRefund) {
+                        synchronizeFullRefundOrder(payment);
+                    } else {
+                        requireRefundableOrderStatus(payment);
+                    }
+                    PaymentEvent event = fullRefund
                             ? PaymentEvent.REFUND_ALL
                             : PaymentEvent.REFUND_PARTIAL;
-                    PaymentStatus nextStatus = transitionResolver.nextStatus(payment.status(), event);
+                    PaymentStatus nextStatus = nextPaymentStatus(payment.status(), event);
                     PaymentOrder updated = paymentStore.savePayment(payment.refund(amount, nextStatus, now()));
+                    purchasePointsLifecycle.onRefundSucceeded(new PurchasePointsLifecycle.PurchaseRefund(
+                            TenantContext.currentTenantIdOrDefault(),
+                            updated.id(),
+                            updated.orderId(),
+                            updated.userId(),
+                            updated.paidAmount(),
+                            amount,
+                            updated.refundedAmount(),
+                            gatewayResult.providerTradeNo(),
+                            "payment:refund:" + payment.paymentNo() + ":" + key));
                     PaymentLedgerEntry completedLedger = new PaymentLedgerEntry(
                             reserved.ledger().id(),
                             reserved.ledger().paymentId(),
@@ -1279,17 +1743,19 @@ public class PaymentApplicationService {
             recordRefundGatewayFailure(execution, PaymentFailureClassification.UNKNOWN, null);
             throw exception;
         }
-        if (PaymentStatus.FAILED.equals(gatewayResult.status())) {
+        if (PaymentStatus.FAILED.equals(gatewayResult == null ? null : gatewayResult.status())) {
             PaymentGatewayException rejected = PaymentGatewayException.rejected("Payment provider rejected the refund");
             recordRefundGatewayFailure(execution, rejected.classification(), rejected.providerCode());
             throw rejected;
         }
-        if (PaymentStatus.PENDING.equals(gatewayResult.status())) {
+        if (PaymentStatus.PENDING.equals(gatewayResult == null ? null : gatewayResult.status())) {
             PaymentGatewayException unknown = new PaymentGatewayException(
                     PaymentFailureClassification.TIMEOUT_UNKNOWN, "Refund result is not yet known");
             recordRefundGatewayFailure(execution, unknown.classification(), null);
             throw unknown;
         }
+        assertGatewayStatus(gatewayResult, REFUND_GATEWAY_STATUSES, "refund");
+        assertGatewayAmountMatches(execution.refund().ledger().amount(), gatewayResult.amount());
         try {
             return completeRefund(
                     execution.payment().paymentNo(),
@@ -1334,6 +1800,8 @@ public class PaymentApplicationService {
                                     latest.merchantToken(), expected.refund().merchantToken())) {
                         throw paymentConflict("Refund operation ownership is stale");
                     }
+                    requireRefundablePaymentStatus(payment);
+                    requireRefundableOrderStatus(payment);
                     return new RefundReservation(payment, latest, expected.fingerprint());
                 })
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Payment order does not exist")));
@@ -1432,6 +1900,43 @@ public class PaymentApplicationService {
         return new BusinessException(ErrorCode.CONFLICT, message);
     }
 
+    private static void requireRefundablePaymentStatus(PaymentOrder payment) {
+        if (!PaymentTransitionPolicy.allowsRefund(payment.status())) {
+            throw paymentConflict(PaymentTransitionPolicy.STATUS_TRANSITION_NOT_ALLOWED);
+        }
+    }
+
+    private void requireRefundableOrderStatus(PaymentOrder payment) {
+        OrderRecord order = orderStore.findById(payment.orderId()).orElse(null);
+        if (!hasOrderStatus(order, OrderStatus.RETURN_SHIPPING)) {
+            throw paymentConflict("Order must be in return shipping state before refund");
+        }
+    }
+
+    private void synchronizeFullRefundOrder(PaymentOrder payment) {
+        int transitioned = orderStore.transitionStatus(
+                payment.orderId(), OrderStatus.RETURN_SHIPPING.label(), OrderStatus.REFUNDED.label(), null);
+        if (transitioned == 1) {
+            return;
+        }
+        OrderRecord current = orderStore.findById(payment.orderId()).orElse(null);
+        if (hasOrderStatus(current, OrderStatus.REFUNDED)) {
+            return;
+        }
+        throw paymentConflict("Order status could not be synchronized after refund");
+    }
+
+    private static boolean hasOrderStatus(OrderRecord order, OrderStatus expected) {
+        if (order == null || order.status() == null) {
+            return false;
+        }
+        try {
+            return expected.equals(OrderStatus.fromStoredValue(order.status()));
+        } catch (IllegalArgumentException exception) {
+            return false;
+        }
+    }
+
     private static boolean causedByConstraint(
             DataIntegrityViolationException exception, Set<String> expectedConstraints) {
         for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
@@ -1477,7 +1982,7 @@ public class PaymentApplicationService {
         if (!PaymentStatus.PENDING.equals(payment.status())) {
             return payment;
         }
-        transitionResolver.nextStatus(payment.status(), PaymentEvent.CONFIRM);
+        nextPaymentStatus(payment.status(), PaymentEvent.CONFIRM);
         List<CheckoutOrderLineRecord> checkoutLines = checkoutInventoryLines(payment.orderId());
         PaymentOrder updated = paymentStore.savePayment(payment.markPaid(providerTradeNo, now()));
         paymentStore
@@ -1493,8 +1998,18 @@ public class PaymentApplicationService {
                         requestKey,
                         providerTradeNo,
                         now())));
+        purchasePointsLifecycle.onPaymentSucceeded(new PurchasePointsLifecycle.PurchasePayment(
+                TenantContext.currentTenantIdOrDefault(),
+                updated.id(),
+                updated.orderId(),
+                updated.userId(),
+                updated.paidAmount(),
+                updated.providerTradeNo(),
+                requestKey));
         markOrderPaid(payment.orderId());
         deductCheckoutInventory(checkoutLines);
+        authoritativeTrackingPort.recordPaymentSuccess(
+                updated.userId(), updated.orderId(), updated.paidAmount(), updated.paidAt());
         audit(
                 AuditService.PAYMENT_PAID,
                 payment.userId(),
@@ -1554,7 +2069,7 @@ public class PaymentApplicationService {
         if (!PaymentStatus.PENDING.equals(payment.status())) {
             return payment;
         }
-        transitionResolver.nextStatus(payment.status(), PaymentEvent.FAIL);
+        nextPaymentStatus(payment.status(), PaymentEvent.FAIL);
         PaymentOrder failed = paymentStore.savePayment(payment.fail(now()));
         audit(AuditService.PAYMENT_FAILED, payment.userId(), payment.paymentNo(), null, "requestKey=" + requestKey);
         return failed;
@@ -1562,8 +2077,16 @@ public class PaymentApplicationService {
 
     private PaymentReconciliationReport reconcileInternal(
             PaymentMethod provider, LocalDate reportDate, List<ReconciliationLine> providerLines) {
+        return reconcileInternal(provider, reportDate, providerLines, false);
+    }
+
+    private PaymentReconciliationReport reconcileInternal(
+            PaymentMethod provider,
+            LocalDate reportDate,
+            List<ReconciliationLine> providerLines,
+            boolean authoritativeProviderStatement) {
         List<PaymentOrder> platformPayments = paymentStore.findPaidByProviderAndDate(provider, reportDate);
-        if (providerLines == null || providerLines.isEmpty()) {
+        if (!authoritativeProviderStatement && (providerLines == null || providerLines.isEmpty())) {
             return savePendingProviderDataReport(provider, reportDate, platformPayments);
         }
         Map<String, PaymentOrder> platformByPaymentNo = new LinkedHashMap<>();
@@ -1578,8 +2101,19 @@ public class PaymentApplicationService {
         for (PaymentOrder payment : platformPayments) {
             ReconciliationLine providerLine = providerByPaymentNo.get(payment.paymentNo());
             if (providerLine == null || payment.paidAmount().compareTo(providerLine.amount()) != 0) {
+                int issueIndex = issues.size();
                 issues.add("platform:" + payment.paymentNo());
-                suspendIfPossible(payment);
+                try {
+                    suspendIfPossible(payment);
+                } catch (PaymentTransitionFailure exception) {
+                    // A single payment's state-machine conflict must not prevent the remainder of the report from
+                    // being built. Keep the row as an explicit unresolved reconciliation issue for the next run.
+                    issues.set(issueIndex, "platform:" + payment.paymentNo() + ":suspend-failed");
+                    log.warn(
+                            "Payment reconciliation could not suspend payment {} after a mismatch",
+                            payment.paymentNo(),
+                            exception);
+                }
             }
         }
         for (ReconciliationLine providerLine : providerLines) {
@@ -1636,10 +2170,30 @@ public class PaymentApplicationService {
         return report;
     }
 
-    private void suspendIfPossible(PaymentOrder payment) {
-        if (PaymentStatus.PAID.equals(payment.status()) || PaymentStatus.PARTIALLY_REFUNDED.equals(payment.status())) {
-            transitionResolver.nextStatus(payment.status(), PaymentEvent.SUSPEND);
-            paymentStore.savePayment(payment.suspend(now()));
+    private void suspendIfPossible(PaymentOrder candidate) {
+        paymentTransactions.execute(() -> {
+            paymentStore
+                    .withLockedPayment(candidate.paymentNo(), payment -> {
+                        if (!PaymentStatus.PAID.equals(payment.status())
+                                && !PaymentStatus.PARTIALLY_REFUNDED.equals(payment.status())) {
+                            return payment;
+                        }
+                        if (money(paymentStore.sumAcceptedRefundAmount(payment.id())).compareTo(BigDecimal.ZERO) > 0) {
+                            return payment;
+                        }
+                        nextPaymentStatus(payment.status(), PaymentEvent.SUSPEND);
+                        return paymentStore.savePayment(payment.suspend(now()));
+                    })
+                    .orElse(null);
+            return null;
+        });
+    }
+
+    private PaymentStatus nextPaymentStatus(PaymentStatus currentStatus, PaymentEvent event) {
+        try {
+            return transitionResolver.nextStatus(currentStatus, event);
+        } catch (RuntimeException exception) {
+            throw new PaymentTransitionFailure(currentStatus, event, exception);
         }
     }
 
@@ -1661,11 +2215,13 @@ public class PaymentApplicationService {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Payment callback signature is invalid");
         }
         String expected = signature(
+                TenantContext.currentTenantIdOrDefault(),
                 request.provider(),
                 request.paymentNo(),
                 request.providerTradeNo(),
                 money(request.amount()),
                 request.status(),
+                request.callbackId(),
                 callbackSecret);
         if (!MessageDigest.isEqual(
                 expected.getBytes(StandardCharsets.UTF_8),
@@ -1674,15 +2230,69 @@ public class PaymentApplicationService {
         }
     }
 
+    private static void assertProviderMatches(PaymentMethod expected, PaymentMethod actual) {
+        if (!Objects.equals(expected, actual)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Payment callback provider does not match");
+        }
+    }
+
+    public static String signature(
+            long tenantId,
+            PaymentMethod provider,
+            String paymentNo,
+            String providerTradeNo,
+            BigDecimal amount,
+            String status,
+            String callbackId,
+            String secret) {
+        return sha256Hex(
+                tenantId
+                        + ":"
+                        + provider
+                        + ":"
+                        + paymentNo
+                        + ":"
+                        + providerTradeNo
+                        + ":"
+                        + money(amount)
+                        + ":"
+                        + status
+                        + ":"
+                        + callbackId
+                        + ":"
+                        + secret);
+    }
+
+    /**
+     * Compatibility helper for callers that sign platform-tenant callbacks. Runtime verification always signs
+     * with the active tenant context through the overload above.
+     */
     public static String signature(
             PaymentMethod provider,
             String paymentNo,
             String providerTradeNo,
             BigDecimal amount,
             String status,
+            String callbackId,
             String secret) {
-        return sha256Hex(
-                provider + ":" + paymentNo + ":" + providerTradeNo + ":" + money(amount) + ":" + status + ":" + secret);
+        return signature(
+                TenantContext.currentTenantIdOrDefault(),
+                provider,
+                paymentNo,
+                providerTradeNo,
+                amount,
+                status,
+                callbackId,
+                secret);
+    }
+
+    private void verifyCallbackTenant(String paymentNo) {
+        long requestTenantId = TenantContext.currentTenantIdOrDefault();
+        paymentStore.findTenantIdByPaymentNo(paymentNo).ifPresent(persistedTenantId -> {
+            if (persistedTenantId == null || persistedTenantId.longValue() != requestTenantId) {
+                throw new BusinessException(ErrorCode.CONFLICT, "Payment callback tenant does not match payment");
+            }
+        });
     }
 
     private PaymentOrder requirePayment(String paymentNo) {
@@ -1725,6 +2335,19 @@ public class PaymentApplicationService {
     private static void assertAmountMatches(BigDecimal expected, BigDecimal actual) {
         if (money(expected).compareTo(money(actual)) != 0) {
             throw new BusinessException(ErrorCode.CONFLICT, "Payment callback amount does not match");
+        }
+    }
+
+    private static void assertGatewayAmountMatches(BigDecimal expected, BigDecimal actual) {
+        if (money(expected).compareTo(money(actual)) != 0) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Payment gateway amount does not match");
+        }
+    }
+
+    private static void assertGatewayStatus(
+            PaymentGatewayResult result, Set<PaymentStatus> allowedStatuses, String operation) {
+        if (result == null || result.status() == null || !allowedStatuses.contains(result.status())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Payment gateway returned an invalid " + operation + " status");
         }
     }
 
@@ -1813,6 +2436,18 @@ public class PaymentApplicationService {
         return secret.trim();
     }
 
+    private static PaymentReconciliationSource defaultReconciliationSource() {
+        return (provider, reportDate) -> {
+            throw new BusinessException(
+                    ErrorCode.SERVICE_UNAVAILABLE,
+                    "Payment reconciliation provider statement is unavailable");
+        };
+    }
+
+    private static CommercialRiskGate allowingCommercialRiskGate() {
+        return (userId, activityId, productId, orderId, deviceFingerprint, clientIp, operation) -> {};
+    }
+
     private static Duration requirePositiveDuration(Duration configured, Duration defaultValue, String description) {
         Duration value = configured == null ? defaultValue : configured;
         if (value.isZero() || value.isNegative()) {
@@ -1845,4 +2480,25 @@ public class PaymentApplicationService {
             PaymentOrder payment, PaymentStore.RefundRequest refund, PaymentRequestFingerprint fingerprint) {}
 
     private record RefundCompletion(PaymentOrder payment, PaymentStore.RefundRequest refund, boolean completedNow) {}
+
+    private static final class PaymentTransitionFailure extends RuntimeException {
+
+        private PaymentTransitionFailure(PaymentStatus currentStatus, PaymentEvent event, RuntimeException cause) {
+            super("Payment state transition failed for " + currentStatus + " and " + event, cause);
+        }
+    }
+
+    private static AuthoritativeTrackingPort compatibilityTrackingPort() {
+        return (userId, orderId, productId, amount, occurredAt) -> {};
+    }
+
+    private static PurchasePointsLifecycle compatibilityPurchasePointsLifecycle() {
+        return new PurchasePointsLifecycle() {
+            @Override
+            public void onPaymentSucceeded(PurchasePointsLifecycle.PurchasePayment payment) {}
+
+            @Override
+            public void onRefundSucceeded(PurchasePointsLifecycle.PurchaseRefund refund) {}
+        };
+    }
 }

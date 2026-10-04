@@ -4,6 +4,16 @@ export interface PaymentRedirectNavigator {
 
 const EXPLICIT_SCHEME = /^[a-z][a-z\d+.-]*:/i
 const SAFE_RELATIVE_PREFIX = /^(?:\/|\.\/|\.\.\/|\?|#)/
+const PAYMENT_HOSTS = [
+  'pay.weixin.qq.com',
+  'wx.tenpay.com',
+  'openapi.alipay.com',
+  'openapi.alipaydev.com',
+  'mapi.alipay.com',
+  'qr.alipay.com',
+  'excashier.alipay.com',
+  'gateway.95516.com',
+]
 
 function containsControlCharacter(value: string): boolean {
   return Array.from(value).some((character) => {
@@ -33,8 +43,9 @@ export function resolvePaymentRedirectUrl(
     const isSameOrigin = destination.origin === currentPage.origin
     const usesAllowedProtocol =
       destination.protocol === 'https:' || (destination.protocol === 'http:' && isSameOrigin)
+    const hostAllowed = isSameOrigin || isPaymentHost(destination.hostname)
 
-    if (!usesAllowedProtocol || destination.username || destination.password) {
+    if (!usesAllowedProtocol || !hostAllowed || destination.username || destination.password) {
       return null
     }
 
@@ -42,6 +53,11 @@ export function resolvePaymentRedirectUrl(
   } catch {
     return null
   }
+}
+
+function isPaymentHost(hostname: string): boolean {
+  const host = hostname.toLowerCase()
+  return PAYMENT_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))
 }
 
 export function navigateToPaymentProvider(

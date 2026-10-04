@@ -18,6 +18,9 @@ public interface PaymentOrderRepository extends JpaRepository<PaymentOrderEntity
 
     Optional<PaymentOrderEntity> findByPaymentNo(String paymentNo);
 
+    @Query(value = "select tenant_id from payment_order where payment_no = :paymentNo", nativeQuery = true)
+    Optional<Long> findTenantIdByPaymentNo(@Param("paymentNo") String paymentNo);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select payment from PaymentOrderEntity payment where payment.paymentNo = :paymentNo")
     Optional<PaymentOrderEntity> findByPaymentNoForUpdate(@Param("paymentNo") String paymentNo);

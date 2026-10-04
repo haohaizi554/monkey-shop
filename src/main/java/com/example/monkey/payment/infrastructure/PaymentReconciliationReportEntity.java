@@ -9,12 +9,18 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "payment_reconciliation_report")
+@Table(
+        name = "payment_reconciliation_report",
+        uniqueConstraints =
+                @UniqueConstraint(
+                        name = "uk_payment_reconciliation_provider_date",
+                        columnNames = {"tenant_id", "provider", "report_date"}))
 public class PaymentReconciliationReportEntity extends TenantScopedJpaEntity {
 
     @Id

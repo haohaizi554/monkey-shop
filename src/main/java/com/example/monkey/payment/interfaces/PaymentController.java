@@ -8,8 +8,6 @@ import com.example.monkey.payment.application.dto.PaymentReconciliationResponseD
 import com.example.monkey.payment.application.dto.PaymentRefundRequestDto;
 import com.example.monkey.payment.application.dto.PaymentRefundResponseDto;
 import com.example.monkey.payment.application.dto.PaymentResponseDto;
-import com.example.monkey.risk.application.RiskApplicationService;
-import com.example.monkey.risk.application.dto.RiskAssessmentRequestDto;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.interfaces.dto.Result;
 import com.example.monkey.shared.interfaces.web.ClientIps;
@@ -31,12 +29,9 @@ import org.springframework.web.bind.annotation.RestController;
 public class PaymentController {
 
     private final PaymentApplicationService paymentApplicationService;
-    private final RiskApplicationService riskApplicationService;
 
-    public PaymentController(
-            PaymentApplicationService paymentApplicationService, RiskApplicationService riskApplicationService) {
+    public PaymentController(PaymentApplicationService paymentApplicationService) {
         this.paymentApplicationService = paymentApplicationService;
-        this.riskApplicationService = riskApplicationService;
     }
 
     @PostMapping("/pay")
@@ -47,22 +42,12 @@ public class PaymentController {
             @Valid @RequestBody PaymentCreateRequestDto request,
             @AuthenticationPrincipal SessionUser currentUser,
             HttpServletRequest httpRequest) {
-        riskApplicationService.requireAllowed(
+        return Result.success(paymentApplicationService.createPayment(
                 currentUser,
-                new RiskAssessmentRequestDto(
-                        null,
-                        deviceFingerprint,
-                        null,
-                        null,
-                        request.orderId(),
-                        null,
-                        null,
-                        null,
-                        null,
-                        request.totpCode()),
-                ClientIps.resolve(httpRequest),
-                "payment.create");
-        return Result.success(paymentApplicationService.createPayment(currentUser, request, idempotencyKey));
+                request,
+                idempotencyKey,
+                deviceFingerprint,
+                ClientIps.resolve(httpRequest)));
     }
 
     @PostMapping("/callback")

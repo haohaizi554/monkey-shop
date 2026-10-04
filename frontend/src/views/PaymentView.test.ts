@@ -75,7 +75,7 @@ async function mountPayment(): Promise<MountedView> {
   app.mount(host)
   const view = { app, host, router }
   mounted.push(view)
-  await vi.waitFor(() => expect(paymentsApi.paymentForOrder).toHaveBeenCalledWith(42))
+  await vi.waitFor(() => expect(paymentsApi.paymentForOrder).toHaveBeenCalledWith('42'))
   await nextTick()
   return view
 }
@@ -114,9 +114,28 @@ afterEach(() => {
 })
 
 describe('PaymentView provider redirect', () => {
+  it('rejects a malformed order ID before creating a payment', async () => {
+    const { host } = await mountPayment()
+    const lookupInput = host.querySelector<HTMLInputElement>('.lookup-task input')
+    expect(lookupInput).not.toBeNull()
+    lookupInput!.value = 'not-an-order-id'
+    lookupInput!.dispatchEvent(new Event('input', { bubbles: true }))
+    await nextTick()
+
+    const createForm = host.querySelector<HTMLFormElement>('.create-task form')
+    expect(createForm).not.toBeNull()
+    createForm!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await nextTick()
+
+    expect(paymentsApi.createPayment).not.toHaveBeenCalled()
+    expect(host.querySelector('.create-task .task-error')?.textContent).toContain(
+      i18n.global.t('payment.createFailed'),
+    )
+  })
+
   it('automatically opens a safe provider URL after creating a pending payment', async () => {
     vi.mocked(paymentsApi.createPayment).mockResolvedValue(
-      payment({ paymentUrl: 'https://pay.example.test/checkout/PAY-42' }),
+      payment({ paymentUrl: 'https://pay.weixin.qq.com/checkout/PAY-42' }),
     )
     const { host } = await mountPayment()
 
@@ -124,7 +143,7 @@ describe('PaymentView provider redirect', () => {
 
     await vi.waitFor(() =>
       expect(navigateToPaymentProvider).toHaveBeenCalledWith(
-        'https://pay.example.test/checkout/PAY-42',
+        'https://pay.weixin.qq.com/checkout/PAY-42',
       ),
     )
     expect(host.querySelector('[data-testid="payment-provider-continue"]')).not.toBeNull()

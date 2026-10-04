@@ -4,6 +4,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiError } from '@/api/http'
+import { normalizeApiId, parsePositiveApiId, sameApiId, type ApiId } from '@/api/ids'
 import * as paymentsApi from '@/api/payments'
 import MascotState, { type MascotPose } from '@/components/mascot/MascotState.vue'
 import AsyncStateView from '@/components/ui/AsyncStateView.vue'
@@ -33,7 +34,7 @@ const refundReason = ref('')
 const orderQueue = ref(readOrderQueue())
 
 const form = reactive({
-  orderId: orderQueue.value[0] ?? 0,
+  orderId: orderQueue.value[0] ?? null,
   method: 'WECHAT' as PaymentMethod,
   bankCardNo: '',
   totpCode: '',
@@ -126,25 +127,28 @@ const paymentCreationAllowed = computed(
   () => payment.value === null || payment.value.status === 'FAILED',
 )
 
-function readOrderQueue(): number[] {
+function readOrderQueue(): ApiId[] {
   const rawOrderIds = Array.isArray(route.query.orderIds)
     ? route.query.orderIds.join(',')
     : String(route.query.orderIds ?? '')
   const candidates = [route.params.orderId, route.query.orderId, ...rawOrderIds.split(',')]
-  return Array.from(
-    new Set(
-      candidates
-        .map((value) => Number(value ?? 0))
-        .filter((value) => Number.isSafeInteger(value) && value > 0),
-    ),
-  )
+  const seen = new Set<string>()
+  const ids: ApiId[] = []
+  for (const candidate of candidates) {
+    const id = parsePositiveApiId(candidate)
+    if (id === undefined) continue
+    const key = normalizeApiId(id)
+    if (seen.has(key)) continue
+    seen.add(key)
+    ids.push(id)
+  }
+  return ids
 }
 
-function rememberOrder(orderId: number) {
-  if (!Number.isSafeInteger(orderId) || orderId <= 0 || orderQueue.value.includes(orderId)) {
-    return
-  }
-  orderQueue.value = [...orderQueue.value, orderId]
+function rememberOrder(orderId: ApiId) {
+  const normalized = parsePositiveApiId(orderId)
+  if (normalized === undefined || orderQueue.value.some((id) => sameApiId(id, normalized))) return
+  orderQueue.value = [...orderQueue.value, normalized]
 }
 
 function localized(english: string, chinese: string): string {
@@ -202,19 +206,26 @@ async function loadPayment() {
   if (fundsOperationPending.value) {
     return
   }
-  rememberOrder(form.orderId)
+  const orderId = parsePositiveApiId(form.orderId)
+  if (orderId === undefined) {
+    paymentResource.reset()
+    return
+  }
+  form.orderId = orderId
+  rememberOrder(orderId)
   await fetchPayment()
 }
 
 async function fetchPayment() {
-  if (!form.orderId) {
+  const orderId = parsePositiveApiId(form.orderId)
+  if (orderId === undefined) {
     paymentResource.reset()
     return
   }
   await paymentResource.load(
     async () => {
       try {
-        const result = await paymentsApi.paymentForOrder(form.orderId)
+        const result = await paymentsApi.paymentForOrder(orderId)
         return isPaymentResponse(result) ? result : null
       } catch (error) {
         if (error instanceof ApiError && error.status === 404) {
@@ -230,8 +241,8 @@ async function fetchPayment() {
   )
 }
 
-async function selectOrder(orderId: number) {
-  if (paymentControlsLocked.value || orderId === form.orderId) {
+async function selectOrder(orderId: ApiId) {
+  if (paymentControlsLocked.value || sameApiId(orderId, form.orderId)) {
     return
   }
   form.orderId = orderId
@@ -273,12 +284,18 @@ function openPaymentProvider(destination = paymentRedirectUrl.value) {
 }
 
 async function submitPayment() {
-  if (!form.orderId || paymentControlsLocked.value || !paymentCreationAllowed.value) {
+  const orderId = parsePositiveApiId(form.orderId)
+  if (orderId === undefined) {
+    createError.value = t('payment.createFailed')
+    return
+  }
+  if (paymentControlsLocked.value || !paymentCreationAllowed.value) {
     return
   }
 
+  form.orderId = orderId
   const payload = {
-    orderId: form.orderId,
+    orderId,
     method: form.method,
     bankCardNo: form.method === 'BANK_CARD' ? form.bankCardNo : undefined,
     totpCode: form.totpCode || undefined,
@@ -392,8 +409,8 @@ onMounted(() => {
           :key="orderId"
           type="button"
           class="order-queue__item"
-          :class="{ 'is-current': orderId === form.orderId }"
-          :aria-pressed="orderId === form.orderId"
+          :class="{ 'is-current': sameApiId(orderId, form.orderId) }"
+          :aria-pressed="sameApiId(orderId, form.orderId)"
           :disabled="paymentControlsLocked"
           @click="selectOrder(orderId)"
         >
@@ -408,10 +425,8 @@ onMounted(() => {
         {{ $t('common.search') }} {{ $t('common.payment') }}
       </h2>
       <form class="task-form task-form--inline" @submit.prevent="loadPayment">
-        <el-input-number
+        <el-input
           v-model="form.orderId"
-          :min="1"
-          controls-position="right"
           :disabled="paymentControlsLocked"
           :aria-label="$t('payment.orderId')"
           :placeholder="$t('payment.orderId')"
