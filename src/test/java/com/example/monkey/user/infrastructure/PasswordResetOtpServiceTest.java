@@ -2,14 +2,17 @@ package com.example.monkey.user.infrastructure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.user.domain.PasswordResetDeliveryService;
@@ -23,12 +26,179 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.script.RedisScript;
 
 class PasswordResetOtpServiceTest {
+
+    @AfterEach
+    void clearTenantContext() {
+        TenantContext.clear();
+    }
+
+    @Test
+    void redisOtpCanBeConsumedByExactlyOneConcurrentResetRequest() throws Exception {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        mockRedisValues(redisTemplate);
+        AtomicReference<String> storedHash = new AtomicReference<>(sha256Hex("654321"));
+        when(redisTemplate.execute(any(RedisScript.class), anyList()))
+                .thenAnswer(ignored -> storedHash.getAndSet(null));
+        PasswordResetOtpService service = new PasswordResetOtpService(
+                new MutableClock(),
+                () -> 654321,
+                () -> "email-token",
+                PasswordResetDeliveryService.noop(),
+                redisTemplate,
+                true);
+
+        assertThat(runConcurrentConsumers(
+                        () -> service.consumeResetOtp("alice", "18888888888", "654321")))
+                .containsExactlyInAnyOrder(true, false);
+    }
+
+    @Test
+    void redisDualChannelChallengeCanBeConsumedByExactlyOneConcurrentResetRequest() throws Exception {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        mockRedisValues(redisTemplate);
+        AtomicReference<String> storedHashes =
+                new AtomicReference<>(sha256Hex("654321") + ":" + sha256Hex("email-token"));
+        when(redisTemplate.execute(any(RedisScript.class), anyList()))
+                .thenAnswer(ignored -> storedHashes.getAndSet(null));
+        PasswordResetOtpService service = new PasswordResetOtpService(
+                new MutableClock(),
+                () -> 654321,
+                () -> "email-token",
+                PasswordResetDeliveryService.noop(),
+                redisTemplate,
+                true);
+
+        assertThat(runConcurrentConsumers(() -> service.consumeResetChallenge(
+                        "alice", "18888888888", "alice@example.com", "654321", "email-token")))
+                .containsExactlyInAnyOrder(true, false);
+    }
+
+    @Test
+    void redisDualChannelKeysShareOneClusterSlotAndAreTenantScoped() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        mockRedisValues(redisTemplate);
+        List<List<String>> keyBatches = new ArrayList<>();
+        when(redisTemplate.execute(any(RedisScript.class), anyList())).thenAnswer(invocation -> {
+            keyBatches.add(List.copyOf(invocation.getArgument(1)));
+            return sha256Hex("654321") + ":" + sha256Hex("email-token");
+        });
+        PasswordResetOtpService service = new PasswordResetOtpService(
+                new MutableClock(),
+                () -> 654321,
+                () -> "email-token",
+                PasswordResetDeliveryService.noop(),
+                redisTemplate,
+                true);
+
+        TenantContext.setTenantId(1L);
+        assertThat(service.consumeResetChallenge(
+                        "alice", "18888888888", "alice@example.com", "654321", "email-token"))
+                .isTrue();
+        TenantContext.setTenantId(2L);
+        assertThat(service.consumeResetChallenge(
+                        "alice", "18888888888", "alice@example.com", "654321", "email-token"))
+                .isTrue();
+
+        assertThat(keyBatches).hasSize(2).allSatisfy(keys -> {
+            assertThat(keys).hasSize(2);
+            assertThat(redisHashTag(keys.get(0))).isNotBlank().isEqualTo(redisHashTag(keys.get(1)));
+        });
+        assertThat(redisHashTag(keyBatches.get(0).get(0)))
+                .isNotEqualTo(redisHashTag(keyBatches.get(1).get(0)));
+    }
+
+    @Test
+    void redisDualChannelStateIsStoredAtomicallyInOneClusterSlot() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        mockRedisValues(redisTemplate);
+        List<List<String>> dualStoreKeyBatches = new ArrayList<>();
+        List<String> dualStoreScripts = new ArrayList<>();
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class)))
+                .thenAnswer(invocation -> {
+                    RedisScript<?> script = invocation.getArgument(0);
+                    if (script.getScriptAsString().contains("PSETEX', KEYS[2]")) {
+                        dualStoreScripts.add(script.getScriptAsString());
+                        dualStoreKeyBatches.add(List.copyOf(invocation.getArgument(1)));
+                    }
+                    return 1L;
+                });
+        PasswordResetOtpService service = new PasswordResetOtpService(
+                new MutableClock(),
+                () -> 654321,
+                () -> "email-token",
+                PasswordResetDeliveryService.noop(),
+                redisTemplate,
+                true);
+
+        TenantContext.setTenantId(7L);
+        service.issueResetChallenge("alice", "18888888888", "alice@example.com", true);
+
+        assertThat(dualStoreScripts)
+                .singleElement()
+                .satisfies(script -> assertThat(script)
+                        .contains("PSETEX', KEYS[1]", "PSETEX', KEYS[2]")
+                        .doesNotContain("DEL"));
+        assertThat(dualStoreKeyBatches)
+                .singleElement()
+                .satisfies(keys -> {
+                    assertThat(keys).hasSize(2);
+                    assertThat(redisHashTag(keys.get(0))).isNotBlank().isEqualTo(redisHashTag(keys.get(1)));
+                });
+    }
+
+    @Test
+    void redisPhoneRateLimitIsOneAtomicTenantScopedClusterSlotOperation() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        mockRedisValues(redisTemplate);
+        List<List<String>> keyBatches = new ArrayList<>();
+        List<String> scripts = new ArrayList<>();
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class)))
+                .thenAnswer(invocation -> {
+                    RedisScript<?> script = invocation.getArgument(0);
+                    scripts.add(script.getScriptAsString());
+                    keyBatches.add(List.copyOf(invocation.getArgument(1)));
+                    return 1L;
+                });
+        PasswordResetOtpService service = new PasswordResetOtpService(
+                new MutableClock(),
+                () -> 654321,
+                () -> "email-token",
+                PasswordResetDeliveryService.noop(),
+                redisTemplate,
+                true);
+
+        TenantContext.setTenantId(1L);
+        service.issueResetOtp("alice", "18888888888", true);
+        TenantContext.setTenantId(2L);
+        service.issueResetOtp("alice", "18888888888", true);
+
+        assertThat(keyBatches).hasSize(2).allSatisfy(keys -> {
+            assertThat(keys).hasSize(2);
+            assertThat(redisHashTag(keys.get(0))).isNotBlank().isEqualTo(redisHashTag(keys.get(1)));
+            assertThat(keys).noneMatch(key -> key.contains("18888888888"));
+        });
+        assertThat(redisHashTag(keyBatches.get(0).get(0)))
+                .isNotEqualTo(redisHashTag(keyBatches.get(1).get(0)));
+        assertThat(scripts)
+                .hasSize(2)
+                .allSatisfy(script -> assertThat(script)
+                        .contains("EXISTS", "INCR", "PEXPIRE", "PSETEX")
+                        .doesNotContain("GETSET"));
+    }
 
     @Test
     void issuedOtpCanBeConsumedOnceBeforeExpiration() {
@@ -253,42 +423,27 @@ class PasswordResetOtpServiceTest {
     void requiredRedisStateStoresAndConsumesDualChannelChallenge() {
         MutableClock clock = new MutableClock();
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        ValueOperations<String, String> redisValues = mockRedisValues(redisTemplate);
-        when(redisTemplate.hasKey(startsWith("password-reset:cooldown:"))).thenReturn(false);
-        when(redisValues.increment(startsWith("password-reset:daily:"))).thenReturn(1L);
+        mockRedisValues(redisTemplate);
         RecordingDelivery delivery = new RecordingDelivery();
         PasswordResetOtpService service =
                 new PasswordResetOtpService(clock, () -> 654321, () -> "email-token", delivery, redisTemplate, true);
 
         service.issueResetChallenge("alice", "18888888888", "alice@example.com", true);
-        when(redisValues.get(anyString())).thenAnswer(invocation -> {
-            String key = invocation.getArgument(0);
-            if (key.startsWith("password-reset:otp:")) {
-                return sha256Hex("654321");
-            }
-            if (key.startsWith("password-reset:email:")) {
-                return sha256Hex("email-token");
-            }
-            return null;
-        });
+        when(redisTemplate.execute(any(RedisScript.class), anyList()))
+                .thenReturn(sha256Hex("654321") + ":" + sha256Hex("email-token"));
 
         assertThat(delivery.smsMessages).containsExactly("18888888888:654321");
         assertThat(delivery.emailMessages).containsExactly("alice@example.com:email-token");
         assertThat(service.consumeResetChallenge("alice", "18888888888", "alice@example.com", "654321", "email-token"))
                 .isTrue();
-        verify(redisValues).set(startsWith("password-reset:otp:"), eq(sha256Hex("654321")), eq(Duration.ofMinutes(5)));
-        verify(redisValues)
-                .set(startsWith("password-reset:email:"), eq(sha256Hex("email-token")), eq(Duration.ofMinutes(5)));
-        verify(redisValues).set(startsWith("password-reset:cooldown:"), eq("1"), eq(Duration.ofMinutes(1)));
-        verify(redisTemplate).delete(startsWith("password-reset:otp:"));
-        verify(redisTemplate).delete(startsWith("password-reset:email:"));
+        verify(redisTemplate, times(3)).execute(any(RedisScript.class), anyList(), any(Object[].class));
     }
 
     @Test
     void requiredRedisStateEnforcesPhoneCooldownFromRedis() {
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
         mockRedisValues(redisTemplate);
-        when(redisTemplate.hasKey(startsWith("password-reset:cooldown:"))).thenReturn(true);
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class))).thenReturn(-1L);
         PasswordResetOtpService service = new PasswordResetOtpService(
                 new MutableClock(),
                 () -> 654321,
@@ -306,9 +461,8 @@ class PasswordResetOtpServiceTest {
     @Test
     void requiredRedisStateLimitsDailyCountFromRedis() {
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        ValueOperations<String, String> redisValues = mockRedisValues(redisTemplate);
-        when(redisTemplate.hasKey(startsWith("password-reset:cooldown:"))).thenReturn(false);
-        when(redisValues.increment(startsWith("password-reset:daily:"))).thenReturn(6L);
+        mockRedisValues(redisTemplate);
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class))).thenReturn(-1L);
         PasswordResetOtpService service = new PasswordResetOtpService(
                 new MutableClock(),
                 () -> 654321,
@@ -326,9 +480,8 @@ class PasswordResetOtpServiceTest {
     @Test
     void requiredRedisStateAllowsFifthDailyResetRequestBoundary() {
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        ValueOperations<String, String> redisValues = mockRedisValues(redisTemplate);
-        when(redisTemplate.hasKey(startsWith("password-reset:cooldown:"))).thenReturn(false);
-        when(redisValues.increment(startsWith("password-reset:daily:"))).thenReturn(5L);
+        mockRedisValues(redisTemplate);
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class))).thenReturn(5L);
         PasswordResetOtpService service = new PasswordResetOtpService(
                 new MutableClock(),
                 () -> 654321,
@@ -339,15 +492,13 @@ class PasswordResetOtpServiceTest {
 
         service.issueResetOtp("alice", "18888888888", true);
 
-        verify(redisValues).set(startsWith("password-reset:cooldown:"), eq("1"), eq(Duration.ofMinutes(1)));
+        verify(redisTemplate).execute(any(RedisScript.class), anyList(), any(Object[].class));
     }
 
     @Test
     void requiredRedisStateFailsClosedWhenRedisUnavailable() {
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
         ValueOperations<String, String> redisValues = mockRedisValues(redisTemplate);
-        when(redisTemplate.hasKey(startsWith("password-reset:cooldown:"))).thenReturn(false);
-        when(redisValues.increment(startsWith("password-reset:daily:"))).thenReturn(1L);
         doThrow(new RuntimeException("redis unavailable"))
                 .when(redisValues)
                 .set(startsWith("password-reset:otp:"), eq(sha256Hex("654321")), eq(Duration.ofMinutes(5)));
@@ -368,8 +519,9 @@ class PasswordResetOtpServiceTest {
     @Test
     void requiredRedisStateFailsClosedWhenConsumingStoredOtpFails() {
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-        ValueOperations<String, String> redisValues = mockRedisValues(redisTemplate);
-        when(redisValues.get(startsWith("password-reset:otp:"))).thenThrow(new RuntimeException("redis unavailable"));
+        mockRedisValues(redisTemplate);
+        when(redisTemplate.execute(any(RedisScript.class), anyList()))
+                .thenThrow(new RuntimeException("redis unavailable"));
         PasswordResetOtpService service = new PasswordResetOtpService(
                 new MutableClock(),
                 () -> 654321,
@@ -407,6 +559,35 @@ class PasswordResetOtpServiceTest {
         }
     }
 
+    private static List<Boolean> runConcurrentConsumers(ThrowingBooleanSupplier consumer) throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            Future<Boolean> first = executor.submit(() -> consumeWhenReleased(consumer, ready, start));
+            Future<Boolean> second = executor.submit(() -> consumeWhenReleased(consumer, ready, start));
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            return List.of(first.get(5, TimeUnit.SECONDS), second.get(5, TimeUnit.SECONDS));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private static boolean consumeWhenReleased(
+            ThrowingBooleanSupplier consumer, CountDownLatch ready, CountDownLatch start) throws Exception {
+        ready.countDown();
+        if (!start.await(5, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("Concurrent reset consumers did not start");
+        }
+        return consumer.getAsBoolean();
+    }
+
+    @FunctionalInterface
+    private interface ThrowingBooleanSupplier {
+        boolean getAsBoolean() throws Exception;
+    }
+
     private static final class RecordingDelivery implements PasswordResetDeliveryService {
 
         private final List<String> smsMessages = new ArrayList<>();
@@ -440,6 +621,7 @@ class PasswordResetOtpServiceTest {
     private static ValueOperations<String, String> mockRedisValues(StringRedisTemplate redisTemplate) {
         ValueOperations<String, String> redisValues = mock(ValueOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(redisValues);
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class))).thenReturn(1L);
         return redisValues;
     }
 
@@ -450,5 +632,11 @@ class PasswordResetOtpServiceTest {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 digest is unavailable", e);
         }
+    }
+
+    private static String redisHashTag(String key) {
+        int start = key.indexOf('{');
+        int end = key.indexOf('}', start + 1);
+        return start >= 0 && end > start + 1 ? key.substring(start + 1, end) : "";
     }
 }

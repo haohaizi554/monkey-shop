@@ -10,8 +10,6 @@ import com.example.monkey.tenant.domain.TenantDataExportJob;
 import com.example.monkey.tenant.domain.TenantExportStatus;
 import com.example.monkey.tenant.domain.TenantStatus;
 import com.example.monkey.tenant.domain.TenantStore;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -30,16 +28,14 @@ import org.springframework.util.StringUtils;
 @ConditionalOnProperty(name = "app.tenant.store", havingValue = "jpa", matchIfMissing = true)
 public class JpaTenantStore implements TenantStore, TenantAccessGateway {
 
-    private static final TypeReference<Map<String, String>> SETTINGS_TYPE = new TypeReference<>() {};
-
     private final TenantRepository tenantRepository;
     private final TenantConfigRepository configRepository;
     private final TenantConfigHistoryRepository historyRepository;
     private final TenantBillRepository billRepository;
     private final TenantDataExportJobRepository exportJobRepository;
     private final PiiCryptoService piiCryptoService;
-    private final ObjectMapper objectMapper;
     private final IdGenerator idGenerator;
+    private final TenantConfigSettingsCodec settingsCodec;
 
     public JpaTenantStore(
             TenantRepository tenantRepository,
@@ -56,8 +52,8 @@ public class JpaTenantStore implements TenantStore, TenantAccessGateway {
         this.billRepository = billRepository;
         this.exportJobRepository = exportJobRepository;
         this.piiCryptoService = piiCryptoService;
-        this.objectMapper = objectMapper;
         this.idGenerator = idGenerator;
+        this.settingsCodec = new TenantConfigSettingsCodec(piiCryptoService, objectMapper);
     }
 
     @Override
@@ -109,12 +105,15 @@ public class JpaTenantStore implements TenantStore, TenantAccessGateway {
         Optional<TenantConfigEntity> existing = configRepository.findByTenantIdAndConfigTypeAndProvider(
                 config.tenantId(), config.configType(), config.provider());
         String oldSettings = existing.map(TenantConfigEntity::getSettingsJson).orElse(null);
+        Map<String, String> persistedSettings = existing
+                .map(entity -> settingsCodec.decode(entity.getSettingsJson()))
+                .orElse(Map.of());
         TenantConfigEntity entity = existing.orElseGet(TenantConfigEntity::new);
         entity.setId(existing.map(TenantConfigEntity::getId).orElse(config.id()));
         entity.setTenantId(config.tenantId());
         entity.setConfigType(config.configType());
         entity.setProvider(config.provider());
-        entity.setSettingsJson(write(config.settings()));
+        entity.setSettingsJson(settingsCodec.encodeForWrite(config.settings(), persistedSettings));
         entity.setEnabled(config.enabled());
         entity.setUpdatedAt(config.updatedAt());
         entity.setVersion(existing.map(TenantConfigEntity::getVersion).orElse(config.version()));
@@ -256,7 +255,7 @@ public class JpaTenantStore implements TenantStore, TenantAccessGateway {
                 entity.getTenantId(),
                 entity.getConfigType(),
                 entity.getProvider(),
-                read(entity.getSettingsJson()),
+                settingsCodec.decode(entity.getSettingsJson()),
                 entity.isEnabled(),
                 entity.getUpdatedAt(),
                 entity.getVersion() == null ? 0L : entity.getVersion());
@@ -318,7 +317,7 @@ public class JpaTenantStore implements TenantStore, TenantAccessGateway {
         history.setId(idGenerator.nextId());
         history.setTenantId(saved.getTenantId());
         history.setConfigId(saved.getId());
-        history.setOldSettingsJson(oldSettings);
+        history.setOldSettingsJson(oldSettings == null ? null : settingsCodec.reconcile(oldSettings).json());
         history.setNewSettingsJson(saved.getSettingsJson());
         history.setOperatorUserId(operatorUserId);
         history.setChangedAt(saved.getUpdatedAt());
@@ -329,22 +328,4 @@ public class JpaTenantStore implements TenantStore, TenantAccessGateway {
         return StringUtils.hasText(value) ? piiCryptoService.decrypt(value) : "";
     }
 
-    private String write(Map<String, String> settings) {
-        try {
-            return objectMapper.writeValueAsString(settings == null ? Map.of() : settings);
-        } catch (JsonProcessingException exception) {
-            throw new IllegalStateException("Tenant settings cannot be serialized", exception);
-        }
-    }
-
-    private Map<String, String> read(String json) {
-        if (!StringUtils.hasText(json)) {
-            return Map.of();
-        }
-        try {
-            return objectMapper.readValue(json, SETTINGS_TYPE);
-        } catch (JsonProcessingException exception) {
-            throw new IllegalStateException("Tenant settings cannot be deserialized", exception);
-        }
-    }
 }

@@ -220,7 +220,7 @@ public class AuditService {
             long deleted = purgeCurrentTenant(cutoff);
             result = new IterationResult(List.of(TenantContext.currentTenantIdOrDefault()), List.of(), deleted);
         } else {
-            result = activeTenantIterator.forEachActiveTenant(tenantId -> purgeCurrentTenant(cutoff));
+            result = activeTenantIterator.forEachRetainedTenant(tenantId -> purgeCurrentTenant(cutoff));
         }
         log.info(
                 "Audit log retention completed: successfulTenants={}, failedTenants={}, deleted={}",

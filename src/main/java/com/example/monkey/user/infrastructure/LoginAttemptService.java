@@ -2,6 +2,7 @@ package com.example.monkey.user.infrastructure;
 
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
 import com.example.monkey.user.domain.LoginAttemptPolicy;
 import com.example.monkey.user.domain.LoginAttemptState;
@@ -267,9 +268,11 @@ public class LoginAttemptService implements LoginAttemptPolicy {
             throw unavailable();
         }
         String ipHash = sha256Hex(normalizeIp(clientIp));
-        String pairScope = usernameHash + ":" + ipHash;
+        long tenantId = TenantContext.currentTenantIdOrDefault();
+        String redisSlot = "{" + ipHash + "}";
+        String pairScope = redisSlot + ":tenant:" + tenantId + ":user:" + usernameHash;
         return new AttemptKeys(
-                IP_WINDOW_PREFIX + ipHash,
+                IP_WINDOW_PREFIX + redisSlot,
                 PAIR_WINDOW_PREFIX + pairScope,
                 PAIR_FAILURE_PREFIX + pairScope,
                 PAIR_LOCK_PREFIX + pairScope);

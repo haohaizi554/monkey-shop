@@ -98,6 +98,15 @@ class JpaTenantStoreTest {
 
     @Test
     void saveConfigUpsertsAndRecordsConfigHistory() {
+        when(piiCryptoService.encryptionEnabled()).thenReturn(true);
+        when(piiCryptoService.encrypt(any(String.class))).thenAnswer(invocation -> {
+            String value = invocation.getArgument(0);
+            return value.startsWith("enc:") ? value : "enc:" + value;
+        });
+        when(piiCryptoService.decrypt(any(String.class))).thenAnswer(invocation -> {
+            String value = invocation.getArgument(0);
+            return value.startsWith("enc:") ? value.substring("enc:".length()) : value;
+        });
         when(configRepository.findByTenantIdAndConfigTypeAndProvider(200L, TenantConfigType.ROLLOUT, "argo-rollouts"))
                 .thenReturn(Optional.empty());
         when(configRepository.save(any(TenantConfigEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -117,7 +126,8 @@ class JpaTenantStoreTest {
 
         TenantConfigEntity entity = captureConfig();
         TenantConfigHistoryEntity history = captureHistory();
-        assertThat(entity.getSettingsJson()).contains("canaryWeight", "10");
+        assertThat(entity.getSettingsJson()).contains("canaryWeight");
+        assertThat(entity.getSettingsJson()).doesNotContain(":\"10\"");
         assertThat(saved.settings()).containsEntry("revision", "v2");
         assertThat(history.getId()).isEqualTo(9000L);
         assertThat(history.getTenantId()).isEqualTo(200L);

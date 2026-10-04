@@ -4,6 +4,7 @@ import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.storage.ObjectStorageKey;
 import com.example.monkey.shared.domain.storage.ObjectStorageService;
+import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -87,20 +88,20 @@ public class ImageVariantService {
         return Map.copyOf(variants);
     }
 
+    /** Deletes every configured derivative for an immutable canonical object key. */
+    public void deleteVariants(String canonicalObjectKey) throws IOException {
+        if (!enabled || formats.isEmpty() || widths.isEmpty()) {
+            return;
+        }
+        for (VariantFormat format : formats) {
+            for (int width : widths) {
+                objectStorageService.delete(variantObjectKey(canonicalObjectKey, width, format));
+            }
+        }
+    }
+
     public static String canonicalPathForVariant(String imagePath) {
-        if (!StringUtils.hasText(imagePath)) {
-            return imagePath;
-        }
-        int marker = imagePath.lastIndexOf(VARIANT_MARKER);
-        if (marker < 0) {
-            return imagePath;
-        }
-        String canonical = imagePath.substring(0, marker);
-        String lower = canonical.toLowerCase(Locale.ROOT);
-        if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
-            return canonical;
-        }
-        return imagePath;
+        return ImageReferenceService.canonicalPath(imagePath);
     }
 
     public static boolean isVariantPath(String imagePath) {

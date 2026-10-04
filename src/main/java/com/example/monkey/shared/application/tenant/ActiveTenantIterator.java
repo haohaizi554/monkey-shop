@@ -4,6 +4,7 @@ import com.example.monkey.tenant.domain.ActiveTenantReader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -27,12 +28,22 @@ public class ActiveTenantIterator {
 
     public IterationResult forEachActiveTenant(TenantWork tenantWork) {
         Objects.requireNonNull(tenantWork, "tenantWork");
+        return forEachTenant(activeTenantReader::findActiveTenantIds, tenantWork, "Active");
+    }
+
+    public IterationResult forEachRetainedTenant(TenantWork tenantWork) {
+        Objects.requireNonNull(tenantWork, "tenantWork");
+        return forEachTenant(activeTenantReader::findRetainedTenantIds, tenantWork, "Retained");
+    }
+
+    private IterationResult forEachTenant(
+            Supplier<List<Long>> tenantIdsSupplier, TenantWork tenantWork, String tenantPopulation) {
         List<Long> successfulTenantIds = new ArrayList<>();
         List<Long> failedTenantIds = new ArrayList<>();
         long affectedRows = 0L;
         Long previousTenantId = TenantContext.currentTenantId().orElse(null);
         try {
-            for (Long tenantId : activeTenantReader.findActiveTenantIds()) {
+            for (Long tenantId : Objects.requireNonNull(tenantIdsSupplier.get(), tenantPopulation + " tenant IDs")) {
                 if (tenantId == null) {
                     continue;
                 }
@@ -43,7 +54,7 @@ public class ActiveTenantIterator {
                     affectedRows += tenantAffectedRows == null ? 0L : tenantAffectedRows;
                 } catch (RuntimeException exception) {
                     failedTenantIds.add(tenantId);
-                    log.error("Active tenant job failed for tenantId={}", tenantId, exception);
+                    log.error("{} tenant job failed for tenantId={}", tenantPopulation, tenantId, exception);
                 } finally {
                     restoreTenantContext(previousTenantId);
                 }

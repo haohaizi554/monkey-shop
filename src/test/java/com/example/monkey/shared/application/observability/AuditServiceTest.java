@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.shared.application.observability.dto.AuditTraceEventDto;
@@ -111,7 +113,7 @@ class AuditServiceTest {
     void purgeExpiredAuditLogsReturnsTheCrossTenantAggregate() {
         ActiveTenantIterator iterator = mock(ActiveTenantIterator.class);
         IterationResult expected = new IterationResult(List.of(1L, 2L), List.of(3L), 7L);
-        when(iterator.forEachActiveTenant(any())).thenReturn(expected);
+        when(iterator.forEachRetainedTenant(any())).thenReturn(expected);
         AuditService auditService = new AuditService(
                 new TestAuditLogStore(),
                 iterator,
@@ -121,6 +123,8 @@ class AuditServiceTest {
         IterationResult result = auditService.purgeExpiredAuditLogs();
 
         assertThat(result).isSameAs(expected);
+        verify(iterator).forEachRetainedTenant(any());
+        verify(iterator, never()).forEachActiveTenant(any());
     }
 
     @Test

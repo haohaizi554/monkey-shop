@@ -8,6 +8,7 @@ import com.example.monkey.tenant.application.dto.TenantResponseDto;
 import com.example.monkey.tenant.domain.Tenant;
 import com.example.monkey.tenant.domain.TenantBill;
 import com.example.monkey.tenant.domain.TenantConfig;
+import com.example.monkey.tenant.domain.TenantConfigValuePolicy;
 import com.example.monkey.tenant.domain.TenantDashboard;
 import com.example.monkey.tenant.domain.TenantDataExportJob;
 
@@ -35,7 +36,7 @@ public final class TenantDtoAssembler {
                 config.tenantId(),
                 config.configType(),
                 config.provider(),
-                config.settings(),
+                TenantConfigValuePolicy.maskForApi(config.settings()),
                 config.enabled(),
                 config.updatedAt(),
                 config.version());

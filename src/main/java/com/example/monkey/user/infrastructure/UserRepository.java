@@ -12,6 +12,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     long countByAvatar(String avatar);
 
+    long countByAvatarStartingWith(String avatarPrefix);
+
     List<User> findByRole(String role);
 
     // 鏂板锛氭煡鍑烘墍鏈夌敤鎴峰ご鍍忚矾寰?

@@ -9,13 +9,21 @@ import static org.mockito.Mockito.when;
 
 import com.example.monkey.shared.domain.storage.ObjectStorageService;
 import io.minio.GetPresignedObjectUrlArgs;
+import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
 import io.minio.PostPolicy;
 import io.minio.PutObjectArgs;
+import io.minio.RemoveObjectArgs;
+import io.minio.StatObjectArgs;
+import io.minio.StatObjectResponse;
+import io.minio.messages.Item;
+import io.minio.Result;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZonedDateTime;
 import java.util.Map;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class MinioObjectStorageServiceTest {
@@ -83,6 +91,58 @@ class MinioObjectStorageServiceTest {
                 .isThrownBy(() -> storage.store("avatar/alice.png", new byte[] {1}, "image/png"))
                 .withMessage("object storage put failed")
                 .withCauseInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void resolvesOnlyManagedReferencesChecksExistenceAndListsBothImagePrefixes() throws Exception {
+        MinioClient minioClient = mock(MinioClient.class);
+        Item item = mock(Item.class);
+        when(item.objectName()).thenReturn("product/item.png");
+        when(item.isDir()).thenReturn(false);
+        when(item.lastModified()).thenReturn(ZonedDateTime.parse("2026-01-01T00:00:00Z"));
+        @SuppressWarnings("unchecked")
+        Result<Item> result = mock(Result.class);
+        when(result.get()).thenReturn(item);
+        when(minioClient.listObjects(any(ListObjectsArgs.class))).thenReturn(List.of(result));
+        when(minioClient.statObject(any(StatObjectArgs.class))).thenReturn(mock(StatObjectResponse.class));
+        MinioObjectStorageService storage = storage(minioClient, "https://cdn.example.test/assets/");
+
+        assertThat(storage.resolveObjectKey("https://cdn.example.test/assets/product/item.png"))
+                .isEqualTo("product/item.png");
+        assertThat(storage.resolveObjectKey("https://unrelated.example.test/product/item.png")).isNull();
+        assertThat(storage.exists("product/item.png")).isTrue();
+        assertThat(storage.listStoredObjects())
+                .extracting(ObjectStorageService.StoredObjectMetadata::objectKey)
+                .containsExactly("product/item.png", "product/item.png");
+        verify(minioClient).statObject(any(StatObjectArgs.class));
+        verify(minioClient, org.mockito.Mockito.times(2)).listObjects(any(ListObjectsArgs.class));
+    }
+
+    @Test
+    void wrapsStorageListingAndStatFailuresAsIoExceptions() throws Exception {
+        MinioClient minioClient = mock(MinioClient.class);
+        when(minioClient.listObjects(any(ListObjectsArgs.class))).thenThrow(new IllegalStateException("list failed"));
+        when(minioClient.statObject(any(StatObjectArgs.class))).thenThrow(new IllegalStateException("stat failed"));
+        MinioObjectStorageService storage = storage(minioClient, "");
+
+        assertThatExceptionOfType(IOException.class)
+                .isThrownBy(storage::listStoredObjects)
+                .withMessage("object storage list failed")
+                .withCauseInstanceOf(IllegalStateException.class);
+        assertThatExceptionOfType(IOException.class)
+                .isThrownBy(() -> storage.exists("product/item.png"))
+                .withMessage("object storage stat failed")
+                .withCauseInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void delegatesObjectDeletionToMinio() throws Exception {
+        MinioClient minioClient = mock(MinioClient.class);
+        MinioObjectStorageService storage = storage(minioClient, "");
+
+        assertThat(storage.delete("avatar/alice.png")).isTrue();
+
+        verify(minioClient).removeObject(any(RemoveObjectArgs.class));
     }
 
     private static MinioObjectStorageService storage(MinioClient minioClient, String publicBaseUrl) {

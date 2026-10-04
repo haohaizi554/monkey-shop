@@ -3,11 +3,14 @@ package com.example.monkey.user.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.shared.application.storage.ImageCleanupService;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.storage.ImageReferenceService;
@@ -22,12 +25,14 @@ import com.example.monkey.user.domain.UserPasswordPolicy.PasswordPolicyMetadata;
 import com.example.monkey.user.domain.UserRoles;
 import java.lang.reflect.Method;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.annotation.Transactional;
@@ -130,6 +135,42 @@ class UserServiceTest {
     }
 
     @Test
+    void registerUsesEstablishedTenantForLookupPersistenceAndLaterAuthentication() {
+        TenantContext.setTenantId(200L);
+        try {
+            List<Long> observedTenantIds = new ArrayList<>();
+            when(passwordHasher.hash("StrongPass1!")).thenReturn("encoded-password");
+            doAnswer(invocation -> {
+                observedTenantIds.add(TenantContext.currentTenantIdOrDefault());
+                return Optional.empty();
+            }).when(userAccountStore).findByUsername("alice");
+            doAnswer(invocation -> {
+                observedTenantIds.add(TenantContext.currentTenantIdOrDefault());
+                return withId(invocation.getArgument(0), 7L);
+            }).when(userAccountStore).save(any(UserAccount.class));
+
+            userService.register("alice", "StrongPass1!", "18888888888", null);
+
+            UserAccount saved = captureSavedAccount();
+            assertThat(saved.tenantId()).isEqualTo(200L);
+
+            doAnswer(invocation -> {
+                observedTenantIds.add(TenantContext.currentTenantIdOrDefault());
+                return Optional.of(saved);
+            }).when(userAccountStore).findByUsername("alice");
+            when(passwordHasher.matches("StrongPass1!", "encoded-password")).thenReturn(true);
+
+            AuthPrincipal authenticated = userService.authenticate("alice", "StrongPass1!");
+
+            assertThat(authenticated).isNotNull();
+            assertThat(authenticated.tenantId()).isEqualTo(200L);
+            assertThat(observedTenantIds).containsExactly(200L, 200L, 200L);
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
     void registerReturnsGenericFailureWhenSaveFails() {
         when(passwordHasher.hash("StrongPass1!")).thenReturn("encoded-password");
         when(userAccountStore.save(any(UserAccount.class))).thenThrow(new RuntimeException("database unavailable"));
@@ -151,6 +192,9 @@ class UserServiceTest {
         assertThat(user.email()).isEqualTo("alice@example.com");
         assertThat(user.avatar()).isEqualTo("/images/custom.png");
         verify(imageReferenceService).retain("/images/custom.png");
+        InOrder mutationOrder = inOrder(imageReferenceService, userAccountStore);
+        mutationOrder.verify(imageReferenceService).retain("/images/custom.png");
+        mutationOrder.verify(userAccountStore).save(any(UserAccount.class));
     }
 
     @Test
@@ -356,7 +400,7 @@ class UserServiceTest {
         assertThat(captureSavedAccount().avatar()).isEqualTo("/images/new.png");
         verify(imageReferenceService).retain("/images/new.png");
         verify(imageReferenceService).release("/images/old.png");
-        verify(imageCleanupService).tryDelete("/images/old.png");
+        verify(imageCleanupService).tryDeleteCommitted("/images/old.png");
     }
 
     @Test
@@ -370,6 +414,18 @@ class UserServiceTest {
         verify(imageReferenceService, never()).retain(any());
         verify(imageReferenceService, never()).release(any());
         verify(imageCleanupService, never()).tryDelete(any());
+    }
+
+    @Test
+    void updateAvatarReservesImageWhenLegacyRowHadNoAvatar() {
+        UserAccount user = accountWithAvatar(null);
+        when(userAccountStore.findById(7L)).thenReturn(Optional.of(user));
+
+        userService.updateAvatar(7L, "/images/new.png");
+
+        InOrder mutationOrder = inOrder(imageReferenceService, userAccountStore);
+        mutationOrder.verify(imageReferenceService).retain("/images/new.png");
+        mutationOrder.verify(userAccountStore).save(any(UserAccount.class));
     }
 
     @Test

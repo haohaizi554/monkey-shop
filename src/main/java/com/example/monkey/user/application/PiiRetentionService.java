@@ -80,7 +80,7 @@ public class PiiRetentionService {
             return anonymizeCurrentTenant(finalStatuses, cutoff);
         }
         long affectedRows = activeTenantIterator
-                .forEachActiveTenant(tenantId -> anonymizeCurrentTenant(finalStatuses, cutoff))
+                .forEachRetainedTenant(tenantId -> anonymizeCurrentTenant(finalStatuses, cutoff))
                 .affectedRows();
         return Math.toIntExact(affectedRows);
     }

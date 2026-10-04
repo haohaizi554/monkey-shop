@@ -1,5 +1,6 @@
 package com.example.monkey.user.infrastructure;
 
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.user.domain.PasswordResetChallengeService;
@@ -14,6 +15,7 @@ import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.IntSupplier;
@@ -22,6 +24,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -41,6 +44,37 @@ public class PasswordResetOtpService implements PasswordResetChallengeService {
     private static final String REDIS_EMAIL_TOKEN_PREFIX = "password-reset:email:";
     private static final String REDIS_COOLDOWN_PREFIX = "password-reset:cooldown:";
     private static final String REDIS_DAILY_PREFIX = "password-reset:daily:";
+    private static final DefaultRedisScript<String> CONSUME_SINGLE_FACTOR = new DefaultRedisScript<>(
+            "local value=redis.call('GET',KEYS[1]); redis.call('DEL',KEYS[1]); return value", String.class);
+    private static final DefaultRedisScript<String> CONSUME_DUAL_FACTOR = new DefaultRedisScript<>("""
+            local otp=redis.call('GET',KEYS[1])
+            local email=redis.call('GET',KEYS[2])
+            if not otp or not email then
+                redis.call('DEL',KEYS[1],KEYS[2])
+                return nil
+            end
+            redis.call('DEL',KEYS[1],KEYS[2])
+            return otp .. ':' .. email
+            """, String.class);
+    private static final DefaultRedisScript<Long> RESERVE_PHONE_ISSUE = new DefaultRedisScript<>("""
+            if redis.call('EXISTS', KEYS[1]) == 1 then
+                return -1
+            end
+            local daily=redis.call('INCR', KEYS[2])
+            if daily == 1 then
+                redis.call('PEXPIRE', KEYS[2], ARGV[2])
+            end
+            if daily > tonumber(ARGV[1]) then
+                return -1
+            end
+            redis.call('PSETEX', KEYS[1], ARGV[3], '1')
+            return daily
+            """, Long.class);
+    private static final DefaultRedisScript<Long> STORE_DUAL_FACTOR = new DefaultRedisScript<>("""
+            redis.call('PSETEX', KEYS[1], ARGV[2], ARGV[1])
+            redis.call('PSETEX', KEYS[2], ARGV[4], ARGV[3])
+            return 1
+            """, Long.class);
 
     private final Clock clock;
     private final IntSupplier codeGenerator;
@@ -124,16 +158,17 @@ public class PasswordResetOtpService implements PasswordResetChallengeService {
             String code = newCode();
             String normalizedEmail = normalize(email).toLowerCase();
             String emailToken = StringUtils.hasText(normalizedEmail) ? emailTokenGenerator.get() : null;
+            String challengeKey = resetKey(username, normalizedPhone);
 
             deliveryService.sendSmsOtp(normalizedPhone, code);
             if (StringUtils.hasText(normalizedEmail)) {
                 deliveryService.sendEmailToken(normalizedEmail, emailToken);
             }
 
-            storeOtp(resetKey(username, normalizedPhone), code, now.plus(OTP_TTL));
             if (StringUtils.hasText(normalizedEmail)) {
-                storeEmailToken(
-                        resetKey(username, normalizedPhone, normalizedEmail), emailToken, now.plus(EMAIL_TOKEN_TTL));
+                storeChallenge(challengeKey, normalizedEmail, code, emailToken, now);
+            } else {
+                storeOtp(challengeKey, code, now.plus(OTP_TTL));
             }
         }
     }
@@ -167,8 +202,10 @@ public class PasswordResetOtpService implements PasswordResetChallengeService {
         }
 
         Instant now = clock.instant();
-        OtpRecord otpRecord = consumeOtpRecord(resetKey(username, normalizedPhone));
-        EmailTokenRecord emailRecord = consumeEmailTokenRecord(resetKey(username, normalizedPhone, normalizedEmail));
+        ChallengeRecords records = consumeChallengeRecords(
+                resetKey(username, normalizedPhone), normalizedEmail);
+        OtpRecord otpRecord = records.otp();
+        EmailTokenRecord emailRecord = records.email();
         return otpRecord != null
                 && emailRecord != null
                 && !now.isAfter(otpRecord.expiresAt())
@@ -182,7 +219,7 @@ public class PasswordResetOtpService implements PasswordResetChallengeService {
             enforceRedisPhoneLimit(normalizedPhone);
             return;
         }
-        PhoneIssueHistory history = phoneHistory.computeIfAbsent(normalizedPhone, ignored -> new PhoneIssueHistory());
+        PhoneIssueHistory history = phoneHistory.computeIfAbsent(phoneKey(normalizedPhone), ignored -> new PhoneIssueHistory());
         synchronized (history) {
             history.removeExpired(now.minus(DAILY_WINDOW));
             if (history.isLimited(now)) {
@@ -195,17 +232,16 @@ public class PasswordResetOtpService implements PasswordResetChallengeService {
     private void enforceRedisPhoneLimit(String normalizedPhone) {
         String phoneKey = phoneKey(normalizedPhone);
         try {
-            if (Boolean.TRUE.equals(redisTemplate.hasKey(REDIS_COOLDOWN_PREFIX + phoneKey))) {
+            String slot = "{" + phoneKey + "}";
+            Long dailyCount = redisTemplate.execute(
+                    RESERVE_PHONE_ISSUE,
+                    List.of(REDIS_COOLDOWN_PREFIX + slot, REDIS_DAILY_PREFIX + slot),
+                    Integer.toString(DAILY_PHONE_LIMIT),
+                    Long.toString(DAILY_WINDOW.toMillis()),
+                    Long.toString(PHONE_COOLDOWN.toMillis()));
+            if (dailyCount == null || dailyCount < 0) {
                 throw resetRateLimited();
             }
-            Long dailyCount = redisTemplate.opsForValue().increment(REDIS_DAILY_PREFIX + phoneKey);
-            if (dailyCount != null && dailyCount == 1L) {
-                redisTemplate.expire(REDIS_DAILY_PREFIX + phoneKey, DAILY_WINDOW);
-            }
-            if (dailyCount == null || dailyCount > DAILY_PHONE_LIMIT) {
-                throw resetRateLimited();
-            }
-            redisTemplate.opsForValue().set(REDIS_COOLDOWN_PREFIX + phoneKey, "1", PHONE_COOLDOWN);
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
@@ -219,21 +255,35 @@ public class PasswordResetOtpService implements PasswordResetChallengeService {
             return;
         }
         try {
-            redisTemplate.opsForValue().set(REDIS_OTP_PREFIX + redisKey(key), sha256Hex(code), OTP_TTL);
+            redisTemplate.opsForValue().set(redisOtpKey(key), sha256Hex(code), OTP_TTL);
         } catch (Exception e) {
             throw resetStateUnavailable();
         }
     }
 
-    private void storeEmailToken(String key, String emailToken, Instant expiresAt) {
+    private void storeChallenge(String challengeKey, String email, String code, String emailToken, Instant now) {
         if (!requireRedisState) {
-            activeEmailTokens.put(key, new EmailTokenRecord(sha256Hex(emailToken), expiresAt));
+            synchronized (this) {
+                activeOtps.put(challengeKey, new OtpRecord(sha256Hex(code), now.plus(OTP_TTL)));
+                activeEmailTokens.put(
+                        resetKeyWithEmail(challengeKey, email),
+                        new EmailTokenRecord(sha256Hex(emailToken), now.plus(EMAIL_TOKEN_TTL)));
+            }
             return;
         }
         try {
-            redisTemplate
-                    .opsForValue()
-                    .set(REDIS_EMAIL_TOKEN_PREFIX + redisKey(key), sha256Hex(emailToken), EMAIL_TOKEN_TTL);
+            Long stored = redisTemplate.execute(
+                    STORE_DUAL_FACTOR,
+                    List.of(redisOtpKey(challengeKey), redisEmailTokenKey(challengeKey, email)),
+                    sha256Hex(code),
+                    Long.toString(OTP_TTL.toMillis()),
+                    sha256Hex(emailToken),
+                    Long.toString(EMAIL_TOKEN_TTL.toMillis()));
+            if (stored == null || stored != 1L) {
+                throw resetStateUnavailable();
+            }
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             throw resetStateUnavailable();
         }
@@ -244,9 +294,7 @@ public class PasswordResetOtpService implements PasswordResetChallengeService {
             return activeOtps.remove(key);
         }
         try {
-            String redisKey = REDIS_OTP_PREFIX + redisKey(key);
-            String codeHash = redisTemplate.opsForValue().get(redisKey);
-            redisTemplate.delete(redisKey);
+            String codeHash = redisTemplate.execute(CONSUME_SINGLE_FACTOR, List.of(redisOtpKey(key)));
             return StringUtils.hasText(codeHash)
                     ? new OtpRecord(codeHash, clock.instant().plus(OTP_TTL))
                     : null;
@@ -255,17 +303,31 @@ public class PasswordResetOtpService implements PasswordResetChallengeService {
         }
     }
 
-    private EmailTokenRecord consumeEmailTokenRecord(String key) {
+    private ChallengeRecords consumeChallengeRecords(String challengeKey, String email) {
         if (!requireRedisState) {
-            return activeEmailTokens.remove(key);
+            synchronized (this) {
+                return new ChallengeRecords(
+                        activeOtps.remove(challengeKey),
+                        activeEmailTokens.remove(resetKeyWithEmail(challengeKey, email)));
+            }
         }
         try {
-            String redisKey = REDIS_EMAIL_TOKEN_PREFIX + redisKey(key);
-            String tokenHash = redisTemplate.opsForValue().get(redisKey);
-            redisTemplate.delete(redisKey);
-            return StringUtils.hasText(tokenHash)
-                    ? new EmailTokenRecord(tokenHash, clock.instant().plus(EMAIL_TOKEN_TTL))
-                    : null;
+            String combinedHashes = redisTemplate.execute(
+                    CONSUME_DUAL_FACTOR,
+                    List.of(redisOtpKey(challengeKey), redisEmailTokenKey(challengeKey, email)));
+            if (!StringUtils.hasText(combinedHashes)) {
+                return ChallengeRecords.empty();
+            }
+            int separator = combinedHashes.indexOf(':');
+            if (separator <= 0 || separator == combinedHashes.length() - 1) {
+                throw resetStateUnavailable();
+            }
+            Instant now = clock.instant();
+            return new ChallengeRecords(
+                    new OtpRecord(combinedHashes.substring(0, separator), now.plus(OTP_TTL)),
+                    new EmailTokenRecord(combinedHashes.substring(separator + 1), now.plus(EMAIL_TOKEN_TTL)));
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             throw resetStateUnavailable();
         }
@@ -292,19 +354,29 @@ public class PasswordResetOtpService implements PasswordResetChallengeService {
     }
 
     private static String resetKey(String username, String phone) {
-        return normalize(username).toLowerCase() + ":" + normalize(phone);
+        return TenantContext.currentTenantIdOrDefault() + ":" + normalize(username).toLowerCase() + ":"
+                + normalize(phone);
     }
 
-    private static String resetKey(String username, String phone, String email) {
-        return resetKey(username, phone) + ":" + normalize(email).toLowerCase();
+    private static String resetKeyWithEmail(String challengeKey, String email) {
+        return challengeKey + ":" + normalize(email).toLowerCase();
     }
 
-    private static String redisKey(String value) {
-        return sha256Hex("reset|" + normalize(value).toLowerCase());
+    private static String redisOtpKey(String challengeKey) {
+        return REDIS_OTP_PREFIX + redisChallengeSlot(challengeKey);
+    }
+
+    private static String redisEmailTokenKey(String challengeKey, String email) {
+        return REDIS_EMAIL_TOKEN_PREFIX + redisChallengeSlot(challengeKey) + ":"
+                + sha256Hex(normalize(email).toLowerCase());
+    }
+
+    private static String redisChallengeSlot(String challengeKey) {
+        return "{" + sha256Hex("reset|" + normalize(challengeKey).toLowerCase()) + "}";
     }
 
     private static String phoneKey(String value) {
-        return sha256Hex("phone|" + normalize(value));
+        return sha256Hex("phone|" + TenantContext.currentTenantIdOrDefault() + "|" + normalize(value));
     }
 
     private static String normalize(String value) {
@@ -331,6 +403,12 @@ public class PasswordResetOtpService implements PasswordResetChallengeService {
     private record OtpRecord(String codeHash, Instant expiresAt) {}
 
     private record EmailTokenRecord(String tokenHash, Instant expiresAt) {}
+
+    private record ChallengeRecords(OtpRecord otp, EmailTokenRecord email) {
+        private static ChallengeRecords empty() {
+            return new ChallengeRecords(null, null);
+        }
+    }
 
     private static final class PhoneIssueHistory {
         private final ArrayDeque<Instant> issuedAt = new ArrayDeque<>();

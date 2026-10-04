@@ -58,16 +58,24 @@ import com.example.monkey.order.infrastructure.OrderFormalOrderCreator;
 import com.example.monkey.order.infrastructure.OrderLineRepository;
 import com.example.monkey.order.infrastructure.OrderRepository;
 import com.example.monkey.order.infrastructure.StockLogRepository;
+import com.example.monkey.product.domain.PriceContext;
 import com.example.monkey.shared.application.observability.AuditService;
+import com.example.monkey.shared.application.storage.ImageCleanupService;
+import com.example.monkey.shared.application.storage.ImageVariantService;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
+import com.example.monkey.shared.domain.storage.ImageUsageChecker;
 import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
+import com.example.monkey.shared.infrastructure.storage.InMemoryImageReferenceService;
+import com.example.monkey.shared.infrastructure.storage.LocalObjectStorageService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -92,6 +100,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -116,6 +125,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 class CheckoutTransactionIntegrationTest {
 
     private static final SessionUser USER = new SessionUser(7L, "USER");
+    private static final String AVATAR_IMAGE = "/images/avatar/checkout-avatar.png";
+    private static final String PHONE_IMAGE = "/images/product/checkout-phone.png";
+    private static final String KEYBOARD_IMAGE = "/images/product/checkout-keyboard.png";
 
     private final CartCheckoutRepository checkoutRepository;
     private final CartCleanupIntentRepository cleanupIntentRepository;
@@ -130,6 +142,12 @@ class CheckoutTransactionIntegrationTest {
     private final InventoryWarehouseRepository warehouseRepository;
     private final InventoryStockLedgerRepository inventoryLedgerRepository;
     private final JdbcTemplate jdbcTemplate;
+
+    @TempDir
+    Path imageUploadRoot;
+
+    private InMemoryImageReferenceService imageReferenceService;
+    private ImageCleanupService imageCleanupService;
 
     @Autowired
     CheckoutTransactionIntegrationTest(
@@ -162,7 +180,7 @@ class CheckoutTransactionIntegrationTest {
     }
 
     @BeforeEach
-    void clearCommittedFixtureRows() {
+    void clearCommittedFixtureRows() throws IOException {
         jdbcTemplate.update("DELETE FROM cart_cleanup_intent");
         jdbcTemplate.update("DELETE FROM order_line");
         jdbcTemplate.update("DELETE FROM cart_checkout_line");
@@ -173,14 +191,36 @@ class CheckoutTransactionIntegrationTest {
         jdbcTemplate.update("DELETE FROM inventory_reservation");
         jdbcTemplate.update("DELETE FROM inventory_stock");
         jdbcTemplate.update("DELETE FROM inventory_warehouse");
+        LocalObjectStorageService imageStorageService =
+                new LocalObjectStorageService(imageUploadRoot.toString(), "");
+        imageStorageService.store("avatar/checkout-avatar.png", new byte[] {1}, "image/png");
+        imageStorageService.store("product/checkout-phone.png", new byte[] {2}, "image/png");
+        imageStorageService.store("product/checkout-keyboard.png", new byte[] {3}, "image/png");
+        imageReferenceService = new InMemoryImageReferenceService(
+                Duration.ofMinutes(30), Duration.ofDays(7), 100_000, imageStorageService);
+        imageReferenceService.replace(List.of());
+        imageCleanupService = new ImageCleanupService(
+                imageReferenceService,
+                mock(ImageUsageChecker.class),
+                imageStorageService,
+                new ImageVariantService(imageStorageService, false, "", "", false),
+                "local",
+                imageUploadRoot.toString());
     }
 
     @Test
     void checkoutPersistsPendingOrdersBeforeClearingSelectedCartLines() {
         Fixture fixture = new Fixture(
-                new JpaCartCheckoutStore(checkoutRepository, subOrderRepository, lineRepository),
+                new JpaCartCheckoutStore(
+                        checkoutRepository,
+                        subOrderRepository,
+                        lineRepository,
+                        imageReferenceService,
+                        imageCleanupService),
                 new OrderFormalOrderCreator(new CheckoutOrderApplicationService(
-                        new JpaOrderStore(orderRepository, stockLogRepository, orderLineRepository), customerPort())),
+                        new JpaOrderStore(
+                                orderRepository, stockLogRepository, orderLineRepository, imageReferenceService),
+                        customerPort())),
                 cleanupIntentRepository,
                 new JdbcCartCleanupTenantSource(jdbcTemplate),
                 transactionManager);
@@ -270,9 +310,16 @@ class CheckoutTransactionIntegrationTest {
     @Test
     void v51LegacyCheckoutReplayReturnsPersistedResponseWithoutNewSideEffects() {
         Fixture fixture = new Fixture(
-                new JpaCartCheckoutStore(checkoutRepository, subOrderRepository, lineRepository),
+                new JpaCartCheckoutStore(
+                        checkoutRepository,
+                        subOrderRepository,
+                        lineRepository,
+                        imageReferenceService,
+                        imageCleanupService),
                 new OrderFormalOrderCreator(new CheckoutOrderApplicationService(
-                        new JpaOrderStore(orderRepository, stockLogRepository, orderLineRepository), customerPort())),
+                        new JpaOrderStore(
+                                orderRepository, stockLogRepository, orderLineRepository, imageReferenceService),
+                        customerPort())),
                 cleanupIntentRepository,
                 new JdbcCartCleanupTenantSource(jdbcTemplate),
                 transactionManager);
@@ -303,9 +350,16 @@ class CheckoutTransactionIntegrationTest {
     @Test
     void failureAfterFormalOrderCreationRollsBackDatabaseAndKeepsCart() {
         Fixture fixture = new Fixture(
-                new JpaCartCheckoutStore(checkoutRepository, subOrderRepository, lineRepository),
+                new JpaCartCheckoutStore(
+                        checkoutRepository,
+                        subOrderRepository,
+                        lineRepository,
+                        imageReferenceService,
+                        imageCleanupService),
                 new OrderFormalOrderCreator(new CheckoutOrderApplicationService(
-                        new JpaOrderStore(orderRepository, stockLogRepository, orderLineRepository), customerPort())),
+                        new JpaOrderStore(
+                                orderRepository, stockLogRepository, orderLineRepository, imageReferenceService),
+                        customerPort())),
                 cleanupIntentRepository,
                 new JdbcCartCleanupTenantSource(jdbcTemplate),
                 transactionManager);
@@ -330,9 +384,16 @@ class CheckoutTransactionIntegrationTest {
     void sameKeyLockIsHeldThroughCommitBeforeConflictingReplayRuns() throws Exception {
         ObservingCartLockManager lockManager = new ObservingCartLockManager();
         Fixture fixture = new Fixture(
-                new JpaCartCheckoutStore(checkoutRepository, subOrderRepository, lineRepository),
+                new JpaCartCheckoutStore(
+                        checkoutRepository,
+                        subOrderRepository,
+                        lineRepository,
+                        imageReferenceService,
+                        imageCleanupService),
                 new OrderFormalOrderCreator(new CheckoutOrderApplicationService(
-                        new JpaOrderStore(orderRepository, stockLogRepository, orderLineRepository), customerPort())),
+                        new JpaOrderStore(
+                                orderRepository, stockLogRepository, orderLineRepository, imageReferenceService),
+                        customerPort())),
                 cleanupIntentRepository,
                 new JdbcCartCleanupTenantSource(jdbcTemplate),
                 transactionManager,
@@ -380,9 +441,16 @@ class CheckoutTransactionIntegrationTest {
     @Test
     void durableCleanupRetriesAfterPostCommitCartFailure() {
         Fixture fixture = new Fixture(
-                new JpaCartCheckoutStore(checkoutRepository, subOrderRepository, lineRepository),
+                new JpaCartCheckoutStore(
+                        checkoutRepository,
+                        subOrderRepository,
+                        lineRepository,
+                        imageReferenceService,
+                        imageCleanupService),
                 new OrderFormalOrderCreator(new CheckoutOrderApplicationService(
-                        new JpaOrderStore(orderRepository, stockLogRepository, orderLineRepository), customerPort())),
+                        new JpaOrderStore(
+                                orderRepository, stockLogRepository, orderLineRepository, imageReferenceService),
+                        customerPort())),
                 cleanupIntentRepository,
                 new JdbcCartCleanupTenantSource(jdbcTemplate),
                 transactionManager);
@@ -685,9 +753,16 @@ class CheckoutTransactionIntegrationTest {
     @Test
     void previewIsStrictlyReadOnlyAcrossCommerceState() {
         Fixture fixture = new Fixture(
-                new JpaCartCheckoutStore(checkoutRepository, subOrderRepository, lineRepository),
+                new JpaCartCheckoutStore(
+                        checkoutRepository,
+                        subOrderRepository,
+                        lineRepository,
+                        imageReferenceService,
+                        imageCleanupService),
                 new OrderFormalOrderCreator(new CheckoutOrderApplicationService(
-                        new JpaOrderStore(orderRepository, stockLogRepository, orderLineRepository), customerPort())),
+                        new JpaOrderStore(
+                                orderRepository, stockLogRepository, orderLineRepository, imageReferenceService),
+                        customerPort())),
                 cleanupIntentRepository,
                 new JdbcCartCleanupTenantSource(jdbcTemplate),
                 transactionManager);
@@ -714,9 +789,16 @@ class CheckoutTransactionIntegrationTest {
         seedInventory();
         OrderFormalOrderCreator formalOrderCreator =
                 spy(new OrderFormalOrderCreator(new CheckoutOrderApplicationService(
-                        new JpaOrderStore(orderRepository, stockLogRepository, orderLineRepository), customerPort())));
+                        new JpaOrderStore(
+                                orderRepository, stockLogRepository, orderLineRepository, imageReferenceService),
+                        customerPort())));
         Fixture fixture = new Fixture(
-                new JpaCartCheckoutStore(checkoutRepository, subOrderRepository, lineRepository),
+                new JpaCartCheckoutStore(
+                        checkoutRepository,
+                        subOrderRepository,
+                        lineRepository,
+                        imageReferenceService,
+                        imageCleanupService),
                 formalOrderCreator,
                 cleanupIntentRepository,
                 new JdbcCartCleanupTenantSource(jdbcTemplate),
@@ -822,6 +904,7 @@ class CheckoutTransactionIntegrationTest {
                 new DirectInventoryLockManager(),
                 new AtomicIdGenerator(),
                 mock(AuditService.class),
+                transactionManager,
                 Duration.ofMinutes(15));
     }
 
@@ -878,11 +961,12 @@ class CheckoutTransactionIntegrationTest {
             this.inventoryApplicationService = inventoryApplicationService;
             catalog.put(
                     1001L,
-                    new CartSkuSnapshot(1001L, 501L, 11L, "SKU-1001", "Phone", "/phone.png", new BigDecimal("100.00")));
+                    new CartSkuSnapshot(
+                            1001L, 501L, 1L, 11L, "SKU-1001", "Phone", PHONE_IMAGE, new BigDecimal("100.00")));
             catalog.put(
                     1002L,
                     new CartSkuSnapshot(
-                            1002L, 502L, 12L, "SKU-1002", "Keyboard", "/keyboard.png", new BigDecimal("30.00")));
+                            1002L, 502L, 2L, 12L, "SKU-1002", "Keyboard", KEYBOARD_IMAGE, new BigDecimal("30.00")));
             if (org.mockito.Mockito.mockingDetails(inventoryApplicationService).isMock()) {
                 when(inventoryApplicationService.reserve(any()))
                         .thenAnswer(invocation -> reservation(invocation.getArgument(0)));
@@ -897,7 +981,8 @@ class CheckoutTransactionIntegrationTest {
             cleanupRetryWorker = new CartCleanupRetryWorker(cleanupIntentStore, cleanupTenantSource, cleanupProcessor);
             CartApplicationService target = new CartApplicationService(
                     cartStore,
-                    skuId -> Optional.ofNullable(catalog.get(skuId)),
+                    (skuId, priceQuery) -> Optional.ofNullable(catalog.get(skuId)),
+                    (userId, region) -> new PriceContext("MEMBER", region),
                     checkoutStore,
                     new DurableCartCleanupScheduler(cleanupIntentStore, cleanupProcessor),
                     cartLockManager,
@@ -908,6 +993,7 @@ class CheckoutTransactionIntegrationTest {
                     new AtomicOrderNumberGenerator(),
                     new AtomicIdGenerator(),
                     auditService,
+                    (userId, activityId, productId, orderId, deviceFingerprint, clientIp, operation) -> {},
                     Duration.ofDays(7));
             service = target;
         }
@@ -978,7 +1064,7 @@ class CheckoutTransactionIntegrationTest {
     private static OrderCustomerPort customerPort() {
         OrderCustomerPort customerPort = mock(OrderCustomerPort.class);
         when(customerPort.findBuyerById(USER.id()))
-                .thenReturn(Optional.of(new BuyerRecord(USER.id(), "momo", "/avatar.png")));
+                .thenReturn(Optional.of(new BuyerRecord(USER.id(), "momo", AVATAR_IMAGE)));
         when(customerPort.findAddressById(9L))
                 .thenReturn(Optional.of(new AddressRecord(9L, USER.id(), "Momo", "13800000000", "Beijing")));
         return customerPort;

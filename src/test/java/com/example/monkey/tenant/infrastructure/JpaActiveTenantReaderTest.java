@@ -29,4 +29,15 @@ class JpaActiveTenantReaderTest {
         assertThat(reader.findActiveTenantIds()).containsExactly(1L, 2L);
         verify(tenantRepository).findServiceableTenantIds(serviceableStatuses, now);
     }
+
+    @Test
+    void readsAllRetainedTenantIdsIncludingSuspendedAndExpiredTenants() {
+        TenantRepository tenantRepository = mock(TenantRepository.class);
+        JpaActiveTenantReader reader = new JpaActiveTenantReader(
+                tenantRepository, Clock.fixed(Instant.parse("2026-07-19T02:00:00Z"), ZoneOffset.UTC));
+        when(tenantRepository.findRetainedTenantIds()).thenReturn(List.of(1L, 2L, 9L));
+
+        assertThat(reader.findRetainedTenantIds()).containsExactly(1L, 2L, 9L);
+        verify(tenantRepository).findRetainedTenantIds();
+    }
 }

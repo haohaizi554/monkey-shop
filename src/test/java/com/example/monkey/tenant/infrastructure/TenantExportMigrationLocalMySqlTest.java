@@ -6,6 +6,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -21,13 +22,13 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 @EnabledIfSystemProperty(named = "task9a.local-mysql", matches = "true")
 class TenantExportMigrationLocalMySqlTest {
 
-    private static final String LATEST_SCHEMA_VERSION = "54";
     private static final String SCHEMA_PREFIX = "monkeyshop_task9a_";
 
     @Test
     void emptySchemaMigratesThroughLatestVersion() throws Exception {
         withIsolatedSchema(schema -> {
-            schema.latestFlyway().migrate();
+            Flyway flyway = schema.latestFlyway();
+            flyway.migrate();
 
             assertThat(schema.jdbcTemplate().queryForObject("""
                                     SELECT version
@@ -35,7 +36,7 @@ class TenantExportMigrationLocalMySqlTest {
                                     WHERE success = 1
                                     ORDER BY installed_rank DESC
                                     LIMIT 1
-                                    """, String.class)).isEqualTo(LATEST_SCHEMA_VERSION);
+                                    """, String.class)).isEqualTo(latestAvailableMigrationVersion(flyway));
             assertThat(schema.jdbcTemplate().queryForObject("""
                                     SELECT COUNT(*)
                                     FROM information_schema.columns
@@ -160,6 +161,15 @@ class TenantExportMigrationLocalMySqlTest {
             throw new IllegalStateException("Missing required system property " + name);
         }
         return value;
+    }
+
+    private static String latestAvailableMigrationVersion(Flyway flyway) {
+        return Arrays.stream(flyway.info().all())
+                .map(info -> info.getVersion())
+                .filter(version -> version != null)
+                .max((left, right) -> left.compareTo(right))
+                .map(MigrationVersion::getVersion)
+                .orElseThrow(() -> new IllegalStateException("No versioned Flyway migrations were discovered"));
     }
 
     private record Schema(DataSource dataSource) {

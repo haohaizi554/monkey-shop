@@ -2,13 +2,17 @@ package com.example.monkey.user.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.order.domain.OrderStatus;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
+import com.example.monkey.shared.application.tenant.ActiveTenantIterator;
+import com.example.monkey.shared.application.tenant.ActiveTenantIterator.IterationResult;
 import com.example.monkey.user.domain.PiiRetentionStore;
 import java.time.Clock;
 import java.time.Duration;
@@ -64,6 +68,21 @@ class PiiRetentionServiceTest {
 
         assertThat(count).isEqualTo(3);
         verify(piiRetentionStore).anonymizeOrdersCreatedBefore(finalStatuses, cutoff, "anonymous", 250);
+    }
+
+    @Test
+    void scheduledRetentionUsesRetainedTenantPopulation() {
+        ActiveTenantIterator iterator = mock(ActiveTenantIterator.class);
+        IterationResult expected = new IterationResult(List.of(1L, 2L), List.of(), 3L);
+        when(iterator.forEachRetainedTenant(any())).thenReturn(expected);
+        PiiRetentionService multiTenantService = new PiiRetentionService(
+                piiRetentionStore, iterator, Duration.ofDays(183), 250);
+
+        int count = multiTenantService.anonymizeCompletedOrdersForRetention();
+
+        assertThat(count).isEqualTo(3);
+        verify(iterator).forEachRetainedTenant(any());
+        verify(iterator, never()).forEachActiveTenant(any());
     }
 
     @Test

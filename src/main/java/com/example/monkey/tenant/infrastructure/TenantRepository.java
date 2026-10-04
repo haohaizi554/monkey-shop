@@ -25,4 +25,7 @@ public interface TenantRepository extends JpaRepository<TenantEntity, Long> {
             """)
     List<Long> findServiceableTenantIds(
             @Param("statuses") List<TenantStatus> statuses, @Param("now") LocalDateTime now);
+
+    @Query("SELECT tenant.id FROM TenantEntity tenant ORDER BY tenant.id")
+    List<Long> findRetainedTenantIds();
 }

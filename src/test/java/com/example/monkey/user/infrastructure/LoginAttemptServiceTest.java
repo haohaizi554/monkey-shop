@@ -10,6 +10,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
@@ -25,6 +26,7 @@ import java.time.ZoneOffset;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -35,6 +37,11 @@ class LoginAttemptServiceTest {
     private static final String IP_A = "203.0.113.10";
     private static final String IP_B = "203.0.113.11";
     private static final Clock FIXED_CLOCK = Clock.fixed(Instant.parse("2026-07-14T00:00:00Z"), ZoneOffset.UTC);
+
+    @AfterEach
+    void clearTenantContext() {
+        TenantContext.clear();
+    }
 
     @Test
     void twoPairFailuresDoNotRequireCaptchaOrLock() {
@@ -81,6 +88,20 @@ class LoginAttemptServiceTest {
         assertThat(service.evaluate("alice", IP_A).locked()).isTrue();
         assertThat(service.evaluate("alice", IP_B)).isEqualTo(LoginAttemptState.allowed(false));
         assertThat(service.evaluate("bob", IP_A)).isEqualTo(LoginAttemptState.allowed(false));
+    }
+
+    @Test
+    void pairLockDoesNotCrossTenantBoundaryForTheSameUsernameAndIp() {
+        LoginAttemptService service = localService(FIXED_CLOCK);
+        TenantContext.setTenantId(1L);
+        for (int i = 0; i < 10; i++) {
+            service.recordFailure("alice", IP_A);
+        }
+        assertThat(service.evaluate("alice", IP_A).locked()).isTrue();
+
+        TenantContext.setTenantId(2L);
+
+        assertThat(service.evaluate("alice", IP_A)).isEqualTo(LoginAttemptState.allowed(false));
     }
 
     @Test
@@ -137,7 +158,11 @@ class LoginAttemptServiceTest {
         assertThat(execution.keys())
                 .hasSize(4)
                 .anySatisfy(key -> assertThat(key).contains(expectedUsernameHmac))
-                .allSatisfy(key -> assertThat(key).doesNotContain("Alice", "alice", IP_A));
+                .allSatisfy(key -> {
+                    assertThat(key).doesNotContain("Alice", "alice", IP_A);
+                    assertThat(redisHashTag(key)).isNotBlank();
+                });
+        assertThat(execution.keys()).extracting(LoginAttemptServiceTest::redisHashTag).containsOnly(redisHashTag(execution.keys().get(0)));
     }
 
     @Test
@@ -270,6 +295,12 @@ class LoginAttemptServiceTest {
                 .isThrownBy(action::run)
                 .withMessage("authentication state store unavailable")
                 .satisfies(exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.SERVICE_UNAVAILABLE));
+    }
+
+    private static String redisHashTag(String key) {
+        int start = key.indexOf('{');
+        int end = key.indexOf('}', start + 1);
+        return start >= 0 && end > start + 1 ? key.substring(start + 1, end) : "";
     }
 
     private record RedisExecution(RedisScript<?> script, List<String> keys) {}

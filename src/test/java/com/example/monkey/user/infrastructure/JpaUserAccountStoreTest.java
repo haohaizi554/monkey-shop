@@ -1,12 +1,16 @@
 package com.example.monkey.user.infrastructure;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.user.domain.UserAccountStore.UserAccount;
 import com.example.monkey.user.domain.UserRoles;
+import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -30,11 +34,14 @@ class JpaUserAccountStoreTest {
     @Mock
     private RoleRepository roleRepository;
 
+    @Mock
+    private ImageReferenceService imageReferenceService;
+
     private JpaUserAccountStore store;
 
     @BeforeEach
     void setUp() {
-        store = new JpaUserAccountStore(userRepository, passwordHistoryRepository, roleRepository);
+        store = new JpaUserAccountStore(userRepository, passwordHistoryRepository, roleRepository, imageReferenceService);
     }
 
     @Test
@@ -81,6 +88,7 @@ class JpaUserAccountStoreTest {
         assertThat(savedUser.getPhone()).isEqualTo("18888888888");
         assertThat(savedUser.getRole()).isEqualTo(UserRoles.USER);
         assertThat(savedUser.getRoles()).extracting(Role::getName).containsExactly(UserRoles.USER);
+        verifyNoInteractions(imageReferenceService);
     }
 
     @Test
@@ -94,6 +102,33 @@ class JpaUserAccountStoreTest {
         Role role = captureSavedRole();
         assertThat(role.getName()).isEqualTo(UserRoles.ADMIN);
         assertThat(role.getDescription()).isEqualTo("ADMIN role");
+    }
+
+    @Test
+    void compatibilityConstructorRejectsTrackableAvatarBeforeRepositorySave() {
+        JpaUserAccountStore compatibilityStore =
+                new JpaUserAccountStore(userRepository, passwordHistoryRepository, roleRepository);
+
+        assertThatThrownBy(() -> compatibilityStore.save(record()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Image reference services are required for trackable image writes");
+
+        verify(userRepository, never()).save(any(User.class));
+        verify(roleRepository, never()).save(any(Role.class));
+    }
+
+    @Test
+    void compatibilityConstructorRejectsReplacingPersistedTrackableAvatar() {
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user()));
+        JpaUserAccountStore compatibilityStore =
+                new JpaUserAccountStore(userRepository, passwordHistoryRepository, roleRepository);
+
+        assertThatThrownBy(() -> compatibilityStore.save(record().withAvatar(null)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Image reference services are required for trackable image writes");
+
+        verify(userRepository, never()).save(any(User.class));
+        verify(roleRepository, never()).save(any(Role.class));
     }
 
     @Test

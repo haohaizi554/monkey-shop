@@ -82,8 +82,52 @@ class MultiTenantPrivacyJobIntegrationTest {
         assertThat(TenantContext.currentTenantId()).isEmpty();
     }
 
+    @Test
+    void retentionAndAuditJobsUseRetainedPopulationIncludingSuspendedAndExpiredTenants() {
+        ActiveTenantIterator iterator = new ActiveTenantIterator(
+                retainedTenants(List.of(1L), List.of(1L, 2L, 3L)), transactionManager());
+        List<Long> retentionTenantIds = new ArrayList<>();
+        PiiRetentionStore retentionStore = mock(PiiRetentionStore.class);
+        when(retentionStore.anonymizeOrdersCreatedBefore(any(), any(LocalDateTime.class), any(), any(Integer.class)))
+                .thenAnswer(invocation -> {
+                    retentionTenantIds.add(TenantContext.currentTenantIdOrDefault());
+                    return 1;
+                });
+        PiiRetentionService retentionService =
+                new PiiRetentionService(retentionStore, iterator, Duration.ofDays(183), 250);
+
+        List<Long> auditTenantIds = new ArrayList<>();
+        AuditLogStore auditLogStore = mock(AuditLogStore.class);
+        when(auditLogStore.deleteCreatedBefore(any(LocalDateTime.class))).thenAnswer(invocation -> {
+            auditTenantIds.add(TenantContext.currentTenantIdOrDefault());
+            return 1L;
+        });
+        AuditService auditService = new AuditService(auditLogStore, iterator, 180);
+
+        assertThat(retentionService.anonymizeCompletedOrdersForRetention()).isEqualTo(3);
+        auditService.purgeExpiredAuditLogs();
+
+        assertThat(retentionTenantIds).containsExactly(1L, 2L, 3L);
+        assertThat(auditTenantIds).containsExactly(1L, 2L, 3L);
+        assertThat(TenantContext.currentTenantId()).isEmpty();
+    }
+
     private static ActiveTenantReader activeTenants(Long... tenantIds) {
         return () -> List.of(tenantIds);
+    }
+
+    private static ActiveTenantReader retainedTenants(List<Long> activeTenantIds, List<Long> retainedTenantIds) {
+        return new ActiveTenantReader() {
+            @Override
+            public List<Long> findActiveTenantIds() {
+                return activeTenantIds;
+            }
+
+            @Override
+            public List<Long> findRetainedTenantIds() {
+                return retainedTenantIds;
+            }
+        };
     }
 
     private static PlatformTransactionManager transactionManager() {

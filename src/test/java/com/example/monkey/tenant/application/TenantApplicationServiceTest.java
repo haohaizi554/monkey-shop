@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -16,6 +17,7 @@ import static org.mockito.Mockito.when;
 
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
@@ -171,13 +173,31 @@ class TenantApplicationServiceTest {
                 null,
                 0L);
         when(tenantStore.findPendingExportJobs(20)).thenReturn(List.of(pending));
-        when(tenantExportProvider.refresh(pending))
-                .thenReturn(new TenantExportProvider.ExportResult(
-                        TenantExportStatus.SUCCEEDED, "provider-job-1600", "s3://tenant-exports/200/1600.tink", null));
+        when(tenantExportProvider.refresh(pending)).thenAnswer(invocation -> {
+            assertThat(TenantContext.currentTenantId()).contains(200L);
+            return new TenantExportProvider.ExportResult(
+                    TenantExportStatus.SUCCEEDED, "provider-job-1600", "s3://tenant-exports/200/1600.tink", null);
+        });
         when(tenantStore.saveExportJob(any(TenantDataExportJob.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
+                .thenAnswer(invocation -> {
+                    assertThat(TenantContext.currentTenantId()).contains(200L);
+                    return invocation.getArgument(0);
+                });
+        doAnswer(invocation -> {
+                    assertThat(TenantContext.currentTenantId()).contains(200L);
+                    return null;
+                })
+                .when(auditService)
+                .recordReliable(any(), any(), any(), any(), any(), any(), any());
 
-        int completed = service.completePendingExports();
+        TenantContext.setTenantId(77L);
+        int completed;
+        try {
+            completed = service.completePendingExports();
+            assertThat(TenantContext.currentTenantId()).contains(77L);
+        } finally {
+            TenantContext.clear();
+        }
 
         assertThat(completed).isEqualTo(1);
         verify(tenantStore)
@@ -185,7 +205,7 @@ class TenantApplicationServiceTest {
                         && "provider-job-1600".equals(job.providerJobId())
                         && "s3://tenant-exports/200/1600.tink".equals(job.artifactUri())));
         verify(auditService)
-                .record(
+                .recordReliable(
                         eq(AuditService.TENANT_EXPORT_COMPLETED),
                         eq(AuditService.OUTCOME_SUCCESS),
                         eq(1L),
@@ -193,6 +213,36 @@ class TenantApplicationServiceTest {
                         eq("tenant-export:1600"),
                         isNull(),
                         contains("artifactAvailable=true"));
+    }
+
+    @Test
+    void failedExportCompletionRestoresAmbientTenantContextAfterProviderFailure() {
+        TenantDataExportJob pending = new TenantDataExportJob(
+                1650L,
+                202L,
+                "FULL",
+                TenantExportStatus.QUEUED,
+                "provider-job-1650",
+                null,
+                1L,
+                LocalDateTime.now(),
+                null,
+                "trace-failed-completion",
+                null,
+                0L);
+        when(tenantStore.findPendingExportJobs(20)).thenReturn(List.of(pending));
+        when(tenantExportProvider.refresh(pending)).thenAnswer(invocation -> {
+            assertThat(TenantContext.currentTenantId()).contains(202L);
+            throw new IllegalStateException("provider unavailable");
+        });
+
+        TenantContext.setTenantId(77L);
+        try {
+            assertThat(service.completePendingExports()).isEqualTo(1);
+            assertThat(TenantContext.currentTenantId()).contains(77L);
+        } finally {
+            TenantContext.clear();
+        }
     }
 
     @Test

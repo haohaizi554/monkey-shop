@@ -3,27 +3,43 @@ package com.example.monkey.user.infrastructure;
 import com.example.monkey.user.domain.UserAccountStore;
 import com.example.monkey.user.domain.UserAccountStore.UserAccount;
 import com.example.monkey.user.domain.UserRoles;
+import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Component;
 
 @Component
 public class JpaUserAccountStore implements UserAccountStore {
 
+    private static final String IMAGE_REFERENCE_CONFIGURATION_ERROR =
+            "Image reference services are required for trackable image writes";
     private final UserRepository userRepository;
     private final PasswordHistoryRepository passwordHistoryRepository;
     private final RoleRepository roleRepository;
+    private final ImageReferenceService imageReferenceService;
 
+    @Autowired
+    public JpaUserAccountStore(
+            UserRepository userRepository,
+            PasswordHistoryRepository passwordHistoryRepository,
+            RoleRepository roleRepository,
+            ImageReferenceService imageReferenceService) {
+        this.userRepository = userRepository;
+        this.passwordHistoryRepository = passwordHistoryRepository;
+        this.roleRepository = roleRepository;
+        this.imageReferenceService = imageReferenceService;
+    }
+
+    /** Compatibility constructor for direct mapping tests that do not execute image-tracked persistence. */
     public JpaUserAccountStore(
             UserRepository userRepository,
             PasswordHistoryRepository passwordHistoryRepository,
             RoleRepository roleRepository) {
-        this.userRepository = userRepository;
-        this.passwordHistoryRepository = passwordHistoryRepository;
-        this.roleRepository = roleRepository;
+        this(userRepository, passwordHistoryRepository, roleRepository, null);
     }
 
     @Override
@@ -45,8 +61,24 @@ public class JpaUserAccountStore implements UserAccountStore {
 
     @Override
     public UserAccount save(UserAccount account) {
+        requireImageTrackingConfigured(
+                account.avatar(),
+                imageReferenceService == null && account.id() != null
+                        ? userRepository.findById(account.id()).map(User::getAvatar).orElse(null)
+                        : null);
         User savedUser = userRepository.save(toEntity(account));
         return toRecord(savedUser);
+    }
+
+    private void requireImageTrackingConfigured(String... imagePaths) {
+        if (imageReferenceService != null) {
+            return;
+        }
+        for (String imagePath : imagePaths) {
+            if (ImageReferenceService.isTrackable(imagePath)) {
+                throw new IllegalStateException(IMAGE_REFERENCE_CONFIGURATION_ERROR);
+            }
+        }
     }
 
     @Override

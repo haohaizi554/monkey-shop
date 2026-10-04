@@ -39,6 +39,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -455,7 +456,7 @@ class JwtTokenServiceTest {
         JwtTokenService tokenService = redisRequiredTokenService(redisTemplate);
 
         JwtTokenPair firstPair = tokenService.issueTokenPair(1L, "USER", List.of("ROLE_USER", "ORDER_CREATE"));
-        String firstRefreshKey = "jwt:refresh:" + firstPair.refreshTokenId();
+        String firstRefreshKey = taggedRefreshTokenKey(1L, firstPair.refreshTokenId());
         when(redisTemplate.hasKey(firstRefreshKey)).thenReturn(true);
 
         assertThat(tokenService.parseRefreshToken(firstPair.refreshToken())).isPresent();
@@ -466,7 +467,23 @@ class JwtTokenServiceTest {
         verify(redisValues).set(eq(firstRefreshKey), eq("1"), any(Duration.class));
         verify(redisTemplate, never()).delete(firstRefreshKey);
         verify(redisValues, never())
-                .set(eq("jwt:refresh:" + refreshedPair.refreshTokenId()), eq("1"), any(Duration.class));
+                .set(eq(taggedRefreshTokenKey(1L, refreshedPair.refreshTokenId())), eq("1"), any(Duration.class));
+    }
+
+    @Test
+    void requiredRedisTokenStoreDoesNotReadLegacyUnslottedRefreshKeys() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        mockRedisValues(redisTemplate);
+        JwtTokenService tokenService = redisRequiredTokenService(redisTemplate);
+        JwtTokenPair tokenPair = tokenService.issueTokenPair(1L, "USER");
+        String taggedKey = taggedRefreshTokenKey(1L, tokenPair.refreshTokenId());
+        String legacyKey = "jwt:refresh:" + tokenPair.refreshTokenId();
+        when(redisTemplate.hasKey(taggedKey)).thenReturn(false);
+        when(redisTemplate.hasKey(legacyKey)).thenReturn(true);
+
+        assertThat(tokenService.parseRefreshToken(tokenPair.refreshToken())).isEmpty();
+        verify(redisTemplate).hasKey(taggedKey);
+        verify(redisTemplate, never()).hasKey(legacyKey);
     }
 
     @Test
@@ -485,7 +502,7 @@ class JwtTokenServiceTest {
                 .execute(any(RedisScript.class), anyList(), any(Object[].class));
         JwtTokenService tokenService = redisRequiredTokenService(redisTemplate);
         JwtTokenPair predecessor = tokenService.issueTokenPair(1L, "USER");
-        String predecessorKey = "jwt:refresh:" + predecessor.refreshTokenId();
+        String predecessorKey = taggedRefreshTokenKey(1L, predecessor.refreshTokenId());
         when(redisTemplate.hasKey(predecessorKey)).thenReturn(true);
 
         JwtTokenPair successor = tokenService
@@ -504,9 +521,10 @@ class JwtTokenServiceTest {
                 .satisfies(keys -> assertThat(keys)
                         .containsExactly(
                                 predecessorKey,
-                                "jwt:refresh:" + successor.refreshTokenId(),
-                                "jwt:refresh:rotation:" + predecessor.refreshTokenId(),
-                                "jwt:revoked:user:1"));
+                         taggedRefreshTokenKey(1L, successor.refreshTokenId()),
+                         taggedRefreshRotationKey(1L, predecessor.refreshTokenId()),
+                         taggedRevokedUserKey(1L))
+                        .allSatisfy(key -> assertThat(redisHashTag(key)).isNotBlank().isEqualTo("1")));
         verify(redisValues, never())
                 .setIfAbsent(startsWith("jwt:refresh:rotation-lock:"), anyString(), any(Duration.class));
     }
@@ -517,11 +535,13 @@ class JwtTokenServiceTest {
         mockRedisValues(redisTemplate);
         CountDownLatch enteredScript = new CountDownLatch(2);
         CountDownLatch releaseScripts = new CountDownLatch(1);
+        List<List<String>> executedKeys = new CopyOnWriteArrayList<>();
         doAnswer(invocation -> {
                     RedisScript<?> script = invocation.getArgument(0);
                     if (!String.class.equals(script.getResultType())) {
                         return 1L;
                     }
+                    executedKeys.add(List.copyOf(invocation.getArgument(1)));
                     enteredScript.countDown();
                     if (!enteredScript.await(2, TimeUnit.SECONDS)) {
                         throw new AssertionError("Redis refresh rotations were serialized in the JVM");
@@ -547,6 +567,18 @@ class JwtTokenServiceTest {
             releaseScripts.countDown();
             assertThat(firstRotation.get(2, TimeUnit.SECONDS)).isNotNull();
             assertThat(secondRotation.get(2, TimeUnit.SECONDS)).isNotNull();
+            assertThat(executedKeys).hasSize(2);
+            assertThat(executedKeys)
+                    .allSatisfy(keys -> {
+                        assertThat(keys).hasSize(4);
+                        String tag = redisHashTag(keys.get(0));
+                        assertThat(tag).isNotBlank();
+                        assertThat(keys).allSatisfy(key -> assertThat(redisHashTag(key)).isEqualTo(tag));
+                    });
+            assertThat(executedKeys)
+                    .extracting(keys -> redisHashTag(keys.get(0)))
+                    .containsExactlyInAnyOrder("1", "2");
+            assertThat(redisClusterSlot("1")).isNotEqualTo(redisClusterSlot("2"));
         } finally {
             releaseScripts.countDown();
             executor.shutdownNow();
@@ -579,7 +611,7 @@ class JwtTokenServiceTest {
                 .execute(any(RedisScript.class), anyList(), any(Object[].class));
         JwtTokenService tokenService = redisRequiredTokenService(redisTemplate);
         JwtTokenPair predecessor = tokenService.issueTokenPair(1L, "USER");
-        when(redisTemplate.hasKey("jwt:refresh:" + predecessor.refreshTokenId()))
+        when(redisTemplate.hasKey(taggedRefreshTokenKey(1L, predecessor.refreshTokenId())))
                 .thenReturn(true);
 
         JwtTokenPair successor = tokenService
@@ -610,14 +642,14 @@ class JwtTokenServiceTest {
                 .execute(any(RedisScript.class), anyList(), any(Object[].class));
         JwtTokenService firstNode = redisRequiredTokenService(redisTemplate);
         JwtTokenPair predecessor = firstNode.issueTokenPair(1L, "USER");
-        when(redisTemplate.hasKey("jwt:refresh:" + predecessor.refreshTokenId()))
+        when(redisTemplate.hasKey(taggedRefreshTokenKey(1L, predecessor.refreshTokenId())))
                 .thenReturn(true);
         JwtTokenPair successor = firstNode
                 .rotateRefreshToken(predecessor.refreshToken())
                 .orElseThrow(() -> new AssertionError("Refresh token rotation should succeed"));
-        when(redisValues.get("jwt:refresh:rotation:" + predecessor.refreshTokenId()))
+        when(redisValues.get(taggedRefreshRotationKey(1L, predecessor.refreshTokenId())))
                 .thenAnswer(ignored -> encryptedRecovery.get());
-        when(redisTemplate.hasKey("jwt:refresh:" + successor.refreshTokenId())).thenReturn(true);
+        when(redisTemplate.hasKey(taggedRefreshTokenKey(1L, successor.refreshTokenId()))).thenReturn(true);
         JwtTokenService secondNode = redisRequiredTokenService(redisTemplate);
 
         SessionTokenService.RecoveredRefreshToken recovered = secondNode
@@ -646,7 +678,7 @@ class JwtTokenServiceTest {
                 .execute(any(RedisScript.class), anyList(), any(Object[].class));
         JwtTokenService firstNode = redisRequiredTokenService(redisTemplate);
         JwtTokenPair predecessor = firstNode.issueTokenPair(1L, "USER");
-        when(redisTemplate.hasKey("jwt:refresh:" + predecessor.refreshTokenId()))
+        when(redisTemplate.hasKey(taggedRefreshTokenKey(1L, predecessor.refreshTokenId())))
                 .thenReturn(true);
         firstNode
                 .rotateRefreshToken(predecessor.refreshToken())
@@ -654,7 +686,7 @@ class JwtTokenServiceTest {
         String ciphertext = encryptedRecovery.get();
         char replacement = ciphertext.endsWith("A") ? 'B' : 'A';
         String tampered = ciphertext.substring(0, ciphertext.length() - 1) + replacement;
-        when(redisValues.get("jwt:refresh:rotation:" + predecessor.refreshTokenId()))
+        when(redisValues.get(taggedRefreshRotationKey(1L, predecessor.refreshTokenId())))
                 .thenReturn(tampered);
         JwtTokenService secondNode = redisRequiredTokenService(redisTemplate);
 
@@ -681,7 +713,7 @@ class JwtTokenServiceTest {
         ValueOperations<String, String> redisValues = mockRedisValues(redisTemplate);
         JwtTokenService tokenService = redisRequiredTokenService(redisTemplate);
         JwtTokenPair tokenPair = tokenService.issueTokenPair(1L, "USER");
-        when(redisValues.get("jwt:revoked:user:1")).thenReturn(null);
+        when(redisValues.get(taggedRevokedUserKey(1L))).thenReturn(null);
         when(redisTemplate.hasKey("jwt:revoked:access:" + tokenPair.accessTokenId()))
                 .thenReturn(true);
 
@@ -706,6 +738,19 @@ class JwtTokenServiceTest {
         ValueOperations<String, String> redisValues = mockRedisValues(redisTemplate);
         JwtTokenService tokenService = new JwtTokenService(TEST_SECRET, 30, 60, 30, 60, false, redisTemplate);
         JwtTokenPair tokenPair = tokenService.issueTokenPair(1L, "USER");
+        when(redisValues.get(taggedRevokedUserKey(1L)))
+                .thenReturn(Long.toString(Instant.now().plusSeconds(60).toEpochMilli()));
+
+        assertThat(tokenService.parseAccessToken(tokenPair.accessToken())).isEmpty();
+    }
+
+    @Test
+    void requiredRedisTokenStoreReadsLegacyUserRevocationStateDuringKeyMigration() {
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        ValueOperations<String, String> redisValues = mockRedisValues(redisTemplate);
+        JwtTokenService tokenService = redisRequiredTokenService(redisTemplate);
+        JwtTokenPair tokenPair = tokenService.issueTokenPair(1L, "USER");
+        when(redisValues.get(taggedRevokedUserKey(1L))).thenReturn(null);
         when(redisValues.get("jwt:revoked:user:1"))
                 .thenReturn(Long.toString(Instant.now().plusSeconds(60).toEpochMilli()));
 
@@ -718,7 +763,7 @@ class JwtTokenServiceTest {
         ValueOperations<String, String> redisValues = mockRedisValues(redisTemplate);
         JwtTokenService tokenService = redisRequiredTokenService(redisTemplate);
         JwtTokenPair tokenPair = tokenService.issueTokenPair(1L, "USER");
-        when(redisValues.get("jwt:revoked:user:1")).thenThrow(new RuntimeException("redis unavailable"));
+        when(redisValues.get(taggedRevokedUserKey(1L))).thenThrow(new RuntimeException("redis unavailable"));
 
         assertThat(tokenService.parseAccessToken(tokenPair.accessToken())).isEmpty();
     }
@@ -731,7 +776,7 @@ class JwtTokenServiceTest {
 
         JwtTokenPair tokenPair = tokenService.issueTokenPair(1L, "USER");
         String accessRevocationKey = "jwt:revoked:access:" + tokenPair.accessTokenId();
-        String refreshKey = "jwt:refresh:" + tokenPair.refreshTokenId();
+        String refreshKey = taggedRefreshTokenKey(1L, tokenPair.refreshTokenId());
         when(redisTemplate.hasKey(accessRevocationKey)).thenThrow(new RuntimeException("redis unavailable"));
         when(redisTemplate.hasKey(refreshKey)).thenThrow(new RuntimeException("redis unavailable"));
 
@@ -775,7 +820,7 @@ class JwtTokenServiceTest {
         mockRedisValues(redisTemplate);
         JwtTokenService tokenService = redisRequiredTokenService(redisTemplate);
         JwtTokenPair tokenPair = tokenService.issueTokenPair(1L, "USER");
-        when(redisTemplate.hasKey("jwt:refresh:" + tokenPair.refreshTokenId())).thenReturn(true);
+        when(redisTemplate.hasKey(taggedRefreshTokenKey(1L, tokenPair.refreshTokenId()))).thenReturn(true);
         doThrow(new RuntimeException("redis unavailable"))
                 .when(redisTemplate)
                 .execute(any(RedisScript.class), anyList(), any(Object[].class));
@@ -806,7 +851,7 @@ class JwtTokenServiceTest {
         JwtTokenService tokenService = redisRequiredTokenService(redisTemplate);
         doThrow(new RuntimeException("redis unavailable"))
                 .when(redisValues)
-                .set(eq("jwt:revoked:user:1"), anyString(), any(Duration.class));
+                .set(eq(taggedRevokedUserKey(1L)), anyString(), any(Duration.class));
 
         assertThatThrownBy(() -> tokenService.revokeUserTokensIssuedBefore(1L, Instant.now()))
                 .isInstanceOf(IllegalStateException.class)
@@ -961,6 +1006,37 @@ class JwtTokenServiceTest {
         tokenService.revokeUserTokensIssuedBefore(1L, null);
 
         assertThat(tokenService.parseAccessToken(tokenPair.accessToken())).isPresent();
+    }
+
+    private static String taggedRefreshTokenKey(long userId, String tokenId) {
+        return "jwt:refresh:{" + userId + "}:" + tokenId;
+    }
+
+    private static String taggedRefreshRotationKey(long userId, String tokenId) {
+        return "jwt:refresh:rotation:{" + userId + "}:" + tokenId;
+    }
+
+    private static String taggedRevokedUserKey(long userId) {
+        return "jwt:revoked:user:{" + userId + "}";
+    }
+
+    private static String redisHashTag(String key) {
+        int start = key.indexOf('{');
+        int end = start < 0 ? -1 : key.indexOf('}', start + 1);
+        return start >= 0 && end > start ? key.substring(start + 1, end) : "";
+    }
+
+    private static int redisClusterSlot(String hashTag) {
+        byte[] bytes = hashTag.getBytes(StandardCharsets.UTF_8);
+        int crc = 0;
+        for (byte value : bytes) {
+            crc ^= (value & 0xFF) << 8;
+            for (int bit = 0; bit < 8; bit++) {
+                crc = (crc & 0x8000) != 0 ? (crc << 1) ^ 0x1021 : crc << 1;
+                crc &= 0xFFFF;
+            }
+        }
+        return crc % 16384;
     }
 
     private static JwtTokenService redisRequiredTokenService(StringRedisTemplate redisTemplate) {

@@ -40,6 +40,84 @@ class SchemaMigrationTest {
     }
 
     @Test
+    void v56PreflightsUnknownShopOwnershipBeforeAddingColumn() throws IOException {
+        String migration = read("src/main/resources/db/migration/V56__catalog_shop_ownership.sql");
+        int preflight = migration.indexOf("CREATE TEMPORARY TABLE v56_shop_id_preflight");
+        int firstProductAlter = migration.indexOf("ALTER TABLE product_spu");
+
+        assertThat(preflight).isGreaterThanOrEqualTo(0);
+        assertThat(firstProductAlter).isGreaterThan(preflight);
+        assertThat(migration)
+                .contains("CHECK (unknown_rows = 0)")
+                .contains("SELECT id, tenant_id, attributes_json")
+                .contains("ADD COLUMN IF NOT EXISTS shop_id BIGINT NULL")
+                .contains("REGEXP '^[1-9][0-9]*$'")
+                .contains("9223372036854775807");
+    }
+
+    @Test
+    void v57PreflightsDuplicateKeysBeforeAnyMutation() throws IOException {
+        String migration = read("src/main/resources/db/migration/V57__marketing_group_buy_idempotency.sql");
+        int preflight = migration.indexOf("CREATE TEMPORARY TABLE v57_duplicate_preflight");
+        int firstTableAlter = migration.indexOf("ALTER TABLE marketing_group_buy_member");
+
+        assertThat(preflight).isGreaterThanOrEqualTo(0);
+        assertThat(firstTableAlter).isGreaterThan(preflight);
+        assertThat(migration)
+                .contains("CHECK (duplicate_groups = 0)")
+                .contains("SELECT tenant_id, user_id, idempotency_key")
+                .contains("HAVING COUNT(*) > 1")
+                .contains("CREATE TEMPORARY TABLE v57_index_preflight")
+                .contains("information_schema.statistics")
+                .doesNotContain("DELETE duplicate_member");
+    }
+
+    @Test
+    void v62BackfillsTenantScopedGroupBuyBindingsWithoutDeletingLegacyMembers() throws IOException {
+        String migration = read("src/main/resources/db/migration/V62__marketing_group_buy_idempotency_bindings.sql");
+        int preflight = migration.indexOf("CREATE TEMPORARY TABLE v62_group_buy_binding_preflight");
+        int createTable = migration.indexOf("CREATE TABLE IF NOT EXISTS marketing_group_buy_idempotency_binding");
+        int backfill = migration.indexOf("INSERT INTO marketing_group_buy_idempotency_binding");
+
+        assertThat(preflight).isGreaterThanOrEqualTo(0);
+        assertThat(createTable).isGreaterThan(preflight);
+        assertThat(backfill).isGreaterThan(createTable);
+        assertThat(migration)
+                .contains("CHECK (invalid_rows = 0 AND duplicate_groups = 0)")
+                .contains("GROUP BY m.tenant_id, m.user_id")
+                .contains("LEFT(m.idempotency_key, 6) = 'group:'")
+                .contains("t.leader_user_id = m.user_id")
+                .contains("SHA2(CONCAT('v1|activityId='")
+                .contains("ON DUPLICATE KEY UPDATE id = id")
+                .doesNotContain("DELETE FROM marketing_group_buy_member");
+    }
+
+    @Test
+    void v61PreflightsLegacyShipmentAmbiguityAndBackfillsReplayClaims() throws IOException {
+        String migration = read("src/main/resources/db/migration/V61__logistics_shipment_claims.sql");
+        int preflight = migration.indexOf("CREATE TEMPORARY TABLE v61_logistics_claim_preflight");
+        int trackingAlter = migration.indexOf("ALTER TABLE logistics_tracking");
+        int claimTable = migration.indexOf("CREATE TABLE IF NOT EXISTS logistics_shipment_claim");
+        int backfill = migration.indexOf("INSERT INTO logistics_shipment_claim");
+
+        assertThat(preflight).isGreaterThanOrEqualTo(0);
+        assertThat(trackingAlter).isGreaterThan(preflight);
+        assertThat(claimTable).isGreaterThan(trackingAlter);
+        assertThat(backfill).isGreaterThan(claimTable);
+        assertThat(migration)
+                .contains("CHECK (duplicate_groups = 0)")
+                .contains("GROUP BY tenant_id, order_id")
+                .contains("HAVING COUNT(*) > 1")
+                .contains("SHA2(CONCAT(")
+                .contains("legacy-logistics-v1|tenant=")
+                .contains("t.request_fingerprint")
+                .contains("t.tracking_no")
+                .contains("'ACCEPTED'")
+                .contains("ON DUPLICATE KEY UPDATE")
+                .doesNotContain("DELETE FROM logistics_tracking");
+    }
+
+    @Test
     void v51GuardsLegacyIdempotencyAndDuplicateActivePaymentIntents() throws IOException {
         String v51 = read("src/main/resources/db/migration/V51__payment_request_fingerprints.sql");
 

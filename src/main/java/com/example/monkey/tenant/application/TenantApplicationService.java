@@ -4,6 +4,7 @@ import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.observability.TraceIds;
 import com.example.monkey.shared.application.security.AuthenticatedPrincipals;
 import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
@@ -22,6 +23,7 @@ import com.example.monkey.tenant.application.dto.TenantResponseDto;
 import com.example.monkey.tenant.domain.Tenant;
 import com.example.monkey.tenant.domain.TenantBill;
 import com.example.monkey.tenant.domain.TenantConfig;
+import com.example.monkey.tenant.domain.TenantConfigValuePolicy;
 import com.example.monkey.tenant.domain.TenantDashboard;
 import com.example.monkey.tenant.domain.TenantDataExportJob;
 import com.example.monkey.tenant.domain.TenantExportProvider;
@@ -34,6 +36,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -143,6 +146,7 @@ public class TenantApplicationService {
     @Transactional
     public TenantConfigDto upsertConfig(SessionUser operator, Long tenantId, TenantConfigRequestDto request) {
         requireTenant(tenantId);
+        Map<String, String> settings = validateConfigRequest(request);
         Long operatorId = AuthenticatedPrincipals.requireUserId(operator);
         TenantConfig saved = tenantStore.saveConfig(
                 new TenantConfig(
@@ -150,7 +154,7 @@ public class TenantApplicationService {
                         tenantId,
                         request.configType(),
                         request.provider(),
-                        request.settings(),
+                        settings,
                         request.enabled() == null || request.enabled(),
                         LocalDateTime.now(),
                         0L),
@@ -161,6 +165,16 @@ public class TenantApplicationService {
                 "tenant-config:" + saved.id(),
                 "tenantId=" + tenantId + ",type=" + saved.configType());
         return TenantDtoAssembler.toConfig(saved);
+    }
+
+    private static Map<String, String> validateConfigRequest(TenantConfigRequestDto request) {
+        if (request == null || request.configType() == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Tenant config type is required");
+        }
+        if (request.provider() != null && request.provider().length() > 64) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Tenant config provider is invalid");
+        }
+        return TenantConfigValuePolicy.validateAndCopy(request.settings());
     }
 
     @WithSpan("tenant.config-list")
@@ -272,30 +286,44 @@ public class TenantApplicationService {
     public int completePendingExports() {
         List<TenantDataExportJob> jobs = tenantStore.findPendingExportJobs(20);
         for (TenantDataExportJob job : jobs) {
-            Supplier<TenantExportProvider.ExportResult> operation = job.providerJobId() == null
-                    ? () -> tenantExportProvider.submit(exportRequest(job))
-                    : () -> tenantExportProvider.refresh(job);
-            TenantExportProvider.ExportResult providerResult = providerResult(operation, job.id());
-            if (providerResult == null) {
-                continue;
-            }
+            Long previousTenantId = TenantContext.currentTenantId().orElse(null);
+            TenantContext.setTenantId(job.tenantId());
             try {
-                TenantDataExportJob updated = tenantStore.saveExportJob(job.apply(providerResult, LocalDateTime.now()));
-                if (updated.status() == TenantExportStatus.SUCCEEDED) {
-                    auditService.record(
-                            AuditService.TENANT_EXPORT_COMPLETED,
-                            AuditService.OUTCOME_SUCCESS,
-                            updated.requestedBy(),
-                            null,
-                            "tenant-export:" + updated.id(),
-                            null,
-                            "tenantId=" + updated.tenantId() + ",artifactAvailable=true");
+                Supplier<TenantExportProvider.ExportResult> operation = job.providerJobId() == null
+                        ? () -> tenantExportProvider.submit(exportRequest(job))
+                        : () -> tenantExportProvider.refresh(job);
+                TenantExportProvider.ExportResult providerResult = providerResult(operation, job.id());
+                if (providerResult == null) {
+                    continue;
                 }
-            } catch (RuntimeException exception) {
-                LOGGER.warn("Tenant export job {} could not apply its provider result; it remains retryable", job.id());
+                try {
+                    TenantDataExportJob updated = tenantStore.saveExportJob(job.apply(providerResult, LocalDateTime.now()));
+                    if (updated.status() == TenantExportStatus.SUCCEEDED) {
+                        auditService.recordReliable(
+                                AuditService.TENANT_EXPORT_COMPLETED,
+                                AuditService.OUTCOME_SUCCESS,
+                                updated.requestedBy(),
+                                null,
+                                "tenant-export:" + updated.id(),
+                                null,
+                                "tenantId=" + updated.tenantId() + ",artifactAvailable=true");
+                    }
+                } catch (RuntimeException exception) {
+                    LOGGER.warn("Tenant export job {} could not apply its provider result; it remains retryable", job.id());
+                }
+            } finally {
+                restoreTenantContext(previousTenantId);
             }
         }
         return jobs.size();
+    }
+
+    private static void restoreTenantContext(Long tenantId) {
+        if (tenantId == null) {
+            TenantContext.clear();
+        } else {
+            TenantContext.setTenantId(tenantId);
+        }
     }
 
     private static TenantExportProvider.ExportRequest exportRequest(TenantDataExportJob job) {

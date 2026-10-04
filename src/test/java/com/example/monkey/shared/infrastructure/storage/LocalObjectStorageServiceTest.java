@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -69,5 +70,31 @@ class LocalObjectStorageServiceTest {
         assertThat(storage.publicUrl("product/item.png")).isEqualTo("https://cdn.example.test/assets/product/item.png");
         assertThat(url.objectKey()).isEqualTo("product/item.png");
         assertThat(url.url()).isEqualTo("https://cdn.example.test/assets/product/item.png");
+    }
+
+    @Test
+    void resolvesOnlyManagedReferencesAndListsAllStoredImageObjects() throws Exception {
+        LocalObjectStorageService storage =
+                new LocalObjectStorageService(uploadRoot, "https://cdn.example.test/assets/");
+        storage.store("product/item.png", new byte[] {1}, "image/png");
+        storage.store("product/item.png@320w.webp", new byte[] {2}, "image/webp");
+        storage.store("avatar/nested/alice.jpg", new byte[] {3}, "image/jpeg");
+
+        assertThat(storage.resolveObjectKey("https://cdn.example.test/assets/product/item.png"))
+                .isEqualTo("product/item.png");
+        assertThat(storage.resolveObjectKey("product/item.png")).isEqualTo("product/item.png");
+        assertThat(storage.resolveObjectKey("https://unrelated.example.test/product/item.png")).isNull();
+        assertThat(storage.exists("product/item.png")).isTrue();
+        assertThat(storage.exists("product/missing.png")).isFalse();
+        assertThat(storage.listStoredObjects())
+                .extracting(ObjectStorageService.StoredObjectMetadata::objectKey)
+                .containsExactlyInAnyOrder("product/item.png", "product/item.png@320w.webp", "avatar/nested/alice.jpg");
+    }
+
+    @Test
+    void treatsMissingLocalDeleteAsIdempotentSuccess() throws Exception {
+        LocalObjectStorageService storage = new LocalObjectStorageService(uploadRoot, "");
+
+        assertThat(storage.delete("product/missing.png")).isTrue();
     }
 }

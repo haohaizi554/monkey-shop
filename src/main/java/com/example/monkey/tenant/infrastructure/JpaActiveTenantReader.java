@@ -33,4 +33,10 @@ public class JpaActiveTenantReader implements ActiveTenantReader {
     public List<Long> findActiveTenantIds() {
         return tenantRepository.findServiceableTenantIds(SERVICEABLE_STATUSES, LocalDateTime.now(clock));
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Long> findRetainedTenantIds() {
+        return tenantRepository.findRetainedTenantIds();
+    }
 }

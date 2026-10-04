@@ -28,7 +28,10 @@ public class UserImageReferenceSource implements StoredImageReferenceSource {
 
     @Override
     public boolean isUsed(String imagePath) {
-        return userRepository.countByAvatar(imagePath) > 0;
+        return imagePath != null
+                && !imagePath.isBlank()
+                && (userRepository.countByAvatar(imagePath.trim()) > 0
+                        || userRepository.countByAvatarStartingWith(imagePath.trim() + "@") > 0);
     }
 
     @Override

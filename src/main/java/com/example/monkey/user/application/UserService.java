@@ -2,6 +2,7 @@ package com.example.monkey.user.application;
 
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.application.storage.ImageCleanupService;
+import com.example.monkey.shared.application.storage.ImageReferenceTransactions;
 import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
@@ -17,6 +18,7 @@ import com.example.monkey.user.domain.UserRoles;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -83,6 +85,7 @@ public class UserService {
 
     @Transactional
     public void register(String username, String password, String phone, String email, String avatarPath) {
+        long tenantId = TenantContext.currentTenantIdOrDefault();
         passwordPolicy.validateOrThrow(password);
         if (userAccountStore.findByUsername(username).isPresent()) {
             throw new BusinessException(ErrorCode.CONFLICT, REGISTRATION_FAILED);
@@ -104,9 +107,10 @@ public class UserService {
                     false,
                     null,
                     false,
-                    List.of());
+                    List.of(),
+                    tenantId);
+            ImageReferenceTransactions.retainBeforeWrite(imageReferenceService, user.avatar());
             UserAccount savedUser = userAccountStore.save(user);
-            imageReferenceService.retain(user.avatar());
             recordPasswordHistory(savedUser != null ? savedUser.id() : user.id(), encodedPassword, now);
         } catch (Exception e) {
             log.warn("User registration failed");
@@ -178,11 +182,13 @@ public class UserService {
             throw new BusinessException(ErrorCode.NOT_FOUND, "user not found");
         }
         String oldAvatar = user.avatar();
+        boolean avatarChanged = !Objects.equals(oldAvatar, newAvatarPath);
+        if (avatarChanged) {
+            ImageReferenceTransactions.retainBeforeWrite(imageReferenceService, newAvatarPath);
+        }
         userAccountStore.save(user.withAvatar(newAvatarPath));
-        if (oldAvatar != null && !oldAvatar.equals(newAvatarPath)) {
-            imageReferenceService.retain(newAvatarPath);
-            imageReferenceService.release(oldAvatar);
-            imageCleanupService.tryDelete(oldAvatar);
+        if (avatarChanged) {
+            ImageReferenceTransactions.releaseAfterCommit(imageReferenceService, imageCleanupService, oldAvatar);
         }
     }
 
