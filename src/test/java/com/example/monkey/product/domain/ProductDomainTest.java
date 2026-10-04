@@ -81,7 +81,7 @@ class ProductDomainTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("SKU price book is required");
         assertThatThrownBy(() ->
-                        new CatalogSpu(10L, 3L, "phone", "phone title", null, null, null, null, null, null, List.of()))
+                        new CatalogSpu(10L, 3L, 1L, "phone", "phone title", null, null, null, null, null, null, List.of()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("SPU price book is required");
     }
@@ -95,7 +95,7 @@ class ProductDomainTest {
         attributes.put("brand", "Monkey");
 
         CatalogSpu spu = new CatalogSpu(
-                10L, 3L, "phone", "phone title", null, priceBook, attributes, null, null, null, List.of(sku));
+                10L, 3L, 1L, "phone", "phone title", null, priceBook, attributes, null, null, null, List.of(sku));
         attributes.put("brand", "Changed");
 
         assertThat(spu.status()).isEqualTo(ProductStatus.DRAFT);

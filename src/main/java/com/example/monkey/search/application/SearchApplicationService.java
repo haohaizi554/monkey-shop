@@ -31,8 +31,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -192,8 +190,6 @@ public class SearchApplicationService {
                 "keyword=" + normalizedKeyword + ",source=" + request.source());
     }
 
-    @Scheduled(cron = "${app.search.hot-refresh-cron:0 */5 * * * *}")
-    @SchedulerLock(name = "search-hot-keyword-refresh", lockAtMostFor = "${app.search.hot-lock-at-most-for:PT1M}")
     public void refreshHotKeywordSnapshot() {
         searchActivityStore.refreshHotKeywordSnapshot();
     }

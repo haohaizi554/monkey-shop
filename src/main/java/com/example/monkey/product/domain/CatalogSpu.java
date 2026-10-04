@@ -6,6 +6,7 @@ import java.util.Map;
 public record CatalogSpu(
         Long id,
         Long categoryId,
+        Long shopId,
         String name,
         String title,
         ProductStatus status,
@@ -22,6 +23,9 @@ public record CatalogSpu(
         if (categoryId == null) {
             throw new IllegalArgumentException("category id is required");
         }
+        if (shopId == null || shopId <= 0) {
+            throw new IllegalArgumentException("shop id is required");
+        }
         if (name == null || name.isBlank()) {
             throw new IllegalArgumentException("SPU name is required");
         }
@@ -37,6 +41,7 @@ public record CatalogSpu(
         return new CatalogSpu(
                 id,
                 categoryId,
+                shopId,
                 name,
                 title,
                 ProductStateMachine.transition(status, targetStatus),

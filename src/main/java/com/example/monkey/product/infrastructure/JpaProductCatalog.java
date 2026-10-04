@@ -5,11 +5,13 @@ import com.example.monkey.product.domain.ProductCatalog.ProductPage;
 import com.example.monkey.product.domain.ProductCatalog.ProductPageRequest;
 import com.example.monkey.product.domain.ProductCatalog.ProductRecord;
 import com.example.monkey.product.domain.ProductCatalog.SortOrder.Direction;
+import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import com.example.monkey.shared.infrastructure.persistence.JpaPageRequests;
 import com.example.monkey.shared.infrastructure.persistence.JpaSorts;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -18,12 +20,22 @@ import org.springframework.stereotype.Component;
 @Component
 public class JpaProductCatalog implements ProductCatalog {
 
+    private static final String IMAGE_REFERENCE_CONFIGURATION_ERROR =
+            "Image reference services are required for trackable image writes";
     private static final Set<String> ALLOWED_SORT_PROPERTIES = Set.of("id", "name", "breed", "price", "stock");
 
     private final MonkeyRepository monkeyRepository;
+    private final ImageReferenceService imageReferenceService;
 
-    public JpaProductCatalog(MonkeyRepository monkeyRepository) {
+    @Autowired
+    public JpaProductCatalog(MonkeyRepository monkeyRepository, ImageReferenceService imageReferenceService) {
         this.monkeyRepository = monkeyRepository;
+        this.imageReferenceService = imageReferenceService;
+    }
+
+    /** Compatibility constructor for direct mapping tests that do not execute image-tracked persistence. */
+    public JpaProductCatalog(MonkeyRepository monkeyRepository) {
+        this(monkeyRepository, null);
     }
 
     @Override
@@ -46,7 +58,14 @@ public class JpaProductCatalog implements ProductCatalog {
 
     @Override
     public ProductRecord save(ProductRecord product) {
-        return toRecord(monkeyRepository.save(toEntity(product)));
+        Monkey existing = product.id() == null ? null : monkeyRepository.findById(product.id()).orElse(null);
+        requireImageTrackingConfigured(
+                product.imageUrl(), imageReferenceService == null && existing != null ? existing.getImageUrl() : null);
+        Monkey entity = toEntity(product);
+        if (existing != null) {
+            entity.setVersion(existing.getVersion());
+        }
+        return toRecord(monkeyRepository.save(entity));
     }
 
     @Override
@@ -56,7 +75,22 @@ public class JpaProductCatalog implements ProductCatalog {
 
     @Override
     public void deleteById(Long id) {
+        requireImageTrackingConfigured(
+                imageReferenceService == null && id != null
+                        ? monkeyRepository.findById(id).map(Monkey::getImageUrl).orElse(null)
+                        : null);
         monkeyRepository.deleteById(id);
+    }
+
+    private void requireImageTrackingConfigured(String... imagePaths) {
+        if (imageReferenceService != null) {
+            return;
+        }
+        for (String imagePath : imagePaths) {
+            if (ImageReferenceService.isTrackable(imagePath)) {
+                throw new IllegalStateException(IMAGE_REFERENCE_CONFIGURATION_ERROR);
+            }
+        }
     }
 
     private static Pageable toPageable(ProductPageRequest request) {

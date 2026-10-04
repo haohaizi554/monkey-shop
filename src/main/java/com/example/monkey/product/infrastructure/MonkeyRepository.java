@@ -34,6 +34,8 @@ public interface MonkeyRepository extends JpaRepository<Monkey, Long> {
 
     long countByImageUrl(String imageUrl);
 
+    long countByImageUrlStartingWith(String imageUrlPrefix);
+
     @Query("SELECT m.imageUrl FROM Monkey m WHERE m.imageUrl IS NOT NULL ORDER BY m.id")
     List<String> findImageUrls(Pageable pageable);
 

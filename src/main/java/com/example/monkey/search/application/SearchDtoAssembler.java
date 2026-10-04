@@ -38,6 +38,7 @@ public final class SearchDtoAssembler {
                 product.originalPrice(),
                 product.memberPrice(),
                 product.attributes(),
+                product.stock(),
                 product.score());
     }
 

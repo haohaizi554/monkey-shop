@@ -1,9 +1,12 @@
 package com.example.monkey.product.infrastructure;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.product.domain.ProductCatalog.ProductPage;
@@ -11,6 +14,7 @@ import com.example.monkey.product.domain.ProductCatalog.ProductPageRequest;
 import com.example.monkey.product.domain.ProductCatalog.ProductRecord;
 import com.example.monkey.product.domain.ProductCatalog.SortOrder;
 import com.example.monkey.product.domain.ProductCatalog.SortOrder.Direction;
+import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
@@ -31,11 +35,14 @@ class JpaProductCatalogTest {
     @Mock
     private MonkeyRepository monkeyRepository;
 
+    @Mock
+    private ImageReferenceService imageReferenceService;
+
     private JpaProductCatalog catalog;
 
     @BeforeEach
     void setUp() {
-        catalog = new JpaProductCatalog(monkeyRepository);
+        catalog = new JpaProductCatalog(monkeyRepository, imageReferenceService);
     }
 
     @Test
@@ -143,6 +150,7 @@ class JpaProductCatalogTest {
         assertThat(savedMonkey.getId()).isEqualTo(7L);
         assertThat(savedMonkey.getName()).isEqualTo("Momo");
         assertThat(savedMonkey.getPrice()).isEqualByComparingTo("199.99");
+        verifyNoInteractions(imageReferenceService);
     }
 
     @Test
@@ -159,6 +167,41 @@ class JpaProductCatalogTest {
         catalog.deleteById(7L);
 
         verify(monkeyRepository).deleteById(7L);
+    }
+
+    @Test
+    void compatibilityConstructorRejectsTrackableProductBeforeRepositorySave() {
+        JpaProductCatalog compatibilityCatalog = new JpaProductCatalog(monkeyRepository);
+
+        assertThatThrownBy(() -> compatibilityCatalog.save(record()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Image reference services are required for trackable image writes");
+
+        verify(monkeyRepository, never()).save(any(Monkey.class));
+    }
+
+    @Test
+    void compatibilityConstructorRejectsReplacingPersistedTrackableProductImage() {
+        when(monkeyRepository.findById(7L)).thenReturn(Optional.of(monkey()));
+        JpaProductCatalog compatibilityCatalog = new JpaProductCatalog(monkeyRepository);
+
+        assertThatThrownBy(() -> compatibilityCatalog.save(recordWithImage(null)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Image reference services are required for trackable image writes");
+
+        verify(monkeyRepository, never()).save(any(Monkey.class));
+    }
+
+    @Test
+    void compatibilityConstructorRejectsDeletingPersistedTrackableProduct() {
+        when(monkeyRepository.findById(7L)).thenReturn(Optional.of(monkey()));
+        JpaProductCatalog compatibilityCatalog = new JpaProductCatalog(monkeyRepository);
+
+        assertThatThrownBy(() -> compatibilityCatalog.deleteById(7L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Image reference services are required for trackable image writes");
+
+        verify(monkeyRepository, never()).deleteById(7L);
     }
 
     @Test
@@ -186,5 +229,9 @@ class JpaProductCatalogTest {
 
     private static ProductRecord record() {
         return new ProductRecord(7L, "Momo", "Golden", BigDecimal.valueOf(199.99), "bright", "/images/momo.png", 5);
+    }
+
+    private static ProductRecord recordWithImage(String imageUrl) {
+        return new ProductRecord(7L, "Momo", "Golden", BigDecimal.valueOf(199.99), "bright", imageUrl, 5);
     }
 }

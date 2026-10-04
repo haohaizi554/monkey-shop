@@ -6,4 +6,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface ProductSkuRepository extends JpaRepository<ProductSku, Long> {
 
     List<ProductSku> findBySpuIdAndActiveTrueOrderByIdAsc(Long spuId);
+
+    List<ProductSku> findBySpuIdOrderByIdAsc(Long spuId);
 }

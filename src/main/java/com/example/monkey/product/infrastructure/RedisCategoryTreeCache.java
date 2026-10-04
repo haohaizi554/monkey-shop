@@ -2,6 +2,7 @@ package com.example.monkey.product.infrastructure;
 
 import com.example.monkey.product.domain.CategoryNode;
 import com.example.monkey.product.domain.CategoryTreeCache;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -32,22 +33,24 @@ public class RedisCategoryTreeCache implements CategoryTreeCache {
 
     @Override
     public Optional<List<CategoryNode>> get() {
-        String cached = redisTemplate.opsForValue().get(CACHE_KEY);
+        String key = cacheKey(TenantContext.currentTenantIdOrDefault());
+        String cached = redisTemplate.opsForValue().get(key);
         if (!StringUtils.hasText(cached)) {
             return Optional.empty();
         }
         try {
             return Optional.of(objectMapper.readValue(cached, CATEGORY_TREE_TYPE));
         } catch (JsonProcessingException exception) {
-            evict();
+            evict(key);
             return Optional.empty();
         }
     }
 
     @Override
     public void put(List<CategoryNode> categoryTree) {
+        String key = cacheKey(TenantContext.currentTenantIdOrDefault());
         try {
-            redisTemplate.opsForValue().set(CACHE_KEY, objectMapper.writeValueAsString(categoryTree), CACHE_TTL);
+            redisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(categoryTree), CACHE_TTL);
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Category tree cannot be serialized", exception);
         }
@@ -55,6 +58,14 @@ public class RedisCategoryTreeCache implements CategoryTreeCache {
 
     @Override
     public void evict() {
-        redisTemplate.delete(CACHE_KEY);
+        evict(cacheKey(TenantContext.currentTenantIdOrDefault()));
+    }
+
+    private void evict(String key) {
+        redisTemplate.delete(key);
+    }
+
+    private static String cacheKey(long tenantId) {
+        return CACHE_KEY + ":tenant:" + tenantId;
     }
 }

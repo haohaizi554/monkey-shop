@@ -1,17 +1,22 @@
 package com.example.monkey.tracking.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.example.monkey.order.application.observability.BusinessMetricsService;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.observability.VisitMetricsService;
 import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.domain.exception.BusinessException;
+import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
+import com.example.monkey.tracking.domain.AuthoritativeTrackingPort;
 import com.example.monkey.tracking.application.dto.TrackingEventRequestDto;
 import com.example.monkey.tracking.domain.ProductProfile;
 import com.example.monkey.tracking.domain.TrackingEvent;
@@ -28,6 +33,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 class TrackingApplicationServiceTest {
 
@@ -36,6 +45,7 @@ class TrackingApplicationServiceTest {
     private final VisitMetricsService visitMetricsService = mock(VisitMetricsService.class);
     private final BusinessMetricsService businessMetricsService = mock(BusinessMetricsService.class);
     private final AuditService auditService = mock(AuditService.class);
+    private final AtomicLong trustedEventIds = new AtomicLong(9000L);
     private final TrackingApplicationService service = new TrackingApplicationService(
             trackingStore, visitMetricsService, businessMetricsService, new IncrementingIdGenerator(), auditService);
 
@@ -118,6 +128,154 @@ class TrackingApplicationServiceTest {
     }
 
     @Test
+    void publicTrackingRejectsAuthoritativeCommerceEventsBeforeAnyMutation() {
+        TrackingEventRequestDto anonymousPayment = new TrackingEventRequestDto(
+                TrackingEventType.PAYMENT_SUCCESS,
+                "forged-payment",
+                "trace-forged-payment",
+                "/payment/900",
+                "web",
+                42L,
+                5L,
+                900L,
+                new BigDecimal("999999.99"),
+                Map.of(),
+                LocalDateTime.now());
+        TrackingEventRequestDto customerOrder = new TrackingEventRequestDto(
+                TrackingEventType.ORDER_CREATED,
+                "forged-order",
+                "trace-forged-order",
+                "/checkout",
+                "web",
+                42L,
+                5L,
+                900L,
+                null,
+                Map.of(),
+                LocalDateTime.now());
+
+        assertThatThrownBy(() -> service.recordEvent(null, anonymousPayment, "203.0.113.10"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.FORBIDDEN));
+        assertThatThrownBy(() -> service.recordEvent(USER, customerOrder, "203.0.113.11"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.FORBIDDEN));
+
+        assertThat(trackingStore.events).isEmpty();
+        assertThat(trackingStore.userProfiles).isEmpty();
+        assertThat(trackingStore.productProfiles).isEmpty();
+        verifyNoInteractions(visitMetricsService, businessMetricsService, auditService);
+    }
+
+    @Test
+    void trustedOrderCreatedPathPersistsAuthoritativeEventAndRefreshesSharedTrackingState() {
+        LocalDateTime occurredAt = LocalDateTime.parse("2026-08-28T12:34:56");
+        service.recordOrderCreated(7L, 900L, 42L, new BigDecimal("199.99"), occurredAt);
+
+        assertThat(trackingStore.events).singleElement().satisfies(event -> {
+            assertThat(event.userId()).isEqualTo(7L);
+            assertThat(event.orderId()).isEqualTo(900L);
+            assertThat(event.productId()).isEqualTo(42L);
+            assertThat(event.amount()).isEqualByComparingTo("199.99");
+            assertThat(event.eventType()).isEqualTo(TrackingEventType.ORDER_CREATED);
+            assertThat(event.occurredAt()).isEqualTo(occurredAt);
+            assertThat(event.traceId()).isNotBlank();
+        });
+        assertThat(trackingStore.userProfiles.get(7L).profileSummary()).contains("ORDER_CREATED");
+        assertThat(trackingStore.productProfiles.get(42L).salesCount()).isEqualTo(1L);
+        verify(businessMetricsService).recordTrackingEvent("ORDER_CREATED");
+        verify(auditService)
+                .record(
+                        eq(AuditService.TRACKING_EVENT_RECORDED),
+                        eq(AuditService.OUTCOME_SUCCESS),
+                        eq(7L),
+                        eq("USER"),
+                        contains("tracking-event:"),
+                        isNull(),
+                        contains("traceId="));
+    }
+
+    @Test
+    void trustedPaymentSuccessPathPersistsAuthoritativePaymentFieldsWithoutClientIdentity() {
+        LocalDateTime paidAt = LocalDateTime.parse("2026-08-28T12:35:56");
+
+        service.recordPaymentSuccess(7L, 900L, new BigDecimal("199.99"), paidAt);
+
+        assertThat(trackingStore.events).singleElement().satisfies(event -> {
+            assertThat(event.userId()).isEqualTo(7L);
+            assertThat(event.orderId()).isEqualTo(900L);
+            assertThat(event.productId()).isNull();
+            assertThat(event.categoryId()).isNull();
+            assertThat(event.amount()).isEqualByComparingTo("199.99");
+            assertThat(event.eventType()).isEqualTo(TrackingEventType.PAYMENT_SUCCESS);
+            assertThat(event.occurredAt()).isEqualTo(paidAt);
+            assertThat(event.traceId()).isNotBlank();
+        });
+        assertThat(trackingStore.userProfiles.get(7L).profileSummary()).contains("PAYMENT_SUCCESS");
+        assertThat(trackingStore.productProfiles).isEmpty();
+        verify(businessMetricsService).recordTrackingEvent("PAYMENT_SUCCESS");
+        verify(auditService)
+                .record(
+                        eq(AuditService.TRACKING_EVENT_RECORDED),
+                        eq(AuditService.OUTCOME_SUCCESS),
+                        eq(7L),
+                        eq("USER"),
+                        contains("tracking-event:"),
+                        isNull(),
+                        contains("traceId="));
+    }
+
+    @Test
+    void trackingMetricsAndAuditWaitUntilTransactionCommit() {
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.recordPaymentSuccess(
+                    7L, 900L, new BigDecimal("199.99"), LocalDateTime.parse("2026-08-28T12:35:56"));
+
+            verifyNoInteractions(businessMetricsService, auditService);
+
+            for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCommit();
+            }
+
+            verify(businessMetricsService).recordTrackingEvent("PAYMENT_SUCCESS");
+            verify(auditService)
+                    .record(
+                            eq(AuditService.TRACKING_EVENT_RECORDED),
+                            eq(AuditService.OUTCOME_SUCCESS),
+                            eq(7L),
+                            eq("USER"),
+                            contains("tracking-event:"),
+                            isNull(),
+                            contains("traceId="));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void orderOnlyTrackingPortFailsClosedForPaymentSuccess() {
+        AuthoritativeTrackingPort orderOnlyPort = (userId, orderId, productId, amount, occurredAt) -> {};
+
+        assertThatThrownBy(() -> orderOnlyPort.recordPaymentSuccess(
+                        7L, 900L, new BigDecimal("199.99"), LocalDateTime.parse("2026-08-28T12:35:56")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("payment tracking");
+    }
+
+    @Test
+    void trustedPaymentSuccessRequiresAnExistingTransaction() throws NoSuchMethodException {
+        Transactional transaction = TrackingApplicationService.class
+                .getMethod("recordPaymentSuccess", Long.class, Long.class, BigDecimal.class, LocalDateTime.class)
+                .getAnnotation(Transactional.class);
+
+        assertThat(transaction).isNotNull();
+        assertThat(transaction.propagation()).isEqualTo(Propagation.MANDATORY);
+    }
+
+    @Test
     void dashboardAggregatesPvUvPaymentAndFunnelSnapshots() {
         record(null, TrackingEventType.PAGE_VIEW, "pv-session", null, null, null, null, "/shop");
         record(USER, TrackingEventType.SEARCH, "buyer-session", null, null, null, null, "/search");
@@ -164,21 +322,36 @@ class TrackingApplicationServiceTest {
             Long orderId,
             BigDecimal amount,
             String page) {
-        service.recordEvent(
-                user,
-                new TrackingEventRequestDto(
-                        eventType,
-                        sessionId,
-                        "trace-" + sessionId + "-" + eventType.name().toLowerCase(),
-                        page,
-                        "web",
-                        productId,
-                        categoryId,
-                        orderId,
-                        amount,
-                        Map.of("keyword", "phone"),
-                        LocalDateTime.now()),
-                "203.0.113.8");
+        TrackingEventRequestDto request = new TrackingEventRequestDto(
+                eventType,
+                sessionId,
+                "trace-" + sessionId + "-" + eventType.name().toLowerCase(),
+                page,
+                "web",
+                productId,
+                categoryId,
+                orderId,
+                amount,
+                Map.of("keyword", "phone"),
+                LocalDateTime.now());
+        if (eventType == TrackingEventType.ORDER_CREATED || eventType == TrackingEventType.PAYMENT_SUCCESS) {
+            trackingStore.saveEvent(new TrackingEvent(
+                    trustedEventIds.incrementAndGet(),
+                    user == null ? null : user.id(),
+                    request.sessionId(),
+                    request.traceId(),
+                    request.eventType(),
+                    request.page(),
+                    request.source(),
+                    request.productId(),
+                    request.categoryId(),
+                    request.orderId(),
+                    request.amount(),
+                    request.attributes(),
+                    request.occurredAt()));
+            return;
+        }
+        service.recordEvent(user, request, "203.0.113.8");
     }
 
     private static final class IncrementingIdGenerator implements IdGenerator {

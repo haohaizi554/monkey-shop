@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -28,6 +29,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -124,6 +126,9 @@ class MonkeyServiceTest {
         assertThat(result.imageUrl()).isEqualTo("/images/product/custom.png");
         assertThat(captureSavedProduct().imageUrl()).isEqualTo("/images/product/custom.png");
         verify(imageReferenceService).retain("/images/product/custom.png");
+        InOrder mutationOrder = inOrder(imageReferenceService, productCatalog);
+        mutationOrder.verify(imageReferenceService).retain("/images/product/custom.png");
+        mutationOrder.verify(productCatalog).save(any(ProductRecord.class));
     }
 
     @Test
@@ -154,7 +159,7 @@ class MonkeyServiceTest {
         assertThat(captureSavedProduct().imageUrl()).isEqualTo("/images/product/new.png");
         verify(imageReferenceService).retain("/images/product/new.png");
         verify(imageReferenceService).release("/images/product/old.png");
-        verify(imageCleanupService).tryDelete("/images/product/old.png");
+        verify(imageCleanupService).tryDeleteCommitted("/images/product/old.png");
     }
 
     @Test
@@ -169,6 +174,20 @@ class MonkeyServiceTest {
         assertThat(result.imageUrl()).isEqualTo("/images/product/same.png");
         assertThat(captureSavedProduct().imageUrl()).isEqualTo("/images/product/same.png");
         verify(imageCleanupService, never()).tryDelete(any());
+    }
+
+    @Test
+    void updateMonkeyReservesImageWhenLegacyRowHadNoImage() {
+        ProductRecord oldProduct = productWithImage(null);
+        MonkeyRequestDto request =
+                new MonkeyRequestDto(7L, "Momo", "Golden", BigDecimal.TEN, "bright", "/images/product/new.png", 5);
+        when(productCatalog.findById(7L)).thenReturn(Optional.of(oldProduct));
+
+        monkeyService.updateMonkey(request);
+
+        InOrder mutationOrder = inOrder(imageReferenceService, productCatalog);
+        mutationOrder.verify(imageReferenceService).retain("/images/product/new.png");
+        mutationOrder.verify(productCatalog).save(any(ProductRecord.class));
     }
 
     @Test
@@ -193,7 +212,7 @@ class MonkeyServiceTest {
 
         verify(productCatalog).deleteById(7L);
         verify(imageReferenceService).release("/images/product/delete.png");
-        verify(imageCleanupService).tryDelete("/images/product/delete.png");
+        verify(imageCleanupService).tryDeleteCommitted("/images/product/delete.png");
     }
 
     private ProductRecord captureSavedProduct() {

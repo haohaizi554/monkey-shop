@@ -8,6 +8,7 @@ import java.util.Map;
 public record CatalogSpuResponseDto(
         Long id,
         Long categoryId,
+        Long shopId,
         String name,
         String title,
         ProductStatus status,

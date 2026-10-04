@@ -3,6 +3,7 @@ package com.example.monkey.search.infrastructure;
 import com.example.monkey.search.domain.HotKeyword;
 import com.example.monkey.search.domain.SearchActivityStore;
 import com.example.monkey.search.domain.SearchSuggestion;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
@@ -23,9 +24,9 @@ public class RedisSearchActivityStore implements SearchActivityStore {
     private static final String SNAPSHOT_KEY = "search:hot-keywords:snapshot";
 
     private final StringRedisTemplate redisTemplate;
-    private final Map<String, Long> fallbackHotKeywords = new ConcurrentHashMap<>();
-    private final Map<String, List<SearchSuggestion>> fallbackSuggestions = new ConcurrentHashMap<>();
-    private volatile List<HotKeyword> fallbackSnapshot = List.of();
+    private final Map<Long, Map<String, Long>> fallbackHotKeywords = new ConcurrentHashMap<>();
+    private final Map<Long, Map<String, List<SearchSuggestion>>> fallbackSuggestions = new ConcurrentHashMap<>();
+    private final Map<Long, List<HotKeyword>> fallbackSnapshots = new ConcurrentHashMap<>();
 
     public RedisSearchActivityStore(ObjectProvider<StringRedisTemplate> redisTemplateProvider) {
         this.redisTemplate = redisTemplateProvider.getIfAvailable();
@@ -37,56 +38,62 @@ public class RedisSearchActivityStore implements SearchActivityStore {
         if (normalized.isBlank()) {
             return;
         }
+        long tenantId = TenantContext.currentTenantIdOrDefault();
         if (redisTemplate == null) {
-            fallbackHotKeywords.merge(normalized, 1L, Long::sum);
+            recordFallbackKeyword(tenantId, normalized);
             return;
         }
         try {
-            redisTemplate.opsForZSet().incrementScore(HOT_KEY, normalized, 1);
+            redisTemplate.opsForZSet().incrementScore(hotKey(tenantId), normalized, 1);
         } catch (RuntimeException exception) {
-            fallbackHotKeywords.merge(normalized, 1L, Long::sum);
+            recordFallbackKeyword(tenantId, normalized);
         }
     }
 
     @Override
     public List<HotKeyword> hotKeywords(int limit) {
+        return hotKeywords(TenantContext.currentTenantIdOrDefault(), limit);
+    }
+
+    private List<HotKeyword> hotKeywords(long tenantId, int limit) {
         if (redisTemplate == null) {
-            return fallbackHotKeywords(limit);
+            return fallbackHotKeywords(tenantId, limit);
         }
         try {
             Set<ZSetOperations.TypedTuple<String>> tuples =
-                    redisTemplate.opsForZSet().reverseRangeWithScores(HOT_KEY, 0, Math.max(0, limit - 1));
+                    redisTemplate.opsForZSet().reverseRangeWithScores(hotKey(tenantId), 0, Math.max(0, limit - 1));
             if (tuples == null || tuples.isEmpty()) {
-                return fallbackHotKeywords(limit);
+                return fallbackHotKeywords(tenantId, limit);
             }
             return tuples.stream()
                     .map(tuple -> new HotKeyword(
                             tuple.getValue(), Math.round(tuple.getScore() == null ? 0 : tuple.getScore())))
                     .toList();
         } catch (RuntimeException exception) {
-            return fallbackHotKeywords(limit);
+            return fallbackHotKeywords(tenantId, limit);
         }
     }
 
     @Override
     public List<SearchSuggestion> suggestions(String prefix, int limit) {
         String normalized = normalize(prefix);
+        long tenantId = TenantContext.currentTenantIdOrDefault();
         if (redisTemplate == null) {
-            return fallbackSuggestions(normalized, limit);
+            return fallbackSuggestions(tenantId, normalized, limit);
         }
         try {
             Set<ZSetOperations.TypedTuple<String>> tuples = redisTemplate
                     .opsForZSet()
-                    .reverseRangeWithScores(suggestionKey(normalized), 0, Math.max(0, limit - 1));
+                    .reverseRangeWithScores(suggestionKey(tenantId, normalized), 0, Math.max(0, limit - 1));
             if (tuples == null || tuples.isEmpty()) {
-                return fallbackSuggestions(normalized, limit);
+                return fallbackSuggestions(tenantId, normalized, limit);
             }
             return tuples.stream()
                     .map(tuple -> new SearchSuggestion(
                             tuple.getValue(), "cache", Math.round(tuple.getScore() == null ? 0 : tuple.getScore())))
                     .toList();
         } catch (RuntimeException exception) {
-            return fallbackSuggestions(normalized, limit);
+            return fallbackSuggestions(tenantId, normalized, limit);
         }
     }
 
@@ -96,11 +103,14 @@ public class RedisSearchActivityStore implements SearchActivityStore {
         if (normalized.isBlank() || suggestions == null || suggestions.isEmpty()) {
             return;
         }
-        fallbackSuggestions.put(normalized, suggestions);
+        long tenantId = TenantContext.currentTenantIdOrDefault();
+        fallbackSuggestions
+                .computeIfAbsent(tenantId, ignored -> new ConcurrentHashMap<>())
+                .put(normalized, suggestions);
         if (redisTemplate == null) {
             return;
         }
-        String key = suggestionKey(normalized);
+        String key = suggestionKey(tenantId, normalized);
         try {
             for (SearchSuggestion suggestion : suggestions) {
                 redisTemplate.opsForZSet().add(key, suggestion.keyword(), suggestion.score());
@@ -113,40 +123,57 @@ public class RedisSearchActivityStore implements SearchActivityStore {
 
     @Override
     public void refreshHotKeywordSnapshot() {
-        fallbackSnapshot = hotKeywords(10);
+        long tenantId = TenantContext.currentTenantIdOrDefault();
+        List<HotKeyword> snapshot = hotKeywords(tenantId, 10);
+        fallbackSnapshots.put(tenantId, snapshot);
         if (redisTemplate == null) {
             return;
         }
         try {
-            redisTemplate.delete(SNAPSHOT_KEY);
-            for (HotKeyword keyword : fallbackSnapshot) {
-                redisTemplate.opsForZSet().add(SNAPSHOT_KEY, keyword.keyword(), keyword.score());
+            String key = snapshotKey(tenantId);
+            redisTemplate.delete(key);
+            for (HotKeyword keyword : snapshot) {
+                redisTemplate.opsForZSet().add(key, keyword.keyword(), keyword.score());
             }
-            redisTemplate.expire(SNAPSHOT_KEY, Duration.ofMinutes(5));
+            redisTemplate.expire(key, Duration.ofMinutes(5));
         } catch (RuntimeException ignored) {
             // Snapshot remains available in memory.
         }
     }
 
-    private List<HotKeyword> fallbackHotKeywords(int limit) {
-        List<HotKeyword> values = fallbackHotKeywords.entrySet().stream()
+    private void recordFallbackKeyword(long tenantId, String keyword) {
+        fallbackHotKeywords
+                .computeIfAbsent(tenantId, ignored -> new ConcurrentHashMap<>())
+                .merge(keyword, 1L, Long::sum);
+    }
+
+    private List<HotKeyword> fallbackHotKeywords(long tenantId, int limit) {
+        List<HotKeyword> values = fallbackHotKeywords.getOrDefault(tenantId, Map.of()).entrySet().stream()
                 .map(entry -> new HotKeyword(entry.getKey(), entry.getValue()))
                 .sorted(Comparator.comparing(HotKeyword::score).reversed())
                 .limit(Math.max(1, limit))
                 .toList();
         return values.isEmpty()
-                ? fallbackSnapshot.stream().limit(Math.max(1, limit)).toList()
+                ? fallbackSnapshots.getOrDefault(tenantId, List.of()).stream().limit(Math.max(1, limit)).toList()
                 : values;
     }
 
-    private List<SearchSuggestion> fallbackSuggestions(String prefix, int limit) {
-        return fallbackSuggestions.getOrDefault(prefix, List.of()).stream()
+    private List<SearchSuggestion> fallbackSuggestions(long tenantId, String prefix, int limit) {
+        return fallbackSuggestions.getOrDefault(tenantId, Map.of()).getOrDefault(prefix, List.of()).stream()
                 .limit(Math.max(1, limit))
                 .toList();
     }
 
-    private static String suggestionKey(String prefix) {
-        return SUGGEST_PREFIX + prefix;
+    private static String hotKey(long tenantId) {
+        return HOT_KEY + ":tenant:" + tenantId;
+    }
+
+    private static String suggestionKey(long tenantId, String prefix) {
+        return SUGGEST_PREFIX + "tenant:" + tenantId + ":" + prefix;
+    }
+
+    private static String snapshotKey(long tenantId) {
+        return SNAPSHOT_KEY + ":tenant:" + tenantId;
     }
 
     private static String normalize(String value) {

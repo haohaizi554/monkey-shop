@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
 import com.example.monkey.tracking.domain.ProductProfile;
 import com.example.monkey.tracking.domain.TrackingEvent;
@@ -60,9 +61,16 @@ class JpaTrackingStoreTest {
     void saveEventSerializesAttributesAndDelegatesDashboardAggregates() {
         when(eventRepository.save(any(TrackingEventEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(jdbcTemplate.queryForObject(
-                        eq("SELECT COUNT(1) FROM product_spu WHERE id = ?"), eq(Integer.class), eq(42L)))
+                        eq("SELECT COUNT(1) FROM product_spu WHERE tenant_id = ? AND id = ?"),
+                        eq(Integer.class),
+                        eq(1L),
+                        eq(42L)))
                 .thenReturn(1);
-        when(jdbcTemplate.queryForObject(eq("SELECT COUNT(1) FROM orders WHERE id = ?"), eq(Integer.class), eq(900L)))
+        when(jdbcTemplate.queryForObject(
+                        eq("SELECT COUNT(1) FROM orders WHERE tenant_id = ? AND id = ?"),
+                        eq(Integer.class),
+                        eq(1L),
+                        eq(900L)))
                 .thenReturn(1);
         LocalDateTime occurredAt = LocalDateTime.parse("2026-07-04T10:00:00");
 
@@ -103,26 +111,39 @@ class JpaTrackingStoreTest {
     @Test
     void saveEventDropsMissingOptionalReferencesBeforeDatabaseWrite() {
         when(eventRepository.save(any(TrackingEventEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        TenantContext.setTenantId(2L);
         when(jdbcTemplate.queryForObject(
-                        eq("SELECT COUNT(1) FROM product_spu WHERE id = ?"), eq(Integer.class), eq(404L)))
+                        eq("SELECT COUNT(1) FROM product_spu WHERE tenant_id = ? AND id = ?"),
+                        eq(Integer.class),
+                        eq(2L),
+                        eq(404L)))
                 .thenReturn(0);
-        when(jdbcTemplate.queryForObject(eq("SELECT COUNT(1) FROM orders WHERE id = ?"), eq(Integer.class), eq(905L)))
+        when(jdbcTemplate.queryForObject(
+                        eq("SELECT COUNT(1) FROM orders WHERE tenant_id = ? AND id = ?"),
+                        eq(Integer.class),
+                        eq(2L),
+                        eq(905L)))
                 .thenReturn(0);
 
-        TrackingEvent saved = store.saveEvent(new TrackingEvent(
-                102L,
-                null,
-                "session-b",
-                "trace-b",
-                TrackingEventType.PRODUCT_VIEW,
-                "/shop/404",
-                "web",
-                404L,
-                5L,
-                905L,
-                null,
-                Map.of(),
-                LocalDateTime.parse("2026-07-04T10:05:00")));
+        TrackingEvent saved;
+        try {
+            saved = store.saveEvent(new TrackingEvent(
+                    102L,
+                    null,
+                    "session-b",
+                    "trace-b",
+                    TrackingEventType.PRODUCT_VIEW,
+                    "/shop/404",
+                    "web",
+                    404L,
+                    5L,
+                    905L,
+                    null,
+                    Map.of(),
+                    LocalDateTime.parse("2026-07-04T10:05:00")));
+        } finally {
+            TenantContext.clear();
+        }
 
         TrackingEventEntity entity = captureEvent();
         assertThat(entity.getProductId()).isNull();

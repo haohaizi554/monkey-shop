@@ -1,6 +1,5 @@
 package com.example.monkey.search.infrastructure;
 
-import com.example.monkey.product.domain.ProductStatus;
 import com.example.monkey.search.domain.PurchasedProduct;
 import com.example.monkey.search.domain.SearchHistoryEntry;
 import com.example.monkey.search.domain.SearchPage;
@@ -14,12 +13,10 @@ import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.Comparator;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -31,13 +28,11 @@ import org.springframework.stereotype.Component;
 @ConditionalOnProperty(name = "app.search.store", havingValue = "jpa", matchIfMissing = true)
 public class JpaSearchStore implements SearchStore {
 
-    private static final int PRODUCT_SCAN_LIMIT = 500;
     private static final TypeReference<Map<String, Object>> ATTRIBUTES_TYPE = new TypeReference<>() {};
     private static final TypeReference<Map<String, String>> FILTERS_TYPE = new TypeReference<>() {};
     private static final TypeReference<List<String>> TAGS_TYPE = new TypeReference<>() {};
 
     private final JdbcTemplate jdbcTemplate;
-    private final SearchProductSpuRepository productSpuRepository;
     private final SearchHistoryRepository searchHistoryRepository;
     private final UserSearchProfileRepository userSearchProfileRepository;
     private final PiiCryptoService piiCryptoService;
@@ -45,13 +40,12 @@ public class JpaSearchStore implements SearchStore {
 
     public JpaSearchStore(
             JdbcTemplate jdbcTemplate,
-            SearchProductSpuRepository productSpuRepository,
+            SearchProductSpuRepository ignoredProductSpuRepository,
             SearchHistoryRepository searchHistoryRepository,
             UserSearchProfileRepository userSearchProfileRepository,
             PiiCryptoService piiCryptoService,
             ObjectMapper objectMapper) {
         this.jdbcTemplate = jdbcTemplate;
-        this.productSpuRepository = productSpuRepository;
         this.searchHistoryRepository = searchHistoryRepository;
         this.userSearchProfileRepository = userSearchProfileRepository;
         this.piiCryptoService = piiCryptoService;
@@ -60,17 +54,16 @@ public class JpaSearchStore implements SearchStore {
 
     @Override
     public SearchPage search(SearchQuery query) {
-        List<SearchProduct> catalogProducts = catalogProducts(query);
-        List<SearchProduct> legacyProducts = legacyProducts(query);
-        List<SearchProduct> matched = java.util.stream.Stream.concat(catalogProducts.stream(), legacyProducts.stream())
-                .filter(product -> product.score() > 0 || query.keyword().isBlank())
-                .filter(product -> matchesCategory(product, query))
-                .filter(product -> matchesAttributes(product, query.attributes()))
-                .sorted(comparator(query.sort()))
-                .toList();
-        int from = Math.min(query.page() * query.size(), matched.size());
-        int to = Math.min(from + query.size(), matched.size());
-        return new SearchPage(matched.subList(from, to), query.page(), query.size(), matched.size());
+        long tenantId = TenantContext.currentTenantIdOrDefault();
+        SqlQuery contentQuery = productQuery(query, tenantId);
+        List<SearchProduct> content = jdbcTemplate.query(
+                contentQuery.sql(),
+                (rs, rowNum) -> toSearchProduct(rs),
+                contentQuery.parameters().toArray());
+        SqlQuery countQuery = countQuery(query, tenantId);
+        Long total = jdbcTemplate.queryForObject(
+                countQuery.sql(), Long.class, countQuery.parameters().toArray());
+        return new SearchPage(content, query.page(), query.size(), total == null ? 0L : total);
     }
 
     @Override
@@ -138,102 +131,153 @@ public class JpaSearchStore implements SearchStore {
                 Math.max(1, limit));
     }
 
-    private List<SearchProduct> catalogProducts(SearchQuery query) {
-        return productSpuRepository
-                .findByStatusOrderByIdDesc(ProductStatus.LISTED, PageRequest.of(0, PRODUCT_SCAN_LIMIT))
-                .stream()
-                .map(product -> toCatalogProduct(product, query))
-                .toList();
+    private SqlQuery productQuery(SearchQuery query, long tenantId) {
+        QueryParts parts = queryParts(query, tenantId, true);
+        long offset = (long) query.page() * query.size();
+        String sql = """
+                SELECT p.id AS product_id,
+                       p.category_id,
+                       p.name,
+                       p.title,
+                       p.image_url,
+                       p.original_price,
+                       p.member_price,
+                       p.attributes_json,
+                       COALESCE(stock.available_stock, 0) AS stock,
+                       %s AS score
+                FROM product_spu p
+                %s
+                WHERE %s
+                ORDER BY %s
+                LIMIT ? OFFSET ?
+                """.formatted(parts.scoreExpression(), stockJoin(), parts.whereClause(), orderBy(query.sort()));
+        List<Object> parameters = new ArrayList<>(parts.scoreParameters());
+        parameters.addAll(stockParameters(tenantId));
+        parameters.addAll(parts.whereParameters());
+        parameters.add(query.size());
+        parameters.add(offset);
+        return new SqlQuery(sql, parameters);
     }
 
-    private List<SearchProduct> legacyProducts(SearchQuery query) {
-        return jdbcTemplate.query(
-                """
-                SELECT id, name, breed, price, description, image_url, stock
-                FROM monkey
-                WHERE tenant_id = ?
-                  AND deleted = false
-                ORDER BY id DESC
-                LIMIT ?
-                """,
-                (rs, rowNum) -> toLegacyProduct(rs, query),
-                TenantContext.currentTenantIdOrDefault(),
-                PRODUCT_SCAN_LIMIT);
+    private SqlQuery countQuery(SearchQuery query, long tenantId) {
+        QueryParts parts = queryParts(query, tenantId, false);
+        String sql = """
+                SELECT COUNT(*)
+                FROM product_spu p
+                %s
+                WHERE %s
+                """.formatted(stockJoin(), parts.whereClause());
+        List<Object> parameters = stockParameters(tenantId);
+        parameters.addAll(parts.whereParameters());
+        return new SqlQuery(sql, parameters);
     }
 
-    private SearchProduct toCatalogProduct(SearchProductSpuEntity product, SearchQuery query) {
-        Map<String, Object> attributes = read(product.getAttributesJson(), ATTRIBUTES_TYPE, Map.of());
-        String name = product.getName();
-        String title = product.getTitle();
+    private static List<Object> stockParameters(long tenantId) {
+        return new ArrayList<>(List.of(tenantId, tenantId));
+    }
+
+    private QueryParts queryParts(SearchQuery query, long tenantId, boolean includeScore) {
+        List<Object> scoreParameters = new ArrayList<>();
+        String scoreExpression = scoreExpression(query, scoreParameters, includeScore);
+        List<Object> whereParameters = new ArrayList<>();
+        StringBuilder where = new StringBuilder("p.tenant_id = ? AND p.deleted = false AND p.status = 'LISTED'");
+        whereParameters.add(tenantId);
+        if (!query.keyword().isBlank()) {
+            where.append(" AND (INSTR(LOWER(COALESCE(p.name, '')), LOWER(?)) > 0");
+            where.append(" OR INSTR(LOWER(COALESCE(p.title, '')), LOWER(?)) > 0");
+            where.append(" OR ").append(attributeKeywordMatch());
+            whereParameters.add(query.normalizedKeyword());
+            whereParameters.add(query.normalizedKeyword());
+            whereParameters.add(query.normalizedKeyword());
+        }
+        if (query.categoryId() != null) {
+            where.append(" AND p.category_id = ?");
+            whereParameters.add(query.categoryId());
+        }
+        query.attributes().forEach((key, value) -> {
+            where.append(" AND JSON_EXTRACT(p.attributes_json, CONCAT('$.', ?)) IS NOT NULL");
+            where.append(" AND INSTR(LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(p.attributes_json, CONCAT('$.', ?))), '')), LOWER(?)) > 0");
+            whereParameters.add(key);
+            whereParameters.add(key);
+            whereParameters.add(value);
+        });
+        if (query.minPrice() != null) {
+            where.append(" AND COALESCE(p.member_price, p.original_price) >= ?");
+            whereParameters.add(query.minPrice());
+        }
+        if (query.maxPrice() != null) {
+            where.append(" AND COALESCE(p.member_price, p.original_price) <= ?");
+            whereParameters.add(query.maxPrice());
+        }
+        if (query.inStock()) {
+            where.append(" AND COALESCE(stock.available_stock, 0) > 0");
+        }
+        return new QueryParts(scoreExpression, scoreParameters, where.toString(), whereParameters);
+    }
+
+    private static String scoreExpression(SearchQuery query, List<Object> parameters, boolean includeScore) {
+        if (!includeScore || query.keyword().isBlank()) {
+            return query.keyword().isBlank() ? "1" : "0";
+        }
+        String keyword = query.normalizedKeyword();
+        parameters.add(keyword);
+        parameters.add(keyword);
+        parameters.add(keyword);
+        return "(CASE WHEN INSTR(LOWER(COALESCE(p.name, '')), LOWER(?)) > 0 THEN 80 ELSE 0 END"
+                + " + CASE WHEN INSTR(LOWER(COALESCE(p.title, '')), LOWER(?)) > 0 THEN 50 ELSE 0 END"
+                + " + CASE WHEN "
+                + attributeKeywordMatch()
+                + " THEN 30 ELSE 0 END)";
+    }
+
+    private static String attributeKeywordMatch() {
+        return "EXISTS (SELECT 1 FROM JSON_TABLE(COALESCE(p.attributes_json, '{}'), "
+                + "'$.*' COLUMNS (attribute_value VARCHAR(2048) PATH '$')) attribute_values "
+                + "WHERE INSTR(LOWER(COALESCE(attribute_values.attribute_value, '')), LOWER(?)) > 0)";
+    }
+
+    private static String stockJoin() {
+        return """
+                LEFT JOIN (
+                    SELECT sku.spu_id,
+                           SUM(stock.available_quantity) AS available_stock
+                    FROM product_sku sku
+                    INNER JOIN inventory_stock stock
+                        ON stock.sku_id = sku.id
+                       AND stock.tenant_id = sku.tenant_id
+                    INNER JOIN inventory_warehouse warehouse
+                        ON warehouse.id = stock.warehouse_id
+                       AND warehouse.tenant_id = sku.tenant_id
+                       AND warehouse.active = true
+                    WHERE sku.tenant_id = ?
+                      AND sku.active = true
+                    GROUP BY sku.spu_id
+                ) stock ON stock.spu_id = p.id
+                         AND p.tenant_id = ?
+                """;
+    }
+
+    private static String orderBy(SearchSort sort) {
+        return switch (sort) {
+            case PRICE_ASC -> "COALESCE(p.member_price, p.original_price) ASC, p.id DESC";
+            case PRICE_DESC -> "COALESCE(p.member_price, p.original_price) DESC, p.id DESC";
+            case NEWEST -> "p.id DESC";
+            case HOT, RELEVANCE -> "score DESC, p.id DESC";
+        };
+    }
+
+    private SearchProduct toSearchProduct(ResultSet rs) throws SQLException {
         return new SearchProduct(
-                product.getId(),
-                product.getCategoryId(),
-                name,
-                title,
-                product.getImageUrl(),
-                product.getOriginalPrice(),
-                product.getMemberPrice(),
-                attributes,
-                scoreCatalogProduct(name, title, attributes, query));
-    }
-
-    private SearchProduct toLegacyProduct(ResultSet rs, SearchQuery query) throws SQLException {
-        String breed = rs.getString("breed");
-        Integer stock = nullableInt(rs, "stock");
-        Map<String, Object> attributes =
-                Map.of("breed", breed == null ? "" : breed, "stock", stock == null ? 0 : stock);
-        String name = rs.getString("name");
-        String description = rs.getString("description");
-        return new SearchProduct(
-                rs.getLong("id"),
-                null,
-                name,
-                description,
+                nullableLong(rs, "product_id"),
+                nullableLong(rs, "category_id"),
+                rs.getString("name"),
+                rs.getString("title"),
                 rs.getString("image_url"),
-                rs.getBigDecimal("price"),
-                null,
-                attributes,
-                scoreLegacyProduct(name, breed, description, attributes, query));
-    }
-
-    private int scoreCatalogProduct(String name, String title, Map<String, Object> attributes, SearchQuery query) {
-        if (query.keyword().isBlank()) {
-            return 1;
-        }
-        int score = 0;
-        String keyword = query.normalizedKeyword();
-        if (contains(name, keyword)) {
-            score += 80;
-        }
-        if (contains(title, keyword)) {
-            score += 50;
-        }
-        if (attributes.values().stream().anyMatch(value -> contains(String.valueOf(value), keyword))) {
-            score += 30;
-        }
-        return score;
-    }
-
-    private int scoreLegacyProduct(
-            String name, String breed, String description, Map<String, Object> attributes, SearchQuery query) {
-        if (query.keyword().isBlank()) {
-            return 1;
-        }
-        int score = 0;
-        String keyword = query.normalizedKeyword();
-        if (contains(name, keyword)) {
-            score += 80;
-        }
-        if (contains(breed, keyword)) {
-            score += 50;
-        }
-        if (contains(description, keyword)) {
-            score += 30;
-        }
-        if (attributes.values().stream().anyMatch(value -> contains(String.valueOf(value), keyword))) {
-            score += 20;
-        }
-        return score;
+                rs.getBigDecimal("original_price"),
+                rs.getBigDecimal("member_price"),
+                read(rs.getString("attributes_json"), ATTRIBUTES_TYPE, Map.of()),
+                rs.getInt("stock"),
+                rs.getInt("score"));
     }
 
     private UserSearchProfile toProfile(UserSearchProfileEntity entity) {
@@ -245,49 +289,8 @@ public class JpaSearchStore implements SearchStore {
                 entity.getVersion() == null ? 0L : entity.getVersion());
     }
 
-    private static boolean matchesCategory(SearchProduct product, SearchQuery query) {
-        return query.categoryId() == null || query.categoryId().equals(product.categoryId());
-    }
-
-    private static boolean matchesAttributes(SearchProduct product, Map<String, String> filters) {
-        if (filters == null || filters.isEmpty()) {
-            return true;
-        }
-        return filters.entrySet().stream().allMatch(entry -> {
-            Object value = product.attributes().get(entry.getKey());
-            return value != null
-                    && contains(String.valueOf(value), entry.getValue().toLowerCase(Locale.ROOT));
-        });
-    }
-
-    private static Comparator<SearchProduct> comparator(SearchSort sort) {
-        return switch (sort) {
-            case PRICE_ASC -> Comparator.comparing(JpaSearchStore::effectivePrice);
-            case PRICE_DESC ->
-                Comparator.comparing(JpaSearchStore::effectivePrice).reversed();
-            case NEWEST -> Comparator.comparing(SearchProduct::productId).reversed();
-            case HOT, RELEVANCE ->
-                Comparator.comparing(SearchProduct::score)
-                        .reversed()
-                        .thenComparing(SearchProduct::productId, Comparator.reverseOrder());
-        };
-    }
-
-    private static BigDecimal effectivePrice(SearchProduct product) {
-        return product.memberPrice() == null ? product.originalPrice() : product.memberPrice();
-    }
-
-    private static boolean contains(String value, String keyword) {
-        return value != null && value.toLowerCase(Locale.ROOT).contains(keyword);
-    }
-
     private static Long nullableLong(ResultSet rs, String column) throws SQLException {
         long value = rs.getLong(column);
-        return rs.wasNull() ? null : value;
-    }
-
-    private static Integer nullableInt(ResultSet rs, String column) throws SQLException {
-        int value = rs.getInt(column);
         return rs.wasNull() ? null : value;
     }
 
@@ -312,4 +315,12 @@ public class JpaSearchStore implements SearchStore {
             throw new IllegalStateException("Search JSON cannot be deserialized", exception);
         }
     }
+
+    private record SqlQuery(String sql, List<Object> parameters) {}
+
+    private record QueryParts(
+            String scoreExpression,
+            List<Object> scoreParameters,
+            String whereClause,
+            List<Object> whereParameters) {}
 }

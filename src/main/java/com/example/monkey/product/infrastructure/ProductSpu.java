@@ -27,6 +27,9 @@ public class ProductSpu extends TenantScopedJpaEntity {
     @Column(nullable = false)
     private Long categoryId;
 
+    @Column(name = "shop_id", nullable = false)
+    private Long shopId;
+
     @Column(nullable = false, length = 128)
     private String name;
 
@@ -85,6 +88,14 @@ public class ProductSpu extends TenantScopedJpaEntity {
 
     public void setCategoryId(Long categoryId) {
         this.categoryId = categoryId;
+    }
+
+    public Long getShopId() {
+        return shopId;
+    }
+
+    public void setShopId(Long shopId) {
+        this.shopId = shopId;
     }
 
     public String getName() {

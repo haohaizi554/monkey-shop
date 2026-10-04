@@ -40,6 +40,8 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 class RiskApplicationServiceTest {
 
@@ -77,35 +79,59 @@ class RiskApplicationServiceTest {
     }
 
     @Test
+    void blockingAssessmentCommitsItsEvidenceInAnIndependentTransaction() throws Exception {
+        Transactional boundary = RiskApplicationService.class
+                .getMethod(
+                        "requireAllowed",
+                        SessionUser.class,
+                        RiskAssessmentRequestDto.class,
+                        String.class,
+                        String.class)
+                .getAnnotation(Transactional.class);
+
+        assertThat(boundary).isNotNull();
+        assertThat(boundary.propagation()).isEqualTo(Propagation.REQUIRES_NEW);
+        assertThat(boundary.noRollbackFor()).contains(BusinessException.class);
+    }
+
+    @Test
     void woolPartyMultiAccountDetectionUsesPhoneBlindIndexAndQueuesReview() {
         assess(1L, "13800000001", null, null, null);
         assess(2L, "13800000002", null, null, null);
         assess(3L, "13800000003", null, null, null);
 
-        var result = assess(4L, "13800000004", null, null, null);
+        var result = service.assess(
+                new SessionUser(4L, "USER"),
+                new RiskAssessmentRequestDto(
+                        "19999999999", "browser-a", null, 20L, 30L, null, null, null, null, null),
+                "203.0.113.1");
 
         assertThat(result.decision()).isEqualTo(RiskDecision.REVIEW);
         assertThat(result.score()).isGreaterThanOrEqualTo(60);
         assertThat(result.reviewCaseId()).isNotNull();
         assertThat(riskStore.reviews).hasSize(1);
+        assertThat(riskStore.reviews.getFirst().productId()).isNull();
+        assertThat(riskStore.reviews.getFirst().orderId()).isNull();
         verify(riskBlindIndexService).phoneBlindIndex("13800000004");
     }
 
     @Test
     void seckillScalperBlocksAndRevokesCurrentUserTokens() {
-        assess(1L, "13800000001", 99L, 20L, null);
-        assess(2L, "13800000002", 99L, 20L, null);
+        requireAllowed(1L, 99L, 20L);
+        requireAllowed(2L, 99L, 20L);
 
-        var result = assess(3L, "13800000003", 99L, 20L, null);
+        assertThatThrownBy(() -> requireAllowed(3L, 99L, 20L))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.FORBIDDEN));
 
-        assertThat(result.decision()).isEqualTo(RiskDecision.BLOCK);
-        assertThat(result.userTokensRevoked()).isTrue();
+        assertThat(riskStore.scores.getLast().decision()).isEqualTo(RiskDecision.BLOCK);
         verify(sessionTokenService).revokeUserTokens(3L);
-        verify(businessMetricsService).recordRiskDecision(result.score(), false, true);
+        verify(businessMetricsService).recordRiskDecision(riskStore.scores.getLast().score(), false, true);
     }
 
     @Test
-    void priceAnomalyAutoUnlistsProductAndQueuesReview() {
+    void publicAssessmentIgnoresCallerSuppliedResourceAndCommercialContext() {
         var result = service.assess(
                 new SessionUser(7L, "USER"),
                 new RiskAssessmentRequestDto(
@@ -121,10 +147,36 @@ class RiskApplicationServiceTest {
                         null),
                 "203.0.113.7");
 
-        assertThat(result.productAutoUnlisted()).isTrue();
-        assertThat(result.decision()).isEqualTo(RiskDecision.REVIEW);
-        assertThat(result.reviewCaseId()).isNotNull();
-        assertThat(riskStore.unlistedProductIds).containsExactly(20L);
+        assertThat(result.productAutoUnlisted()).isFalse();
+        assertThat(result.decision()).isEqualTo(RiskDecision.ALLOW);
+        assertThat(result.reviewCaseId()).isNull();
+        assertThat(riskStore.reviews).isEmpty();
+        assertThat(riskStore.unlistedProductIds).isEmpty();
+    }
+
+    @Test
+    void assessmentUsesAuthenticatedPhoneAndResolvedRequestIpInsteadOfCallerOverrides() {
+        service.assess(
+                new SessionUser(7L, "USER"),
+                new RiskAssessmentRequestDto(
+                        "19999999999",
+                        "browser-a",
+                        "198.51.100.200",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null),
+                "203.0.113.7");
+
+        assertThat(riskStore.fingerprints)
+                .singleElement()
+                .satisfies(fingerprint -> {
+                    assertThat(fingerprint.clientIp()).isEqualTo("203.0.113.7");
+                    assertThat(fingerprint.phoneHmac()).isEqualTo("phone-13800000007");
+                });
     }
 
     @Test
@@ -189,6 +241,24 @@ class RiskApplicationServiceTest {
                 new RiskAssessmentRequestDto(
                         phone, "browser-a", null, productId, null, seckillActivityId, sellerUserId, null, null, null),
                 "203.0.113.1");
+    }
+
+    private void requireAllowed(Long userId, Long seckillActivityId, Long productId) {
+        service.requireAllowed(
+                new SessionUser(userId, "USER"),
+                new RiskAssessmentRequestDto(
+                        null,
+                        "browser-a",
+                        null,
+                        productId,
+                        null,
+                        seckillActivityId,
+                        null,
+                        null,
+                        null,
+                        null),
+                "203.0.113.1",
+                "marketing.seckill.order");
     }
 
     private static UserAccount account(Long userId, boolean mfaEnabled) {

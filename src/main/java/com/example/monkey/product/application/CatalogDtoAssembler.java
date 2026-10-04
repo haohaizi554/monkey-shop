@@ -17,6 +17,7 @@ final class CatalogDtoAssembler {
         return new CatalogSpuResponseDto(
                 spu.id(),
                 spu.categoryId(),
+                spu.shopId(),
                 spu.name(),
                 spu.title(),
                 spu.status(),

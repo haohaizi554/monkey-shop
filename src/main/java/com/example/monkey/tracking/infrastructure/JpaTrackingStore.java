@@ -1,5 +1,6 @@
 package com.example.monkey.tracking.infrastructure;
 
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
 import com.example.monkey.tracking.domain.ProductProfile;
 import com.example.monkey.tracking.domain.TrackingEvent;
@@ -137,8 +138,11 @@ public class JpaTrackingStore implements TrackingStore {
         if (id == null) {
             return null;
         }
-        Integer count =
-                jdbcTemplate.queryForObject("SELECT COUNT(1) FROM " + tableName + " WHERE id = ?", Integer.class, id);
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(1) FROM " + tableName + " WHERE tenant_id = ? AND id = ?",
+                Integer.class,
+                TenantContext.currentTenantIdOrDefault(),
+                id);
         return count != null && count > 0 ? id : null;
     }
 

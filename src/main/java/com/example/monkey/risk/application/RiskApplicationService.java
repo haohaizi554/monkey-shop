@@ -36,6 +36,7 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -123,11 +124,11 @@ public class RiskApplicationService {
     @Transactional
     public RiskAssessmentResponseDto assess(
             SessionUser currentUser, RiskAssessmentRequestDto request, String requestClientIp) {
-        return assessInternal(currentUser, request, requestClientIp);
+        return assessInternal(currentUser, publicSignalsOnly(request), requestClientIp);
     }
 
     @WithSpan("risk.require.allowed")
-    @Transactional(noRollbackFor = BusinessException.class)
+    @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = BusinessException.class)
     public RiskAssessmentResponseDto requireAllowed(
             SessionUser currentUser, RiskAssessmentRequestDto request, String requestClientIp, String operation) {
         RiskAssessmentResponseDto response = assessInternal(currentUser, request, requestClientIp);
@@ -146,8 +147,11 @@ public class RiskApplicationService {
                 ? new RiskAssessmentRequestDto(null, null, null, null, null, null, null, null, null, null)
                 : request;
         LocalDateTime now = now();
-        String clientIp = StringUtils.hasText(safeRequest.clientIp()) ? safeRequest.clientIp() : requestClientIp;
-        String phoneHmac = phoneHmac(safeRequest, userId);
+        // Network and account identity are server-owned facts. The DTO fields are retained for
+        // wire compatibility with older clients, but trusting them would let a caller evade
+        // device correlation or attribute risk signals to somebody else's phone/IP.
+        String clientIp = normalizeClientIp(requestClientIp);
+        String phoneHmac = phoneHmac(userId);
         String deviceHash = deviceHash(safeRequest.deviceFingerprint(), clientIp, userId);
         riskStore.saveDeviceFingerprint(new RiskDeviceFingerprint(
                 idGenerator.nextId(), userId, deviceHash, clientIp, phoneHmac, now, now, now.plus(deviceTtl)));
@@ -169,7 +173,10 @@ public class RiskApplicationService {
                 safeRequest.priceBefore(),
                 safeRequest.priceAfter(),
                 totpVerified));
-        boolean productAutoUnlisted = maybeUnlistAnomalousProduct(safeRequest, assessment);
+        // Prices and product identifiers on the public assessment contract are signals supplied by
+        // the caller. They may inform a review, but they are not authoritative catalog facts and
+        // therefore must never mutate product availability.
+        boolean productAutoUnlisted = false;
         boolean userTokensRevoked = maybeRevokeTokens(userId, assessment);
         RiskScore score = riskStore.saveRiskScore(new RiskScore(
                 idGenerator.nextId(),
@@ -187,6 +194,27 @@ public class RiskApplicationService {
         Long reviewCaseId = maybeEnqueueReview(score, safeRequest, productAutoUnlisted);
         auditDecision(currentUser, score, clientIp, productAutoUnlisted, userTokensRevoked);
         return RiskDtoAssembler.toAssessment(score, reviewCaseId, productAutoUnlisted, userTokensRevoked);
+    }
+
+    private static RiskAssessmentRequestDto publicSignalsOnly(RiskAssessmentRequestDto request) {
+        if (request == null) {
+            return null;
+        }
+        // The public assessment endpoint is only a device/account preflight. Product, order,
+        // seller, activity and price facts must come from the application service that owns the
+        // commercial operation (through requireAllowed), otherwise any authenticated caller can
+        // manufacture review cases for unrelated resources or score arbitrary prices.
+        return new RiskAssessmentRequestDto(
+                null,
+                request.deviceFingerprint(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                request.totpCode());
     }
 
     @WithSpan("risk.review.list")
@@ -250,16 +278,6 @@ public class RiskApplicationService {
         }
         return riskCache.recordSeckillAttempt(
                 request.seckillActivityId(), request.productId(), deviceHash, userId, seckillTtl);
-    }
-
-    private boolean maybeUnlistAnomalousProduct(RiskAssessmentRequestDto request, RiskAssessment assessment) {
-        boolean priceAnomaly =
-                assessment.signals().stream().anyMatch(signal -> signal.type() == RiskSignalType.PRICE_ANOMALY);
-        if (!priceAnomaly || request.productId() == null) {
-            return false;
-        }
-        boolean unlisted = riskStore.unlistProductForPriceAnomaly(request.productId());
-        return unlisted;
     }
 
     private boolean maybeRevokeTokens(Long userId, RiskAssessment assessment) {
@@ -337,16 +355,17 @@ public class RiskApplicationService {
         }
     }
 
-    private String phoneHmac(RiskAssessmentRequestDto request, Long userId) {
-        if (StringUtils.hasText(request.phone())) {
-            return phoneBlindIndex(request.phone());
-        }
+    private String phoneHmac(Long userId) {
         return userAccountStore
                 .findById(userId)
                 .map(UserAccount::phone)
                 .filter(StringUtils::hasText)
                 .map(this::phoneBlindIndex)
                 .orElse(null);
+    }
+
+    private static String normalizeClientIp(String clientIp) {
+        return StringUtils.hasText(clientIp) ? clientIp.trim() : null;
     }
 
     private String deviceHash(String deviceFingerprint, String clientIp, Long userId) {

@@ -10,13 +10,8 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Creates a tenant-owned catalog item. {@code shopId} is a tenant-local commerce partition key used
- * for sub-order grouping and shop-scoped promotions; it is not a tenant identifier or evidence of
- * merchant ownership. Callers need tenant-wide {@code PRODUCT_MANAGE}. Customer cart requests must
- * still match the canonical value persisted on the SKU's SPU.
- */
-public record CatalogCreateSpuRequestDto(
+/** Canonical SPU update. Inventory is intentionally absent; stock belongs to SKU+warehouse. */
+public record CatalogUpdateSpuRequestDto(
         @NotNull Long categoryId,
         @Positive Long shopId,
         @NotBlank String name,

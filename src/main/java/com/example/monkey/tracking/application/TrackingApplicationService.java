@@ -6,6 +6,8 @@ import com.example.monkey.shared.application.observability.TraceIds;
 import com.example.monkey.shared.application.observability.VisitMetricsService;
 import com.example.monkey.shared.application.security.AuthenticatedPrincipals;
 import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.domain.exception.BusinessException;
+import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
 import com.example.monkey.tracking.application.dto.FunnelStepDto;
 import com.example.monkey.tracking.application.dto.ProductProfileDto;
@@ -13,6 +15,7 @@ import com.example.monkey.tracking.application.dto.RealtimeDashboardDto;
 import com.example.monkey.tracking.application.dto.TrackingEventRequestDto;
 import com.example.monkey.tracking.application.dto.TrackingEventResponseDto;
 import com.example.monkey.tracking.application.dto.UserProfileTagDto;
+import com.example.monkey.tracking.domain.AuthoritativeTrackingPort;
 import com.example.monkey.tracking.domain.FunnelStep;
 import com.example.monkey.tracking.domain.ProductProfile;
 import com.example.monkey.tracking.domain.RealtimeDashboard;
@@ -28,17 +31,24 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 @Service
-public class TrackingApplicationService {
+public class TrackingApplicationService implements AuthoritativeTrackingPort {
 
     private static final int DASHBOARD_REFRESH_SECONDS = 5;
     private static final int DASHBOARD_WINDOW_MINUTES = 5;
     private static final int MAX_TAGS = 12;
+    private static final Set<TrackingEventType> AUTHORITATIVE_COMMERCE_EVENTS =
+            Set.of(TrackingEventType.ORDER_CREATED, TrackingEventType.PAYMENT_SUCCESS);
     private static final List<TrackingEventType> FUNNEL = List.of(
             TrackingEventType.SEARCH,
             TrackingEventType.PRODUCT_VIEW,
@@ -69,6 +79,10 @@ public class TrackingApplicationService {
     @Transactional
     public TrackingEventResponseDto recordEvent(
             SessionUser currentUser, TrackingEventRequestDto request, String clientIp) {
+        if (AUTHORITATIVE_COMMERCE_EVENTS.contains(request.eventType())) {
+            throw new BusinessException(
+                    ErrorCode.FORBIDDEN, "Authoritative commerce events cannot be submitted through public tracking");
+        }
         Long userId = currentUser == null ? null : currentUser.id();
         String traceId = StringUtils.hasText(request.traceId()) ? request.traceId() : TraceIds.currentOrCreate();
         TrackingEvent event = new TrackingEvent(
@@ -85,23 +99,98 @@ public class TrackingApplicationService {
                 request.amount(),
                 request.attributes(),
                 request.occurredAt());
+        return persistEvent(
+                event, clientIp, userId, currentUser == null ? null : currentUser.role());
+    }
+
+    @Override
+    @WithSpan("tracking.authoritative.order-created")
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordOrderCreated(
+            Long userId, Long orderId, Long productId, BigDecimal amount, LocalDateTime occurredAt) {
+        if (userId == null || orderId == null || productId == null || amount == null || occurredAt == null) {
+            throw new IllegalArgumentException("Authoritative order tracking fields are required");
+        }
+        TrackingEvent event = new TrackingEvent(
+                idGenerator.nextId(),
+                userId,
+                "order:" + orderId,
+                TraceIds.currentOrCreate(),
+                TrackingEventType.ORDER_CREATED,
+                "/orders/" + orderId,
+                "order-service",
+                productId,
+                null,
+                orderId,
+                amount,
+                Map.of(),
+                occurredAt);
+        persistEvent(event, null, userId, "USER");
+    }
+
+    @Override
+    @WithSpan("tracking.authoritative.payment-success")
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordPaymentSuccess(Long userId, Long orderId, BigDecimal paidAmount, LocalDateTime paidAt) {
+        if (userId == null || orderId == null || paidAmount == null || paidAt == null) {
+            throw new IllegalArgumentException("Authoritative payment tracking fields are required");
+        }
+        if (paidAmount.signum() <= 0) {
+            throw new IllegalArgumentException("Authoritative payment amount must be positive");
+        }
+        TrackingEvent event = new TrackingEvent(
+                idGenerator.nextId(),
+                userId,
+                "order:" + orderId,
+                TraceIds.currentOrCreate(),
+                TrackingEventType.PAYMENT_SUCCESS,
+                "/orders/" + orderId + "/payment",
+                "payment-service",
+                null,
+                null,
+                orderId,
+                paidAmount,
+                Map.of(),
+                paidAt);
+        persistEvent(event, null, userId, "USER");
+    }
+
+    private TrackingEventResponseDto persistEvent(
+            TrackingEvent event, String clientIp, Long actorUserId, String actorRole) {
         TrackingEvent saved = trackingStore.saveEvent(event);
-        businessMetricsService.recordTrackingEvent(saved.eventType().name());
+        afterCommit(() -> businessMetricsService.recordTrackingEvent(saved.eventType().name()));
         if (saved.eventType() == TrackingEventType.PAGE_VIEW) {
-            visitMetricsService.recordClientPageView(saved.page(), clientIp);
+            afterCommit(() -> visitMetricsService.recordClientPageView(saved.page(), clientIp));
         }
         if (saved.eventType() != TrackingEventType.UI_ERROR) {
             refreshProfiles(saved);
         }
-        auditService.record(
+        recordTrackingAuditAfterCommit(saved, actorUserId, actorRole);
+        return TrackingDtoAssembler.toEventResponse(saved);
+    }
+
+    private void recordTrackingAuditAfterCommit(TrackingEvent event, Long actorUserId, String actorRole) {
+        afterCommit(() -> auditService.record(
                 AuditService.TRACKING_EVENT_RECORDED,
                 AuditService.OUTCOME_SUCCESS,
-                userId,
-                currentUser == null ? null : currentUser.role(),
-                "tracking-event:" + saved.id(),
+                actorUserId,
+                actorRole,
+                "tracking-event:" + event.id(),
                 null,
-                "type=" + saved.eventType() + ",traceId=" + saved.traceId());
-        return TrackingDtoAssembler.toEventResponse(saved);
+                "type=" + event.eventType() + ",traceId=" + event.traceId()));
+    }
+
+    private void afterCommit(Runnable action) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            action.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                action.run();
+            }
+        });
     }
 
     @WithSpan("tracking.dashboard")
@@ -168,7 +257,7 @@ public class TrackingApplicationService {
                     event.occurredAt(),
                     existing.version());
             trackingStore.saveUserProfile(updated);
-            auditService.record(
+            afterCommit(() -> auditService.record(
                     AuditService.USER_PROFILE_TAG_UPDATED,
                     AuditService.OUTCOME_SUCCESS,
                     event.userId(),
@@ -176,7 +265,7 @@ public class TrackingApplicationService {
                     "user-profile:" + event.userId(),
                     null,
                     "behaviorTags=" + updated.behaviorTags().size() + ",interestTags="
-                            + updated.interestTags().size());
+                            + updated.interestTags().size()));
         }
         if (event.productId() != null) {
             ProductProfile existing = trackingStore
@@ -203,14 +292,14 @@ public class TrackingApplicationService {
                     event.occurredAt(),
                     existing.version());
             trackingStore.saveProductProfile(updated);
-            auditService.record(
+            afterCommit(() -> auditService.record(
                     AuditService.PRODUCT_PROFILE_UPDATED,
                     AuditService.OUTCOME_SUCCESS,
                     event.userId(),
                     null,
                     "product-profile:" + event.productId(),
                     null,
-                    "tagCount=" + updated.tagVector().size() + ",sales=" + updated.salesCount());
+                    "tagCount=" + updated.tagVector().size() + ",sales=" + updated.salesCount()));
         }
     }
 

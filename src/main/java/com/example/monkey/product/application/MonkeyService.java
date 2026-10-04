@@ -11,10 +11,12 @@ import com.example.monkey.product.domain.ProductCatalog.SortOrder;
 import com.example.monkey.product.domain.ProductCatalog.SortOrder.Direction;
 import com.example.monkey.shared.application.dto.PageResponseDto;
 import com.example.monkey.shared.application.storage.ImageCleanupService;
+import com.example.monkey.shared.application.storage.ImageReferenceTransactions;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import java.util.List;
+import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -62,8 +64,8 @@ public class MonkeyService {
     @Transactional
     public MonkeyResponseDto addMonkey(MonkeyRequestDto request) {
         ProductRecord product = MonkeyDtoAssembler.toProductRecord(request, withDefaultImage(request.imageUrl()));
+        ImageReferenceTransactions.retainBeforeWrite(imageReferenceService, product.imageUrl());
         ProductRecord savedProduct = productCatalog.save(product);
-        imageReferenceService.retain(product.imageUrl());
         return MonkeyDtoAssembler.toResponse(savedProduct != null ? savedProduct : product);
     }
 
@@ -74,11 +76,13 @@ public class MonkeyService {
                 .findById(product.id())
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Product does not exist"));
         String oldImage = oldProduct.imageUrl();
+        boolean imageChanged = !Objects.equals(oldImage, product.imageUrl());
+        if (imageChanged) {
+            ImageReferenceTransactions.retainBeforeWrite(imageReferenceService, product.imageUrl());
+        }
         ProductRecord savedProduct = productCatalog.save(product);
-        if (oldImage != null && !oldImage.equals(product.imageUrl())) {
-            imageReferenceService.retain(product.imageUrl());
-            imageReferenceService.release(oldImage);
-            imageCleanupService.tryDelete(oldImage);
+        if (imageChanged) {
+            ImageReferenceTransactions.releaseAfterCommit(imageReferenceService, imageCleanupService, oldImage);
         }
         return MonkeyDtoAssembler.toResponse(savedProduct != null ? savedProduct : product);
     }
@@ -90,8 +94,7 @@ public class MonkeyService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Product does not exist"));
         String imageToDelete = product.imageUrl();
         productCatalog.deleteById(id);
-        imageReferenceService.release(imageToDelete);
-        imageCleanupService.tryDelete(imageToDelete);
+        ImageReferenceTransactions.releaseAfterCommit(imageReferenceService, imageCleanupService, imageToDelete);
     }
 
     private static ProductPageRequest toProductPageRequest(ProductPageQuery pageQuery) {
