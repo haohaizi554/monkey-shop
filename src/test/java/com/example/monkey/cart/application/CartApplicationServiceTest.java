@@ -9,6 +9,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.cart.application.dto.CartAddItemRequestDto;
@@ -35,6 +36,7 @@ import com.example.monkey.marketing.application.dto.MarketingPriceQuoteDto;
 import com.example.monkey.marketing.application.dto.MarketingPriceRequestDto;
 import com.example.monkey.order.domain.CheckoutOrderCommand;
 import com.example.monkey.order.domain.OrderNumberGenerator;
+import com.example.monkey.product.domain.PriceContext;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.domain.exception.BusinessException;
@@ -50,6 +52,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -63,6 +66,48 @@ import org.junit.jupiter.api.Timeout;
 import org.mockito.InOrder;
 
 class CartApplicationServiceTest {
+
+    @Test
+    void addItemRejectsShopIdThatDiffersFromCatalogOwnership() {
+        Fixture fixture = new Fixture();
+
+        assertThatThrownBy(() -> fixture.service.addItem(USER, new CartAddItemRequestDto(1001L, 99L, 1, true)))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+        assertThat(fixture.cartStore.findCart(USER.id()).items()).isEmpty();
+    }
+
+    @Test
+    void directCheckoutRejectsShopIdThatDiffersFromCatalogOwnershipBeforeReservation() {
+        Fixture fixture = new Fixture();
+
+        assertThatThrownBy(() -> fixture.service.directCheckout(
+                        USER,
+                        new CartDirectCheckoutRequestDto(1001L, 99L, 1, 9L, "CN-BJ", List.of("SHOP-10")),
+                        "direct-shop"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+        verifyNoInteractions(
+                fixture.inventoryApplicationService, fixture.formalOrderCreator, fixture.marketingApplicationService);
+    }
+
+    @Test
+    void checkoutRejectsAnAlreadyPoisonedCartItemBeforeReservation() {
+        Fixture fixture = new Fixture();
+        LocalDateTime now = LocalDateTime.now(CLOCK);
+        fixture.cartStore.seed(new CartSnapshot(
+                USER.id(), List.of(new CartItem(1001L, 99L, 1, true, now, now))));
+
+        assertThatThrownBy(() -> fixture.service.checkout(
+                        USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of("SHOP-10")), "poisoned-shop"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+        verifyNoInteractions(
+                fixture.inventoryApplicationService, fixture.formalOrderCreator, fixture.marketingApplicationService);
+    }
 
     private static final SessionUser USER = new SessionUser(7L, "USER");
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC);
@@ -204,10 +249,10 @@ class CartApplicationServiceTest {
         CartSnapshot existingCart = fixture.cartStore.findCart(USER.id());
 
         var checkout = fixture.service.directCheckout(
-                USER, new CartDirectCheckoutRequestDto(1002L, 9L, 3, 9L, "CN-BJ", List.of()), "direct-key-1");
+                USER, new CartDirectCheckoutRequestDto(1002L, 2L, 3, 9L, "CN-BJ", List.of()), "direct-key-1");
 
         assertThat(checkout.subOrders()).singleElement().satisfies(subOrder -> {
-            assertThat(subOrder.shopId()).isEqualTo(9L);
+            assertThat(subOrder.shopId()).isEqualTo(2L);
             assertThat(subOrder.lines()).singleElement().satisfies(line -> {
                 assertThat(line.skuId()).isEqualTo(1002L);
                 assertThat(line.quantity()).isEqualTo(3);
@@ -418,7 +463,7 @@ class CartApplicationServiceTest {
         fixture.catalog.put(
                 1001L,
                 new CartSkuSnapshot(
-                        1001L, 501L, 11L, "SKU-1001", "Phone Pro", "/phone-pro.png", new BigDecimal("120.00")));
+                        1001L, 501L, 1L, 11L, "SKU-1001", "Phone Pro", "/phone-pro.png", new BigDecimal("120.00")));
 
         assertThatThrownBy(() -> fixture.service.checkout(
                         USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of()), "cart-key-catalog"))
@@ -433,12 +478,12 @@ class CartApplicationServiceTest {
     void repeatedCheckoutDistinguishesNullAndEmptyCatalogImageBeforeSideEffects() {
         Fixture fixture = new Fixture();
         fixture.catalog.put(
-                1001L, new CartSkuSnapshot(1001L, 501L, 11L, "SKU-1001", "Phone", null, new BigDecimal("100.00")));
+                1001L, new CartSkuSnapshot(1001L, 501L, 1L, 11L, "SKU-1001", "Phone", null, new BigDecimal("100.00")));
         fixture.seedSelectedCart();
         fixture.service.checkout(USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of()), "cart-key-null-image");
 
         fixture.catalog.put(
-                1001L, new CartSkuSnapshot(1001L, 501L, 11L, "SKU-1001", "Phone", "", new BigDecimal("100.00")));
+                1001L, new CartSkuSnapshot(1001L, 501L, 1L, 11L, "SKU-1001", "Phone", "", new BigDecimal("100.00")));
         fixture.seedSelectedCart();
 
         assertThatThrownBy(() -> fixture.service.checkout(
@@ -461,7 +506,7 @@ class CartApplicationServiceTest {
                 new CartCheckoutRequestDto(9L, "CN-BJ", List.of("1", "2", "3", "4", "5", "6", "7.00")),
                 "cart-key-section-boundary");
 
-        fixture.catalog.put(1L, new CartSkuSnapshot(1L, 99L, 4L, "IGNORED", "5", "6", new BigDecimal("7.00")));
+        fixture.catalog.put(1L, new CartSkuSnapshot(1L, 99L, 2L, 4L, "IGNORED", "5", "6", new BigDecimal("7.00")));
         fixture.cartStore.seed(new CartSnapshot(
                 USER.id(),
                 List.of(new CartItem(1L, 2L, 3, true, now, now), new CartItem(1001L, 1L, 2, true, now, now))));
@@ -481,7 +526,7 @@ class CartApplicationServiceTest {
         fixture.seedSelectedCart();
         fixture.catalog.put(
                 1001L,
-                new CartSkuSnapshot(1001L, 501L, 11L, "SKU-1001", "Phone XL", "/phone.png", new BigDecimal("120.00")));
+                new CartSkuSnapshot(1001L, 501L, 1L, 11L, "SKU-1001", "Phone XL", "/phone.png", new BigDecimal("120.00")));
 
         var preview =
                 fixture.service.previewCheckout(USER, new CartCheckoutRequestDto(9L, "CN-SH", List.of("SHOP-10")));
@@ -489,6 +534,37 @@ class CartApplicationServiceTest {
         assertThat(preview.status().name()).isEqualTo("RESERVED");
         assertThat(preview.originalAmount()).isEqualByComparingTo("270.00");
         verify(fixture.inventoryApplicationService, never()).reserve(any(InventoryReserveRequestDto.class));
+    }
+
+    @Test
+    void checkoutEntrypointsResolveOneNormalizedServerPriceContextPerOperation() {
+        Fixture previewFixture = new Fixture();
+        previewFixture.seedSelectedCart();
+
+        var preview = previewFixture.service.previewCheckout(
+                USER, new CartCheckoutRequestDto(9L, " cn-bj ", List.of()));
+
+        assertThat(preview.originalAmount()).isEqualByComparingTo("230.00");
+        assertThat(previewFixture.priceContextRequests).containsExactly("7:CN-BJ");
+
+        Fixture checkoutFixture = new Fixture();
+        checkoutFixture.seedSelectedCart();
+
+        var checkout = checkoutFixture.service.checkout(
+                USER, new CartCheckoutRequestDto(9L, "cn-bj", List.of()), "server-price-context");
+
+        assertThat(checkout.originalAmount()).isEqualByComparingTo("230.00");
+        assertThat(checkoutFixture.priceContextRequests).containsExactly("7:CN-BJ");
+
+        Fixture directFixture = new Fixture();
+
+        var direct = directFixture.service.directCheckout(
+                USER,
+                new CartDirectCheckoutRequestDto(1001L, 1L, 2, 9L, "CN-BJ", List.of()),
+                "server-price-context-direct");
+
+        assertThat(direct.originalAmount()).isEqualByComparingTo("200.00");
+        assertThat(directFixture.priceContextRequests).containsExactly("7:CN-BJ");
     }
 
     private static void await(CountDownLatch latch) {
@@ -504,6 +580,7 @@ class CartApplicationServiceTest {
         private final InMemoryCartStore cartStore;
         private final InMemoryCheckoutStore checkoutStore = new InMemoryCheckoutStore();
         private final Map<Long, CartSkuSnapshot> catalog = new ConcurrentHashMap<>();
+        private final List<String> priceContextRequests = new CopyOnWriteArrayList<>();
         private final InventoryApplicationService inventoryApplicationService = mock(InventoryApplicationService.class);
         private final MarketingApplicationService marketingApplicationService = mock(MarketingApplicationService.class);
         private final FormalOrderCreator formalOrderCreator = mock(FormalOrderCreator.class);
@@ -517,11 +594,11 @@ class CartApplicationServiceTest {
             this.cartStore = cartStore;
             catalog.put(
                     1001L,
-                    new CartSkuSnapshot(1001L, 501L, 11L, "SKU-1001", "Phone", "/phone.png", new BigDecimal("100.00")));
+                    new CartSkuSnapshot(1001L, 501L, 1L, 11L, "SKU-1001", "Phone", "/phone.png", new BigDecimal("100.00")));
             catalog.put(
                     1002L,
                     new CartSkuSnapshot(
-                            1002L, 502L, 12L, "SKU-1002", "Keyboard", "/keyboard.png", new BigDecimal("30.00")));
+                            1002L, 502L, 2L, 12L, "SKU-1002", "Keyboard", "/keyboard.png", new BigDecimal("30.00")));
             when(inventoryApplicationService.reserve(any()))
                     .thenAnswer(invocation -> reservation(invocation.getArgument(0)));
             when(marketingApplicationService.quotePlatformPrice(any()))
@@ -536,7 +613,11 @@ class CartApplicationServiceTest {
             });
             service = new CartApplicationService(
                     cartStore,
-                    skuId -> Optional.ofNullable(catalog.get(skuId)),
+                    (skuId, priceQuery) -> Optional.ofNullable(catalog.get(skuId)),
+                    (userId, region) -> {
+                        priceContextRequests.add(userId + ":" + region);
+                        return new PriceContext("MEMBER", region);
+                    },
                     checkoutStore,
                     (checkoutId, userId, itemSnapshots, ttl) ->
                             cartStore.removeMatchingItems(userId, itemSnapshots, ttl),
@@ -566,6 +647,10 @@ class CartApplicationServiceTest {
         }
 
         private void seedSameShopMixedCategories() {
+            catalog.put(
+                    1002L,
+                    new CartSkuSnapshot(
+                            1002L, 502L, 1L, 12L, "SKU-1002", "Keyboard", "/keyboard.png", new BigDecimal("30.00")));
             LocalDateTime now = LocalDateTime.now(CLOCK);
             cartStore.seed(new CartSnapshot(
                     USER.id(),

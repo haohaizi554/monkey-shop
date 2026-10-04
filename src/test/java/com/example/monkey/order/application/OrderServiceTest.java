@@ -6,7 +6,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -35,6 +37,7 @@ import com.example.monkey.order.domain.OrderStore.SortOrder;
 import com.example.monkey.order.domain.OrderStore.SortOrder.Direction;
 import com.example.monkey.order.domain.OrderTransitionPolicy;
 import com.example.monkey.order.infrastructure.SpringStateMachineOrderTransitionResolver;
+import com.example.monkey.risk.domain.CommercialRiskGate;
 import com.example.monkey.shared.application.dto.PageResponseDto;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.domain.exception.BusinessException;
@@ -42,6 +45,7 @@ import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
 import com.example.monkey.shared.domain.inventory.InventoryReservationLifecycle;
 import com.example.monkey.shared.domain.storage.ImageReferenceService;
+import com.example.monkey.tracking.domain.AuthoritativeTrackingPort;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -51,6 +55,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.lang.NonNull;
@@ -97,6 +102,12 @@ class OrderServiceTest {
     @Mock
     private AuditService auditService;
 
+    @Mock
+    private AuthoritativeTrackingPort authoritativeTrackingPort;
+
+    @Mock
+    private CommercialRiskGate commercialRiskGate;
+
     private OrderService orderService;
 
     @BeforeEach
@@ -116,6 +127,8 @@ class OrderServiceTest {
                 auditService,
                 fulfillmentStore,
                 idGenerator,
+                authoritativeTrackingPort,
+                commercialRiskGate,
                 java.time.Duration.ofDays(7));
         lenient().when(businessMetricsService.recordOrderCreate(any())).thenAnswer(invocation -> {
             Supplier<OrderResponseDto> supplier = invocation.getArgument(0);
@@ -220,6 +233,10 @@ class OrderServiceTest {
         verify(orderLockManager).withCreateOrderLock(eq(42L), eq(7L), any());
         verify(imageReferenceService).retain("/images/product/momo.png");
         verify(imageReferenceService).retain("/images/avatar/buyer.png");
+        InOrder imageReservationOrder = inOrder(imageReferenceService, orderStore);
+        imageReservationOrder.verify(imageReferenceService).retain("/images/product/momo.png");
+        imageReservationOrder.verify(imageReferenceService).retain("/images/avatar/buyer.png");
+        imageReservationOrder.verify(orderStore).savePlacedOrder(any(OrderRecord.class));
         verify(orderIdempotencyService).complete(42L, "order-key-1", 11L);
         verify(businessMetricsService).recordOrderCreated();
         verify(auditService)
@@ -231,6 +248,30 @@ class OrderServiceTest {
                         eq("ORD329861640192000000"),
                         isNull(),
                         eq("orderId=11 status=PENDING_PAYMENT"));
+        verify(authoritativeTrackingPort)
+                .recordOrderCreated(eq(42L), eq(11L), eq(7L), eq(new BigDecimal("199.99")), any(LocalDateTime.class));
+    }
+
+    @Test
+    void directServiceCreateRunsRiskGateBeforeStockOrOrderSideEffects() {
+        reserveOrderKey("order-key-risk");
+        when(orderProductPort.findProductById(7L)).thenReturn(Optional.of(product()));
+        when(orderCustomerPort.findAddressById(3L)).thenReturn(Optional.of(address(42L)));
+        when(orderCustomerPort.findBuyerById(42L)).thenReturn(Optional.of(buyer()));
+        doThrow(new BusinessException(ErrorCode.FORBIDDEN, "risk blocked"))
+                .when(commercialRiskGate)
+                .requireAllowed(42L, null, 7L, null, "device-risk", "203.0.113.7", "order.create");
+
+        assertThatThrownBy(() -> orderService.createOrder(
+                        42L, 7L, 3L, "order-key-risk", "device-risk", "203.0.113.7"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.FORBIDDEN));
+
+        verify(commercialRiskGate).requireAllowed(42L, null, 7L, null, "device-risk", "203.0.113.7", "order.create");
+        verify(orderProductPort, never()).deductProductStock(any());
+        verify(orderStore, never()).savePlacedOrder(any(OrderRecord.class));
+        verify(authoritativeTrackingPort, never()).recordOrderCreated(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -264,6 +305,8 @@ class OrderServiceTest {
         assertThat(result).isEqualTo(response());
         verify(orderProductPort, never()).deductProductStock(any());
         verify(orderStore, never()).savePlacedOrder(any(OrderRecord.class));
+        verify(authoritativeTrackingPort, never())
+                .recordOrderCreated(any(), any(), any(), any(), any());
     }
 
     @Test

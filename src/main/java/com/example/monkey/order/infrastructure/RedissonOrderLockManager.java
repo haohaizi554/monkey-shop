@@ -1,6 +1,7 @@
 package com.example.monkey.order.infrastructure;
 
 import com.example.monkey.order.domain.OrderLockManager;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import java.time.Duration;
@@ -23,7 +24,8 @@ public class RedissonOrderLockManager implements OrderLockManager {
 
     @Override
     public <T> T withCreateOrderLock(Long userId, Long productId, Supplier<T> operation) {
-        RLock lock = redissonClient.getLock(lockName(userId, productId));
+        long tenantId = TenantContext.currentTenantIdOrDefault();
+        RLock lock = redissonClient.getLock(lockName(tenantId, userId, productId));
         boolean acquired = false;
         try {
             acquired = lock.tryLock(
@@ -46,7 +48,7 @@ public class RedissonOrderLockManager implements OrderLockManager {
         }
     }
 
-    private static String lockName(Long userId, Long productId) {
-        return "order:user:" + userId + ":monkey:" + productId;
+    private static String lockName(long tenantId, Long userId, Long productId) {
+        return "order:tenant:" + tenantId + ":user:" + userId + ":product:" + productId;
     }
 }

@@ -4,12 +4,17 @@ import com.example.monkey.cart.domain.CartCheckoutStore;
 import com.example.monkey.cart.domain.CheckoutLine;
 import com.example.monkey.cart.domain.CheckoutOrder;
 import com.example.monkey.cart.domain.CheckoutSubOrder;
+import com.example.monkey.shared.application.storage.ImageCleanupService;
+import com.example.monkey.shared.application.storage.ImageReferenceTransactions;
+import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -17,17 +22,35 @@ import org.springframework.util.StringUtils;
 @ConditionalOnProperty(name = "app.cart.checkout-store.provider", havingValue = "jpa", matchIfMissing = true)
 public class JpaCartCheckoutStore implements CartCheckoutStore {
 
+    private static final String IMAGE_REFERENCE_CONFIGURATION_ERROR =
+            "Image reference services are required for trackable image writes";
+
     private final CartCheckoutRepository checkoutRepository;
     private final CartSubOrderRepository subOrderRepository;
     private final CartCheckoutLineRepository lineRepository;
+    private final ImageReferenceService imageReferenceService;
+    private final ImageCleanupService imageCleanupService;
 
+    @Autowired
+    public JpaCartCheckoutStore(
+            CartCheckoutRepository checkoutRepository,
+            CartSubOrderRepository subOrderRepository,
+            CartCheckoutLineRepository lineRepository,
+            ImageReferenceService imageReferenceService,
+            ImageCleanupService imageCleanupService) {
+        this.checkoutRepository = checkoutRepository;
+        this.subOrderRepository = subOrderRepository;
+        this.lineRepository = lineRepository;
+        this.imageReferenceService = imageReferenceService;
+        this.imageCleanupService = imageCleanupService;
+    }
+
+    /** Compatibility constructor for direct mapping tests that do not execute production persistence. */
     public JpaCartCheckoutStore(
             CartCheckoutRepository checkoutRepository,
             CartSubOrderRepository subOrderRepository,
             CartCheckoutLineRepository lineRepository) {
-        this.checkoutRepository = checkoutRepository;
-        this.subOrderRepository = subOrderRepository;
-        this.lineRepository = lineRepository;
+        this(checkoutRepository, subOrderRepository, lineRepository, null, null);
     }
 
     @Override
@@ -39,15 +62,60 @@ public class JpaCartCheckoutStore implements CartCheckoutStore {
 
     @Override
     public CheckoutOrder save(CheckoutOrder checkout) {
+        validateImageTracking(checkout);
         CartCheckoutEntity entity = checkoutRepository.findById(checkout.id()).orElseGet(CartCheckoutEntity::new);
         CartCheckoutEntity savedCheckout = checkoutRepository.save(updateEntity(entity, checkout));
         for (CheckoutSubOrder subOrder : checkout.subOrders()) {
             subOrderRepository.save(toEntity(savedCheckout.getId(), checkout.createdAt(), subOrder));
             for (CheckoutLine line : subOrder.lines()) {
-                lineRepository.save(toEntity(savedCheckout.getId(), subOrder.id(), checkout.createdAt(), line));
+                saveLine(savedCheckout.getId(), subOrder.id(), checkout.createdAt(), line);
             }
         }
         return toDomain(savedCheckout);
+    }
+
+    private void saveLine(
+            Long checkoutId, Long subOrderId, java.time.LocalDateTime createdAt, CheckoutLine line) {
+        CartCheckoutLineEntity existing = lineRepository.findById(line.id()).orElse(null);
+        String oldImage = existing == null ? null : existing.getProductImage();
+        String newImage = line.productImage();
+        requireImageTrackingConfigured(oldImage, newImage);
+        boolean imageChanged = !Objects.equals(oldImage, newImage);
+        if (imageReferenceService != null && imageChanged) {
+            ImageReferenceTransactions.retainBeforeWrite(imageReferenceService, newImage);
+        }
+        lineRepository.save(toEntity(checkoutId, subOrderId, createdAt, line));
+        if (imageReferenceService != null && imageChanged && oldImage != null) {
+            ImageReferenceTransactions.releaseAfterCommit(imageReferenceService, imageCleanupService, oldImage);
+        }
+    }
+
+    private void validateImageTracking(CheckoutOrder checkout) {
+        if (imageReferenceService != null && imageCleanupService != null) {
+            return;
+        }
+        for (CheckoutSubOrder subOrder : checkout.subOrders()) {
+            for (CheckoutLine line : subOrder.lines()) {
+                if (ImageReferenceService.isTrackable(line.productImage())) {
+                    throw missingImageReferenceServices();
+                }
+                CartCheckoutLineEntity existing = lineRepository.findById(line.id()).orElse(null);
+                if (existing != null && ImageReferenceService.isTrackable(existing.getProductImage())) {
+                    throw missingImageReferenceServices();
+                }
+            }
+        }
+    }
+
+    private void requireImageTrackingConfigured(String oldImage, String newImage) {
+        if ((ImageReferenceService.isTrackable(oldImage) || ImageReferenceService.isTrackable(newImage))
+                && (imageReferenceService == null || imageCleanupService == null)) {
+            throw missingImageReferenceServices();
+        }
+    }
+
+    private static IllegalStateException missingImageReferenceServices() {
+        return new IllegalStateException(IMAGE_REFERENCE_CONFIGURATION_ERROR);
     }
 
     private CheckoutOrder toDomain(CartCheckoutEntity checkout) {

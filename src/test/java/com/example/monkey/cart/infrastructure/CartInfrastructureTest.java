@@ -1,6 +1,7 @@
 package com.example.monkey.cart.infrastructure;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -18,10 +19,18 @@ import com.example.monkey.cart.domain.CartSkuSnapshot;
 import com.example.monkey.cart.domain.CheckoutLine;
 import com.example.monkey.cart.domain.CheckoutOrder;
 import com.example.monkey.cart.domain.CheckoutSubOrder;
+import com.example.monkey.product.domain.IdentityRegionPriceStrategy;
+import com.example.monkey.product.domain.PriceContext;
+import com.example.monkey.shared.application.storage.ImageCleanupService;
 import com.example.monkey.shared.application.tenant.TenantContext;
+import com.example.monkey.shared.domain.exception.BusinessException;
+import com.example.monkey.shared.domain.exception.ErrorCode;
+import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.math.BigDecimal;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -49,6 +58,58 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
 class CartInfrastructureTest {
+
+    @Test
+    void requiredSharedCartStateRejectsMissingRedisAtStartup() {
+        ObjectProvider<StringRedisTemplate> provider = mock();
+        when(provider.getIfAvailable()).thenReturn(null);
+
+        assertThatThrownBy(() -> new RedisCartStore(
+                        provider,
+                        new ObjectMapper().registerModule(new JavaTimeModule()),
+                        Clock.systemUTC(),
+                        true))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Cart Redis state is required");
+    }
+
+    @Test
+    void requiredSharedCartStateFailsClosedWhenRedisReadFails() {
+        ObjectProvider<StringRedisTemplate> provider = mock();
+        StringRedisTemplate redisTemplate = mock();
+        @SuppressWarnings("unchecked")
+        HashOperations<String, Object, Object> hashes = mock(HashOperations.class);
+        when(provider.getIfAvailable()).thenReturn(redisTemplate);
+        when(redisTemplate.opsForHash()).thenReturn(hashes);
+        when(hashes.entries("cart:tenant:1:user:7")).thenThrow(new IllegalStateException("redis down"));
+        RedisCartStore store = new RedisCartStore(
+                provider, new ObjectMapper().registerModule(new JavaTimeModule()), Clock.systemUTC(), true);
+
+        assertThatThrownBy(() -> store.findCart(7L))
+                .isInstanceOfSatisfying(BusinessException.class, exception -> {
+                    assertThat(exception.errorCode()).isEqualTo(ErrorCode.SERVICE_UNAVAILABLE);
+                    assertThat(exception.getMessage()).contains("Cart state is temporarily unavailable");
+                });
+    }
+
+    @Test
+    void redisMutationFailsClosedWhenLuaReturnsNoResult() {
+        ObjectProvider<StringRedisTemplate> provider = mock();
+        StringRedisTemplate redisTemplate = mock();
+        when(provider.getIfAvailable()).thenReturn(redisTemplate);
+        when(redisTemplate.execute(any(DefaultRedisScript.class), any(List.class), any(Object[].class)))
+                .thenReturn(null);
+        RedisCartStore store = new RedisCartStore(
+                provider, new ObjectMapper().registerModule(new JavaTimeModule()), Clock.systemUTC(), true);
+        LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
+
+        assertThatThrownBy(() -> store.putItem(
+                        7L, new CartItem(1001L, 1L, 1, true, now, now), Duration.ofDays(7)))
+                .isInstanceOfSatisfying(BusinessException.class, exception -> {
+                    assertThat(exception.errorCode()).isEqualTo(ErrorCode.SERVICE_UNAVAILABLE);
+                    assertThat(exception.getMessage()).contains("Cart state is temporarily unavailable");
+                });
+    }
 
     @Test
     void fallbackCartScopesSameUserIdByTenant() {
@@ -208,6 +269,9 @@ class CartInfrastructureTest {
         HashOperations<String, Object, Object> hashOperations = mock();
         when(provider.getIfAvailable()).thenReturn(redisTemplate);
         when(redisTemplate.opsForHash()).thenReturn(hashOperations);
+        when(redisTemplate.execute(
+                        any(DefaultRedisScript.class), eq(List.of("cart:tenant:1:user:7")), any(Object[].class)))
+                .thenReturn(1L);
         RedisCartStore store = new RedisCartStore(provider, new ObjectMapper().registerModule(new JavaTimeModule()));
         LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
 
@@ -274,6 +338,9 @@ class CartInfrastructureTest {
         HashOperations<String, Object, Object> hashOperations = mock();
         when(provider.getIfAvailable()).thenReturn(redisTemplate);
         when(redisTemplate.opsForHash()).thenReturn(hashOperations);
+        when(redisTemplate.execute(
+                        any(DefaultRedisScript.class), eq(List.of("cart:tenant:1:user:7")), any(Object[].class)))
+                .thenReturn(1L);
         RedisCartStore store = new RedisCartStore(provider, new ObjectMapper().registerModule(new JavaTimeModule()));
         LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
 
@@ -292,6 +359,8 @@ class CartInfrastructureTest {
         CartCheckoutRepository checkoutRepository = mock();
         CartSubOrderRepository subOrderRepository = mock();
         CartCheckoutLineRepository lineRepository = mock();
+        ImageReferenceService imageReferenceService = mock();
+        ImageCleanupService imageCleanupService = mock();
         LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
         CheckoutOrder checkout = checkout(now);
         when(checkoutRepository.save(org.mockito.ArgumentMatchers.any()))
@@ -299,7 +368,12 @@ class CartInfrastructureTest {
         when(checkoutRepository.findByUserIdAndIdempotencyKey(7L, "idem")).thenReturn(Optional.of(checkoutEntity(now)));
         when(subOrderRepository.findByCheckoutIdOrderByIdAsc(1L)).thenReturn(List.of(subOrderEntity(now)));
         when(lineRepository.findByCheckoutIdOrderBySubOrderIdAscIdAsc(1L)).thenReturn(List.of(lineEntity(now)));
-        JpaCartCheckoutStore store = new JpaCartCheckoutStore(checkoutRepository, subOrderRepository, lineRepository);
+        JpaCartCheckoutStore store = new JpaCartCheckoutStore(
+                checkoutRepository,
+                subOrderRepository,
+                lineRepository,
+                imageReferenceService,
+                imageCleanupService);
 
         assertThat(store.save(checkout).id()).isEqualTo(1L);
         CheckoutOrder restored = store.findByUserIdAndIdempotencyKey(7L, "idem").orElseThrow();
@@ -309,18 +383,67 @@ class CartInfrastructureTest {
     }
 
     @Test
+    void compatibilityConstructorRejectsTrackableLineBeforeAnyRepositoryWrite() {
+        CartCheckoutRepository checkoutRepository = mock();
+        CartSubOrderRepository subOrderRepository = mock();
+        CartCheckoutLineRepository lineRepository = mock();
+        when(checkoutRepository.save(any(CartCheckoutEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        JpaCartCheckoutStore store = new JpaCartCheckoutStore(checkoutRepository, subOrderRepository, lineRepository);
+
+        assertThatThrownBy(() -> store.save(checkout(LocalDateTime.parse("2026-01-01T00:00:00"))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Image reference");
+
+        verify(checkoutRepository, never()).save(any(CartCheckoutEntity.class));
+        verify(subOrderRepository, never()).save(any(CartSubOrderEntity.class));
+        verify(lineRepository, never()).save(any(CartCheckoutLineEntity.class));
+    }
+
+    @Test
     void jpaCartCatalogReaderReadsSkuSnapshotThroughTenantScopedJdbcQuery() {
         JdbcTemplate jdbcTemplate = mock();
         CartSkuSnapshot snapshot =
-                new CartSkuSnapshot(1001L, 2001L, 11L, "SKU-1", "Phone", "/phone.png", new BigDecimal("88.00"));
+                new CartSkuSnapshot(1001L, 2001L, 1L, 11L, "SKU-1", "Phone", "/phone.png", new BigDecimal("88.00"));
         when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(1001L), eq(1L), eq("LISTED")))
                 .thenReturn(List.of(snapshot));
-        JpaCartCatalogReader reader = new JpaCartCatalogReader(jdbcTemplate);
+        JpaCartCatalogReader reader =
+                new JpaCartCatalogReader(jdbcTemplate, new ObjectMapper(), new IdentityRegionPriceStrategy());
 
-        Optional<CartSkuSnapshot> result = reader.findActiveSku(1001L);
+        Optional<CartSkuSnapshot> result = reader.findActiveSku(1001L, new PriceContext("MEMBER", ""));
 
         assertThat(result).contains(snapshot);
         verify(jdbcTemplate).query(anyString(), any(RowMapper.class), eq(1001L), eq(1L), eq("LISTED"));
+    }
+
+    @Test
+    void jpaCartCatalogReaderAppliesAuthoritativeMembershipAndRegionPricing() throws SQLException {
+        JdbcTemplate jdbcTemplate = mock();
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(1001L), eq(1L), eq("LISTED")))
+                .thenAnswer(invocation -> {
+                    @SuppressWarnings("unchecked")
+                    RowMapper<CartSkuSnapshot> mapper = invocation.getArgument(1);
+                    ResultSet resultSet = mock(ResultSet.class);
+                    when(resultSet.getLong("id")).thenReturn(1001L);
+                    when(resultSet.getLong("spu_id")).thenReturn(2001L);
+                    when(resultSet.getLong("shop_id")).thenReturn(3L);
+                    when(resultSet.getLong("category_id")).thenReturn(11L);
+                    when(resultSet.getString("sku_code")).thenReturn("SKU-1");
+                    when(resultSet.getString("product_name")).thenReturn("Phone");
+                    when(resultSet.getString("image_url")).thenReturn("/phone.png");
+                    when(resultSet.getBigDecimal("original_price")).thenReturn(new BigDecimal("100.00"));
+                    when(resultSet.getBigDecimal("member_price")).thenReturn(new BigDecimal("80.00"));
+                    when(resultSet.getBigDecimal("strike_price")).thenReturn(new BigDecimal("120.00"));
+                    when(resultSet.getString("region_prices_json")).thenReturn("{\"CN-BJ\":90.00}");
+                    return List.of(mapper.mapRow(resultSet, 0));
+                });
+        JpaCartCatalogReader reader =
+                new JpaCartCatalogReader(jdbcTemplate, new ObjectMapper(), new IdentityRegionPriceStrategy());
+
+        CartSkuSnapshot result = reader.findActiveSku(1001L, new PriceContext("MEMBER", "CN-BJ"))
+                .orElseThrow();
+
+        assertThat(result.salePrice()).isEqualByComparingTo("80.00");
     }
 
     @Test
@@ -331,6 +454,16 @@ class CartInfrastructureTest {
         String result = new RedissonCartLockManager(provider).withCheckoutLock(7L, "idem", () -> "ok");
 
         assertThat(result).isEqualTo("ok");
+    }
+
+    @Test
+    void requiredCheckoutLockRejectsMissingRedissonAtStartup() {
+        ObjectProvider<RedissonClient> provider = mock();
+        when(provider.getIfAvailable()).thenReturn(null);
+
+        assertThatThrownBy(() -> new RedissonCartLockManager(provider, true))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Checkout Redis lock is required");
     }
 
     @Test

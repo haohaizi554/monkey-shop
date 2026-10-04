@@ -1,6 +1,7 @@
 package com.example.monkey.order.infrastructure;
 
 import com.example.monkey.shared.domain.storage.StoredImageReferenceSource;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -13,38 +14,31 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 @Component
-@Order(300)
-public class OrderImageReferenceSource implements StoredImageReferenceSource {
+@Order(310)
+public class OrderReviewImageReferenceSource implements StoredImageReferenceSource {
 
-    private final OrderRepository orderRepository;
+    private final OrderReviewRepository orderReviewRepository;
     private final int referenceScanBatchSize;
 
-    public OrderImageReferenceSource(
-            OrderRepository orderRepository,
+    public OrderReviewImageReferenceSource(
+            OrderReviewRepository orderReviewRepository,
             @Value("${app.upload.cleanup.reference-scan-batch-size:500}") int referenceScanBatchSize) {
-        this.orderRepository = orderRepository;
+        this.orderReviewRepository = orderReviewRepository;
         this.referenceScanBatchSize = Math.max(1, referenceScanBatchSize);
     }
 
     @Override
     public boolean isUsed(String imagePath) {
-        if (imagePath == null || imagePath.isBlank()) {
-            return false;
-        }
-        String canonicalPath = imagePath.trim();
-        String variantPrefix = canonicalPath + "@";
-        return orderRepository.countByProductImage(canonicalPath) > 0
-                || orderRepository.countByProductImageStartingWith(variantPrefix) > 0
-                || orderRepository.countByBuyerAvatar(canonicalPath) > 0
-                || orderRepository.countByBuyerAvatarStartingWith(variantPrefix) > 0;
+        return imagePath != null
+                && !imagePath.isBlank()
+                && orderReviewRepository.countByImageUrlsContaining(imagePath.trim()) > 0;
     }
 
     @Override
     @Transactional(readOnly = true)
     public void forEachReferencedImagePath(Consumer<String> consumer) {
         Objects.requireNonNull(consumer, "consumer");
-        scan(orderRepository::findProductImages, consumer);
-        scan(orderRepository::findBuyerAvatars, consumer);
+        scan(orderReviewRepository::findImageUrls, consumer);
     }
 
     private void scan(Function<Pageable, List<String>> readPage, Consumer<String> consumer) {
@@ -54,7 +48,12 @@ public class OrderImageReferenceSource implements StoredImageReferenceSource {
             if (values == null || values.isEmpty()) {
                 return;
             }
-            values.stream().filter(value -> value != null && !value.isBlank()).forEach(consumer);
+            values.stream()
+                    .filter(value -> value != null && !value.isBlank())
+                    .flatMap(value -> Arrays.stream(value.split("\\R")))
+                    .map(String::trim)
+                    .filter(value -> !value.isBlank())
+                    .forEach(consumer);
             if (values.size() < referenceScanBatchSize) {
                 return;
             }

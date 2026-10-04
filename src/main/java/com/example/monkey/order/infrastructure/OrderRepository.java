@@ -65,7 +65,11 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     long countByProductImage(String productImage);
 
+    long countByProductImageStartingWith(String productImagePrefix);
+
     long countByBuyerAvatar(String buyerAvatar);
+
+    long countByBuyerAvatarStartingWith(String buyerAvatarPrefix);
 
     long countByStatus(String status);
 

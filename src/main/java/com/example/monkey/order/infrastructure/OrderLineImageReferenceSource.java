@@ -13,16 +13,16 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 @Component
-@Order(300)
-public class OrderImageReferenceSource implements StoredImageReferenceSource {
+@Order(305)
+public class OrderLineImageReferenceSource implements StoredImageReferenceSource {
 
-    private final OrderRepository orderRepository;
+    private final OrderLineRepository orderLineRepository;
     private final int referenceScanBatchSize;
 
-    public OrderImageReferenceSource(
-            OrderRepository orderRepository,
+    public OrderLineImageReferenceSource(
+            OrderLineRepository orderLineRepository,
             @Value("${app.upload.cleanup.reference-scan-batch-size:500}") int referenceScanBatchSize) {
-        this.orderRepository = orderRepository;
+        this.orderLineRepository = orderLineRepository;
         this.referenceScanBatchSize = Math.max(1, referenceScanBatchSize);
     }
 
@@ -32,19 +32,15 @@ public class OrderImageReferenceSource implements StoredImageReferenceSource {
             return false;
         }
         String canonicalPath = imagePath.trim();
-        String variantPrefix = canonicalPath + "@";
-        return orderRepository.countByProductImage(canonicalPath) > 0
-                || orderRepository.countByProductImageStartingWith(variantPrefix) > 0
-                || orderRepository.countByBuyerAvatar(canonicalPath) > 0
-                || orderRepository.countByBuyerAvatarStartingWith(variantPrefix) > 0;
+        return orderLineRepository.countByProductImage(canonicalPath) > 0
+                || orderLineRepository.countByProductImageStartingWith(canonicalPath + "@") > 0;
     }
 
     @Override
     @Transactional(readOnly = true)
     public void forEachReferencedImagePath(Consumer<String> consumer) {
         Objects.requireNonNull(consumer, "consumer");
-        scan(orderRepository::findProductImages, consumer);
-        scan(orderRepository::findBuyerAvatars, consumer);
+        scan(orderLineRepository::findProductImages, consumer);
     }
 
     private void scan(Function<Pageable, List<String>> readPage, Consumer<String> consumer) {
@@ -54,7 +50,10 @@ public class OrderImageReferenceSource implements StoredImageReferenceSource {
             if (values == null || values.isEmpty()) {
                 return;
             }
-            values.stream().filter(value -> value != null && !value.isBlank()).forEach(consumer);
+            values.stream()
+                    .filter(value -> value != null && !value.isBlank())
+                    .map(String::trim)
+                    .forEach(consumer);
             if (values.size() < referenceScanBatchSize) {
                 return;
             }

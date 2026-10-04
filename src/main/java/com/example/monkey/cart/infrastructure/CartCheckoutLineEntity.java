@@ -5,11 +5,17 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "cart_checkout_line")
+@Table(
+        name = "cart_checkout_line",
+        uniqueConstraints =
+                @UniqueConstraint(
+                        name = "uk_cart_checkout_line_reservation",
+                        columnNames = {"tenant_id", "reservation_key"}))
 public class CartCheckoutLineEntity extends TenantScopedJpaEntity {
 
     @Id
@@ -53,7 +59,7 @@ public class CartCheckoutLineEntity extends TenantScopedJpaEntity {
     @Column(length = 512)
     private String couponCodes;
 
-    @Column(nullable = false, unique = true, length = 191)
+    @Column(nullable = false, length = 191)
     private String reservationKey;
 
     private Long warehouseId;

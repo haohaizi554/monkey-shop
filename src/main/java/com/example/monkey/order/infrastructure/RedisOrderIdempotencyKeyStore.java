@@ -1,6 +1,7 @@
 package com.example.monkey.order.infrastructure;
 
 import com.example.monkey.order.domain.OrderIdempotencyKeyStore;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,6 +40,7 @@ public class RedisOrderIdempotencyKeyStore implements OrderIdempotencyKeyStore {
     }
 
     private static String redisKey(Long userId, String idempotencyKey) {
-        return REDIS_KEY_PREFIX + userId + ":" + idempotencyKey;
+        return REDIS_KEY_PREFIX + "tenant:" + TenantContext.currentTenantIdOrDefault() + ":user:" + userId + ":"
+                + idempotencyKey;
     }
 }

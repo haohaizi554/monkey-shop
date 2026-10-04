@@ -16,7 +16,7 @@ import java.time.LocalDateTime;
         uniqueConstraints =
                 @UniqueConstraint(
                         name = "uk_idempotency_user_key",
-                        columnNames = {"user_id", "idempotency_key"}))
+                        columnNames = {"tenant_id", "user_id", "idempotency_key"}))
 public class IdempotencyRecord extends TenantScopedJpaEntity {
 
     public static final String STATUS_PROCESSING = "PROCESSING";

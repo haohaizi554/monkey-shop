@@ -10,7 +10,6 @@ import com.example.monkey.order.application.OrderApplicationService;
 import com.example.monkey.order.application.OrderService;
 import com.example.monkey.order.application.dto.OrderPageQuery;
 import com.example.monkey.order.interfaces.dto.OrderPageRequestDto;
-import com.example.monkey.risk.application.RiskApplicationService;
 import com.example.monkey.shared.application.dto.PageResponseDto;
 import com.example.monkey.shared.application.security.SessionUser;
 import java.util.List;
@@ -32,14 +31,11 @@ class OrderControllerPaginationTest {
     @Mock
     private OrderService orderService;
 
-    @Mock
-    private RiskApplicationService riskApplicationService;
-
     private OrderController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new OrderController(orderApplicationService, orderService, riskApplicationService);
+        controller = new OrderController(orderApplicationService, orderService);
     }
 
     @Test

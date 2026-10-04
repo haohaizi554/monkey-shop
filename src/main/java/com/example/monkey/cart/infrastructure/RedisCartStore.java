@@ -4,6 +4,8 @@ import com.example.monkey.cart.domain.CartItem;
 import com.example.monkey.cart.domain.CartSnapshot;
 import com.example.monkey.cart.domain.CartStore;
 import com.example.monkey.shared.application.tenant.TenantContext;
+import com.example.monkey.shared.domain.exception.BusinessException;
+import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
@@ -19,6 +21,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
@@ -27,6 +30,8 @@ import org.springframework.stereotype.Component;
 public class RedisCartStore implements CartStore {
 
     private static final String KEY_PREFIX = "cart:tenant:";
+    private static final String REQUIRED_STATE_MESSAGE = "Cart Redis state is required";
+    private static final String UNAVAILABLE_STATE_MESSAGE = "Cart state is temporarily unavailable";
     private static final DefaultRedisScript<Long> PUT_ITEM_IF_UNCHANGED_SCRIPT =
             new DefaultRedisScript<>("""
             local current = redis.call('HGET', KEYS[1], ARGV[1])
@@ -70,17 +75,37 @@ public class RedisCartStore implements CartStore {
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final boolean requireRedisState;
     private final Map<CartIdentity, FallbackCartState> fallback = new ConcurrentHashMap<>();
 
     @Autowired
+    public RedisCartStore(
+            ObjectProvider<StringRedisTemplate> redisTemplateProvider,
+            ObjectMapper objectMapper,
+            @Value("${app.cart.require-redis-state:false}") boolean requireRedisState) {
+        this(redisTemplateProvider, objectMapper, Clock.systemUTC(), requireRedisState);
+    }
+
     public RedisCartStore(ObjectProvider<StringRedisTemplate> redisTemplateProvider, ObjectMapper objectMapper) {
-        this(redisTemplateProvider, objectMapper, Clock.systemUTC());
+        this(redisTemplateProvider, objectMapper, Clock.systemUTC(), false);
     }
 
     RedisCartStore(ObjectProvider<StringRedisTemplate> redisTemplateProvider, ObjectMapper objectMapper, Clock clock) {
+        this(redisTemplateProvider, objectMapper, clock, false);
+    }
+
+    RedisCartStore(
+            ObjectProvider<StringRedisTemplate> redisTemplateProvider,
+            ObjectMapper objectMapper,
+            Clock clock,
+            boolean requireRedisState) {
         this.redisTemplate = redisTemplateProvider.getIfAvailable();
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.requireRedisState = requireRedisState;
+        if (requireRedisState && redisTemplate == null) {
+            throw new IllegalStateException(REQUIRED_STATE_MESSAGE);
+        }
     }
 
     @Override
@@ -103,7 +128,7 @@ public class RedisCartStore implements CartStore {
         if (redisTemplate == null) {
             return putFallbackItemIfUnchanged(identity, field, expectedValue, value, ttl);
         }
-        Long updated = redisTemplate.execute(
+        Long updated = execute(
                 PUT_ITEM_IF_UNCHANGED_SCRIPT,
                 List.of(key(identity)),
                 field,
@@ -123,7 +148,7 @@ public class RedisCartStore implements CartStore {
             putFallbackItem(identity, field, value, ttl);
             return;
         }
-        redisTemplate.execute(PUT_ITEM_SCRIPT, List.of(key(identity)), field, value, Long.toString(ttlSeconds(ttl)));
+        execute(PUT_ITEM_SCRIPT, List.of(key(identity)), field, value, Long.toString(ttlSeconds(ttl)));
     }
 
     @Override
@@ -133,7 +158,7 @@ public class RedisCartStore implements CartStore {
             removeFallbackItem(identity, skuId.toString(), ttl);
             return;
         }
-        redisTemplate.execute(
+        execute(
                 REMOVE_ITEM_SCRIPT, List.of(key(identity)), skuId.toString(), Long.toString(ttlSeconds(ttl)));
     }
 
@@ -153,7 +178,7 @@ public class RedisCartStore implements CartStore {
             arguments.add(serialize(item));
         });
         arguments.add(Long.toString(ttlSeconds(ttl)));
-        redisTemplate.execute(REMOVE_MATCHING_ITEMS_SCRIPT, List.of(key(identity)), arguments.toArray());
+        execute(REMOVE_MATCHING_ITEMS_SCRIPT, List.of(key(identity)), arguments.toArray());
     }
 
     private Map<String, String> redisCart(CartIdentity identity) {
@@ -163,8 +188,29 @@ public class RedisCartStore implements CartStore {
             entries.forEach((field, value) -> values.put(String.valueOf(field), String.valueOf(value)));
             return values;
         } catch (RuntimeException exception) {
+            if (requireRedisState) {
+                throw unavailable(exception);
+            }
             return fallbackCart(identity);
         }
+    }
+
+    private Long execute(DefaultRedisScript<Long> script, List<String> keys, Object... arguments) {
+        try {
+            Long result = redisTemplate.execute(script, keys, arguments);
+            if (result == null) {
+                throw new IllegalStateException("Cart Redis mutation returned no result");
+            }
+            return result;
+        } catch (RuntimeException exception) {
+            throw unavailable(exception);
+        }
+    }
+
+    private static BusinessException unavailable(RuntimeException cause) {
+        var exception = new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, UNAVAILABLE_STATE_MESSAGE);
+        exception.initCause(cause);
+        return exception;
     }
 
     private Map<String, String> fallbackCart(CartIdentity identity) {

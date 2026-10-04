@@ -25,6 +25,18 @@ public class OrderApplicationService {
         return orderService.createOrder(requireUserId(currentUser), monkeyId, addressId, idempotencyKey);
     }
 
+    /** Transport signals are forwarded; the order service resolves all commercial facts itself. */
+    public OrderResponseDto createOrder(
+            SessionUser currentUser,
+            Long monkeyId,
+            Long addressId,
+            String idempotencyKey,
+            String deviceFingerprint,
+            String clientIp) {
+        return orderService.createOrder(
+                requireUserId(currentUser), monkeyId, addressId, idempotencyKey, deviceFingerprint, clientIp);
+    }
+
     public List<OrderResponseDto> findOrders(SessionUser currentUser) {
         return orderService.findOrdersForUser(requireUserId(currentUser));
     }

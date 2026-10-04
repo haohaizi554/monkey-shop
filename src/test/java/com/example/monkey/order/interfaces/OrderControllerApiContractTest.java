@@ -18,7 +18,6 @@ import com.example.monkey.order.application.dto.OrderLineResponseDto;
 import com.example.monkey.order.application.dto.OrderPageQuery;
 import com.example.monkey.order.application.dto.OrderResponseDto;
 import com.example.monkey.order.domain.OrderStatus;
-import com.example.monkey.risk.application.RiskApplicationService;
 import com.example.monkey.shared.application.dto.PageResponseDto;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.domain.exception.BusinessException;
@@ -48,14 +47,11 @@ class OrderControllerApiContractTest {
     @Mock
     private OrderService orderService;
 
-    @Mock
-    private RiskApplicationService riskApplicationService;
-
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
-        OrderController controller = new OrderController(orderApplicationService, orderService, riskApplicationService);
+        OrderController controller = new OrderController(orderApplicationService, orderService);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(
@@ -166,7 +162,7 @@ class OrderControllerApiContractTest {
                 .andExpect(jsonPath("$.fieldErrors[1].message").value("monkey id must be positive"))
                 .andExpect(jsonPath("$.traceId").value("trace-validation-1"));
 
-        verifyNoInteractions(riskApplicationService, orderApplicationService, orderService);
+        verifyNoInteractions(orderApplicationService, orderService);
     }
 
     private static OrderResponseDto response() {

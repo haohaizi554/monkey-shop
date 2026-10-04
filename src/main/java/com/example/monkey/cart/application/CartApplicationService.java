@@ -32,6 +32,9 @@ import com.example.monkey.marketing.application.dto.MarketingPriceQuoteDto;
 import com.example.monkey.marketing.application.dto.MarketingPriceRequestDto;
 import com.example.monkey.order.domain.CheckoutOrderCommand;
 import com.example.monkey.order.domain.OrderNumberGenerator;
+import com.example.monkey.product.domain.PriceContext;
+import com.example.monkey.product.domain.ProductPriceContextResolver;
+import com.example.monkey.risk.domain.CommercialRiskGate;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.domain.exception.BusinessException;
@@ -53,6 +56,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -71,9 +75,12 @@ public class CartApplicationService {
     private static final Pattern IDEMPOTENCY_KEY_PATTERN = Pattern.compile("[A-Za-z0-9._:-]+");
     private static final String CUSTOMER_ROLE = "CUSTOMER";
     private static final int MAX_CART_MUTATION_ATTEMPTS = 32;
+    private static final CommercialRiskGate NOOP_RISK_GATE =
+            (userId, activityId, productId, orderId, deviceFingerprint, clientIp, operation) -> {};
 
     private final CartStore cartStore;
     private final CartCatalogReader catalogReader;
+    private final ProductPriceContextResolver priceContextResolver;
     private final CartCheckoutStore checkoutStore;
     private final CartCleanupScheduler cartCleanupScheduler;
     private final CartLockManager lockManager;
@@ -84,6 +91,7 @@ public class CartApplicationService {
     private final OrderNumberGenerator orderNumberGenerator;
     private final IdGenerator idGenerator;
     private final AuditService auditService;
+    private final CommercialRiskGate commercialRiskGate;
     private final Clock clock;
     private final Duration cartTtl;
 
@@ -91,6 +99,7 @@ public class CartApplicationService {
     public CartApplicationService(
             CartStore cartStore,
             CartCatalogReader catalogReader,
+            ProductPriceContextResolver priceContextResolver,
             CartCheckoutStore checkoutStore,
             CartCleanupScheduler cartCleanupScheduler,
             CartLockManager lockManager,
@@ -101,10 +110,12 @@ public class CartApplicationService {
             OrderNumberGenerator orderNumberGenerator,
             IdGenerator idGenerator,
             AuditService auditService,
+            CommercialRiskGate commercialRiskGate,
             @Value("${app.cart.ttl:PT168H}") Duration cartTtl) {
         this(
                 cartStore,
                 catalogReader,
+                priceContextResolver,
                 checkoutStore,
                 cartCleanupScheduler,
                 lockManager,
@@ -115,6 +126,7 @@ public class CartApplicationService {
                 orderNumberGenerator,
                 idGenerator,
                 auditService,
+                commercialRiskGate,
                 Clock.systemDefaultZone(),
                 cartTtl);
     }
@@ -122,6 +134,7 @@ public class CartApplicationService {
     CartApplicationService(
             CartStore cartStore,
             CartCatalogReader catalogReader,
+            ProductPriceContextResolver priceContextResolver,
             CartCheckoutStore checkoutStore,
             CartCleanupScheduler cartCleanupScheduler,
             CartLockManager lockManager,
@@ -134,8 +147,45 @@ public class CartApplicationService {
             AuditService auditService,
             Clock clock,
             Duration cartTtl) {
+        this(
+                cartStore,
+                catalogReader,
+                priceContextResolver,
+                checkoutStore,
+                cartCleanupScheduler,
+                lockManager,
+                transactions,
+                inventoryApplicationService,
+                marketingApplicationService,
+                formalOrderCreator,
+                orderNumberGenerator,
+                idGenerator,
+                auditService,
+                NOOP_RISK_GATE,
+                clock,
+                cartTtl);
+    }
+
+    CartApplicationService(
+            CartStore cartStore,
+            CartCatalogReader catalogReader,
+            ProductPriceContextResolver priceContextResolver,
+            CartCheckoutStore checkoutStore,
+            CartCleanupScheduler cartCleanupScheduler,
+            CartLockManager lockManager,
+            CartTransactions transactions,
+            InventoryApplicationService inventoryApplicationService,
+            MarketingApplicationService marketingApplicationService,
+            FormalOrderCreator formalOrderCreator,
+            OrderNumberGenerator orderNumberGenerator,
+            IdGenerator idGenerator,
+            AuditService auditService,
+            CommercialRiskGate commercialRiskGate,
+            Clock clock,
+            Duration cartTtl) {
         this.cartStore = cartStore;
         this.catalogReader = catalogReader;
+        this.priceContextResolver = priceContextResolver;
         this.checkoutStore = checkoutStore;
         this.cartCleanupScheduler = cartCleanupScheduler;
         this.lockManager = lockManager;
@@ -146,6 +196,7 @@ public class CartApplicationService {
         this.orderNumberGenerator = orderNumberGenerator;
         this.idGenerator = idGenerator;
         this.auditService = auditService;
+        this.commercialRiskGate = Objects.requireNonNull(commercialRiskGate, "commercialRiskGate is required");
         this.clock = clock;
         this.cartTtl = cartTtl == null ? DEFAULT_CART_TTL : cartTtl;
     }
@@ -153,22 +204,26 @@ public class CartApplicationService {
     @WithSpan("cart.get")
     @Transactional(readOnly = true)
     public CartResponseDto cart(SessionUser currentUser) {
-        CartSnapshot cart = cartStore.findCart(requireUserId(currentUser));
-        return CartDtoAssembler.toResponse(cart, skuSnapshots(cart.items()));
+        Long userId = requireUserId(currentUser);
+        CartSnapshot cart = cartStore.findCart(userId);
+        return CartDtoAssembler.toResponse(cart, skuSnapshots(priceContext(userId, ""), cart.items()));
     }
 
     @WithSpan("cart.add")
     @Transactional
     public CartResponseDto addItem(SessionUser currentUser, CartAddItemRequestDto request) {
         Long userId = requireUserId(currentUser);
-        requireSku(request.skuId());
+        PriceContext priceContext = priceContext(userId, "");
+        CartSkuSnapshot sku = requireSku(request.skuId(), priceContext, request.shopId());
         mutateItemAtomically(userId, request.skuId(), current -> {
             LocalDateTime mutationTime = now();
-            return current.map(
-                            item -> item.add(request.quantity(), mutationTime).select(request.selected(), mutationTime))
+            return current.map(item -> {
+                        requireCartShop(item, sku);
+                        return item.add(request.quantity(), mutationTime).select(request.selected(), mutationTime);
+                    })
                     .orElseGet(() -> new CartItem(
                             request.skuId(),
-                            request.shopId(),
+                            sku.shopId(),
                             request.quantity(),
                             request.selected(),
                             mutationTime,
@@ -176,7 +231,7 @@ public class CartApplicationService {
         });
         CartSnapshot saved = cartStore.findCart(userId);
         audit(AuditService.CART_ITEM_CHANGED, userId, "skuId=" + request.skuId() + ",quantity=" + request.quantity());
-        return CartDtoAssembler.toResponse(saved, skuSnapshots(saved.items()));
+        return CartDtoAssembler.toResponse(saved, skuSnapshots(priceContext, saved.items()));
     }
 
     @WithSpan("cart.quantity")
@@ -191,7 +246,7 @@ public class CartApplicationService {
                         .withQuantity(request.quantity(), now()));
         CartSnapshot saved = cartStore.findCart(userId);
         audit(AuditService.CART_ITEM_CHANGED, userId, "skuId=" + skuId + ",quantity=" + request.quantity());
-        return CartDtoAssembler.toResponse(saved, skuSnapshots(saved.items()));
+        return CartDtoAssembler.toResponse(saved, skuSnapshots(priceContext(userId, ""), saved.items()));
     }
 
     @WithSpan("cart.select")
@@ -206,7 +261,7 @@ public class CartApplicationService {
                         .select(request.selected(), now()));
         CartSnapshot saved = cartStore.findCart(userId);
         audit(AuditService.CART_ITEM_CHANGED, userId, "skuId=" + skuId + ",selected=" + request.selected());
-        return CartDtoAssembler.toResponse(saved, skuSnapshots(saved.items()));
+        return CartDtoAssembler.toResponse(saved, skuSnapshots(priceContext(userId, ""), saved.items()));
     }
 
     @WithSpan("cart.remove")
@@ -217,7 +272,7 @@ public class CartApplicationService {
         cartStore.removeItem(userId, skuId, cartTtl);
         CartSnapshot saved = cartStore.findCart(userId);
         audit(AuditService.CART_ITEM_CHANGED, userId, "skuId=" + skuId + ",removed=true");
-        return CartDtoAssembler.toResponse(saved, skuSnapshots(saved.items()));
+        return CartDtoAssembler.toResponse(saved, skuSnapshots(priceContext(userId, ""), saved.items()));
     }
 
     @WithSpan("cart.checkout.preview")
@@ -225,7 +280,7 @@ public class CartApplicationService {
     public CartCheckoutResponseDto previewCheckout(SessionUser currentUser, CartCheckoutRequestDto request) {
         Long userId = requireUserId(currentUser);
         CartCheckoutRequestDto effectiveRequest = normalizeCheckoutRequest(request);
-        List<CheckoutInputLine> inputLines = selectedCheckoutInputLines(userId);
+        List<CheckoutInputLine> inputLines = selectedCheckoutInputLines(userId, effectiveRequest.province());
         String fingerprint = requestFingerprint(effectiveRequest, fingerprintLines(inputLines));
         CheckoutOrder preview =
                 buildCheckout(userId, effectiveRequest, "preview:" + fingerprint, fingerprint, inputLines, false);
@@ -235,18 +290,44 @@ public class CartApplicationService {
     @WithSpan("cart.checkout")
     public CartCheckoutResponseDto checkout(
             SessionUser currentUser, CartCheckoutRequestDto request, String idempotencyKey) {
+        return checkout(currentUser, request, idempotencyKey, null, null);
+    }
+
+    public CartCheckoutResponseDto checkout(
+            SessionUser currentUser,
+            CartCheckoutRequestDto request,
+            String idempotencyKey,
+            String deviceFingerprint,
+            String clientIp) {
         Long userId = requireUserId(currentUser);
         String key = normalizeIdempotencyKey(idempotencyKey);
         return lockManager.withCheckoutLock(
                 userId,
                 key,
                 () -> transactions.execute(() -> CartDtoAssembler.toResponse(
-                        checkoutLocked(userId, request, key, () -> selectedCheckoutInputLines(userId), true))));
+                        checkoutLocked(
+                                userId,
+                                request,
+                                key,
+                                () -> selectedCheckoutInputLines(userId, request.province()),
+                                true,
+                                deviceFingerprint,
+                                clientIp,
+                                "cart.checkout"))));
     }
 
     @WithSpan("cart.checkout.direct")
     public CartCheckoutResponseDto directCheckout(
             SessionUser currentUser, CartDirectCheckoutRequestDto request, String idempotencyKey) {
+        return directCheckout(currentUser, request, idempotencyKey, null, null);
+    }
+
+    public CartCheckoutResponseDto directCheckout(
+            SessionUser currentUser,
+            CartDirectCheckoutRequestDto request,
+            String idempotencyKey,
+            String deviceFingerprint,
+            String clientIp) {
         Long userId = requireUserId(currentUser);
         String key = normalizeIdempotencyKey(idempotencyKey);
         CartCheckoutRequestDto checkoutRequest =
@@ -255,7 +336,15 @@ public class CartApplicationService {
                 userId,
                 key,
                 () -> transactions.execute(() -> CartDtoAssembler.toResponse(
-                        checkoutLocked(userId, checkoutRequest, key, () -> directCheckoutInputLines(request), false))));
+                        checkoutLocked(
+                                userId,
+                                checkoutRequest,
+                                key,
+                                () -> directCheckoutInputLines(userId, request),
+                                false,
+                                deviceFingerprint,
+                                clientIp,
+                                "cart.checkout.direct"))));
     }
 
     private CheckoutOrder checkoutLocked(
@@ -263,7 +352,10 @@ public class CartApplicationService {
             CartCheckoutRequestDto request,
             String idempotencyKey,
             Supplier<List<CheckoutInputLine>> inputLineSupplier,
-            boolean cleanupCart) {
+            boolean cleanupCart,
+            String deviceFingerprint,
+            String clientIp,
+            String operation) {
         CartCheckoutRequestDto effectiveRequest = normalizeCheckoutRequest(request);
         Optional<CheckoutOrder> existing = checkoutStore.findByUserIdAndIdempotencyKey(userId, idempotencyKey);
         if (existing.isPresent()
@@ -291,6 +383,7 @@ public class CartApplicationService {
             }
             return existing.get();
         }
+        requireCommercialRisk(userId, inputLines, deviceFingerprint, clientIp, operation);
         CheckoutOrder checkout = buildCheckout(userId, effectiveRequest, idempotencyKey, fingerprint, inputLines, true);
         CheckoutOrder persisted = checkoutStore.save(checkout);
         List<Long> orderIds = formalOrderCreator.create(toOrderCommand(persisted));
@@ -308,6 +401,19 @@ public class CartApplicationService {
                 userId,
                 "checkoutId=" + saved.id() + ",subOrders=" + saved.subOrders().size());
         return saved;
+    }
+
+    private void requireCommercialRisk(
+            Long userId,
+            List<CheckoutInputLine> inputLines,
+            String deviceFingerprint,
+            String clientIp,
+            String operation) {
+        inputLines.stream()
+                .map(line -> line.sku().spuId())
+                .distinct()
+                .forEach(productId -> commercialRiskGate.requireAllowed(
+                        userId, null, productId, null, deviceFingerprint, clientIp, operation));
     }
 
     private static BusinessException idempotencyConflict() {
@@ -405,6 +511,7 @@ public class CartApplicationService {
             boolean reserveInventory) {
         CartItem item = inputLine.item();
         CartSkuSnapshot sku = inputLine.sku();
+        requireCartShop(item, sku);
         String reservationKey = "cart:" + userId + ":" + idempotencyKey + ":" + item.skuId();
         Long warehouseId = null;
         if (reserveInventory) {
@@ -416,7 +523,7 @@ public class CartApplicationService {
         BigDecimal originalAmount = money(sku.salePrice().multiply(BigDecimal.valueOf(item.quantity())));
         return new ResolvedCartLine(
                 idGenerator.nextId(),
-                item.shopId(),
+                sku.shopId(),
                 sku,
                 item.quantity(),
                 originalAmount,
@@ -570,10 +677,24 @@ public class CartApplicationService {
         return coupons.stream().distinct().toList();
     }
 
-    private CartSkuSnapshot requireSku(Long skuId) {
+    private CartSkuSnapshot requireSku(Long skuId, PriceContext priceContext) {
         return catalogReader
-                .findActiveSku(skuId)
+                .findActiveSku(skuId, priceContext)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "SKU does not exist or is not active"));
+    }
+
+    private CartSkuSnapshot requireSku(Long skuId, PriceContext priceContext, Long requestedShopId) {
+        CartSkuSnapshot sku = requireSku(skuId, priceContext);
+        if (!Objects.equals(sku.shopId(), requestedShopId)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "SKU shop does not match catalog ownership");
+        }
+        return sku;
+    }
+
+    private static void requireCartShop(CartItem item, CartSkuSnapshot sku) {
+        if (!Objects.equals(item.shopId(), sku.shopId())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Cart item shop does not match catalog ownership");
+        }
     }
 
     private CartItem requireCartItem(CartSnapshot cart, Long skuId) {
@@ -596,12 +717,18 @@ public class CartApplicationService {
         throw new BusinessException(ErrorCode.CONFLICT, "Cart item changed concurrently; retry the request");
     }
 
-    private Map<Long, CartSkuSnapshot> skuSnapshots(List<CartItem> items) {
+    private Map<Long, CartSkuSnapshot> skuSnapshots(PriceContext priceContext, List<CartItem> items) {
         Map<Long, CartSkuSnapshot> snapshots = new HashMap<>();
         for (CartItem item : items) {
-            catalogReader.findActiveSku(item.skuId()).ifPresent(sku -> snapshots.put(item.skuId(), sku));
+            catalogReader
+                    .findActiveSku(item.skuId(), priceContext)
+                    .ifPresent(sku -> snapshots.put(item.skuId(), sku));
         }
         return snapshots;
+    }
+
+    private PriceContext priceContext(Long userId, String region) {
+        return priceContextResolver.resolve(userId, normalizeProvince(region));
     }
 
     private void audit(String eventType, Long userId, String detail) {
@@ -701,16 +828,23 @@ public class CartApplicationService {
                 .toList();
     }
 
-    private List<CheckoutInputLine> selectedCheckoutInputLines(Long userId) {
+    private List<CheckoutInputLine> selectedCheckoutInputLines(Long userId, String region) {
+        PriceContext priceContext = priceContext(userId, region);
         return cartStore.findCart(userId).selectedItems().stream()
-                .map(item -> new CheckoutInputLine(item, requireSku(item.skuId())))
+                .map(item -> {
+                    CartSkuSnapshot sku = requireSku(item.skuId(), priceContext);
+                    requireCartShop(item, sku);
+                    return new CheckoutInputLine(item, sku);
+                })
                 .toList();
     }
 
-    private List<CheckoutInputLine> directCheckoutInputLines(CartDirectCheckoutRequestDto request) {
+    private List<CheckoutInputLine> directCheckoutInputLines(Long userId, CartDirectCheckoutRequestDto request) {
         LocalDateTime timestamp = now();
-        CartItem item = new CartItem(request.skuId(), request.shopId(), request.quantity(), true, timestamp, timestamp);
-        return List.of(new CheckoutInputLine(item, requireSku(item.skuId())));
+        PriceContext priceContext = priceContext(userId, request.province());
+        CartSkuSnapshot sku = requireSku(request.skuId(), priceContext, request.shopId());
+        CartItem item = new CartItem(request.skuId(), sku.shopId(), request.quantity(), true, timestamp, timestamp);
+        return List.of(new CheckoutInputLine(item, sku));
     }
 
     private static List<FingerprintLine> fingerprintLines(List<CheckoutInputLine> inputLines) {
@@ -806,7 +940,7 @@ public class CartApplicationService {
         private static FingerprintLine from(CartItem item, CartSkuSnapshot sku) {
             return new FingerprintLine(
                     item.skuId(),
-                    item.shopId(),
+                    sku.shopId(),
                     item.quantity(),
                     sku.categoryId(),
                     sku.productName(),

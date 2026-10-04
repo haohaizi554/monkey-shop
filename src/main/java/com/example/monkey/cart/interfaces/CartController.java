@@ -8,8 +8,6 @@ import com.example.monkey.cart.application.dto.CartDirectCheckoutRequestDto;
 import com.example.monkey.cart.application.dto.CartResponseDto;
 import com.example.monkey.cart.application.dto.CartSelectItemRequestDto;
 import com.example.monkey.cart.application.dto.CartUpdateItemRequestDto;
-import com.example.monkey.risk.application.RiskApplicationService;
-import com.example.monkey.risk.application.dto.RiskAssessmentRequestDto;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.interfaces.dto.Result;
 import com.example.monkey.shared.interfaces.web.ClientIps;
@@ -33,12 +31,9 @@ import org.springframework.web.bind.annotation.RestController;
 public class CartController {
 
     private final CartApplicationService cartApplicationService;
-    private final RiskApplicationService riskApplicationService;
 
-    public CartController(
-            CartApplicationService cartApplicationService, RiskApplicationService riskApplicationService) {
+    public CartController(CartApplicationService cartApplicationService) {
         this.cartApplicationService = cartApplicationService;
-        this.riskApplicationService = riskApplicationService;
     }
 
     @GetMapping
@@ -94,12 +89,8 @@ public class CartController {
             @Valid @RequestBody CartCheckoutRequestDto request,
             @AuthenticationPrincipal SessionUser currentUser,
             HttpServletRequest httpRequest) {
-        riskApplicationService.requireAllowed(
-                currentUser,
-                new RiskAssessmentRequestDto(null, deviceFingerprint, null, null, null, null, null, null, null, null),
-                ClientIps.resolve(httpRequest),
-                "cart.checkout");
-        return Result.success(cartApplicationService.checkout(currentUser, request, idempotencyKey));
+        return Result.success(cartApplicationService.checkout(
+                currentUser, request, idempotencyKey, deviceFingerprint, ClientIps.resolve(httpRequest)));
     }
 
     @PostMapping("/checkout/direct")
@@ -110,12 +101,7 @@ public class CartController {
             @Valid @RequestBody CartDirectCheckoutRequestDto request,
             @AuthenticationPrincipal SessionUser currentUser,
             HttpServletRequest httpRequest) {
-        riskApplicationService.requireAllowed(
-                currentUser,
-                new RiskAssessmentRequestDto(
-                        null, deviceFingerprint, null, request.skuId(), null, null, null, null, null, null),
-                ClientIps.resolve(httpRequest),
-                "cart.checkout.direct");
-        return Result.success(cartApplicationService.directCheckout(currentUser, request, idempotencyKey));
+        return Result.success(cartApplicationService.directCheckout(
+                currentUser, request, idempotencyKey, deviceFingerprint, ClientIps.resolve(httpRequest)));
     }
 }

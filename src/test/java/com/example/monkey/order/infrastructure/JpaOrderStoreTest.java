@@ -1,18 +1,24 @@
 package com.example.monkey.order.infrastructure;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.order.domain.OrderStatus;
 import com.example.monkey.order.domain.OrderStore.CheckoutOrderLineRecord;
+import com.example.monkey.order.domain.OrderStore.CheckoutOrderRecord;
 import com.example.monkey.order.domain.OrderStore.OrderPage;
 import com.example.monkey.order.domain.OrderStore.OrderPageRequest;
 import com.example.monkey.order.domain.OrderStore.OrderRecord;
 import com.example.monkey.order.domain.OrderStore.SortOrder;
 import com.example.monkey.order.domain.OrderStore.SortOrder.Direction;
+import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -22,12 +28,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionSynchronizationUtils;
 
 @ExtendWith(MockitoExtension.class)
 class JpaOrderStoreTest {
@@ -41,11 +51,14 @@ class JpaOrderStoreTest {
     @Mock
     private OrderLineRepository orderLineRepository;
 
+    @Mock
+    private ImageReferenceService imageReferenceService;
+
     private JpaOrderStore store;
 
     @BeforeEach
     void setUp() {
-        store = new JpaOrderStore(orderRepository, stockLogRepository, orderLineRepository);
+        store = new JpaOrderStore(orderRepository, stockLogRepository, orderLineRepository, imageReferenceService);
     }
 
     @Test
@@ -204,6 +217,140 @@ class JpaOrderStoreTest {
     }
 
     @Test
+    void compatibilityThreeRepositoryConstructorRejectsTrackablePlacedOrderBeforeJpaWrite() {
+        JpaOrderStore compatibilityStore = new JpaOrderStore(orderRepository, stockLogRepository, orderLineRepository);
+
+        assertThatThrownBy(() -> compatibilityStore.savePlacedOrder(unsavedRecord()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Image reference services are required for trackable image writes");
+
+        verify(orderRepository, never()).save(any(Order.class));
+    }
+
+    @Test
+    void compatibilityTwoRepositoryConstructorRejectsTrackablePlacedOrderBeforeJpaWrite() {
+        JpaOrderStore compatibilityStore = new JpaOrderStore(orderRepository, stockLogRepository);
+
+        assertThatThrownBy(() -> compatibilityStore.savePlacedOrder(unsavedRecord()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Image reference services are required for trackable image writes");
+
+        verify(orderRepository, never()).save(any(Order.class));
+    }
+
+    @Test
+    void compatibilityConstructorRejectsTrackablePersistedPlacedOrderBeforeJpaWrite() {
+        JpaOrderStore compatibilityStore = new JpaOrderStore(orderRepository, stockLogRepository, orderLineRepository);
+        when(orderRepository.findById(10L)).thenReturn(Optional.of(order()));
+
+        assertThatThrownBy(() -> compatibilityStore.savePlacedOrder(unsavedRecordWithoutImages().withId(10L)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Image reference services are required for trackable image writes");
+
+        verify(orderRepository, never()).save(any(Order.class));
+    }
+
+    @Test
+    void compatibilityConstructorRejectsTrackablePersistedCheckoutLineBeforeMasterOrderWrite() {
+        JpaOrderStore compatibilityStore = new JpaOrderStore(orderRepository, stockLogRepository, orderLineRepository);
+        when(orderRepository.findById(10L)).thenReturn(Optional.of(orderWithoutImages()));
+        when(orderLineRepository.findByOrderIdOrderByIdAsc(10L))
+                .thenReturn(List.of(OrderLineEntity.from(10L, checkoutLine(101L, 1L, 2, "cart:42:pay:101"))));
+        CheckoutOrderRecord checkout = new CheckoutOrderRecord(
+                unsavedRecordWithoutImages().withId(10L),
+                List.of(checkoutLineWithoutImage(101L, 1L, 2, "cart:42:pay:101")));
+
+        assertThatThrownBy(() -> compatibilityStore.saveCheckoutOrders(List.of(checkout)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Image reference services are required for trackable image writes");
+
+        verify(orderRepository, never()).save(any(Order.class));
+        verify(orderLineRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void compatibilityConstructorRejectsTrackableCheckoutLineBeforeMasterOrderWrite() {
+        JpaOrderStore compatibilityStore = new JpaOrderStore(orderRepository, stockLogRepository, orderLineRepository);
+        CheckoutOrderRecord checkout = new CheckoutOrderRecord(
+                unsavedRecordWithoutImages(), List.of(checkoutLine(101L, 1L, 2, "cart:42:pay:101")));
+
+        assertThatThrownBy(() -> compatibilityStore.saveCheckoutOrders(List.of(checkout)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Image reference services are required for trackable image writes");
+
+        verify(orderRepository, never()).save(any(Order.class));
+        verify(orderLineRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void compatibilityConstructorAllowsNoImagePlacedOrder() {
+        JpaOrderStore compatibilityStore = new JpaOrderStore(orderRepository, stockLogRepository, orderLineRepository);
+        Order saved = orderWithoutImages();
+        when(orderRepository.save(any(Order.class))).thenReturn(saved);
+
+        OrderRecord result = compatibilityStore.savePlacedOrder(unsavedRecordWithoutImages());
+
+        assertThat(result.buyerAvatar()).isNull();
+        assertThat(result.productImage()).isNull();
+        verify(orderRepository).save(any(Order.class));
+    }
+
+    @Test
+    void saveCheckoutOrdersRetainsOrderAndEveryLineImageBeforeCorrespondingJpaWrite() {
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
+            Order saved = invocation.getArgument(0);
+            saved.setId(10L);
+            return saved;
+        });
+        CheckoutOrderLineRecord first = checkoutLine(101L, 1L, 2, "cart:42:pay:101");
+        CheckoutOrderLineRecord second = checkoutLine(202L, 2L, 3, "cart:42:pay:202");
+
+        store.saveCheckoutOrders(List.of(new CheckoutOrderRecord(unsavedRecord(), List.of(first, second))));
+
+        InOrder writes = inOrder(imageReferenceService, orderRepository, orderLineRepository);
+        writes.verify(imageReferenceService).retain("/images/avatar/buyer.png");
+        writes.verify(imageReferenceService).retain("/images/product/momo.png");
+        writes.verify(orderRepository).save(any(Order.class));
+        writes.verify(imageReferenceService).retain("/images/product/101.png");
+        writes.verify(imageReferenceService).retain("/images/product/202.png");
+        writes.verify(orderLineRepository).saveAll(any());
+    }
+
+    @Test
+    void saveCheckoutOrdersDoesNotRetainImagesWhenReplayCarriesAnExistingOrderId() {
+        when(orderRepository.save(any(Order.class))).thenReturn(order());
+
+        store.saveCheckoutOrders(List.of(new CheckoutOrderRecord(
+                record(), List.of(checkoutLine(101L, 1L, 2, "cart:42:pay:101")))));
+
+        verify(imageReferenceService, never()).retain(any());
+        verify(orderRepository).save(any(Order.class));
+        verify(orderLineRepository).saveAll(any());
+    }
+
+    @Test
+    void saveCheckoutOrdersRegistersRollbackCompensationForEveryReservation() {
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
+            Order saved = invocation.getArgument(0);
+            saved.setId(10L);
+            return saved;
+        });
+        beginTransactionSynchronization();
+        try {
+            CheckoutOrderLineRecord line = checkoutLine(101L, 1L, 2, "cart:42:pay:101");
+            store.saveCheckoutOrders(List.of(new CheckoutOrderRecord(unsavedRecord(), List.of(line))));
+
+            TransactionSynchronizationUtils.triggerAfterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK);
+
+            verify(imageReferenceService, times(1)).release("/images/avatar/buyer.png");
+            verify(imageReferenceService, times(1)).release("/images/product/momo.png");
+            verify(imageReferenceService, times(1)).release("/images/product/101.png");
+        } finally {
+            clearTransactionSynchronization();
+        }
+    }
+
+    @Test
     void hideFromUserMarksLoadedOrderAndSavesIt() {
         Order order = order();
         when(orderRepository.findById(10L)).thenReturn(Optional.of(order));
@@ -254,6 +401,26 @@ class JpaOrderStoreTest {
                 "",
                 reservationKey,
                 warehouseId);
+    }
+
+    private static CheckoutOrderLineRecord checkoutLineWithoutImage(
+            Long skuId, Long warehouseId, int quantity, String reservationKey) {
+        CheckoutOrderLineRecord line = checkoutLine(skuId, warehouseId, quantity, reservationKey);
+        return new CheckoutOrderLineRecord(
+                line.checkoutLineId(),
+                line.skuId(),
+                line.shopId(),
+                line.categoryId(),
+                line.productName(),
+                null,
+                line.quantity(),
+                line.unitPrice(),
+                line.originalAmount(),
+                line.discountAmount(),
+                line.payableAmount(),
+                line.couponCodes(),
+                line.reservationKey(),
+                line.warehouseId());
     }
 
     private Pageable captureVisiblePageable() {
@@ -336,5 +503,45 @@ class JpaOrderStoreTest {
                 OrderStatus.PAID.label(),
                 null,
                 false);
+    }
+
+    private static OrderRecord unsavedRecordWithoutImages() {
+        return new OrderRecord(
+                null,
+                "ORD202606280001",
+                42L,
+                "buyer",
+                null,
+                7L,
+                "Momo",
+                null,
+                new BigDecimal("199.99"),
+                "calm",
+                "Ada",
+                "13800138000",
+                "Hangzhou",
+                null,
+                OrderStatus.PAID.label(),
+                null,
+                false);
+    }
+
+    private static Order orderWithoutImages() {
+        Order order = order();
+        order.setBuyerAvatar(null);
+        order.setProductImage(null);
+        return order;
+    }
+
+    private static void beginTransactionSynchronization() {
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        TransactionSynchronizationManager.initSynchronization();
+    }
+
+    private static void clearTransactionSynchronization() {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        TransactionSynchronizationManager.setActualTransactionActive(false);
     }
 }

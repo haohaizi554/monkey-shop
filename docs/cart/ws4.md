@@ -9,6 +9,8 @@ Build a cross-shop cart and checkout flow that turns selected cart items into sh
 - Store carts as `cart:user:{userId}` Redis hashes with a seven-day TTL.
 - Support add, quantity change, select, remove, preview, and checkout operations.
 - Split selected items by `shopId` into sub-orders during checkout.
+- Treat `shopId` as a tenant-local commerce partition key, not as a merchant-ownership or authorization identifier. The current authorization model is tenant-wide and has no shop membership aggregate.
+- Resolve the canonical `shopId` from the selected SKU's SPU. A client-supplied compatibility value must match it and is never persisted or used for coupon eligibility on its own.
 - Recalculate SKU prices at checkout time from the catalog adapter.
 - Reserve inventory before checkout persistence by using the WS2 inventory service.
 - Calculate coupon discounts by using the WS3 marketing quote engine and allocate discounts to checkout lines.
@@ -30,6 +32,8 @@ Build a cross-shop cart and checkout flow that turns selected cart items into sh
 ## Invariants
 
 - A cart line is uniquely identified by `userId + skuId`.
+- Every persisted cart, checkout, and order `shopId` is the catalog SPU's canonical tenant-local partition key.
+- Per-shop authorization must not be inferred from `shopId`; a future multi-merchant model requires an explicit shop aggregate, membership, and permission checks.
 - Quantity must be between 1 and 999.
 - Checkout cannot run with zero selected lines.
 - Checkout is immutable once persisted.

@@ -6,11 +6,13 @@ import com.example.monkey.order.domain.OrderReview;
 import com.example.monkey.order.domain.OrderShipmentBatch;
 import com.example.monkey.order.domain.OrderShipmentLine;
 import com.example.monkey.order.domain.OrderShipmentStatus;
+import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -18,22 +20,37 @@ import org.springframework.stereotype.Component;
 @ConditionalOnProperty(name = "app.order.fulfillment-store", havingValue = "jpa", matchIfMissing = true)
 public class JpaOrderFulfillmentStore implements OrderFulfillmentStore {
 
+    private static final String IMAGE_REFERENCE_CONFIGURATION_ERROR =
+            "Image reference services are required for trackable image writes";
     private static final String IMAGE_SEPARATOR = "\n";
 
     private final OrderFulfillmentItemRepository itemRepository;
     private final OrderShipmentBatchRepository shipmentRepository;
     private final OrderShipmentLineRepository shipmentLineRepository;
     private final OrderReviewRepository reviewRepository;
+    private final ImageReferenceService imageReferenceService;
 
+    @Autowired
+    public JpaOrderFulfillmentStore(
+            OrderFulfillmentItemRepository itemRepository,
+            OrderShipmentBatchRepository shipmentRepository,
+            OrderShipmentLineRepository shipmentLineRepository,
+            OrderReviewRepository reviewRepository,
+            ImageReferenceService imageReferenceService) {
+        this.itemRepository = itemRepository;
+        this.shipmentRepository = shipmentRepository;
+        this.shipmentLineRepository = shipmentLineRepository;
+        this.reviewRepository = reviewRepository;
+        this.imageReferenceService = imageReferenceService;
+    }
+
+    /** Compatibility constructor for direct mapping tests that do not execute image-tracked persistence. */
     public JpaOrderFulfillmentStore(
             OrderFulfillmentItemRepository itemRepository,
             OrderShipmentBatchRepository shipmentRepository,
             OrderShipmentLineRepository shipmentLineRepository,
             OrderReviewRepository reviewRepository) {
-        this.itemRepository = itemRepository;
-        this.shipmentRepository = shipmentRepository;
-        this.shipmentLineRepository = shipmentLineRepository;
-        this.reviewRepository = reviewRepository;
+        this(itemRepository, shipmentRepository, shipmentLineRepository, reviewRepository, null);
     }
 
     @Override
@@ -118,7 +135,22 @@ public class JpaOrderFulfillmentStore implements OrderFulfillmentStore {
 
     @Override
     public OrderReview saveReview(OrderReview review) {
+        String persistedImages = null;
+        if (imageReferenceService == null && review.id() != null) {
+            persistedImages = reviewRepository.findById(review.id()).map(OrderReviewEntity::getImageUrls).orElse(null);
+        }
+        requireImageTrackingConfigured(persistedImages, review.imageUrls());
         return toDomain(reviewRepository.save(toEntity(review)));
+    }
+
+    private void requireImageTrackingConfigured(String persistedImages, List<String> imagePaths) {
+        if (imageReferenceService != null) {
+            return;
+        }
+        if (ImageReferenceService.isTrackable(persistedImages)
+                || imagePaths.stream().anyMatch(ImageReferenceService::isTrackable)) {
+            throw new IllegalStateException(IMAGE_REFERENCE_CONFIGURATION_ERROR);
+        }
     }
 
     @Override

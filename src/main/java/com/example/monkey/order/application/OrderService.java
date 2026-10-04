@@ -33,13 +33,16 @@ import com.example.monkey.order.domain.OrderStore.SortOrder;
 import com.example.monkey.order.domain.OrderStore.SortOrder.Direction;
 import com.example.monkey.order.domain.OrderTransitionPolicy;
 import com.example.monkey.order.domain.OrderTransitionResolver;
+import com.example.monkey.risk.domain.CommercialRiskGate;
 import com.example.monkey.shared.application.dto.PageResponseDto;
 import com.example.monkey.shared.application.observability.AuditService;
+import com.example.monkey.shared.application.storage.ImageReferenceTransactions;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
 import com.example.monkey.shared.domain.inventory.InventoryReservationLifecycle;
 import com.example.monkey.shared.domain.storage.ImageReferenceService;
+import com.example.monkey.tracking.domain.AuthoritativeTrackingPort;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -55,10 +58,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
-import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionOperations;
@@ -74,6 +75,8 @@ public class OrderService {
     private static final String USER_ROLE = "USER";
     private static final String SYSTEM_ROLE = "SYSTEM";
     private static final String DEFAULT_CARRIER = "MonkeyExpress";
+    private static final CommercialRiskGate NOOP_COMMERCIAL_RISK_GATE =
+            (userId, activityId, productId, orderId, deviceFingerprint, clientIp, operation) -> {};
     private static final int AUTO_RECEIVE_BATCH_SIZE = 100;
     private static final OrderPageRequest LEGACY_ORDER_LIST_REQUEST =
             new OrderPageRequest(0, LEGACY_LIST_PAGE_SIZE, List.of(new SortOrder("createTime", Direction.DESC)));
@@ -92,6 +95,8 @@ public class OrderService {
     private final ImageReferenceService imageReferenceService;
     private final BusinessMetricsService businessMetricsService;
     private final AuditService auditService;
+    private final AuthoritativeTrackingPort authoritativeTrackingPort;
+    private final CommercialRiskGate commercialRiskGate;
     private final Clock clock;
     private final Duration autoReceiveAfter;
 
@@ -111,6 +116,8 @@ public class OrderService {
             AuditService auditService,
             OrderFulfillmentStore fulfillmentStore,
             IdGenerator idGenerator,
+            AuthoritativeTrackingPort authoritativeTrackingPort,
+            CommercialRiskGate commercialRiskGate,
             @Value("${app.order.auto-receive-after:P7D}") Duration autoReceiveAfter) {
         this.orderStore = orderStore;
         this.orderProductPort = orderProductPort;
@@ -126,8 +133,83 @@ public class OrderService {
         this.imageReferenceService = imageReferenceService;
         this.businessMetricsService = businessMetricsService;
         this.auditService = auditService;
+        this.authoritativeTrackingPort = authoritativeTrackingPort;
+        this.commercialRiskGate = commercialRiskGate == null ? NOOP_COMMERCIAL_RISK_GATE : commercialRiskGate;
         this.clock = Clock.systemDefaultZone();
         this.autoReceiveAfter = autoReceiveAfter == null ? Duration.ofDays(7) : autoReceiveAfter;
+    }
+
+    /** Compatibility constructor for direct callers that do not provide transport risk signals. */
+    public OrderService(
+            OrderStore orderStore,
+            OrderProductPort orderProductPort,
+            InventoryReservationLifecycle inventoryReservationLifecycle,
+            OrderCustomerPort orderCustomerPort,
+            OrderNumberGenerator orderNumberGenerator,
+            OrderIdempotencyService orderIdempotencyService,
+            OrderLockManager orderLockManager,
+            OrderTransitionResolver orderTransitionResolver,
+            TransactionOperations transactionOperations,
+            ImageReferenceService imageReferenceService,
+            BusinessMetricsService businessMetricsService,
+            AuditService auditService,
+            OrderFulfillmentStore fulfillmentStore,
+            IdGenerator idGenerator,
+            AuthoritativeTrackingPort authoritativeTrackingPort,
+            Duration autoReceiveAfter) {
+        this(
+                orderStore,
+                orderProductPort,
+                inventoryReservationLifecycle,
+                orderCustomerPort,
+                orderNumberGenerator,
+                orderIdempotencyService,
+                orderLockManager,
+                orderTransitionResolver,
+                transactionOperations,
+                imageReferenceService,
+                businessMetricsService,
+                auditService,
+                fulfillmentStore,
+                idGenerator,
+                authoritativeTrackingPort,
+                NOOP_COMMERCIAL_RISK_GATE,
+                autoReceiveAfter);
+    }
+
+    public OrderService(
+            OrderStore orderStore,
+            OrderProductPort orderProductPort,
+            InventoryReservationLifecycle inventoryReservationLifecycle,
+            OrderCustomerPort orderCustomerPort,
+            OrderNumberGenerator orderNumberGenerator,
+            OrderIdempotencyService orderIdempotencyService,
+            OrderLockManager orderLockManager,
+            OrderTransitionResolver orderTransitionResolver,
+            TransactionOperations transactionOperations,
+            ImageReferenceService imageReferenceService,
+            BusinessMetricsService businessMetricsService,
+            AuditService auditService,
+            OrderFulfillmentStore fulfillmentStore,
+            IdGenerator idGenerator,
+            Duration autoReceiveAfter) {
+        this(
+                orderStore,
+                orderProductPort,
+                inventoryReservationLifecycle,
+                orderCustomerPort,
+                orderNumberGenerator,
+                orderIdempotencyService,
+                orderLockManager,
+                orderTransitionResolver,
+                transactionOperations,
+                imageReferenceService,
+                businessMetricsService,
+                auditService,
+                fulfillmentStore,
+                idGenerator,
+                (userId, orderId, productId, amount, occurredAt) -> {},
+                autoReceiveAfter);
     }
 
     OrderService(
@@ -160,6 +242,42 @@ public class OrderService {
                 auditService,
                 fulfillmentStore,
                 idGenerator,
+                (userId, orderId, productId, amount, occurredAt) -> {},
+                autoReceiveAfter);
+    }
+
+    OrderService(
+            OrderStore orderStore,
+            OrderProductPort orderProductPort,
+            OrderCustomerPort orderCustomerPort,
+            OrderNumberGenerator orderNumberGenerator,
+            OrderIdempotencyService orderIdempotencyService,
+            OrderLockManager orderLockManager,
+            OrderTransitionResolver orderTransitionResolver,
+            TransactionOperations transactionOperations,
+            ImageReferenceService imageReferenceService,
+            BusinessMetricsService businessMetricsService,
+            AuditService auditService,
+            OrderFulfillmentStore fulfillmentStore,
+            IdGenerator idGenerator,
+            Duration autoReceiveAfter,
+            AuthoritativeTrackingPort authoritativeTrackingPort) {
+        this(
+                orderStore,
+                orderProductPort,
+                InventoryReservationLifecycle.noop(),
+                orderCustomerPort,
+                orderNumberGenerator,
+                orderIdempotencyService,
+                orderLockManager,
+                orderTransitionResolver,
+                transactionOperations,
+                imageReferenceService,
+                businessMetricsService,
+                auditService,
+                fulfillmentStore,
+                idGenerator,
+                authoritativeTrackingPort,
                 autoReceiveAfter);
     }
 
@@ -192,6 +310,22 @@ public class OrderService {
 
     @WithSpan("order.create")
     public OrderResponseDto createOrder(Long userId, Long monkeyId, Long addressId, String idempotencyKey) {
+        return createOrder(userId, monkeyId, addressId, idempotencyKey, null, null);
+    }
+
+    /**
+     * Creates an order after enforcing commercial risk at the service boundary. The device fingerprint and client
+     * IP are transport signals only; product, buyer, address, and user identity are resolved below from server-side
+     * ports before stock is deducted or an order is persisted.
+     */
+    @WithSpan("order.create")
+    public OrderResponseDto createOrder(
+            Long userId,
+            Long monkeyId,
+            Long addressId,
+            String idempotencyKey,
+            String deviceFingerprint,
+            String clientIp) {
         try {
             return businessMetricsService.recordOrderCreate(() -> {
                 String normalizedIdempotencyKey = normalizeIdempotencyKey(idempotencyKey);
@@ -199,7 +333,13 @@ public class OrderService {
                         userId,
                         monkeyId,
                         () -> transactionOperations.execute(status ->
-                                createOrderInTransaction(userId, monkeyId, addressId, normalizedIdempotencyKey)));
+                                createOrderInTransaction(
+                                        userId,
+                                        monkeyId,
+                                        addressId,
+                                        normalizedIdempotencyKey,
+                                        deviceFingerprint,
+                                        clientIp)));
             });
         } catch (BusinessException e) {
             auditOrderCreateFailure(userId, monkeyId, e.errorCode().code());
@@ -211,7 +351,12 @@ public class OrderService {
     }
 
     private OrderResponseDto createOrderInTransaction(
-            Long userId, Long monkeyId, Long addressId, String normalizedIdempotencyKey) {
+            Long userId,
+            Long monkeyId,
+            Long addressId,
+            String normalizedIdempotencyKey,
+            String deviceFingerprint,
+            String clientIp) {
         String requestHash = requestHash(monkeyId, addressId);
         OrderIdempotencyService.Reservation reservation =
                 orderIdempotencyService.reserve(userId, normalizedIdempotencyKey, requestHash);
@@ -230,16 +375,26 @@ public class OrderService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User does not exist"));
 
         ensureOrderPlaceable(userId, buyer, product, address);
+        commercialRiskGate.requireAllowed(
+                userId,
+                null,
+                product.id(),
+                null,
+                deviceFingerprint,
+                clientIp,
+                "order.create");
         if (!orderProductPort.deductProductStock(monkeyId)) {
             businessMetricsService.recordStockDeductFailure();
             throw new BusinessException(ErrorCode.OUT_OF_STOCK, "Insufficient stock");
         }
 
         OrderRecord order = OrderRecord.place(orderNumberGenerator.nextOrderNo(), userId, buyer, product, address);
+        ImageReferenceTransactions.retainBeforeWrite(imageReferenceService, order.productImage());
+        ImageReferenceTransactions.retainBeforeWrite(imageReferenceService, order.buyerAvatar());
         OrderRecord savedOrder = orderStore.savePlacedOrder(order);
         OrderRecord completedOrder = savedOrder != null ? savedOrder : order;
-        imageReferenceService.retain(completedOrder.productImage());
-        imageReferenceService.retain(completedOrder.buyerAvatar());
+        authoritativeTrackingPort.recordOrderCreated(
+                userId, completedOrder.id(), completedOrder.productId(), completedOrder.price(), now());
         orderIdempotencyService.complete(userId, normalizedIdempotencyKey, completedOrder.id());
         businessMetricsService.recordOrderCreated();
         auditOrderCreated(completedOrder, userId);
@@ -339,8 +494,8 @@ public class OrderService {
                         .toList(),
                 request.anonymous(),
                 now());
+        review.imageUrls().forEach(path -> ImageReferenceTransactions.retainBeforeWrite(imageReferenceService, path));
         OrderReview saved = fulfillmentStore.saveReview(review);
-        saved.imageUrls().forEach(imageReferenceService::retain);
         auditService.record(
                 AuditService.ORDER_REVIEWED,
                 AuditService.OUTCOME_SUCCESS,
@@ -358,15 +513,6 @@ public class OrderService {
         return fulfillmentStore.findReviews(orderId).stream()
                 .map(OrderDtoAssembler::toResponse)
                 .toList();
-    }
-
-    @Scheduled(fixedDelayString = "${app.order.auto-receive-delay:PT5M}")
-    @SchedulerLock(
-            name = "order-auto-receive-shipments",
-            lockAtMostFor = "${app.order.auto-receive-lock-at-most-for:PT10M}")
-    @Transactional
-    public void autoReceiveOverdueShipmentsScheduled() {
-        autoReceiveOverdueShipments();
     }
 
     @Transactional

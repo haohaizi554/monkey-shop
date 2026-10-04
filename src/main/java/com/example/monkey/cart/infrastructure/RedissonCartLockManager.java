@@ -9,6 +9,8 @@ import java.util.function.Supplier;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -16,11 +18,22 @@ public class RedissonCartLockManager implements CartLockManager {
 
     private static final Duration WAIT_TIME = Duration.ofSeconds(2);
     private static final String LOCK_PREFIX = "cart:checkout:";
+    private static final String REQUIRED_LOCK_MESSAGE = "Checkout Redis lock is required";
 
     private final RedissonClient redissonClient;
 
-    public RedissonCartLockManager(ObjectProvider<RedissonClient> redissonClientProvider) {
+    @Autowired
+    public RedissonCartLockManager(
+            ObjectProvider<RedissonClient> redissonClientProvider,
+            @Value("${app.cart.require-redis-state:false}") boolean requireRedisState) {
         this.redissonClient = redissonClientProvider.getIfAvailable();
+        if (requireRedisState && redissonClient == null) {
+            throw new IllegalStateException(REQUIRED_LOCK_MESSAGE);
+        }
+    }
+
+    public RedissonCartLockManager(ObjectProvider<RedissonClient> redissonClientProvider) {
+        this(redissonClientProvider, false);
     }
 
     @Override

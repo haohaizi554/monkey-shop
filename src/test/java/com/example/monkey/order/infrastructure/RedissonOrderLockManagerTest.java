@@ -6,9 +6,11 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,7 +22,7 @@ import org.redisson.api.RedissonClient;
 @ExtendWith(MockitoExtension.class)
 class RedissonOrderLockManagerTest {
 
-    private static final String LOCK_NAME = "order:user:42:monkey:7";
+    private static final String LOCK_NAME = "order:tenant:9:user:42:product:7";
 
     @Mock
     private RedissonClient redissonClient;
@@ -32,8 +34,14 @@ class RedissonOrderLockManagerTest {
 
     @BeforeEach
     void setUp() {
+        TenantContext.setTenantId(9L);
         orderLockManager = new RedissonOrderLockManager(redissonClient);
         when(redissonClient.getLock(LOCK_NAME)).thenReturn(lock);
+    }
+
+    @AfterEach
+    void clearTenantContext() {
+        TenantContext.clear();
     }
 
     @Test
@@ -45,6 +53,23 @@ class RedissonOrderLockManagerTest {
 
         assertThat(result).isEqualTo("created");
         verify(lock).unlock();
+    }
+
+    @Test
+    void isolatesCreateOrderLocksAcrossTenantsWithTheSameUserAndProductIds() throws InterruptedException {
+        when(lock.tryLock(2000, 10000, TimeUnit.MILLISECONDS)).thenReturn(true);
+        when(lock.isHeldByCurrentThread()).thenReturn(true);
+
+        TenantContext.setTenantId(9L);
+        assertThat(orderLockManager.withCreateOrderLock(42L, 7L, () -> "tenant-9"))
+                .isEqualTo("tenant-9");
+        TenantContext.setTenantId(10L);
+        when(redissonClient.getLock("order:tenant:10:user:42:product:7")).thenReturn(lock);
+        assertThat(orderLockManager.withCreateOrderLock(42L, 7L, () -> "tenant-10"))
+                .isEqualTo("tenant-10");
+
+        verify(redissonClient).getLock("order:tenant:9:user:42:product:7");
+        verify(redissonClient).getLock("order:tenant:10:user:42:product:7");
     }
 
     @Test

@@ -6,6 +6,8 @@ import com.example.monkey.order.domain.OrderStore.OrderPage;
 import com.example.monkey.order.domain.OrderStore.OrderPageRequest;
 import com.example.monkey.order.domain.OrderStore.OrderRecord;
 import com.example.monkey.order.domain.OrderStore.SortOrder.Direction;
+import com.example.monkey.shared.application.storage.ImageReferenceTransactions;
+import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import com.example.monkey.shared.infrastructure.persistence.JpaPageRequests;
 import com.example.monkey.shared.infrastructure.persistence.JpaSorts;
 import java.math.BigDecimal;
@@ -25,25 +27,37 @@ import org.springframework.stereotype.Component;
 @Component
 public class JpaOrderStore implements OrderStore {
 
+    private static final String IMAGE_REFERENCE_CONFIGURATION_ERROR =
+            "Image reference services are required for trackable image writes";
+
     private static final Set<String> ALLOWED_SORT_PROPERTIES =
             Set.of("id", "orderNo", "createTime", "status", "price", "productName", "userId");
 
     private final OrderRepository orderRepository;
     private final StockLogRepository stockLogRepository;
     private final OrderLineRepository orderLineRepository;
+    private final ImageReferenceService imageReferenceService;
 
     @Autowired
     public JpaOrderStore(
             OrderRepository orderRepository,
             StockLogRepository stockLogRepository,
-            OrderLineRepository orderLineRepository) {
+            OrderLineRepository orderLineRepository,
+            ImageReferenceService imageReferenceService) {
         this.orderRepository = orderRepository;
         this.stockLogRepository = stockLogRepository;
         this.orderLineRepository = orderLineRepository;
+        this.imageReferenceService = imageReferenceService;
+    }
+
+    /** Compatibility constructor for direct mapping tests that do not execute image-tracked persistence. */
+    public JpaOrderStore(
+            OrderRepository orderRepository, StockLogRepository stockLogRepository, OrderLineRepository orderLineRepository) {
+        this(orderRepository, stockLogRepository, orderLineRepository, null);
     }
 
     public JpaOrderStore(OrderRepository orderRepository, StockLogRepository stockLogRepository) {
-        this(orderRepository, stockLogRepository, null);
+        this(orderRepository, stockLogRepository, null, null);
     }
 
     @Override
@@ -79,6 +93,7 @@ public class JpaOrderStore implements OrderStore {
 
     @Override
     public OrderRecord savePlacedOrder(OrderRecord order) {
+        validateImageTracking(order);
         Order entity = toEntity(order);
         Order saved = orderRepository.save(entity);
         return toRecord(saved);
@@ -118,15 +133,76 @@ public class JpaOrderStore implements OrderStore {
         if (orderLineRepository == null) {
             throw new IllegalStateException("Order line repository is required for checkout persistence");
         }
+        validateImageTracking(orders);
         return orders.stream()
                 .map(snapshot -> {
-                    Order saved = orderRepository.save(toEntity(snapshot.order()));
-                    orderLineRepository.saveAll(snapshot.lines().stream()
-                            .map(line -> OrderLineEntity.from(saved.getId(), line))
-                            .toList());
+                    boolean newOrder = snapshot.order().id() == null;
+                    Order entity = toEntity(snapshot.order());
+                    if (newOrder) {
+                        retainCheckoutImage(entity.getBuyerAvatar());
+                        retainCheckoutImage(entity.getProductImage());
+                    }
+                    Order saved = orderRepository.save(entity);
+                    List<OrderLineEntity> lines = snapshot.lines().stream()
+                            .map(line -> {
+                                OrderLineEntity lineEntity = OrderLineEntity.from(saved.getId(), line);
+                                if (newOrder) {
+                                    retainCheckoutImage(lineEntity.getProductImage());
+                                }
+                                return lineEntity;
+                            })
+                            .toList();
+                    orderLineRepository.saveAll(lines);
                     return toRecord(saved);
                 })
                 .toList();
+    }
+
+    private void retainCheckoutImage(String imagePath) {
+        if (imageReferenceService != null) {
+            ImageReferenceTransactions.retainBeforeWrite(imageReferenceService, imagePath);
+        }
+    }
+
+    private void validateImageTracking(OrderRecord order) {
+        if (imageReferenceService != null) {
+            return;
+        }
+        if (ImageReferenceService.isTrackable(order.buyerAvatar())
+                || ImageReferenceService.isTrackable(order.productImage())) {
+            throw missingImageReferenceServices();
+        }
+        if (order.id() != null
+                && orderRepository.findById(order.id()).map(JpaOrderStore::hasTrackableOrderImage).orElse(false)) {
+            throw missingImageReferenceServices();
+        }
+    }
+
+    private void validateImageTracking(List<CheckoutOrderRecord> orders) {
+        if (imageReferenceService != null) {
+            return;
+        }
+        for (CheckoutOrderRecord snapshot : orders) {
+            validateImageTracking(snapshot.order());
+            if (snapshot.lines().stream()
+                    .anyMatch(line -> ImageReferenceService.isTrackable(line.productImage()))) {
+                throw missingImageReferenceServices();
+            }
+            if (snapshot.order().id() != null
+                    && orderLineRepository.findByOrderIdOrderByIdAsc(snapshot.order().id()).stream()
+                            .anyMatch(line -> ImageReferenceService.isTrackable(line.getProductImage()))) {
+                throw missingImageReferenceServices();
+            }
+        }
+    }
+
+    private static boolean hasTrackableOrderImage(Order order) {
+        return ImageReferenceService.isTrackable(order.getBuyerAvatar())
+                || ImageReferenceService.isTrackable(order.getProductImage());
+    }
+
+    private static IllegalStateException missingImageReferenceServices() {
+        return new IllegalStateException(IMAGE_REFERENCE_CONFIGURATION_ERROR);
     }
 
     @Override

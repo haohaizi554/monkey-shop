@@ -16,7 +16,6 @@ import com.example.monkey.order.application.dto.OrderPageQuery.SortOrder.Directi
 import com.example.monkey.order.application.dto.OrderResponseDto;
 import com.example.monkey.order.application.dto.OrderShipmentResponseDto;
 import com.example.monkey.order.interfaces.dto.CreateOrderRequestDto;
-import com.example.monkey.risk.application.RiskApplicationService;
 import com.example.monkey.shared.application.dto.PageResponseDto;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.domain.exception.BusinessException;
@@ -45,14 +44,11 @@ class OrderControllerTest {
     @Mock
     private OrderService orderService;
 
-    @Mock
-    private RiskApplicationService riskApplicationService;
-
     private OrderController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new OrderController(orderApplicationService, orderService, riskApplicationService);
+        controller = new OrderController(orderApplicationService, orderService);
     }
 
     @Test
@@ -140,7 +136,7 @@ class OrderControllerTest {
     void createOrderReturnsResultEnvelope() {
         SessionUser currentUser = user(7L);
         OrderResponseDto order = response();
-        when(orderApplicationService.createOrder(currentUser, 3L, 5L, "order-key-1"))
+        when(orderApplicationService.createOrder(currentUser, 3L, 5L, "order-key-1", "device-a", "203.0.113.7"))
                 .thenReturn(order);
 
         var result = controller.createOrder(
@@ -148,13 +144,14 @@ class OrderControllerTest {
 
         assertThat(result.code()).isEqualTo("OK");
         assertThat(result.data()).isSameAs(order);
-        verify(orderApplicationService).createOrder(currentUser, 3L, 5L, "order-key-1");
+        verify(orderApplicationService).createOrder(
+                currentUser, 3L, 5L, "order-key-1", "device-a", "203.0.113.7");
     }
 
     @Test
     void createOrderPropagatesMissingIdempotencyKeyFromApplicationService() {
         SessionUser currentUser = user(7L);
-        when(orderApplicationService.createOrder(currentUser, 3L, 5L, " "))
+        when(orderApplicationService.createOrder(currentUser, 3L, 5L, " ", "device-a", "203.0.113.7"))
                 .thenThrow(new BusinessException(ErrorCode.VALIDATION_ERROR, "Idempotency-Key header is required"));
 
         assertThatExceptionOfType(BusinessException.class)
@@ -162,7 +159,7 @@ class OrderControllerTest {
                         " ", "device-a", new CreateOrderRequestDto(3L, 5L), currentUser, request()))
                 .satisfies(exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.VALIDATION_ERROR));
 
-        verify(orderApplicationService).createOrder(currentUser, 3L, 5L, " ");
+        verify(orderApplicationService).createOrder(currentUser, 3L, 5L, " ", "device-a", "203.0.113.7");
     }
 
     @Test

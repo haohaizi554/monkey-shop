@@ -1,16 +1,21 @@
 package com.example.monkey.order.infrastructure;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.order.domain.OrderReview;
 import com.example.monkey.order.domain.OrderShipmentBatch;
 import com.example.monkey.order.domain.OrderShipmentLine;
 import com.example.monkey.order.domain.OrderShipmentStatus;
+import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,12 +38,15 @@ class JpaOrderFulfillmentStoreTest {
     @Mock
     private OrderReviewRepository reviewRepository;
 
+    @Mock
+    private ImageReferenceService imageReferenceService;
+
     private JpaOrderFulfillmentStore store;
 
     @BeforeEach
     void setUp() {
         store = new JpaOrderFulfillmentStore(
-                itemRepository, shipmentRepository, shipmentLineRepository, reviewRepository);
+                itemRepository, shipmentRepository, shipmentLineRepository, reviewRepository, imageReferenceService);
     }
 
     @Test
@@ -76,6 +84,32 @@ class JpaOrderFulfillmentStoreTest {
 
         assertThat(saved).isEqualTo(review());
         assertThat(reviews).containsExactly(review());
+        verifyNoInteractions(imageReferenceService);
+    }
+
+    @Test
+    void compatibilityConstructorRejectsTrackableReviewBeforeRepositorySave() {
+        JpaOrderFulfillmentStore compatibilityStore = new JpaOrderFulfillmentStore(
+                itemRepository, shipmentRepository, shipmentLineRepository, reviewRepository);
+
+        assertThatThrownBy(() -> compatibilityStore.saveReview(review()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Image reference services are required for trackable image writes");
+
+        verify(reviewRepository, never()).save(any(OrderReviewEntity.class));
+    }
+
+    @Test
+    void compatibilityConstructorRejectsReplacingPersistedTrackableReviewImages() {
+        when(reviewRepository.findById(300L)).thenReturn(Optional.of(reviewEntity()));
+        JpaOrderFulfillmentStore compatibilityStore = new JpaOrderFulfillmentStore(
+                itemRepository, shipmentRepository, shipmentLineRepository, reviewRepository);
+
+        assertThatThrownBy(() -> compatibilityStore.saveReview(reviewWithoutImages()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Image reference services are required for trackable image writes");
+
+        verify(reviewRepository, never()).save(any(OrderReviewEntity.class));
     }
 
     private OrderShipmentBatchEntity captureSavedBatch() {
@@ -138,6 +172,20 @@ class JpaOrderFulfillmentStoreTest {
                 List.of("/images/review/1.png"),
                 true,
                 LocalDateTime.parse("2026-07-04T09:00:00"));
+    }
+
+    private static OrderReview reviewWithoutImages() {
+        OrderReview source = review();
+        return new OrderReview(
+                source.id(),
+                source.orderId(),
+                source.userId(),
+                source.skuId(),
+                source.rating(),
+                source.content(),
+                List.of(),
+                source.anonymous(),
+                source.createTime());
     }
 
     private static OrderReviewEntity reviewEntity() {

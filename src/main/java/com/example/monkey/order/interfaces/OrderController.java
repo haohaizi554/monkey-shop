@@ -12,8 +12,6 @@ import com.example.monkey.order.application.dto.OrderShipmentRequestDto;
 import com.example.monkey.order.application.dto.OrderShipmentResponseDto;
 import com.example.monkey.order.interfaces.dto.CreateOrderRequestDto;
 import com.example.monkey.order.interfaces.dto.OrderPageRequestDto;
-import com.example.monkey.risk.application.RiskApplicationService;
-import com.example.monkey.risk.application.dto.RiskAssessmentRequestDto;
 import com.example.monkey.shared.application.dto.PageResponseDto;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.interfaces.dto.Result;
@@ -44,15 +42,12 @@ public class OrderController {
 
     private final OrderApplicationService orderApplicationService;
     private final OrderService orderService;
-    private final RiskApplicationService riskApplicationService;
 
     public OrderController(
             OrderApplicationService orderApplicationService,
-            OrderService orderService,
-            RiskApplicationService riskApplicationService) {
+            OrderService orderService) {
         this.orderApplicationService = orderApplicationService;
         this.orderService = orderService;
-        this.riskApplicationService = riskApplicationService;
     }
 
     @PostMapping("/create")
@@ -63,14 +58,13 @@ public class OrderController {
             @Valid @RequestBody CreateOrderRequestDto requestBody,
             @AuthenticationPrincipal SessionUser currentUser,
             HttpServletRequest httpRequest) {
-        riskApplicationService.requireAllowed(
-                currentUser,
-                new RiskAssessmentRequestDto(
-                        null, deviceFingerprint, null, requestBody.monkeyId(), null, null, null, null, null, null),
-                ClientIps.resolve(httpRequest),
-                "order.create");
         return Result.success(orderApplicationService.createOrder(
-                currentUser, requestBody.monkeyId(), requestBody.addressId(), idempotencyKey));
+                currentUser,
+                requestBody.monkeyId(),
+                requestBody.addressId(),
+                idempotencyKey,
+                deviceFingerprint,
+                ClientIps.resolve(httpRequest)));
     }
 
     @GetMapping("/my")
