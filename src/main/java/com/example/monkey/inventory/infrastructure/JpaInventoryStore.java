@@ -8,6 +8,8 @@ import com.example.monkey.inventory.domain.InventoryStockLedgerEntry;
 import com.example.monkey.inventory.domain.InventoryStore;
 import com.example.monkey.inventory.domain.WarehouseStock;
 import com.example.monkey.shared.application.tenant.TenantContext;
+import com.example.monkey.shared.domain.exception.BusinessException;
+import com.example.monkey.shared.domain.exception.ErrorCode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -51,41 +53,75 @@ public class JpaInventoryStore implements InventoryStore {
 
     @Override
     public WarehouseStock saveStock(WarehouseStock stock) {
-        InventoryStock entity = stockRepository
-                .findBySkuIdAndWarehouseId(stock.skuId(), stock.warehouseId())
+        if (stock.version() < 1) {
+            throw new IllegalStateException("Inventory stock version was not advanced");
+        }
+        long expectedVersion = stock.version() - 1;
+        int updated = stockRepository.updateQuantities(
+                stock.skuId(),
+                stock.warehouseId(),
+                TenantContext.currentTenantIdOrDefault(),
+                expectedVersion,
+                stock.availableQuantity(),
+                stock.lockedQuantity(),
+                stock.deductedQuantity(),
+                stock.inTransitQuantity(),
+                stock.safetyStock());
+        if (updated != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Inventory stock changed concurrently");
+        }
+        return findStock(stock.skuId(), stock.warehouseId())
                 .orElseThrow(() -> new IllegalStateException("Inventory stock does not exist"));
-        entity.setAvailableQuantity(stock.availableQuantity());
-        entity.setLockedQuantity(stock.lockedQuantity());
-        entity.setDeductedQuantity(stock.deductedQuantity());
-        entity.setInTransitQuantity(stock.inTransitQuantity());
-        entity.setSafetyStock(stock.safetyStock());
-        return toDomain(stockRepository.save(entity));
     }
 
     @Override
     public Optional<InventoryReservation> findReservation(String reservationKey) {
-        return reservationRepository.findByReservationKey(reservationKey).map(JpaInventoryStore::toDomain);
+        return reservationRepository
+                .findByTenantIdAndReservationKey(TenantContext.currentTenantIdOrDefault(), reservationKey)
+                .map(JpaInventoryStore::toDomain);
     }
 
     @Override
     public boolean saveReservationIfAbsent(InventoryReservation reservation) {
-        if (reservationRepository.existsByReservationKey(reservation.reservationKey())) {
-            return false;
+        long tenantId = TenantContext.currentTenantIdOrDefault();
+        int inserted = reservationRepository.insertIfAbsent(
+                reservation.id(),
+                tenantId,
+                reservation.reservationKey(),
+                reservation.requestFingerprint(),
+                reservation.skuId(),
+                reservation.warehouseId(),
+                reservation.orderId(),
+                reservation.quantity(),
+                reservation.status().name(),
+                reservation.expiresAt());
+        if (inserted > 0) {
+            return true;
         }
-        reservationRepository.save(toEntity(reservation));
-        return true;
+        if (reservationRepository.findByTenantIdAndReservationKey(tenantId, reservation.reservationKey()).isEmpty()) {
+            throw new IllegalStateException(
+                    "Inventory reservation insert was ignored without an existing idempotency claim");
+        }
+        return false;
     }
 
     @Override
     public InventoryReservation saveReservation(InventoryReservation reservation) {
         InventoryReservationEntity entity = reservationRepository
-                .findByReservationKey(reservation.reservationKey())
+                .findByTenantIdAndReservationKey(
+                        TenantContext.currentTenantIdOrDefault(), reservation.reservationKey())
                 .orElseGet(InventoryReservationEntity::new);
         entity.setId(reservation.id());
         entity.setReservationKey(reservation.reservationKey());
+        entity.setRequestFingerprint(reservation.requestFingerprint());
         entity.setSkuId(reservation.skuId());
         entity.setWarehouseId(reservation.warehouseId());
         entity.setOrderId(reservation.orderId());
+        if (entity.getStatus() != null
+                && entity.getStatus() != reservation.status()
+                && entity.getStatus() != InventoryReservationStatus.RESERVED) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Inventory reservation changed concurrently");
+        }
         entity.setQuantity(reservation.quantity());
         entity.setStatus(reservation.status());
         entity.setExpiresAt(reservation.expiresAt());
@@ -171,6 +207,7 @@ public class JpaInventoryStore implements InventoryStore {
         return new InventoryReservation(
                 entity.getId(),
                 entity.getReservationKey(),
+                entity.getRequestFingerprint(),
                 entity.getSkuId(),
                 entity.getWarehouseId(),
                 entity.getOrderId(),
@@ -183,6 +220,7 @@ public class JpaInventoryStore implements InventoryStore {
         InventoryReservationEntity entity = new InventoryReservationEntity();
         entity.setId(reservation.id());
         entity.setReservationKey(reservation.reservationKey());
+        entity.setRequestFingerprint(reservation.requestFingerprint());
         entity.setSkuId(reservation.skuId());
         entity.setWarehouseId(reservation.warehouseId());
         entity.setOrderId(reservation.orderId());

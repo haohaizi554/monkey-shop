@@ -9,6 +9,7 @@ import com.example.monkey.inventory.domain.InventoryLockManager;
 import com.example.monkey.inventory.domain.InventoryOperation;
 import com.example.monkey.inventory.domain.InventoryReconciliationReport;
 import com.example.monkey.inventory.domain.InventoryReservation;
+import com.example.monkey.inventory.domain.InventoryReservationFingerprint;
 import com.example.monkey.inventory.domain.InventoryReservationStatus;
 import com.example.monkey.inventory.domain.InventoryStockLedgerEntry;
 import com.example.monkey.inventory.domain.InventoryStore;
@@ -25,12 +26,13 @@ import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
-import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 @Service
@@ -46,6 +48,7 @@ public class InventoryApplicationService implements InventoryReservationLifecycl
     private final AuditService auditService;
     private final Clock clock;
     private final Duration reservationTtl;
+    private final TransactionTemplate isolatedTransaction;
 
     @Autowired
     public InventoryApplicationService(
@@ -53,8 +56,16 @@ public class InventoryApplicationService implements InventoryReservationLifecycl
             InventoryLockManager lockManager,
             IdGenerator idGenerator,
             AuditService auditService,
+            PlatformTransactionManager transactionManager,
             @Value("${app.inventory.reservation-ttl:PT15M}") Duration reservationTtl) {
-        this(inventoryStore, lockManager, idGenerator, auditService, Clock.systemDefaultZone(), reservationTtl);
+        this(
+                inventoryStore,
+                lockManager,
+                idGenerator,
+                auditService,
+                Clock.systemDefaultZone(),
+                reservationTtl,
+                isolated(transactionManager));
     }
 
     InventoryApplicationService(
@@ -64,28 +75,49 @@ public class InventoryApplicationService implements InventoryReservationLifecycl
             AuditService auditService,
             Clock clock,
             Duration reservationTtl) {
+        this(inventoryStore, lockManager, idGenerator, auditService, clock, reservationTtl, null);
+    }
+
+    private InventoryApplicationService(
+            InventoryStore inventoryStore,
+            InventoryLockManager lockManager,
+            IdGenerator idGenerator,
+            AuditService auditService,
+            Clock clock,
+            Duration reservationTtl,
+            TransactionTemplate isolatedTransaction) {
         this.inventoryStore = inventoryStore;
         this.lockManager = lockManager;
         this.idGenerator = idGenerator;
         this.auditService = auditService;
         this.clock = clock;
         this.reservationTtl = reservationTtl == null ? DEFAULT_RESERVATION_TTL : reservationTtl;
+        this.isolatedTransaction = isolatedTransaction;
+    }
+
+    private static TransactionTemplate isolated(PlatformTransactionManager transactionManager) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return template;
     }
 
     @WithSpan("inventory.reserve")
     @Transactional
     public InventoryReservationResponseDto reserve(InventoryReserveRequestDto request) {
         String reservationKey = normalizeKey(request.reservationKey(), "reservation key");
+        String province = InventoryReservationFingerprint.normalizeProvince(request.province());
         Optional<InventoryReservation> existing = inventoryStore.findReservation(reservationKey);
         if (existing.isPresent()) {
+            String fingerprint = fingerprint(request, reservationKey, province, existing.get().warehouseId());
+            requireMatchingReservation(existing.get(), fingerprint);
             return toReservationResponse(
                     existing.get(),
                     findStock(existing.get().skuId(), existing.get().warehouseId()));
         }
-        WarehouseStock stock =
-                selectStock(request.skuId(), request.warehouseId(), request.province(), request.quantity());
+        WarehouseStock stock = selectStock(request.skuId(), request.warehouseId(), province, request.quantity());
+        String fingerprint = fingerprint(request, reservationKey, province, stock.warehouseId());
         return lockManager.withStockLock(
-                stock.skuId(), stock.warehouseId(), () -> reserveLocked(request, reservationKey, stock));
+                stock.skuId(), stock.warehouseId(), () -> reserveLocked(request, reservationKey, fingerprint, stock));
     }
 
     @WithSpan("inventory.release")
@@ -100,9 +132,17 @@ public class InventoryApplicationService implements InventoryReservationLifecycl
                     ErrorCode.CONFLICT, "Reservation cannot be released from " + reservation.status());
         }
         return lockManager.withStockLock(reservation.skuId(), reservation.warehouseId(), () -> {
-            WarehouseStock stock = findStock(reservation.skuId(), reservation.warehouseId());
-            WarehouseStock savedStock = inventoryStore.saveStock(stock.release(reservation.quantity()));
-            InventoryReservation savedReservation = inventoryStore.saveReservation(reservation.release());
+            InventoryReservation current = requireReservation(reservation.reservationKey());
+            if (InventoryReservationStatus.RELEASED.equals(current.status())) {
+                return toReservationResponse(current, findStock(current.skuId(), current.warehouseId()));
+            }
+            if (!InventoryReservationStatus.RESERVED.equals(current.status())) {
+                throw new BusinessException(
+                        ErrorCode.CONFLICT, "Reservation cannot be released from " + current.status());
+            }
+            WarehouseStock stock = findStock(current.skuId(), current.warehouseId());
+            WarehouseStock savedStock = inventoryStore.saveStock(stock.release(current.quantity()));
+            InventoryReservation savedReservation = inventoryStore.saveReservation(current.release());
             recordLedger(savedReservation, InventoryOperation.RELEASE, "release:" + savedReservation.reservationKey());
             audit(AuditService.INVENTORY_RELEASED, savedReservation, "quantity=" + savedReservation.quantity());
             return toReservationResponse(savedReservation, savedStock);
@@ -121,9 +161,17 @@ public class InventoryApplicationService implements InventoryReservationLifecycl
                     ErrorCode.CONFLICT, "Reservation cannot be deducted from " + reservation.status());
         }
         return lockManager.withStockLock(reservation.skuId(), reservation.warehouseId(), () -> {
-            WarehouseStock stock = findStock(reservation.skuId(), reservation.warehouseId());
-            WarehouseStock savedStock = inventoryStore.saveStock(stock.deduct(reservation.quantity()));
-            InventoryReservation savedReservation = inventoryStore.saveReservation(reservation.deduct());
+            InventoryReservation current = requireReservation(reservation.reservationKey());
+            if (InventoryReservationStatus.DEDUCTED.equals(current.status())) {
+                return toReservationResponse(current, findStock(current.skuId(), current.warehouseId()));
+            }
+            if (!InventoryReservationStatus.RESERVED.equals(current.status())) {
+                throw new BusinessException(
+                        ErrorCode.CONFLICT, "Reservation cannot be deducted from " + current.status());
+            }
+            WarehouseStock stock = findStock(current.skuId(), current.warehouseId());
+            WarehouseStock savedStock = inventoryStore.saveStock(stock.deduct(current.quantity()));
+            InventoryReservation savedReservation = inventoryStore.saveReservation(current.deduct());
             recordLedger(savedReservation, InventoryOperation.DEDUCT, "deduct:" + savedReservation.reservationKey());
             audit(AuditService.INVENTORY_DEDUCTED, savedReservation, "quantity=" + savedReservation.quantity());
             return toReservationResponse(savedReservation, savedStock);
@@ -196,30 +244,32 @@ public class InventoryApplicationService implements InventoryReservationLifecycl
         return InventoryDtoAssembler.toResponse(report);
     }
 
-    @Scheduled(fixedDelayString = "${app.inventory.release-expired-delay:PT1M}")
-    @SchedulerLock(
-            name = "inventory-release-expired-reservations",
-            lockAtMostFor = "${app.inventory.release-lock-at-most-for:PT10M}")
-    @Transactional
-    public void releaseExpiredReservationsScheduled() {
-        releaseExpiredReservations();
-    }
-
-    @Transactional
     public int releaseExpiredReservations() {
         LocalDateTime now = LocalDateTime.now(clock);
         int released = 0;
         for (InventoryReservation reservation : inventoryStore.findExpiredReservations(now, EXPIRY_BATCH_SIZE)) {
-            releaseExpiredReservation(reservation);
+            runIsolated(() -> releaseExpiredReservation(reservation));
             released++;
         }
         return released;
     }
 
+    private void runIsolated(Runnable action) {
+        if (isolatedTransaction == null) {
+            action.run();
+            return;
+        }
+        isolatedTransaction.executeWithoutResult(status -> action.run());
+    }
+
     private InventoryReservationResponseDto reserveLocked(
-            InventoryReserveRequestDto request, String reservationKey, WarehouseStock selectedStock) {
+            InventoryReserveRequestDto request,
+            String reservationKey,
+            String fingerprint,
+            WarehouseStock selectedStock) {
         Optional<InventoryReservation> existing = inventoryStore.findReservation(reservationKey);
         if (existing.isPresent()) {
+            requireMatchingReservation(existing.get(), fingerprint);
             return toReservationResponse(
                     existing.get(),
                     findStock(existing.get().skuId(), existing.get().warehouseId()));
@@ -228,10 +278,10 @@ public class InventoryApplicationService implements InventoryReservationLifecycl
         if (!stock.canReserve(request.quantity())) {
             throw new BusinessException(ErrorCode.OUT_OF_STOCK, "Insufficient stock");
         }
-        WarehouseStock savedStock = inventoryStore.saveStock(stock.reserve(request.quantity()));
         InventoryReservation reservation = new InventoryReservation(
                 idGenerator.nextId(),
                 reservationKey,
+                fingerprint,
                 stock.skuId(),
                 stock.warehouseId(),
                 request.orderId(),
@@ -239,8 +289,11 @@ public class InventoryApplicationService implements InventoryReservationLifecycl
                 InventoryReservationStatus.RESERVED,
                 LocalDateTime.now(clock).plus(reservationTtl));
         if (!inventoryStore.saveReservationIfAbsent(reservation)) {
-            return toReservationResponse(requireReservation(reservationKey), savedStock);
+            InventoryReservation winner = requireReservation(reservationKey);
+            requireMatchingReservation(winner, fingerprint);
+            return toReservationResponse(winner, findStock(winner.skuId(), winner.warehouseId()));
         }
+        WarehouseStock savedStock = inventoryStore.saveStock(stock.reserve(request.quantity()));
         recordLedger(reservation, InventoryOperation.RESERVE, "reserve:" + reservationKey);
         audit(AuditService.INVENTORY_RESERVED, reservation, "quantity=" + reservation.quantity());
         return toReservationResponse(reservation, savedStock);
@@ -326,7 +379,27 @@ public class InventoryApplicationService implements InventoryReservationLifecycl
         if (!StringUtils.hasText(key)) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, name + " is required");
         }
-        return key.trim();
+        return key.strip();
+    }
+
+    private static String fingerprint(
+            InventoryReserveRequestDto request, String reservationKey, String province, Long selectedWarehouseId) {
+        return InventoryReservationFingerprint.of(
+                        reservationKey,
+                        request.skuId(),
+                        request.warehouseId(),
+                        province,
+                        request.orderId(),
+                        request.quantity(),
+                        selectedWarehouseId)
+                .value();
+    }
+
+    private static void requireMatchingReservation(InventoryReservation reservation, String expectedFingerprint) {
+        if (!reservation.matchesRequestFingerprint(expectedFingerprint)) {
+            throw new BusinessException(
+                    ErrorCode.CONFLICT, "Reservation key was already used for a different inventory request");
+        }
     }
 
     private static InventoryReservationResponseDto toReservationResponse(

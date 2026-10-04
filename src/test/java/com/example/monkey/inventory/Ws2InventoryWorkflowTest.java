@@ -17,6 +17,8 @@ class Ws2InventoryWorkflowTest {
         String docs = read("docs/inventory/ws2.md");
         String service =
                 read("src/main/java/com/example/monkey/inventory/application/InventoryApplicationService.java");
+        String expiryTask =
+                read("src/main/java/com/example/monkey/inventory/infrastructure/InventoryReservationExpiryTask.java");
         String controller = read("src/main/java/com/example/monkey/inventory/interfaces/InventoryController.java");
         String lock =
                 read("src/main/java/com/example/monkey/inventory/infrastructure/RedissonInventoryLockManager.java");
@@ -33,15 +35,25 @@ class Ws2InventoryWorkflowTest {
                 .contains("@WithSpan(\"inventory.reserve\")")
                 .contains("idGenerator.nextId()")
                 .contains("AuditService.INVENTORY_RESERVED")
+                .doesNotContain("@Scheduled")
+                .doesNotContain("@SchedulerLock(")
+                .doesNotContain("releaseExpiredReservationsScheduled");
+        assertThat(expiryTask)
+                .contains("@Scheduled(fixedDelayString = \"${app.inventory.release-expired-delay:PT1M}\")")
                 .contains("@SchedulerLock(")
-                .contains("name = \"inventory-release-expired-reservations\"");
+                .contains("name = \"inventory-release-expired-reservations\"")
+                .contains("forEachRetainedTenant")
+                .contains("inventoryApplicationService.releaseExpiredReservations()");
         assertThat(controller)
                 .contains("@RequestMapping({\"/api/inventory\", \"/api/v1/inventory\"})")
                 .contains("hasAnyAuthority('ORDER_CREATE', 'ORDER_MANAGE', 'PRODUCT_MANAGE')")
                 .contains("hasAuthority('ORDER_MANAGE')");
         assertThat(lock)
-                .contains("inventory:sku:")
-                .contains("tryLock(WAIT_TIME.toMillis(), LEASE_TIME.toMillis(), TimeUnit.MILLISECONDS)");
+                .contains("inventory:tenant:")
+                .contains("TenantContext.currentTenantIdOrDefault()")
+                .contains(":sku:")
+                .contains(":warehouse:")
+                .contains("TransactionBoundLock.call(");
         assertThat(store).contains("implements InventoryStore").contains("reconcile()");
         assertThat(rateLimit).contains("path.startsWith(\"/api/inventory\")").contains("ApiRateLimitOperation.SEARCH");
     }
@@ -50,6 +62,8 @@ class Ws2InventoryWorkflowTest {
     void migrationsDefineInventorySchemaWithUniquenessAndForeignKeys() throws IOException {
         String warehouse = read("src/main/resources/db/migration/V22__inventory_multi_warehouse.sql");
         String ledger = read("src/main/resources/db/migration/V23__inventory_stock_ledger.sql");
+        String reservationFingerprint =
+                read("src/main/resources/db/migration/V58__inventory_reservation_fingerprints.sql");
 
         assertThat(warehouse)
                 .contains("CREATE TABLE inventory_warehouse")
@@ -63,6 +77,10 @@ class Ws2InventoryWorkflowTest {
                 .contains("CONSTRAINT uk_inventory_reservation_key UNIQUE")
                 .contains("CONSTRAINT uk_inventory_ledger_idempotency UNIQUE")
                 .contains("KEY idx_inventory_reservation_expiry");
+        assertThat(reservationFingerprint)
+                .contains("ADD COLUMN request_fingerprint CHAR(64)")
+                .contains("LEGACY_UNREPLAYABLE")
+                .contains("MODIFY COLUMN request_fingerprint CHAR(64) NOT NULL");
     }
 
     @Test

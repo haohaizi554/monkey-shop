@@ -5,15 +5,21 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 
 @Entity
-@Table(name = "inventory_warehouse")
+@Table(
+        name = "inventory_warehouse",
+        uniqueConstraints =
+                @UniqueConstraint(
+                        name = "uk_inventory_warehouse_code",
+                        columnNames = {"tenant_id", "code"}))
 public class InventoryWarehouse extends TenantScopedJpaEntity {
 
     @Id
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 64)
+    @Column(nullable = false, length = 64)
     private String code;
 
     @Column(nullable = false, length = 128)

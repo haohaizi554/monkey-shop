@@ -1,10 +1,12 @@
 package com.example.monkey.inventory.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
 
 import com.example.monkey.inventory.application.dto.InventoryCompensateRequestDto;
+import com.example.monkey.inventory.application.dto.InventoryReservationResponseDto;
 import com.example.monkey.inventory.application.dto.InventoryReserveRequestDto;
 import com.example.monkey.inventory.domain.InventoryLockManager;
 import com.example.monkey.inventory.domain.InventoryOperation;
@@ -29,13 +31,168 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
+import java.util.concurrent.locks.ReentrantLock;
 import org.junit.jupiter.api.Test;
 
 class InventoryApplicationServiceTest {
+
+    @Test
+    void reservationKeyCannotBeReusedForAnotherSku() {
+        InMemoryInventoryStore store = new InMemoryInventoryStore(
+                new WarehouseStock(101L, 2200000000001L, "BJ-01", "CN-BJ", 5, 0, 0, 0, 1, 0),
+                new WarehouseStock(202L, 2200000000001L, "BJ-01", "CN-BJ", 5, 0, 0, 0, 1, 0));
+
+        assertDifferentPayloadRejected(
+                store,
+                new InventoryReserveRequestDto(101L, 2200000000001L, null, 10L, 1, "same-key"),
+                new InventoryReserveRequestDto(202L, 2200000000001L, null, 10L, 1, "same-key"));
+    }
+
+    @Test
+    void reservationKeyCannotBeReusedForAnotherRequestedWarehouse() {
+        InMemoryInventoryStore store = new InMemoryInventoryStore(
+                new WarehouseStock(101L, 2200000000001L, "BJ-01", "CN-BJ", 5, 0, 0, 0, 1, 0),
+                new WarehouseStock(101L, 2200000000002L, "SH-01", "CN-SH", 5, 0, 0, 0, 1, 0));
+
+        assertDifferentPayloadRejected(
+                store,
+                new InventoryReserveRequestDto(101L, 2200000000001L, null, 10L, 1, "same-key"),
+                new InventoryReserveRequestDto(101L, 2200000000002L, null, 10L, 1, "same-key"));
+    }
+
+    @Test
+    void reservationKeyCannotConfuseAnImplicitWarehouseWithAnExplicitWarehouse() {
+        InMemoryInventoryStore store = new InMemoryInventoryStore(
+                new WarehouseStock(101L, 2200000000001L, "BJ-01", "CN-BJ", 5, 0, 0, 0, 1, 0));
+
+        assertDifferentPayloadRejected(
+                store,
+                new InventoryReserveRequestDto(101L, null, "CN-BJ", 10L, 1, "same-key"),
+                new InventoryReserveRequestDto(101L, 2200000000001L, "CN-BJ", 10L, 1, "same-key"));
+    }
+
+    @Test
+    void reservationKeyCannotBeReusedForAnotherProvince() {
+        InMemoryInventoryStore store = new InMemoryInventoryStore(
+                new WarehouseStock(101L, 2200000000001L, "BJ-01", "CN-BJ", 5, 0, 0, 0, 1, 0),
+                new WarehouseStock(101L, 2200000000002L, "SH-01", "CN-SH", 5, 0, 0, 0, 1, 0));
+
+        assertDifferentPayloadRejected(
+                store,
+                new InventoryReserveRequestDto(101L, null, "CN-BJ", 10L, 1, "same-key"),
+                new InventoryReserveRequestDto(101L, null, "CN-SH", 10L, 1, "same-key"));
+    }
+
+    @Test
+    void reservationKeyCannotBeReusedForAnotherOrder() {
+        InMemoryInventoryStore store = new InMemoryInventoryStore(
+                new WarehouseStock(101L, 2200000000001L, "BJ-01", "CN-BJ", 5, 0, 0, 0, 1, 0));
+
+        assertDifferentPayloadRejected(
+                store,
+                new InventoryReserveRequestDto(101L, 2200000000001L, null, 10L, 1, "same-key"),
+                new InventoryReserveRequestDto(101L, 2200000000001L, null, 11L, 1, "same-key"));
+    }
+
+    @Test
+    void reservationKeyCannotBeReusedForAnotherQuantity() {
+        InMemoryInventoryStore store = new InMemoryInventoryStore(
+                new WarehouseStock(101L, 2200000000001L, "BJ-01", "CN-BJ", 5, 0, 0, 0, 1, 0));
+
+        assertDifferentPayloadRejected(
+                store,
+                new InventoryReserveRequestDto(101L, 2200000000001L, null, 10L, 1, "same-key"),
+                new InventoryReserveRequestDto(101L, 2200000000001L, null, 10L, 2, "same-key"));
+    }
+
+    @Test
+    void equivalentProvinceWhitespaceIsAnExactReplay() {
+        InMemoryInventoryStore store = new InMemoryInventoryStore(
+                new WarehouseStock(101L, 2200000000001L, "BJ-01", "CN-BJ", 5, 0, 0, 0, 1, 0));
+        InventoryApplicationService service = service(store, Duration.ofMinutes(15));
+
+        InventoryReservationResponseDto first = service.reserve(
+                new InventoryReserveRequestDto(101L, null, "CN-BJ", 10L, 1, "same-key"));
+        InventoryReservationResponseDto replay = service.reserve(
+                new InventoryReserveRequestDto(101L, null, "  CN-BJ  ", 10L, 1, "same-key"));
+
+        assertThat(replay).isEqualTo(first);
+        assertThat(store.stock(101L, 2200000000001L).availableQuantity()).isEqualTo(4);
+        assertThat(store.ledgerCount(InventoryOperation.RESERVE)).isOne();
+    }
+
+    @Test
+    void onlyTheDatabaseClaimWinnerMutatesStockWhenDifferentLocksRaceOnOneKey() throws Exception {
+        InMemoryInventoryStore store = new InMemoryInventoryStore(
+                new WarehouseStock(101L, 2200000000001L, "BJ-01", "CN-BJ", 5, 0, 0, 0, 1, 0),
+                new WarehouseStock(101L, 2200000000002L, "SH-01", "CN-SH", 5, 0, 0, 0, 1, 0));
+        InventoryApplicationService service = service(store, new CoordinatedInventoryLockManager(), Duration.ofMinutes(15));
+        InventoryReserveRequestDto first =
+                new InventoryReserveRequestDto(101L, 2200000000001L, null, 10L, 1, "racing-key");
+        InventoryReserveRequestDto second =
+                new InventoryReserveRequestDto(101L, 2200000000002L, null, 11L, 2, "racing-key");
+
+        var executor = Executors.newFixedThreadPool(2);
+        List<Callable<ReservationAttempt>> tasks = List.of(
+                () -> attempt(service, first), () -> attempt(service, second));
+        List<ReservationAttempt> attempts = executor.invokeAll(tasks).stream()
+                .map(future -> {
+                    try {
+                        return future.get();
+                    } catch (Exception exception) {
+                        throw new AssertionError(exception);
+                    }
+                })
+                .toList();
+        executor.shutdown();
+        assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+
+        assertThat(attempts).extracting(ReservationAttempt::succeeded).containsExactlyInAnyOrder(true, false);
+        int winningQuantity = attempts.stream()
+                .filter(ReservationAttempt::succeeded)
+                .findFirst()
+                .orElseThrow()
+                .quantity();
+        assertThat(store.stock(101L, 2200000000001L).availableQuantity()
+                        + store.stock(101L, 2200000000002L).availableQuantity())
+                .isEqualTo(10 - winningQuantity);
+        assertThat(store.stock(101L, 2200000000001L).lockedQuantity()
+                        + store.stock(101L, 2200000000002L).lockedQuantity())
+                .isEqualTo(winningQuantity);
+        assertThat(store.ledgerCount(InventoryOperation.RESERVE)).isOne();
+    }
+
+    private static void assertDifferentPayloadRejected(
+            InMemoryInventoryStore store,
+            InventoryReserveRequestDto first,
+            InventoryReserveRequestDto different) {
+        InventoryApplicationService service = service(store, Duration.ofMinutes(15));
+
+        service.reserve(first);
+
+        assertThatThrownBy(() -> service.reserve(different))
+                .isInstanceOf(BusinessException.class)
+                .extracting(BusinessException.class::cast)
+                .extracting(BusinessException::errorCode)
+                .isEqualTo(ErrorCode.CONFLICT);
+    }
+
+    private static ReservationAttempt attempt(
+            InventoryApplicationService service, InventoryReserveRequestDto request) {
+        try {
+            InventoryReservationResponseDto response = service.reserve(request);
+            return new ReservationAttempt(true, response.quantity());
+        } catch (BusinessException exception) {
+            assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT);
+            return new ReservationAttempt(false, 0);
+        }
+    }
 
     @Test
     void oneHundredConcurrentReservationsDoNotOversellTenUnits() throws Exception {
@@ -94,6 +251,77 @@ class InventoryApplicationServiceTest {
         assertThat(stock.deductedQuantity()).isEqualTo(3);
         assertThat(store.reservation("release-me").status()).isEqualTo(InventoryReservationStatus.RELEASED);
         assertThat(store.reservation("deduct-me").status()).isEqualTo(InventoryReservationStatus.DEDUCTED);
+    }
+
+    @Test
+    void concurrentReleaseRetriesMutateStockExactlyOnceAfterBothReadReserved() throws Exception {
+        assertConcurrentLifecycleTransition(false);
+    }
+
+    @Test
+    void concurrentDeductRetriesMutateStockExactlyOnceAfterBothReadReserved() throws Exception {
+        assertConcurrentLifecycleTransition(true);
+    }
+
+    private static void assertConcurrentLifecycleTransition(boolean deduct) throws Exception {
+        InMemoryInventoryStore store = new InMemoryInventoryStore(
+                new WarehouseStock(101L, 2200000000001L, "BJ-01", "CN-BJ", 4, 6, 0, 0, 1, 0));
+        LocalDateTime expiresAt = LocalDateTime.of(2026, 7, 4, 0, 15);
+        store.saveReservation(new InventoryReservation(
+                9001L,
+                "lifecycle-race",
+                101L,
+                2200000000001L,
+                10L,
+                1,
+                InventoryReservationStatus.RESERVED,
+                expiresAt));
+        store.saveReservation(new InventoryReservation(
+                9002L,
+                "unrelated-reservation",
+                101L,
+                2200000000001L,
+                11L,
+                5,
+                InventoryReservationStatus.RESERVED,
+                expiresAt));
+
+        InventoryApplicationService service = service(
+                store, new CoordinatedSerializedInventoryLockManager(), Duration.ofMinutes(15));
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            List<Callable<InventoryReservationResponseDto>> tasks = List.of(
+                    () -> deduct ? service.deduct("lifecycle-race") : service.release("lifecycle-race"),
+                    () -> deduct ? service.deduct("lifecycle-race") : service.release("lifecycle-race"));
+            List<InventoryReservationResponseDto> responses = executor.invokeAll(tasks).stream()
+                    .map(future -> {
+                        try {
+                            return future.get();
+                        } catch (Exception exception) {
+                            throw new AssertionError(exception);
+                        }
+                    })
+                    .toList();
+
+            InventoryReservationStatus terminalStatus =
+                    deduct ? InventoryReservationStatus.DEDUCTED : InventoryReservationStatus.RELEASED;
+            InventoryOperation operation = deduct ? InventoryOperation.DEDUCT : InventoryOperation.RELEASE;
+            assertThat(responses).hasSize(2).allSatisfy(response -> assertThat(response.status()).isEqualTo(terminalStatus));
+            assertThat(store.stock(101L, 2200000000001L).availableQuantity()).isEqualTo(deduct ? 4 : 5);
+            assertThat(store.stock(101L, 2200000000001L).lockedQuantity()).isEqualTo(5);
+            assertThat(store.stock(101L, 2200000000001L).deductedQuantity()).isEqualTo(deduct ? 1 : 0);
+            assertThat(store.stockSaveCount()).isEqualTo(1);
+            assertThat(store.ledgerCount(operation)).isOne();
+
+            InventoryReservationResponseDto replay =
+                    deduct ? service.deduct("lifecycle-race") : service.release("lifecycle-race");
+            assertThat(replay.status()).isEqualTo(terminalStatus);
+            assertThat(store.stockSaveCount()).isEqualTo(1);
+            assertThat(store.ledgerCount(operation)).isOne();
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
     }
 
     @Test
@@ -188,6 +416,17 @@ class InventoryApplicationServiceTest {
     }
 
     private static InventoryApplicationService service(
+            InMemoryInventoryStore store, InventoryLockManager lockManager, Duration ttl) {
+        return new InventoryApplicationService(
+                store,
+                lockManager,
+                new AtomicIdGenerator(),
+                mock(AuditService.class),
+                Clock.fixed(Instant.parse("2026-07-04T00:00:00Z"), ZoneOffset.UTC),
+                ttl);
+    }
+
+    private static InventoryApplicationService service(
             InMemoryInventoryStore store, AuditService auditService, Duration ttl) {
         return new InventoryApplicationService(
                 store,
@@ -219,10 +458,47 @@ class InventoryApplicationServiceTest {
         }
     }
 
+    private static final class CoordinatedSerializedInventoryLockManager implements InventoryLockManager {
+        private final CyclicBarrier beforeAction = new CyclicBarrier(2);
+        private final ReentrantLock actionLock = new ReentrantLock();
+
+        @Override
+        public <T> T withStockLock(Long skuId, Long warehouseId, Supplier<T> action) {
+            try {
+                beforeAction.await(5, TimeUnit.SECONDS);
+            } catch (Exception exception) {
+                throw new AssertionError("lifecycle race did not capture both reservations before locking", exception);
+            }
+            actionLock.lock();
+            try {
+                return action.get();
+            } finally {
+                actionLock.unlock();
+            }
+        }
+    }
+
+    private static final class CoordinatedInventoryLockManager implements InventoryLockManager {
+        private final CyclicBarrier barrier = new CyclicBarrier(2);
+
+        @Override
+        public <T> T withStockLock(Long skuId, Long warehouseId, Supplier<T> action) {
+            try {
+                barrier.await(5, TimeUnit.SECONDS);
+            } catch (Exception exception) {
+                throw new AssertionError("reservation race did not reach both stock locks", exception);
+            }
+            return action.get();
+        }
+    }
+
+    private record ReservationAttempt(boolean succeeded, int quantity) {}
+
     private static final class InMemoryInventoryStore implements InventoryStore {
         private final Map<String, WarehouseStock> stocks = new ConcurrentHashMap<>();
         private final Map<String, InventoryReservation> reservations = new ConcurrentHashMap<>();
         private final Map<String, InventoryStockLedgerEntry> ledgers = new ConcurrentHashMap<>();
+        private final AtomicLong stockSaves = new AtomicLong();
 
         private InMemoryInventoryStore(WarehouseStock... seedStocks) {
             for (WarehouseStock stock : seedStocks) {
@@ -244,6 +520,7 @@ class InventoryApplicationServiceTest {
 
         @Override
         public WarehouseStock saveStock(WarehouseStock stock) {
+            stockSaves.incrementAndGet();
             stocks.put(key(stock.skuId(), stock.warehouseId()), stock);
             return stock;
         }
@@ -323,6 +600,10 @@ class InventoryApplicationServiceTest {
             return ledgers.values().stream()
                     .filter(ledger -> ledger.operation() == operation)
                     .count();
+        }
+
+        private long stockSaveCount() {
+            return stockSaves.get();
         }
 
         private static String key(Long skuId, Long warehouseId) {

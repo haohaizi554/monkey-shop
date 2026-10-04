@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 public record InventoryReservation(
         Long id,
         String reservationKey,
+        String requestFingerprint,
         Long skuId,
         Long warehouseId,
         Long orderId,
@@ -18,6 +19,11 @@ public record InventoryReservation(
         if (reservationKey == null || reservationKey.isBlank()) {
             throw new IllegalArgumentException("reservation key is required");
         }
+        reservationKey = reservationKey.strip();
+        requestFingerprint = requestFingerprint == null
+                ? InventoryReservationFingerprint.LEGACY_UNREPLAYABLE
+                : requestFingerprint.strip();
+        new InventoryReservationFingerprint(requestFingerprint);
         if (skuId == null) {
             throw new IllegalArgumentException("SKU id is required");
         }
@@ -31,6 +37,54 @@ public record InventoryReservation(
         if (expiresAt == null) {
             throw new IllegalArgumentException("reservation expiry is required");
         }
+    }
+
+    public InventoryReservation(
+            Long id,
+            String reservationKey,
+            Long skuId,
+            Long warehouseId,
+            Long orderId,
+            int quantity,
+            InventoryReservationStatus status,
+            LocalDateTime expiresAt) {
+        this(
+                id,
+                reservationKey,
+                InventoryReservationFingerprint.LEGACY_UNREPLAYABLE,
+                skuId,
+                warehouseId,
+                orderId,
+                quantity,
+                status,
+                expiresAt);
+    }
+
+    public InventoryReservation(
+            Long id,
+            String reservationKey,
+            Long skuId,
+            Long warehouseId,
+            Long orderId,
+            int quantity,
+            InventoryReservationStatus status,
+            LocalDateTime expiresAt,
+            String requestFingerprint) {
+        this(
+                id,
+                reservationKey,
+                requestFingerprint,
+                skuId,
+                warehouseId,
+                orderId,
+                quantity,
+                status,
+                expiresAt);
+    }
+
+    public boolean matchesRequestFingerprint(String expectedFingerprint) {
+        return new InventoryReservationFingerprint(requestFingerprint).replayable()
+                && requestFingerprint.equals(expectedFingerprint);
     }
 
     public boolean activeAt(LocalDateTime now) {
@@ -67,7 +121,7 @@ public record InventoryReservation(
 
     private InventoryReservation withStatus(InventoryReservationStatus nextStatus) {
         return new InventoryReservation(
-                id, reservationKey, skuId, warehouseId, orderId, quantity, nextStatus, expiresAt);
+                id, reservationKey, requestFingerprint, skuId, warehouseId, orderId, quantity, nextStatus, expiresAt);
     }
 
     private void requireReserved(String action) {

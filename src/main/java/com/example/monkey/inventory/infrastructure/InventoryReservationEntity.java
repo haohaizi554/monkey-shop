@@ -8,17 +8,26 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "inventory_reservation")
+@Table(
+        name = "inventory_reservation",
+        uniqueConstraints =
+                @UniqueConstraint(
+                        name = "uk_inventory_reservation_key",
+                        columnNames = {"tenant_id", "reservation_key"}))
 public class InventoryReservationEntity extends TenantScopedJpaEntity {
 
     @Id
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 128)
+    @Column(nullable = false, length = 128)
     private String reservationKey;
+
+    @Column(name = "request_fingerprint", nullable = false, columnDefinition = "CHAR(64)")
+    private String requestFingerprint;
 
     @Column(nullable = false)
     private Long skuId;
@@ -52,6 +61,14 @@ public class InventoryReservationEntity extends TenantScopedJpaEntity {
 
     public void setReservationKey(String reservationKey) {
         this.reservationKey = reservationKey;
+    }
+
+    public String getRequestFingerprint() {
+        return requestFingerprint;
+    }
+
+    public void setRequestFingerprint(String requestFingerprint) {
+        this.requestFingerprint = requestFingerprint;
     }
 
     public Long getSkuId() {

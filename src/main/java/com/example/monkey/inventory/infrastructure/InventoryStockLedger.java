@@ -8,10 +8,16 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "inventory_stock_ledger")
+@Table(
+        name = "inventory_stock_ledger",
+        uniqueConstraints =
+                @UniqueConstraint(
+                        name = "uk_inventory_ledger_idempotency",
+                        columnNames = {"tenant_id", "idempotency_key"}))
 public class InventoryStockLedger extends TenantScopedJpaEntity {
 
     @Id
@@ -35,7 +41,7 @@ public class InventoryStockLedger extends TenantScopedJpaEntity {
     @Column(nullable = false)
     private int quantity;
 
-    @Column(nullable = false, unique = true, length = 160)
+    @Column(nullable = false, length = 160)
     private String idempotencyKey;
 
     @Column(nullable = false)

@@ -24,11 +24,23 @@ function Assert-Matches {
     }
 }
 
+function Assert-Not-Matches {
+    param(
+        [string]$Name,
+        [string]$Content,
+        [string]$Pattern
+    )
+    if ($Content -match $Pattern) {
+        throw "$Name unexpectedly contains pattern: $Pattern"
+    }
+}
+
 Write-Host "==> WS2 inventory artifacts"
 $docs = Read-Text "docs/inventory/ws2.md"
 $warehouseMigration = Read-Text "src/main/resources/db/migration/V22__inventory_multi_warehouse.sql"
 $ledgerMigration = Read-Text "src/main/resources/db/migration/V23__inventory_stock_ledger.sql"
 $service = Read-Text "src/main/java/com/example/monkey/inventory/application/InventoryApplicationService.java"
+$expiryTask = Read-Text "src/main/java/com/example/monkey/inventory/infrastructure/InventoryReservationExpiryTask.java"
 $controller = Read-Text "src/main/java/com/example/monkey/inventory/interfaces/InventoryController.java"
 $stock = Read-Text "src/main/java/com/example/monkey/inventory/domain/WarehouseStock.java"
 $store = Read-Text "src/main/java/com/example/monkey/inventory/infrastructure/JpaInventoryStore.java"
@@ -50,13 +62,23 @@ Assert-Matches "domain stock" $stock "totalQuantity\(\)"
 Assert-Matches "domain stock" $stock "availableQuantity - quantity"
 Assert-Matches "service" $service "@WithSpan\(""inventory\.reserve""\)"
 Assert-Matches "service" $service "idGenerator\.nextId\(\)"
-Assert-Matches "service" $service "name\s*=\s*""inventory-release-expired-reservations"""
 Assert-Matches "service" $service "AuditService\.INVENTORY_RESERVED"
+Assert-Not-Matches "service scheduler ownership" $service "@Scheduled|@SchedulerLock|releaseExpiredReservationsScheduled"
+Assert-Matches "expiry task" $expiryTask "@Component"
+Assert-Matches "expiry task" $expiryTask "class InventoryReservationExpiryTask"
+Assert-Matches "expiry task" $expiryTask '@Scheduled\(fixedDelayString = "\$\{app\.inventory\.release-expired-delay:PT1M\}"\)'
+Assert-Matches "expiry task" $expiryTask "@SchedulerLock\("
+Assert-Matches "expiry task" $expiryTask "name\s*=\s*""inventory-release-expired-reservations"""
+Assert-Matches "expiry task" $expiryTask "forEachRetainedTenant"
+Assert-Matches "expiry task" $expiryTask "inventoryApplicationService\.releaseExpiredReservations\(\)"
 Assert-Matches "controller" $controller "@RequestMapping\(\{""/api/inventory"", ""/api/v1/inventory""\}\)"
-Assert-Matches "controller" $controller "hasAuthority\('ORDER_CREATE'\)"
+Assert-Matches "controller" $controller "hasAnyAuthority\('ORDER_CREATE', 'ORDER_MANAGE', 'PRODUCT_MANAGE'\)"
 Assert-Matches "store" $store "implements InventoryStore"
 Assert-Matches "store" $store "reconcile\(\)"
-Assert-Matches "lock" $lock "inventory:sku:"
+Assert-Matches "lock tenant namespace" $lock "inventory:tenant:"
+Assert-Matches "lock tenant context" $lock "TenantContext\.currentTenantIdOrDefault\(\)"
+Assert-Matches "lock sku segment" $lock ":sku:"
+Assert-Matches "lock warehouse segment" $lock ":warehouse:"
 Assert-Matches "lock" $lock "tryLock\(WAIT_TIME\.toMillis\(\), LEASE_TIME\.toMillis\(\), TimeUnit\.MILLISECONDS\)"
 Assert-Matches "rate limit" $rateLimit "path\.startsWith\(""/api/inventory""\)"
 Assert-Matches "workflow test" $workflowTest "inventoryArtifactsWireMultiWarehouseStockToLocksAndSchedulers"
@@ -66,7 +88,7 @@ Assert-Matches "frontend view" $frontendView "reconcileInventory"
 
 if (-not $SkipMaven) {
     Write-Host "==> Maven WS2 inventory tests"
-    mvn "-Ddependency-check.skip=true" "-Dtest=WarehouseStockTest,InventoryApplicationServiceTest,Ws2InventoryWorkflowTest" test
+    mvn "-Ddependency-check.skip=true" "-Dtest=WarehouseStockTest,InventoryApplicationServiceTest,InventoryReservationExpiryTaskTest,Ws2InventoryWorkflowTest" test
     if ($LASTEXITCODE -ne 0) {
         throw "Maven WS2 inventory tests failed with exit code $LASTEXITCODE"
     }
