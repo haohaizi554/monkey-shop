@@ -5,10 +5,16 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "marketing_group_buy_member")
+@Table(
+        name = "marketing_group_buy_member",
+        uniqueConstraints =
+                @UniqueConstraint(
+                        name = "uk_marketing_group_buy_member_idempotency",
+                        columnNames = {"tenant_id", "user_id", "idempotency_key"}))
 public class MarketingGroupBuyMemberEntity extends TenantScopedJpaEntity {
 
     @Id

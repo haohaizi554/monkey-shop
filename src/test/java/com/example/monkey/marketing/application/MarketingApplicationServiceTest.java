@@ -5,26 +5,34 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.marketing.application.dto.CouponClaimRequestDto;
 import com.example.monkey.marketing.application.dto.CouponRedeemRequestDto;
 import com.example.monkey.marketing.application.dto.CouponReturnRequestDto;
 import com.example.monkey.marketing.application.dto.GroupBuyJoinRequestDto;
+import com.example.monkey.marketing.application.dto.GroupBuyTeamResponseDto;
 import com.example.monkey.marketing.application.dto.MarketingPriceLineDto;
 import com.example.monkey.marketing.application.dto.MarketingPriceRequestDto;
 import com.example.monkey.marketing.application.dto.SeckillRequestDto;
 import com.example.monkey.marketing.domain.CouponDefinition;
 import com.example.monkey.marketing.domain.CouponType;
 import com.example.monkey.marketing.domain.GroupBuyActivity;
+import com.example.monkey.marketing.domain.GroupBuyIdempotencyBinding;
+import com.example.monkey.marketing.domain.GroupBuyIdempotencyBindingStore;
 import com.example.monkey.marketing.domain.GroupBuyStatus;
 import com.example.monkey.marketing.domain.GroupBuyTeam;
+import com.example.monkey.marketing.domain.MarketingIdempotencyStore;
 import com.example.monkey.marketing.domain.MarketingLockManager;
 import com.example.monkey.marketing.domain.MarketingStore;
 import com.example.monkey.marketing.domain.SeckillActivity;
 import com.example.monkey.marketing.domain.SeckillOrder;
 import com.example.monkey.marketing.domain.UserCoupon;
+import com.example.monkey.risk.domain.CommercialRiskGate;
 import com.example.monkey.shared.application.observability.AuditService;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.id.IdGenerator;
 import com.example.monkey.user.application.CaptchaService;
@@ -46,6 +54,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 class MarketingApplicationServiceTest {
 
@@ -284,6 +294,81 @@ class MarketingApplicationServiceTest {
     }
 
     @Test
+    void seckillReplayWithChangedQuantityConflictsInsteadOfReturningOriginalOrder() {
+        InMemoryMarketingStore store = seededStore();
+        MarketingApplicationService service = service(store, null);
+
+        var first = service.createSeckillOrder(
+                new SeckillRequestDto(10L, 7L, 101L, 1, "same-seckill-key", null), "127.0.0.1");
+
+        assertThatThrownBy(() -> service.createSeckillOrder(
+                        new SeckillRequestDto(10L, 7L, 101L, 2, "same-seckill-key", null), "127.0.0.1"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Idempotency key");
+        assertThat(store.findSeckillOrder(10L, 7L, "same-seckill-key")
+                        .orElseThrow()
+                        .id())
+                .isEqualTo(first.id());
+        assertThat(store.activities.get(10L).soldQuantity()).isEqualTo(1);
+        assertThat(store.seckillOrders).hasSize(1);
+    }
+
+    @Test
+    void seckillReplayWithChangedOrderConflictsInsteadOfReturningOriginalOrder() {
+        InMemoryMarketingStore store = seededStore();
+        MarketingApplicationService service = service(store, null);
+
+        var first = service.createSeckillOrder(
+                new SeckillRequestDto(10L, 7L, 101L, 1, "same-seckill-order-key", null), "127.0.0.1");
+
+        assertThatThrownBy(() -> service.createSeckillOrder(
+                        new SeckillRequestDto(10L, 7L, 102L, 1, "same-seckill-order-key", null), "127.0.0.1"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Idempotency key");
+        assertThat(store.findSeckillOrder(10L, 7L, "same-seckill-order-key")
+                        .orElseThrow()
+                        .id())
+                .isEqualTo(first.id());
+        assertThat(store.activities.get(10L).soldQuantity()).isEqualTo(1);
+        assertThat(store.seckillOrders).hasSize(1);
+    }
+
+    @Test
+    void redisIdempotencyConflictDoesNotBecomeTheDurableMarketingAuthority() {
+        InMemoryMarketingStore store = seededStore();
+        MarketingIdempotencyStore idempotencyStore = (scope, userId, key, hash, ttl) -> false;
+        MarketingApplicationService service = service(store, null, idempotencyStore);
+
+        var created = service.createSeckillOrder(
+                new SeckillRequestDto(10L, 7L, 101L, 1, "in-flight-seckill", null), "127.0.0.1");
+
+        assertThat(created).isNotNull();
+        assertThat(store.activities.get(10L).soldQuantity()).isEqualTo(1);
+        assertThat(store.seckillOrders).hasSize(1);
+    }
+
+    @Test
+    void failedDurableSeckillWriteDoesNotPublishAnIdempotencyClaimAndCanRetry() {
+        InMemoryMarketingStore store = seededStore();
+        store.failNextSeckillOrderSave = true;
+        MarketingIdempotencyStore idempotencyStore = mock(MarketingIdempotencyStore.class);
+        MarketingApplicationService service = service(store, null, idempotencyStore);
+        SeckillRequestDto request = new SeckillRequestDto(10L, 7L, 101L, 1, "retry-after-failure", null);
+
+        assertThatThrownBy(() -> service.createSeckillOrder(request, "127.0.0.1"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("durable seckill write failed");
+        verify(idempotencyStore, never()).reserve(any(), any(), any(), any(), any());
+
+        LocalDateTime now = LocalDateTime.now(CLOCK);
+        store.activities.put(
+                10L, new SeckillActivity(10L, 1001L, "Flash sale", 10, 0, 1, now.minusMinutes(1), now.plusDays(1)));
+        assertThat(service.createSeckillOrder(request, "127.0.0.1")).isNotNull();
+        verify(idempotencyStore).reserve(
+                eq("seckill:10"), eq(7L), eq("retry-after-failure"), any(), any());
+    }
+
+    @Test
     void turnstileRejectsInvalidSeckillTokenWhenExternalProviderIsEnabled() {
         CaptchaService captchaService = mock(CaptchaService.class);
         when(captchaService.externalProviderEnabled()).thenReturn(true);
@@ -328,15 +413,429 @@ class MarketingApplicationServiceTest {
         assertThat(joined.joinedCount()).isEqualTo(2);
     }
 
+    @Test
+    void groupBuyCreationReplayReturnsOriginalTeamWithoutCreatingAnotherTeam() {
+        InMemoryMarketingStore store = seededStore();
+        MarketingApplicationService service = service(store, null);
+
+        var first = service.joinGroupBuy(new GroupBuyJoinRequestDto(20L, 7L, null, "same-group-key"));
+        var replay = service.joinGroupBuy(new GroupBuyJoinRequestDto(20L, 7L, null, "same-group-key"));
+
+        assertThat(replay.id()).isEqualTo(first.id());
+        assertThat(store.teams).hasSize(1);
+        assertThat(store.members).hasSize(1);
+        assertThat(store.groupTeamSaveCount).isEqualTo(1);
+        assertThat(store.groupMemberSaveCount).isEqualTo(1);
+    }
+
+    @Test
+    void groupBuyCreationReplayWithChangedActivityConflicts() {
+        InMemoryMarketingStore store = seededStore();
+        store.groupActivities.put(21L, new GroupBuyActivity(21L, 1001L, "Second group", 2, 24, true));
+        MarketingApplicationService service = service(store, null);
+
+        service.joinGroupBuy(new GroupBuyJoinRequestDto(20L, 7L, null, "same-group-activity-key"));
+
+        assertThatThrownBy(() ->
+                        service.joinGroupBuy(new GroupBuyJoinRequestDto(21L, 7L, null, "same-group-activity-key")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Idempotency key");
+        assertThat(store.teams).hasSize(1);
+        assertThat(store.members).hasSize(1);
+    }
+
+    @Test
+    void existingGroupBuyMemberBindsNewKeyAndRejectsReplayToAnotherTeam() {
+        InMemoryMarketingStore store = seededStore();
+        LocalDateTime expiresAt = LocalDateTime.now(CLOCK).plusHours(1);
+        store.groupActivities.put(21L, new GroupBuyActivity(21L, 1001L, "Three-person group", 3, 24, true));
+        store.groupActivities.put(22L, new GroupBuyActivity(22L, 1001L, "Another three-person group", 3, 24, true));
+        store.teams.put(
+                88L,
+                new GroupBuyTeam(88L, 21L, 1001L, 8L, 3, 1, GroupBuyStatus.OPEN, expiresAt));
+        store.teams.put(
+                89L,
+                new GroupBuyTeam(89L, 22L, 1001L, 8L, 3, 1, GroupBuyStatus.OPEN, expiresAt));
+        store.members.put("88:7", 1L);
+        RecordingMarketingIdempotencyStore idempotencyStore = new RecordingMarketingIdempotencyStore();
+        MarketingApplicationService service = service(store, null, idempotencyStore);
+
+        var first = service.joinGroupBuy(new GroupBuyJoinRequestDto(21L, 7L, 88L, "existing-member-key"));
+        var replay = service.joinGroupBuy(new GroupBuyJoinRequestDto(21L, 7L, 88L, "existing-member-key"));
+
+        assertThat(replay).isEqualTo(first);
+        assertThat(store.groupMemberSaveCount).isZero();
+        assertThatThrownBy(() ->
+                        service.joinGroupBuy(new GroupBuyJoinRequestDto(22L, 7L, 89L, "existing-member-key")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Idempotency key");
+        assertThat(store.teams.get(89L).joinedCount()).isEqualTo(1);
+        assertThat(store.groupMemberSaveCount).isZero();
+    }
+
+    @Test
+    void existingGroupBuyMemberAliasSurvivesRedisLossAndRejectsChangedTeam() {
+        InMemoryMarketingStore store = seededStore();
+        LocalDateTime expiresAt = LocalDateTime.now(CLOCK).plusHours(1);
+        store.groupActivities.put(21L, new GroupBuyActivity(21L, 1001L, "Three-person group", 3, 24, true));
+        store.groupActivities.put(22L, new GroupBuyActivity(22L, 1001L, "Another three-person group", 3, 24, true));
+        store.teams.put(
+                88L,
+                new GroupBuyTeam(88L, 21L, 1001L, 8L, 3, 1, GroupBuyStatus.OPEN, expiresAt));
+        store.teams.put(
+                89L,
+                new GroupBuyTeam(89L, 22L, 1001L, 8L, 3, 1, GroupBuyStatus.OPEN, expiresAt));
+        store.members.put("88:7", 1L);
+        RecordingMarketingIdempotencyStore idempotencyStore = new RecordingMarketingIdempotencyStore();
+        MarketingApplicationService service = service(store, null, idempotencyStore);
+
+        service.joinGroupBuy(new GroupBuyJoinRequestDto(21L, 7L, 88L, "durable-alias-key"));
+        idempotencyStore.reservations.clear();
+
+        assertThatThrownBy(() ->
+                        service.joinGroupBuy(new GroupBuyJoinRequestDto(22L, 7L, 89L, "durable-alias-key")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Idempotency key");
+        assertThat(store.teams.get(89L).joinedCount()).isEqualTo(1);
+        assertThat(store.groupMemberSaveCount).isZero();
+    }
+
+    @Test
+    void durableGroupBuyBindingRemainsAuthoritativeWhenRedisCannotPublish() {
+        InMemoryMarketingStore store = seededStore();
+        LocalDateTime expiresAt = LocalDateTime.now(CLOCK).plusHours(1);
+        store.groupActivities.put(21L, new GroupBuyActivity(21L, 1001L, "Three-person group", 3, 24, true));
+        store.groupActivities.put(22L, new GroupBuyActivity(22L, 1001L, "Another three-person group", 3, 24, true));
+        store.teams.put(
+                88L,
+                new GroupBuyTeam(88L, 21L, 1001L, 8L, 3, 1, GroupBuyStatus.OPEN, expiresAt));
+        store.teams.put(
+                89L,
+                new GroupBuyTeam(89L, 22L, 1001L, 8L, 3, 1, GroupBuyStatus.OPEN, expiresAt));
+        store.members.put("88:7", 1L);
+        RecordingGroupBuyIdempotencyBindingStore durableStore = new RecordingGroupBuyIdempotencyBindingStore();
+        MarketingIdempotencyStore unavailableRedis = (scope, userId, key, requestHash, ttl) -> {
+            throw new IllegalStateException("redis unavailable");
+        };
+        MarketingApplicationService service = service(store, null, unavailableRedis, durableStore);
+
+        service.joinGroupBuy(new GroupBuyJoinRequestDto(21L, 7L, 88L, "redis-loss-key"));
+
+        assertThat(durableStore.bindings).hasSize(1);
+        assertThat(service.joinGroupBuy(new GroupBuyJoinRequestDto(21L, 7L, 88L, "redis-loss-key")).id())
+                .isEqualTo(88L);
+        assertThatThrownBy(() ->
+                        service.joinGroupBuy(new GroupBuyJoinRequestDto(22L, 7L, 89L, "redis-loss-key")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Idempotency key");
+        assertThat(store.teams.get(89L).joinedCount()).isEqualTo(1);
+        assertThat(store.groupMemberSaveCount).isZero();
+    }
+
+    @Test
+    void unresolvedDurableGroupBuyClaimFailsBeforeBusinessMutation() {
+        InMemoryMarketingStore store = seededStore();
+        GroupBuyIdempotencyBindingStore unresolved = new GroupBuyIdempotencyBindingStore() {
+            @Override
+            public Optional<GroupBuyIdempotencyBinding> find(Long tenantId, Long userId, String idempotencyKey) {
+                return Optional.empty();
+            }
+
+            @Override
+            public boolean reserve(GroupBuyIdempotencyBinding binding) {
+                return false;
+            }
+        };
+        MarketingApplicationService service = service(
+                store,
+                null,
+                (scope, userId, key, requestHash, ttl) -> true,
+                unresolved);
+
+        assertThatThrownBy(() -> service.joinGroupBuy(new GroupBuyJoinRequestDto(20L, 7L, null, "unresolved-key")))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.errorCode()).isEqualTo(com.example.monkey.shared.domain.exception.ErrorCode.SERVICE_UNAVAILABLE));
+        assertThat(store.groupTeamSaveCount).isZero();
+        assertThat(store.groupMemberSaveCount).isZero();
+    }
+
+    @Test
+    void failedGroupBuyTransactionDoesNotLeaveAnAuthoritativeAlias() {
+        InMemoryMarketingStore store = seededStore();
+        store.failNextGroupBuyMemberSave = true;
+        TransactionalRecordingGroupBuyIdempotencyBindingStore durableStore =
+                new TransactionalRecordingGroupBuyIdempotencyBindingStore();
+        MarketingApplicationService service = service(
+                store,
+                null,
+                (scope, userId, key, requestHash, ttl) -> true,
+                durableStore);
+
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            assertThatThrownBy(() -> service.joinGroupBuy(new GroupBuyJoinRequestDto(20L, 7L, null, "rollback-key")))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessage("durable group-buy member write failed");
+            TransactionSynchronizationManager.getSynchronizations().stream()
+                    .forEach(synchronization -> synchronization.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+            assertThat(durableStore.bindings).isEmpty();
+        } finally {
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.clearSynchronization();
+            }
+            TransactionSynchronizationManager.setActualTransactionActive(false);
+        }
+    }
+
+    @Test
+    void durableGroupBuyBindingsAreTenantScoped() {
+        InMemoryMarketingStore store = seededStore();
+        LocalDateTime expiresAt = LocalDateTime.now(CLOCK).plusHours(1);
+        store.groupActivities.put(21L, new GroupBuyActivity(21L, 1001L, "Three-person group", 3, 24, true));
+        store.teams.put(
+                88L,
+                new GroupBuyTeam(88L, 21L, 1001L, 8L, 3, 1, GroupBuyStatus.OPEN, expiresAt));
+        RecordingGroupBuyIdempotencyBindingStore durableStore = new RecordingGroupBuyIdempotencyBindingStore();
+        MarketingApplicationService service = service(
+                store,
+                null,
+                (scope, userId, key, requestHash, ttl) -> true,
+                durableStore);
+
+        try {
+            TenantContext.setTenantId(2L);
+            service.joinGroupBuy(new GroupBuyJoinRequestDto(21L, 7L, 88L, "tenant-key"));
+            TenantContext.setTenantId(3L);
+            service.joinGroupBuy(new GroupBuyJoinRequestDto(21L, 7L, 88L, "tenant-key"));
+        } finally {
+            TenantContext.clear();
+        }
+
+        assertThat(durableStore.bindings).hasSize(2);
+        assertThat(store.groupMemberSaveCount).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentGroupBuyRequestsWithOneKeyCanMutateOnlyOneTeam() throws Exception {
+        InMemoryMarketingStore store = seededStore();
+        LocalDateTime expiresAt = LocalDateTime.now(CLOCK).plusHours(1);
+        store.groupActivities.put(21L, new GroupBuyActivity(21L, 1001L, "Three-person group", 3, 24, true));
+        store.groupActivities.put(22L, new GroupBuyActivity(22L, 1001L, "Another three-person group", 3, 24, true));
+        store.teams.put(
+                88L,
+                new GroupBuyTeam(88L, 21L, 1001L, 8L, 3, 1, GroupBuyStatus.OPEN, expiresAt));
+        store.teams.put(
+                89L,
+                new GroupBuyTeam(89L, 22L, 1001L, 8L, 3, 1, GroupBuyStatus.OPEN, expiresAt));
+        RecordingMarketingIdempotencyStore idempotencyStore = new RecordingMarketingIdempotencyStore();
+        MarketingApplicationService service = service(store, null, idempotencyStore);
+        CountDownLatch start = new CountDownLatch(1);
+
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(() -> joinAfter(start, service, 21L, 88L));
+            var second = executor.submit(() -> joinAfter(start, service, 22L, 89L));
+            start.countDown();
+
+            List<GroupBuyTeamResponseDto> responses = new ArrayList<>();
+            List<Throwable> conflicts = new ArrayList<>();
+            for (var future : List.of(first, second)) {
+                try {
+                    responses.add(future.get(5, TimeUnit.SECONDS));
+                } catch (java.util.concurrent.ExecutionException exception) {
+                    conflicts.add(exception.getCause());
+                }
+            }
+
+            assertThat(responses).hasSize(1);
+            assertThat(conflicts).singleElement().isInstanceOf(BusinessException.class);
+            assertThat(store.groupMemberSaveCount).isEqualTo(1);
+            assertThat(store.teams.values().stream().filter(team -> team.joinedCount() == 2)).hasSize(1);
+        }
+    }
+
+    private static GroupBuyTeamResponseDto joinAfter(
+            CountDownLatch start, MarketingApplicationService service, Long activityId, Long teamId)
+            throws InterruptedException {
+        if (!start.await(5, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("Timed out starting concurrent group-buy requests");
+        }
+        return service.joinGroupBuy(new GroupBuyJoinRequestDto(activityId, 7L, teamId, "concurrent-group-key"));
+    }
+
+    @Test
+    void groupBuyReplayWithChangedTeamConflicts() {
+        InMemoryMarketingStore store = seededStore();
+        store.teams.put(
+                88L,
+                new GroupBuyTeam(
+                        88L,
+                        20L,
+                        1001L,
+                        8L,
+                        2,
+                        1,
+                        GroupBuyStatus.OPEN,
+                        LocalDateTime.now(CLOCK).plusHours(1)));
+        MarketingApplicationService service = service(store, null);
+
+        service.joinGroupBuy(new GroupBuyJoinRequestDto(20L, 7L, null, "same-group-team-key"));
+
+        assertThatThrownBy(() -> service.joinGroupBuy(new GroupBuyJoinRequestDto(20L, 7L, 88L, "same-group-team-key")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Idempotency key");
+        assertThat(store.teams.get(88L).joinedCount()).isEqualTo(1);
+        assertThat(store.groupTeamSaveCount).isEqualTo(1);
+        assertThat(store.groupMemberSaveCount).isEqualTo(1);
+    }
+
+    @Test
+    void groupBuyJoinRejectsTeamFromAnotherActivityBeforeMutation() {
+        InMemoryMarketingStore store = seededStore();
+        store.groupActivities.put(21L, new GroupBuyActivity(21L, 1001L, "Second group", 2, 24, true));
+        store.teams.put(
+                88L,
+                new GroupBuyTeam(
+                        88L,
+                        20L,
+                        1001L,
+                        8L,
+                        2,
+                        1,
+                        GroupBuyStatus.OPEN,
+                        LocalDateTime.now(CLOCK).plusHours(1)));
+        MarketingApplicationService service = service(store, null);
+
+        assertThatThrownBy(() -> service.joinGroupBuy(new GroupBuyJoinRequestDto(21L, 7L, 88L, "wrong-activity")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("activity");
+        assertThat(store.groupTeamSaveCount).isZero();
+        assertThat(store.groupMemberSaveCount).isZero();
+        assertThat(store.teams.get(88L).joinedCount()).isEqualTo(1);
+    }
+
+    @Test
+    void groupBuyJoinRejectsTeamWithAnotherSkuBeforeMutation() {
+        InMemoryMarketingStore store = seededStore();
+        store.groupActivities.put(21L, new GroupBuyActivity(21L, 2002L, "Other sku group", 2, 24, true));
+        store.teams.put(
+                88L,
+                new GroupBuyTeam(
+                        88L,
+                        21L,
+                        1001L,
+                        8L,
+                        2,
+                        1,
+                        GroupBuyStatus.OPEN,
+                        LocalDateTime.now(CLOCK).plusHours(1)));
+        MarketingApplicationService service = service(store, null);
+
+        assertThatThrownBy(() -> service.joinGroupBuy(new GroupBuyJoinRequestDto(21L, 7L, 88L, "wrong-sku")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("SKU");
+        assertThat(store.groupTeamSaveCount).isZero();
+        assertThat(store.groupMemberSaveCount).isZero();
+    }
+
+    @Test
+    void groupBuyJoinRejectsTeamWithAnotherTargetSizeBeforeMutation() {
+        InMemoryMarketingStore store = seededStore();
+        store.groupActivities.put(21L, new GroupBuyActivity(21L, 1001L, "Larger group", 3, 24, true));
+        store.teams.put(
+                88L,
+                new GroupBuyTeam(
+                        88L,
+                        21L,
+                        1001L,
+                        8L,
+                        2,
+                        1,
+                        GroupBuyStatus.OPEN,
+                        LocalDateTime.now(CLOCK).plusHours(1)));
+        MarketingApplicationService service = service(store, null);
+
+        assertThatThrownBy(() -> service.joinGroupBuy(new GroupBuyJoinRequestDto(21L, 7L, 88L, "wrong-target")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("target");
+        assertThat(store.groupTeamSaveCount).isZero();
+        assertThat(store.groupMemberSaveCount).isZero();
+    }
+
+    @Test
+    void groupBuyJoinRejectsSucceededTeamBeforeMutation() {
+        InMemoryMarketingStore store = seededStore();
+        store.teams.put(
+                88L,
+                new GroupBuyTeam(
+                        88L,
+                        20L,
+                        1001L,
+                        8L,
+                        2,
+                        2,
+                        GroupBuyStatus.SUCCEEDED,
+                        LocalDateTime.now(CLOCK).plusHours(1)));
+        MarketingApplicationService service = service(store, null);
+
+        assertThatThrownBy(() -> service.joinGroupBuy(new GroupBuyJoinRequestDto(20L, 7L, 88L, "closed-team")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("OPEN");
+        assertThat(store.groupTeamSaveCount).isZero();
+        assertThat(store.groupMemberSaveCount).isZero();
+    }
+
+    @Test
+    void groupBuyJoinRejectsExpiredOpenTeamBeforeMutation() {
+        InMemoryMarketingStore store = seededStore();
+        store.teams.put(
+                88L,
+                new GroupBuyTeam(
+                        88L,
+                        20L,
+                        1001L,
+                        8L,
+                        2,
+                        1,
+                        GroupBuyStatus.OPEN,
+                        LocalDateTime.now(CLOCK).minusMinutes(1)));
+        MarketingApplicationService service = service(store, null);
+
+        assertThatThrownBy(() -> service.joinGroupBuy(new GroupBuyJoinRequestDto(20L, 7L, 88L, "expired-team")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("expired");
+        assertThat(store.groupTeamSaveCount).isZero();
+        assertThat(store.groupMemberSaveCount).isZero();
+    }
+
     private static MarketingApplicationService service(InMemoryMarketingStore store, CaptchaService captchaService) {
+        return service(store, captchaService, (scope, userId, idempotencyKey, requestHash, ttl) -> true);
+    }
+
+    private static MarketingApplicationService service(
+            InMemoryMarketingStore store, CaptchaService captchaService, MarketingIdempotencyStore idempotencyStore) {
+        return service(
+                store,
+                captchaService,
+                idempotencyStore,
+                new RecordingGroupBuyIdempotencyBindingStore());
+    }
+
+    private static MarketingApplicationService service(
+            InMemoryMarketingStore store,
+            CaptchaService captchaService,
+            MarketingIdempotencyStore idempotencyStore,
+            GroupBuyIdempotencyBindingStore groupBuyIdempotencyBindingStore) {
         return new MarketingApplicationService(
                 store,
-                (scope, userId, idempotencyKey, requestHash, ttl) -> true,
+                idempotencyStore,
                 new InMemoryMarketingLockManager(),
                 new AtomicIdGenerator(),
                 mock(AuditService.class),
                 captchaService,
-                CLOCK);
+                CLOCK,
+                (CommercialRiskGate) (userId, activityId, productId, orderId, deviceFingerprint, clientIp, operation) -> {},
+                groupBuyIdempotencyBindingStore);
     }
 
     private static InMemoryMarketingStore seededStore() {
@@ -453,7 +952,11 @@ class MarketingApplicationServiceTest {
         private final Map<Long, GroupBuyActivity> groupActivities = new ConcurrentHashMap<>();
         private final Map<Long, GroupBuyTeam> teams = new ConcurrentHashMap<>();
         private final Map<String, Long> members = new ConcurrentHashMap<>();
+        private int groupTeamSaveCount;
+        private int groupMemberSaveCount;
         private volatile CountDownLatch synchronizedCouponReads;
+        private volatile boolean failNextSeckillOrderSave;
+        private volatile boolean failNextGroupBuyMemberSave;
 
         private void synchronizeNextCouponReads(int readers) {
             synchronizedCouponReads = new CountDownLatch(readers);
@@ -469,6 +972,16 @@ class MarketingApplicationServiceTest {
             return coupons.values().stream()
                     .filter(coupon -> coupon.code().equals(code))
                     .findFirst();
+        }
+
+        @Override
+        public boolean claimCouponQuota(Long couponId) {
+            CouponDefinition coupon = coupons.get(couponId);
+            if (coupon == null || coupon.claimedCount() >= coupon.totalQuota()) {
+                return false;
+            }
+            coupons.put(couponId, coupon.reserveClaim(LocalDateTime.now(CLOCK)));
+            return true;
         }
 
         @Override
@@ -595,6 +1108,26 @@ class MarketingApplicationServiceTest {
         }
 
         @Override
+        public boolean reserveSeckillStock(Long activityId, int quantity) {
+            SeckillActivity activity = activities.get(activityId);
+            if (activity == null || quantity < 1 || activity.soldQuantity() + quantity > activity.stockQuantity()) {
+                return false;
+            }
+            activities.put(
+                    activityId,
+                    new SeckillActivity(
+                            activity.id(),
+                            activity.skuId(),
+                            activity.activityName(),
+                            activity.stockQuantity(),
+                            activity.soldQuantity() + quantity,
+                            activity.perUserLimit(),
+                            activity.startTime(),
+                            activity.endTime()));
+            return true;
+        }
+
+        @Override
         public SeckillActivity saveSeckillActivity(SeckillActivity activity) {
             activities.put(activity.id(), activity);
             return activity;
@@ -616,6 +1149,10 @@ class MarketingApplicationServiceTest {
 
         @Override
         public SeckillOrder saveSeckillOrder(SeckillOrder order) {
+            if (failNextSeckillOrderSave) {
+                failNextSeckillOrderSave = false;
+                throw new IllegalStateException("durable seckill write failed");
+            }
             seckillOrders.put(order.activityId() + ":" + order.userId() + ":" + order.idempotencyKey(), order);
             return order;
         }
@@ -631,7 +1168,20 @@ class MarketingApplicationServiceTest {
         }
 
         @Override
+        public boolean joinOpenGroupBuyTeam(Long teamId) {
+            GroupBuyTeam team = teams.get(teamId);
+            if (team == null
+                    || !GroupBuyStatus.OPEN.equals(team.status())
+                    || team.joinedCount() >= team.targetSize()) {
+                return false;
+            }
+            teams.put(teamId, team.join());
+            return true;
+        }
+
+        @Override
         public GroupBuyTeam saveGroupBuyTeam(GroupBuyTeam team) {
+            groupTeamSaveCount++;
             teams.put(team.id(), team);
             return team;
         }
@@ -644,6 +1194,11 @@ class MarketingApplicationServiceTest {
         @Override
         public void saveGroupBuyMember(
                 Long id, Long teamId, Long userId, String idempotencyKey, LocalDateTime joinedAt) {
+            if (failNextGroupBuyMemberSave) {
+                failNextGroupBuyMemberSave = false;
+                throw new IllegalStateException("durable group-buy member write failed");
+            }
+            groupMemberSaveCount++;
             members.put(teamId + ":" + userId, id);
         }
 
@@ -662,6 +1217,62 @@ class MarketingApplicationServiceTest {
         @Override
         public long nextId() {
             return next.incrementAndGet();
+        }
+    }
+
+    private static final class RecordingMarketingIdempotencyStore implements MarketingIdempotencyStore {
+        private final Map<String, String> reservations = new ConcurrentHashMap<>();
+
+        @Override
+        public boolean reserve(String scope, Long userId, String idempotencyKey, String requestHash, java.time.Duration ttl) {
+            return reservations.putIfAbsent(scope + ":" + userId + ":" + idempotencyKey, requestHash) == null;
+        }
+
+        @Override
+        public Optional<String> find(String scope, Long userId, String idempotencyKey) {
+            return Optional.ofNullable(reservations.get(scope + ":" + userId + ":" + idempotencyKey));
+        }
+    }
+
+    private static class RecordingGroupBuyIdempotencyBindingStore implements GroupBuyIdempotencyBindingStore {
+
+        protected final Map<String, GroupBuyIdempotencyBinding> bindings = new ConcurrentHashMap<>();
+
+        @Override
+        public Optional<GroupBuyIdempotencyBinding> find(Long tenantId, Long userId, String idempotencyKey) {
+            return Optional.ofNullable(bindings.get(key(tenantId, userId, idempotencyKey)));
+        }
+
+        @Override
+        public boolean reserve(GroupBuyIdempotencyBinding binding) {
+            return bindings.putIfAbsent(
+                            key(binding.tenantId(), binding.userId(), binding.idempotencyKey()), binding)
+                    == null;
+        }
+
+        protected static String key(Long tenantId, Long userId, String idempotencyKey) {
+            return tenantId + ":" + userId + ":" + idempotencyKey;
+        }
+    }
+
+    private static final class TransactionalRecordingGroupBuyIdempotencyBindingStore
+            extends RecordingGroupBuyIdempotencyBindingStore {
+
+        @Override
+        public boolean reserve(GroupBuyIdempotencyBinding binding) {
+            boolean reserved = super.reserve(binding);
+            if (reserved && TransactionSynchronizationManager.isSynchronizationActive()) {
+                String bindingKey = key(binding.tenantId(), binding.userId(), binding.idempotencyKey());
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCompletion(int status) {
+                        if (status != STATUS_COMMITTED) {
+                            bindings.remove(bindingKey, binding);
+                        }
+                    }
+                });
+            }
+            return reserved;
         }
     }
 }

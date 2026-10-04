@@ -17,6 +17,8 @@ class Ws3MarketingWorkflowTest {
         String docs = read("docs/marketing/ws3.md");
         String service =
                 read("src/main/java/com/example/monkey/marketing/application/MarketingApplicationService.java");
+        String expiryTask =
+                read("src/main/java/com/example/monkey/marketing/infrastructure/MarketingGroupBuyExpiryTask.java");
         String controller = read("src/main/java/com/example/monkey/marketing/interfaces/MarketingController.java");
         String lock =
                 read("src/main/java/com/example/monkey/marketing/infrastructure/RedissonMarketingLockManager.java");
@@ -37,13 +39,29 @@ class Ws3MarketingWorkflowTest {
                 .contains("captchaService.externalProviderEnabled()")
                 .contains("idGenerator.nextId()")
                 .contains("AuditService.MARKETING_SECKILL_ORDERED")
-                .contains("name = \"marketing-expire-group-buy-teams\"");
+                .contains("commercialRiskGate.requireAllowed")
+                .contains("activity.skuId()")
+                .doesNotContain("@Scheduled")
+                .doesNotContain("@SchedulerLock(")
+                .doesNotContain("RiskApplicationService")
+                .doesNotContain("expireGroupBuyTeamsScheduled");
+        assertThat(expiryTask)
+                .contains("@Scheduled(fixedDelayString = \"${app.marketing.group-buy-expire-delay:PT1M}\")")
+                .contains("@SchedulerLock(")
+                .contains("name = \"marketing-expire-group-buy-teams\"")
+                .contains("forEachRetainedTenant")
+                .contains("marketingApplicationService.expireGroupBuyTeams()");
         assertThat(controller)
                 .contains("@RequestMapping({\"/api/marketing\", \"/api/v1/marketing\"})")
-                .contains("hasAuthority('ORDER_CREATE')");
+                .contains("hasAuthority('ORDER_CREATE')")
+                .contains("deviceFingerprint")
+                .doesNotContain("RiskApplicationService")
+                .doesNotContain("requireAllowed(");
         assertThat(lock)
-                .contains("marketing:seckill:activity:")
-                .contains("tryLock(WAIT_TIME.toMillis(), LEASE_TIME.toMillis(), TimeUnit.MILLISECONDS)");
+                .contains("marketing:tenant:")
+                .contains(":seckill:activity:")
+                .contains("TransactionBoundLock.call(")
+                .contains("Marketing lock service is unavailable");
         assertThat(idempotency).contains("marketing:idempotency:").contains("setIfAbsent");
         assertThat(rateLimit).contains("/api/seckill/internal/active").contains("ApiRateLimitOperation.SECKILL");
         assertThat(frontendApi).contains("createSeckillOrder").contains("joinGroupBuy");
@@ -55,6 +73,7 @@ class Ws3MarketingWorkflowTest {
         String coupon = read("src/main/resources/db/migration/V24__marketing_coupon.sql");
         String seckill = read("src/main/resources/db/migration/V25__marketing_seckill.sql");
         String groupBuy = read("src/main/resources/db/migration/V26__marketing_group_buy.sql");
+        String groupBuyIdempotency = read("src/main/resources/db/migration/V57__marketing_group_buy_idempotency.sql");
 
         assertThat(coupon)
                 .contains("CREATE TABLE marketing_coupon")
@@ -71,6 +90,12 @@ class Ws3MarketingWorkflowTest {
                 .contains("CREATE TABLE marketing_group_buy_team")
                 .contains("CREATE TABLE marketing_group_buy_member")
                 .contains("uk_marketing_group_buy_member_user");
+        assertThat(groupBuyIdempotency)
+                .contains("CREATE TEMPORARY TABLE v57_duplicate_preflight")
+                .contains("CHECK (duplicate_groups = 0)")
+                .contains("CREATE TEMPORARY TABLE v57_index_preflight")
+                .contains("UNIQUE (tenant_id, user_id, idempotency_key)")
+                .doesNotContain("DELETE duplicate_member");
     }
 
     @Test

@@ -12,6 +12,8 @@ import com.example.monkey.marketing.application.dto.MarketingPriceRequestDto;
 import com.example.monkey.marketing.application.dto.SeckillOrderResponseDto;
 import com.example.monkey.marketing.application.dto.SeckillRequestDto;
 import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.domain.exception.BusinessException;
+import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.interfaces.dto.Result;
 import com.example.monkey.shared.interfaces.web.ClientIps;
 import jakarta.servlet.http.HttpServletRequest;
@@ -20,6 +22,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -65,16 +68,28 @@ public class MarketingController {
     @PreAuthorize("hasAuthority('ORDER_CREATE')")
     public Result<SeckillOrderResponseDto> createSeckillOrder(
             @Valid @RequestBody SeckillRequestDto request,
+            @RequestHeader(value = "X-Device-Fingerprint", required = false) String deviceFingerprint,
             HttpServletRequest httpRequest,
             @AuthenticationPrincipal SessionUser currentUser) {
+        if (request.orderId() != null) {
+            throw new BusinessException(
+                    ErrorCode.VALIDATION_ERROR,
+                    "orderId must be omitted from public seckill requests");
+        }
+        String clientIp = ClientIps.resolve(httpRequest);
         return Result.success(marketingApplicationService.createSeckillOrder(
-                request, currentUser.id(), ClientIps.resolve(httpRequest)));
+                request, currentUser.id(), clientIp, deviceFingerprint));
     }
 
     @PostMapping("/group-buy/join")
     @PreAuthorize("hasAuthority('ORDER_CREATE')")
     public Result<GroupBuyTeamResponseDto> joinGroupBuy(
-            @Valid @RequestBody GroupBuyJoinRequestDto request, @AuthenticationPrincipal SessionUser currentUser) {
-        return Result.success(marketingApplicationService.joinGroupBuy(request, currentUser.id()));
+            @Valid @RequestBody GroupBuyJoinRequestDto request,
+            @RequestHeader(value = "X-Device-Fingerprint", required = false) String deviceFingerprint,
+            HttpServletRequest httpRequest,
+            @AuthenticationPrincipal SessionUser currentUser) {
+        String clientIp = ClientIps.resolve(httpRequest);
+        return Result.success(marketingApplicationService.joinGroupBuy(
+                request, currentUser.id(), clientIp, deviceFingerprint));
     }
 }

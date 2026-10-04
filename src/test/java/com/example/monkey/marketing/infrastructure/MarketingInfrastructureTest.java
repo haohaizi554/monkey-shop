@@ -2,26 +2,38 @@ package com.example.monkey.marketing.infrastructure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.marketing.domain.CouponDefinition;
 import com.example.monkey.marketing.domain.CouponStatus;
 import com.example.monkey.marketing.domain.CouponType;
+import com.example.monkey.marketing.domain.GroupBuyIdempotencyBinding;
 import com.example.monkey.marketing.domain.GroupBuyStatus;
 import com.example.monkey.marketing.domain.GroupBuyTeam;
 import com.example.monkey.marketing.domain.SeckillActivity;
 import com.example.monkey.marketing.domain.SeckillOrder;
 import com.example.monkey.marketing.domain.UserCoupon;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.concurrent.TimeUnit;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
+import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 class MarketingInfrastructureTest {
 
@@ -99,15 +111,197 @@ class MarketingInfrastructureTest {
     }
 
     @Test
-    void redissonMarketingLockManagerFallsBackWhenClientIsUnavailable() {
+    void jpaGroupBuyIdempotencyBindingStoreUsesTenantScopedDurableClaim() {
+        MarketingGroupBuyIdempotencyBindingRepository repository =
+                mock(MarketingGroupBuyIdempotencyBindingRepository.class);
+        MarketingGroupBuyIdempotencyBindingEntity entity = groupBuyIdempotencyBindingEntity();
+        when(repository.findByTenantIdAndUserIdAndIdempotencyKey(2L, 7L, "group:key"))
+                .thenReturn(Optional.of(entity));
+        when(repository.insertIfAbsent(
+                        eq(2L), eq(7L), eq("group:key"), eq(30L), eq("a".repeat(64)), eq(NOW), eq(NOW)))
+                .thenReturn(1);
+        JpaMarketingGroupBuyIdempotencyBindingStore store =
+                new JpaMarketingGroupBuyIdempotencyBindingStore(repository);
+
+        TenantContext.setTenantId(2L);
+        try {
+            GroupBuyIdempotencyBinding binding = store.find(2L, 7L, "group:key").orElseThrow();
+            assertThat(binding.tenantId()).isEqualTo(2L);
+            assertThat(binding.teamId()).isEqualTo(30L);
+            assertThat(store.reserve(binding)).isTrue();
+        } finally {
+            TenantContext.clear();
+        }
+
+        verify(repository).findByTenantIdAndUserIdAndIdempotencyKey(2L, 7L, "group:key");
+        verify(repository).insertIfAbsent(2L, 7L, "group:key", 30L, "a".repeat(64), NOW, NOW);
+    }
+
+    @Test
+    void jpaGroupBuyIdempotencyBindingStoreRejectsCrossTenantAccess() {
+        MarketingGroupBuyIdempotencyBindingRepository repository =
+                mock(MarketingGroupBuyIdempotencyBindingRepository.class);
+        JpaMarketingGroupBuyIdempotencyBindingStore store =
+                new JpaMarketingGroupBuyIdempotencyBindingStore(repository);
+
+        TenantContext.setTenantId(2L);
+        try {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> store.find(3L, 7L, "group:key"))
+                    .isInstanceOf(com.example.monkey.shared.domain.exception.BusinessException.class)
+                    .hasMessageContaining("tenant");
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void redisIdempotencyStorePublishesReservationsAfterCommitWithTenantNamespace() {
+        @SuppressWarnings("unchecked")
+        ObjectProvider<StringRedisTemplate> provider = mock(ObjectProvider.class);
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        @SuppressWarnings("unchecked")
+        ValueOperations<String, String> valueOperations = mock(ValueOperations.class);
+        Duration ttl = Duration.ofMinutes(5);
+        when(provider.getIfAvailable()).thenReturn(redisTemplate);
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.setIfAbsent(any(String.class), eq("request"), eq(ttl)))
+                .thenReturn(true);
+        RedisMarketingIdempotencyStore store = new RedisMarketingIdempotencyStore(provider);
+
+        TenantContext.setTenantId(2L);
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            assertThat(store.reserve("seckill:1", 7L, "key", "request", ttl)).isTrue();
+            verify(valueOperations, never()).setIfAbsent(any(String.class), any(String.class), eq(ttl));
+            TransactionSynchronizationManager.getSynchronizations().stream()
+                    .forEach(TransactionSynchronization::afterCommit);
+            verify(valueOperations).setIfAbsent("marketing:idempotency:tenant:2:seckill:1:7:key", "request", ttl);
+        } finally {
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.clearSynchronization();
+            }
+            TransactionSynchronizationManager.setActualTransactionActive(false);
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void redisMarketingIdempotencyStoreDoesNotPublishAClaimAfterRollback() {
+        @SuppressWarnings("unchecked")
+        ObjectProvider<StringRedisTemplate> provider = mock(ObjectProvider.class);
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        @SuppressWarnings("unchecked")
+        ValueOperations<String, String> valueOperations = mock(ValueOperations.class);
+        when(provider.getIfAvailable()).thenReturn(redisTemplate);
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        RedisMarketingIdempotencyStore store = new RedisMarketingIdempotencyStore(provider);
+
+        TenantContext.setTenantId(2L);
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            assertThat(store.reserve("coupon:1", 7L, "key", "request", Duration.ofMinutes(5))).isTrue();
+            TransactionSynchronizationManager.clearSynchronization();
+            verify(valueOperations, never()).setIfAbsent(any(String.class), any(String.class), any(Duration.class));
+        } finally {
+            TransactionSynchronizationManager.setActualTransactionActive(false);
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void redisMarketingIdempotencyStoreTreatsReadAndPublishFaultsAsOptimizationMisses() {
+        @SuppressWarnings("unchecked")
+        ObjectProvider<StringRedisTemplate> provider = mock(ObjectProvider.class);
+        StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        @SuppressWarnings("unchecked")
+        ValueOperations<String, String> valueOperations = mock(ValueOperations.class);
+        when(provider.getIfAvailable()).thenReturn(redisTemplate);
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get(any(String.class))).thenThrow(new IllegalStateException("redis unavailable"));
+        when(valueOperations.setIfAbsent(any(String.class), any(String.class), any(Duration.class)))
+                .thenThrow(new IllegalStateException("redis unavailable"));
+        RedisMarketingIdempotencyStore store = new RedisMarketingIdempotencyStore(provider);
+
+        assertThat(store.find("group-buy", 7L, "key")).isEmpty();
+        TenantContext.setTenantId(2L);
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            assertThat(store.reserve("group-buy", 7L, "key", "request", Duration.ofMinutes(5)))
+                    .isTrue();
+            TransactionSynchronizationManager.getSynchronizations().stream()
+                    .forEach(TransactionSynchronization::afterCommit);
+        } finally {
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.clearSynchronization();
+            }
+            TransactionSynchronizationManager.setActualTransactionActive(false);
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void redissonMarketingLockManagerRejectsWorkWhenClientIsUnavailable() {
         @SuppressWarnings("unchecked")
         ObjectProvider<RedissonClient> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(null);
         RedissonMarketingLockManager lockManager = new RedissonMarketingLockManager(provider);
 
-        assertThat(lockManager.withCouponLock(1L, () -> "coupon")).isEqualTo("coupon");
-        assertThat(lockManager.withSeckillLock(2L, () -> "seckill")).isEqualTo("seckill");
-        assertThat(lockManager.withGroupBuyLock(3L, () -> "group")).isEqualTo("group");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> lockManager.withCouponLock(1L, () -> "coupon"))
+                .isInstanceOf(com.example.monkey.shared.domain.exception.BusinessException.class)
+                .hasMessageContaining("lock service");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> lockManager.withSeckillLock(2L, () -> "seckill"))
+                .isInstanceOf(com.example.monkey.shared.domain.exception.BusinessException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> lockManager.withGroupBuyLock(3L, () -> "group"))
+                .isInstanceOf(com.example.monkey.shared.domain.exception.BusinessException.class);
+    }
+
+    @Test
+    void redissonMarketingLockManagerFailsClosedWhenRedisClientErrors() {
+        @SuppressWarnings("unchecked")
+        ObjectProvider<RedissonClient> provider = mock(ObjectProvider.class);
+        RedissonClient redissonClient = mock(RedissonClient.class);
+        when(provider.getIfAvailable()).thenReturn(redissonClient);
+        when(redissonClient.getLock(any(String.class))).thenThrow(new IllegalStateException("redis unavailable"));
+        RedissonMarketingLockManager lockManager = new RedissonMarketingLockManager(provider);
+        AtomicBoolean businessMutationInvoked = new AtomicBoolean();
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                        lockManager.withGroupBuyLock(3L, () -> {
+                            businessMutationInvoked.set(true);
+                            return "group";
+                        }))
+                .isInstanceOf(com.example.monkey.shared.domain.exception.BusinessException.class)
+                .hasMessageContaining("lock service");
+        assertThat(businessMutationInvoked).isFalse();
+    }
+
+    @Test
+    void redissonMarketingLockManagerIncludesTenantInEveryLockKey() throws Exception {
+        @SuppressWarnings("unchecked")
+        ObjectProvider<RedissonClient> provider = mock(ObjectProvider.class);
+        RedissonClient redissonClient = mock(RedissonClient.class);
+        RLock lock = mock(RLock.class);
+        when(provider.getIfAvailable()).thenReturn(redissonClient);
+        when(redissonClient.getLock(any(String.class))).thenReturn(lock);
+        when(lock.tryLock(anyLong(), any(TimeUnit.class))).thenReturn(true);
+        when(lock.isHeldByCurrentThread()).thenReturn(true);
+        RedissonMarketingLockManager lockManager = new RedissonMarketingLockManager(provider);
+
+        TenantContext.setTenantId(41L);
+        try {
+            lockManager.withCouponLock(1L, () -> "coupon");
+            lockManager.withSeckillLock(2L, () -> "seckill");
+            lockManager.withGroupBuyLock(3L, () -> "group");
+        } finally {
+            TenantContext.clear();
+        }
+
+        verify(redissonClient).getLock("marketing:tenant:41:coupon:1");
+        verify(redissonClient).getLock("marketing:tenant:41:seckill:activity:2");
+        verify(redissonClient).getLock("marketing:tenant:41:group-buy:team:3");
     }
 
     private static CouponDefinition coupon() {
@@ -175,6 +369,28 @@ class MarketingInfrastructureTest {
         entity.setIdempotencyKey("coupon:key");
         entity.setClaimedAt(NOW);
         entity.setUsedAt(null);
+        return entity;
+    }
+
+    private static MarketingGroupBuyMemberEntity groupBuyMemberEntity() {
+        MarketingGroupBuyMemberEntity entity = new MarketingGroupBuyMemberEntity();
+        entity.setId(99L);
+        entity.setTeamId(30L);
+        entity.setUserId(7L);
+        entity.setIdempotencyKey("group:key");
+        entity.setJoinedAt(NOW);
+        return entity;
+    }
+
+    private static MarketingGroupBuyIdempotencyBindingEntity groupBuyIdempotencyBindingEntity() {
+        MarketingGroupBuyIdempotencyBindingEntity entity = new MarketingGroupBuyIdempotencyBindingEntity();
+        entity.setTenantId(2L);
+        entity.setUserId(7L);
+        entity.setIdempotencyKey("group:key");
+        entity.setTeamId(30L);
+        entity.setRequestFingerprint("a".repeat(64));
+        entity.setCreatedAt(NOW);
+        entity.setUpdatedAt(NOW);
         return entity;
     }
 

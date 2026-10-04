@@ -9,6 +9,8 @@ import com.example.monkey.marketing.domain.SeckillActivity;
 import com.example.monkey.marketing.domain.SeckillOrder;
 import com.example.monkey.marketing.domain.UserCoupon;
 import com.example.monkey.shared.application.tenant.TenantContext;
+import com.example.monkey.shared.domain.exception.BusinessException;
+import com.example.monkey.shared.domain.exception.ErrorCode;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -56,7 +58,30 @@ public class JpaMarketingStore implements MarketingStore {
 
     @Override
     public CouponDefinition saveCoupon(CouponDefinition coupon) {
-        return toDomain(couponRepository.save(toEntity(coupon)));
+        MarketingCouponEntity existing = couponRepository.findById(coupon.id()).orElse(null);
+        if (existing == null) {
+            return toDomain(couponRepository.save(toCouponEntity(coupon)));
+        }
+        int delta = coupon.claimedCount() - existing.getClaimedCount();
+        if (delta > 0) {
+            if (!claimCouponQuota(coupon.id(), delta)) {
+                throw new BusinessException(ErrorCode.OUT_OF_STOCK, "Coupon quota exhausted");
+            }
+            return findCoupon(coupon.id()).orElseThrow();
+        }
+        if (delta < 0) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Coupon claimed count cannot decrease");
+        }
+        return toDomain(couponRepository.save(toCouponEntity(coupon)));
+    }
+
+    @Override
+    public boolean claimCouponQuota(Long couponId) {
+        return claimCouponQuota(couponId, 1);
+    }
+
+    private boolean claimCouponQuota(Long couponId, int quantity) {
+        return couponRepository.incrementClaimed(couponId, TenantContext.currentTenantIdOrDefault(), quantity) == 1;
     }
 
     @Override
@@ -110,7 +135,32 @@ public class JpaMarketingStore implements MarketingStore {
 
     @Override
     public SeckillActivity saveSeckillActivity(SeckillActivity activity) {
-        return toDomain(seckillActivityRepository.save(toEntity(activity)));
+        MarketingSeckillActivityEntity existing =
+                seckillActivityRepository.findById(activity.id()).orElse(null);
+        if (existing == null) {
+            return toDomain(seckillActivityRepository.save(toSeckillActivityEntity(activity)));
+        }
+        int delta = activity.soldQuantity() - existing.getSoldQuantity();
+        if (delta > 0) {
+            if (!reserveSeckillStock(activity.id(), delta)) {
+                throw new BusinessException(ErrorCode.OUT_OF_STOCK, "Seckill stock exhausted");
+            }
+            return findSeckillActivity(activity.id()).orElseThrow();
+        }
+        if (delta < 0) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Seckill sold quantity cannot decrease");
+        }
+        return toDomain(seckillActivityRepository.save(toSeckillActivityEntity(activity)));
+    }
+
+    @Override
+    public boolean reserveSeckillStock(Long activityId, int quantity) {
+        if (quantity < 1) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Seckill quantity must be positive");
+        }
+        return seckillActivityRepository.incrementSold(
+                        activityId, TenantContext.currentTenantIdOrDefault(), quantity)
+                == 1;
     }
 
     @Override
@@ -142,7 +192,38 @@ public class JpaMarketingStore implements MarketingStore {
 
     @Override
     public GroupBuyTeam saveGroupBuyTeam(GroupBuyTeam team) {
-        return toDomain(groupBuyTeamRepository.save(toEntity(team)));
+        MarketingGroupBuyTeamEntity existing = groupBuyTeamRepository.findById(team.id()).orElse(null);
+        if (existing == null) {
+            return toDomain(groupBuyTeamRepository.save(toGroupBuyTeamEntity(team)));
+        }
+        int delta = team.joinedCount() - existing.getJoinedCount();
+        if (delta > 0) {
+            if (groupBuyTeamRepository.joinIfOpen(team.id(), TenantContext.currentTenantIdOrDefault(), delta) != 1) {
+                throw new BusinessException(ErrorCode.CONFLICT, "Group-buy team is full or closed");
+            }
+            return findGroupBuyTeam(team.id()).orElseThrow();
+        }
+        if (delta < 0) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Group-buy membership cannot decrease");
+        }
+        if (existing.getStatus() != team.status()) {
+            int updated = groupBuyTeamRepository.transitionStatus(
+                    team.id(),
+                    TenantContext.currentTenantIdOrDefault(),
+                    existing.getStatus().name(),
+                    team.status().name(),
+                    existing.getJoinedCount());
+            if (updated != 1) {
+                throw new BusinessException(ErrorCode.CONFLICT, "Group-buy team changed concurrently");
+            }
+            return findGroupBuyTeam(team.id()).orElseThrow();
+        }
+        return toDomain(groupBuyTeamRepository.save(toGroupBuyTeamEntity(team)));
+    }
+
+    @Override
+    public boolean joinOpenGroupBuyTeam(Long teamId) {
+        return groupBuyTeamRepository.joinIfOpen(teamId, TenantContext.currentTenantIdOrDefault(), 1) == 1;
     }
 
     @Override
@@ -189,8 +270,8 @@ public class JpaMarketingStore implements MarketingStore {
                 entity.getEndTime());
     }
 
-    private static MarketingCouponEntity toEntity(CouponDefinition coupon) {
-        MarketingCouponEntity entity = new MarketingCouponEntity();
+    private MarketingCouponEntity toCouponEntity(CouponDefinition coupon) {
+        MarketingCouponEntity entity = couponRepository.findById(coupon.id()).orElseGet(MarketingCouponEntity::new);
         entity.setId(coupon.id());
         entity.setCode(coupon.code());
         entity.setName(coupon.name());
@@ -249,8 +330,10 @@ public class JpaMarketingStore implements MarketingStore {
                 entity.getEndTime());
     }
 
-    private static MarketingSeckillActivityEntity toEntity(SeckillActivity activity) {
-        MarketingSeckillActivityEntity entity = new MarketingSeckillActivityEntity();
+    private MarketingSeckillActivityEntity toSeckillActivityEntity(SeckillActivity activity) {
+        MarketingSeckillActivityEntity entity = seckillActivityRepository
+                .findById(activity.id())
+                .orElseGet(MarketingSeckillActivityEntity::new);
         entity.setId(activity.id());
         entity.setSkuId(activity.skuId());
         entity.setActivityName(activity.activityName());
@@ -309,8 +392,10 @@ public class JpaMarketingStore implements MarketingStore {
                 entity.getExpiresAt());
     }
 
-    private static MarketingGroupBuyTeamEntity toEntity(GroupBuyTeam team) {
-        MarketingGroupBuyTeamEntity entity = new MarketingGroupBuyTeamEntity();
+    private MarketingGroupBuyTeamEntity toGroupBuyTeamEntity(GroupBuyTeam team) {
+        MarketingGroupBuyTeamEntity entity = groupBuyTeamRepository
+                .findById(team.id())
+                .orElseGet(MarketingGroupBuyTeamEntity::new);
         entity.setId(team.id());
         entity.setActivityId(team.activityId());
         entity.setSkuId(team.skuId());

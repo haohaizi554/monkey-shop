@@ -16,6 +16,9 @@ import com.example.monkey.marketing.domain.CouponDefinition;
 import com.example.monkey.marketing.domain.CouponStatus;
 import com.example.monkey.marketing.domain.CouponType;
 import com.example.monkey.marketing.domain.GroupBuyActivity;
+import com.example.monkey.marketing.domain.GroupBuyIdempotencyBinding;
+import com.example.monkey.marketing.domain.GroupBuyIdempotencyBindingStore;
+import com.example.monkey.marketing.domain.GroupBuyRequestFingerprint;
 import com.example.monkey.marketing.domain.GroupBuyStatus;
 import com.example.monkey.marketing.domain.GroupBuyTeam;
 import com.example.monkey.marketing.domain.MarketingIdempotencyStore;
@@ -25,7 +28,9 @@ import com.example.monkey.marketing.domain.MarketingStore;
 import com.example.monkey.marketing.domain.SeckillActivity;
 import com.example.monkey.marketing.domain.SeckillOrder;
 import com.example.monkey.marketing.domain.UserCoupon;
+import com.example.monkey.risk.domain.CommercialRiskGate;
 import com.example.monkey.shared.application.observability.AuditService;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
@@ -41,13 +46,13 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
-import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -60,6 +65,7 @@ public class MarketingApplicationService {
     private static final int EXPIRY_BATCH_SIZE = 100;
     private static final String TURNSTILE_ACTION_SECKILL = "seckill";
     private static final String SYSTEM_ACTOR = "SYSTEM";
+    private static final String GROUP_BUY_IDEMPOTENCY_MARKER_PREFIX = "group-buy:v2:";
 
     private final MarketingStore marketingStore;
     private final MarketingIdempotencyStore idempotencyStore;
@@ -68,6 +74,8 @@ public class MarketingApplicationService {
     private final AuditService auditService;
     private final CaptchaService captchaService;
     private final Clock clock;
+    private final CommercialRiskGate commercialRiskGate;
+    private final GroupBuyIdempotencyBindingStore groupBuyIdempotencyBindingStore;
 
     @Autowired
     public MarketingApplicationService(
@@ -77,6 +85,8 @@ public class MarketingApplicationService {
             IdGenerator idGenerator,
             AuditService auditService,
             ObjectProvider<CaptchaService> captchaServiceProvider,
+            CommercialRiskGate commercialRiskGate,
+            GroupBuyIdempotencyBindingStore groupBuyIdempotencyBindingStore,
             @Value("${app.marketing.clock:system}") String ignoredClockProperty) {
         this(
                 marketingStore,
@@ -85,7 +95,9 @@ public class MarketingApplicationService {
                 idGenerator,
                 auditService,
                 captchaServiceProvider.getIfAvailable(),
-                Clock.systemDefaultZone());
+                Clock.systemDefaultZone(),
+                commercialRiskGate,
+                groupBuyIdempotencyBindingStore);
     }
 
     public MarketingApplicationService(
@@ -95,7 +107,30 @@ public class MarketingApplicationService {
             IdGenerator idGenerator,
             AuditService auditService,
             CaptchaService captchaService,
-            Clock clock) {
+            Clock clock,
+            CommercialRiskGate commercialRiskGate) {
+        this(
+                marketingStore,
+                idempotencyStore,
+                lockManager,
+                idGenerator,
+                auditService,
+                captchaService,
+                clock,
+                commercialRiskGate,
+                new LocalGroupBuyIdempotencyBindingStore());
+    }
+
+    public MarketingApplicationService(
+            MarketingStore marketingStore,
+            MarketingIdempotencyStore idempotencyStore,
+            MarketingLockManager lockManager,
+            IdGenerator idGenerator,
+            AuditService auditService,
+            CaptchaService captchaService,
+            Clock clock,
+            CommercialRiskGate commercialRiskGate,
+            GroupBuyIdempotencyBindingStore groupBuyIdempotencyBindingStore) {
         this.marketingStore = marketingStore;
         this.idempotencyStore = idempotencyStore;
         this.lockManager = lockManager;
@@ -103,6 +138,9 @@ public class MarketingApplicationService {
         this.auditService = auditService;
         this.captchaService = captchaService;
         this.clock = clock;
+        this.commercialRiskGate = Objects.requireNonNull(commercialRiskGate, "commercialRiskGate is required");
+        this.groupBuyIdempotencyBindingStore = Objects.requireNonNull(
+                groupBuyIdempotencyBindingStore, "groupBuyIdempotencyBindingStore is required");
     }
 
     @WithSpan("marketing.coupon.claim")
@@ -402,15 +440,25 @@ public class MarketingApplicationService {
     @WithSpan("marketing.seckill.order")
     @Transactional
     public SeckillOrderResponseDto createSeckillOrder(SeckillRequestDto request, String clientIp) {
-        validateHuman(request.turnstileToken(), clientIp);
-        String key = normalizeKey(request.idempotencyKey(), "idempotency key");
-        return lockManager.withSeckillLock(request.activityId(), () -> createSeckillOrderLocked(request, key));
+        return createSeckillOrder(request, null, clientIp, null);
+    }
+
+    @WithSpan("marketing.seckill.order")
+    @Transactional
+    public SeckillOrderResponseDto createSeckillOrder(
+            SeckillRequestDto request, Long currentUserId, String clientIp, String deviceFingerprint) {
+        SeckillRequestDto effectiveRequest = effectiveSeckillRequest(request, currentUserId);
+        validateHuman(effectiveRequest.turnstileToken(), clientIp);
+        String key = normalizeKey(effectiveRequest.idempotencyKey(), "idempotency key");
+        return lockManager.withSeckillLock(
+                effectiveRequest.activityId(),
+                () -> createSeckillOrderLocked(effectiveRequest, key, deviceFingerprint, clientIp));
     }
 
     @WithSpan("marketing.seckill.order")
     @Transactional
     public SeckillOrderResponseDto createSeckillOrder(SeckillRequestDto request, Long currentUserId, String clientIp) {
-        return createSeckillOrder(effectiveSeckillRequest(request, currentUserId), clientIp);
+        return createSeckillOrder(request, currentUserId, clientIp, null);
     }
 
     private SeckillRequestDto effectiveSeckillRequest(SeckillRequestDto request, Long currentUserId) {
@@ -425,16 +473,26 @@ public class MarketingApplicationService {
 
     @WithSpan("marketing.group-buy.join")
     @Transactional
+    public GroupBuyTeamResponseDto joinGroupBuy(
+            GroupBuyJoinRequestDto request, Long currentUserId, String clientIp, String deviceFingerprint) {
+        GroupBuyJoinRequestDto effectiveRequest = effectiveGroupBuyRequest(request, currentUserId);
+        Long lockKey = effectiveRequest.teamId() == null ? effectiveRequest.activityId() : effectiveRequest.teamId();
+        String key = normalizeKey(effectiveRequest.idempotencyKey(), "idempotency key");
+        return lockManager.withGroupBuyLock(
+                lockKey,
+                () -> joinGroupBuyLocked(effectiveRequest, key, deviceFingerprint, clientIp));
+    }
+
+    @WithSpan("marketing.group-buy.join")
+    @Transactional
     public GroupBuyTeamResponseDto joinGroupBuy(GroupBuyJoinRequestDto request) {
-        Long lockKey = request.teamId() == null ? request.activityId() : request.teamId();
-        String key = normalizeKey(request.idempotencyKey(), "idempotency key");
-        return lockManager.withGroupBuyLock(lockKey, () -> joinGroupBuyLocked(request, key));
+        return joinGroupBuy(request, null, null, null);
     }
 
     @WithSpan("marketing.group-buy.join")
     @Transactional
     public GroupBuyTeamResponseDto joinGroupBuy(GroupBuyJoinRequestDto request, Long currentUserId) {
-        return joinGroupBuy(effectiveGroupBuyRequest(request, currentUserId));
+        return joinGroupBuy(request, currentUserId, null, null);
     }
 
     private GroupBuyJoinRequestDto effectiveGroupBuyRequest(GroupBuyJoinRequestDto request, Long currentUserId) {
@@ -445,15 +503,6 @@ public class MarketingApplicationService {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Group buy must belong to the current user");
         }
         return request.withUserId(currentUserId);
-    }
-
-    @Scheduled(fixedDelayString = "${app.marketing.group-buy-expire-delay:PT1M}")
-    @SchedulerLock(
-            name = "marketing-expire-group-buy-teams",
-            lockAtMostFor = "${app.marketing.group-buy-expire-lock-at-most-for:PT10M}")
-    @Transactional
-    public void expireGroupBuyTeamsScheduled() {
-        expireGroupBuyTeams();
     }
 
     @Transactional
@@ -483,11 +532,16 @@ public class MarketingApplicationService {
         if (existing.isPresent()) {
             return MarketingDtoAssembler.toResponse(existing.get());
         }
-        idempotencyStore.reserve("coupon:" + request.couponId(), claimOwner, key, "claim", IDEMPOTENCY_TTL);
         CouponDefinition coupon = marketingStore
                 .findCoupon(request.couponId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Coupon does not exist"));
-        CouponDefinition savedCoupon = marketingStore.saveCoupon(coupon.reserveClaim(now()));
+        coupon.reserveClaim(now());
+        if (!marketingStore.claimCouponQuota(coupon.id())) {
+            throw new BusinessException(ErrorCode.OUT_OF_STOCK, "Coupon quota exhausted");
+        }
+        CouponDefinition savedCoupon = marketingStore
+                .findCoupon(coupon.id())
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Coupon does not exist"));
         UserCoupon userCoupon = new UserCoupon(
                 idGenerator.nextId(),
                 savedCoupon.id(),
@@ -500,6 +554,7 @@ public class MarketingApplicationService {
                 now(),
                 null);
         UserCoupon saved = marketingStore.saveUserCoupon(userCoupon);
+        idempotencyStore.reserve("coupon:" + request.couponId(), claimOwner, key, "claim", IDEMPOTENCY_TTL);
         audit(
                 AuditService.MARKETING_COUPON_CLAIMED,
                 saved.userId(),
@@ -508,17 +563,33 @@ public class MarketingApplicationService {
         return MarketingDtoAssembler.toResponse(saved);
     }
 
-    private SeckillOrderResponseDto createSeckillOrderLocked(SeckillRequestDto request, String key) {
-        Optional<SeckillOrder> existing = marketingStore.findSeckillOrder(request.activityId(), request.userId(), key);
-        if (existing.isPresent()) {
-            return MarketingDtoAssembler.toResponse(existing.get());
-        }
-        idempotencyStore.reserve("seckill:" + request.activityId(), request.userId(), key, "order", IDEMPOTENCY_TTL);
+    private SeckillOrderResponseDto createSeckillOrderLocked(
+            SeckillRequestDto request, String key, String deviceFingerprint, String clientIp) {
         SeckillActivity activity = marketingStore
                 .findSeckillActivity(request.activityId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Seckill activity does not exist"));
-        SeckillActivity savedActivity = marketingStore.saveSeckillActivity(activity.reserve(
-                request.quantity(), marketingStore.purchasedQuantity(activity.id(), request.userId()), now()));
+        commercialRiskGate.requireAllowed(
+                request.userId(),
+                activity.id(),
+                activity.skuId(),
+                request.orderId(),
+                deviceFingerprint,
+                clientIp,
+                "marketing.seckill.order");
+        Optional<SeckillOrder> existing = marketingStore.findSeckillOrder(request.activityId(), request.userId(), key);
+        if (existing.isPresent()) {
+            requireSameSeckillPayload(existing.orElseThrow(), request);
+            return MarketingDtoAssembler.toResponse(existing.get());
+        }
+        String requestFingerprint = seckillRequestFingerprint(request);
+        activity.reserve(
+                request.quantity(), marketingStore.purchasedQuantity(activity.id(), request.userId()), now());
+        if (!marketingStore.reserveSeckillStock(activity.id(), request.quantity())) {
+            throw new BusinessException(ErrorCode.OUT_OF_STOCK, "Seckill stock exhausted");
+        }
+        SeckillActivity savedActivity = marketingStore
+                .findSeckillActivity(activity.id())
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Seckill activity does not exist"));
         SeckillOrder order = new SeckillOrder(
                 idGenerator.nextId(),
                 savedActivity.id(),
@@ -529,6 +600,8 @@ public class MarketingApplicationService {
                 "seckill:" + key,
                 now());
         SeckillOrder saved = marketingStore.saveSeckillOrder(order);
+        idempotencyStore.reserve(
+                "seckill:" + request.activityId(), request.userId(), key, requestFingerprint, IDEMPOTENCY_TTL);
         audit(
                 AuditService.MARKETING_SECKILL_ORDERED,
                 saved.userId(),
@@ -537,22 +610,55 @@ public class MarketingApplicationService {
         return MarketingDtoAssembler.toResponse(saved);
     }
 
-    private GroupBuyTeamResponseDto joinGroupBuyLocked(GroupBuyJoinRequestDto request, String key) {
+    private GroupBuyTeamResponseDto joinGroupBuyLocked(
+            GroupBuyJoinRequestDto request, String key, String deviceFingerprint, String clientIp) {
         GroupBuyActivity activity = marketingStore
                 .findGroupBuyActivity(request.activityId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Group-buy activity does not exist"));
         if (!activity.active()) {
             throw new BusinessException(ErrorCode.CONFLICT, "Group-buy activity is inactive");
         }
-        GroupBuyTeam team =
-                request.teamId() == null ? newGroupBuyTeam(activity, request.userId()) : requireTeam(request.teamId());
+        commercialRiskGate.requireAllowed(
+                request.userId(),
+                activity.id(),
+                activity.skuId(),
+                null,
+                deviceFingerprint,
+                clientIp,
+                "marketing.group-buy.join");
+        String requestFingerprint = GroupBuyRequestFingerprint.of(
+                request.activityId(), request.userId(), request.teamId());
+        Long tenantId = TenantContext.currentTenantIdOrDefault();
+        Optional<GroupBuyIdempotencyBinding> existingBinding = readGroupBuyBinding(
+                tenantId, request.userId(), key);
+        if (existingBinding.isPresent()) {
+            return replayGroupBuyBinding(existingBinding.orElseThrow(), request, requestFingerprint);
+        }
+        GroupBuyTeam team = request.teamId() == null
+                ? newGroupBuyTeam(activity, request.userId(), now())
+                : requireTeam(request.teamId());
+        if (request.teamId() != null) {
+            validateJoinableTeam(team, activity);
+        }
+        GroupBuyIdempotencyBinding candidate = new GroupBuyIdempotencyBinding(
+                tenantId,
+                request.userId(),
+                key,
+                team.id(),
+                requestFingerprint,
+                now(),
+                now());
+        GroupBuyBindingClaim claim = claimGroupBuyBinding(candidate);
+        if (!claim.owner()) {
+            return replayGroupBuyBinding(claim.binding(), request, requestFingerprint);
+        }
         if (marketingStore.hasGroupBuyMember(team.id(), request.userId())) {
+            publishGroupBuyIdempotency(candidate);
             return MarketingDtoAssembler.toResponse(team);
         }
-        GroupBuyTeam saved = request.teamId() == null
-                ? marketingStore.saveGroupBuyTeam(team)
-                : marketingStore.saveGroupBuyTeam(team.join());
+        GroupBuyTeam saved = request.teamId() == null ? marketingStore.saveGroupBuyTeam(team) : joinExistingTeam(team);
         marketingStore.saveGroupBuyMember(idGenerator.nextId(), saved.id(), request.userId(), "group:" + key, now());
+        publishGroupBuyIdempotency(candidate);
         audit(
                 AuditService.MARKETING_GROUP_JOINED,
                 request.userId(),
@@ -561,7 +667,73 @@ public class MarketingApplicationService {
         return MarketingDtoAssembler.toResponse(saved);
     }
 
-    private GroupBuyTeam newGroupBuyTeam(GroupBuyActivity activity, Long userId) {
+    private GroupBuyTeam joinExistingTeam(GroupBuyTeam team) {
+        team.join();
+        if (!marketingStore.joinOpenGroupBuyTeam(team.id())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Group-buy team is full or closed");
+        }
+        return marketingStore
+                .findGroupBuyTeam(team.id())
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Group-buy team does not exist"));
+    }
+
+    private Optional<GroupBuyIdempotencyBinding> readGroupBuyBinding(
+            Long tenantId, Long userId, String key) {
+        try {
+            return groupBuyIdempotencyBindingStore.find(tenantId, userId, key);
+        } catch (BusinessException exception) {
+            throw exception;
+        } catch (RuntimeException ignored) {
+            throw durableGroupBuyBindingUnavailable();
+        }
+    }
+
+    private GroupBuyBindingClaim claimGroupBuyBinding(GroupBuyIdempotencyBinding candidate) {
+        try {
+            if (groupBuyIdempotencyBindingStore.reserve(candidate)) {
+                return new GroupBuyBindingClaim(candidate, true);
+            }
+        } catch (BusinessException exception) {
+            throw exception;
+        } catch (RuntimeException ignored) {
+            throw durableGroupBuyBindingUnavailable();
+        }
+        Optional<GroupBuyIdempotencyBinding> raced = readGroupBuyBinding(
+                candidate.tenantId(), candidate.userId(), candidate.idempotencyKey());
+        if (raced.isPresent()) {
+            return new GroupBuyBindingClaim(raced.orElseThrow(), false);
+        }
+        throw durableGroupBuyBindingUnavailable();
+    }
+
+    private GroupBuyTeamResponseDto replayGroupBuyBinding(
+            GroupBuyIdempotencyBinding binding, GroupBuyJoinRequestDto request, String requestFingerprint) {
+        if (!binding.requestFingerprint().equals(requestFingerprint)) {
+            throw idempotencyConflict();
+        }
+        GroupBuyTeam boundTeam = requireTeam(binding.teamId());
+        requireSameGroupBuyPayload(boundTeam, request);
+        publishGroupBuyIdempotency(binding);
+        return MarketingDtoAssembler.toResponse(boundTeam);
+    }
+
+    private void publishGroupBuyIdempotency(GroupBuyIdempotencyBinding binding) {
+        String marker = GROUP_BUY_IDEMPOTENCY_MARKER_PREFIX + binding.teamId() + ":" + binding.requestFingerprint();
+        try {
+            idempotencyStore.reserve(
+                    "group-buy", binding.userId(), binding.idempotencyKey(), marker, IDEMPOTENCY_TTL);
+        } catch (RuntimeException ignored) {
+            // Redis is an acceleration layer; a committed durable binding remains authoritative.
+        }
+    }
+
+    private static BusinessException durableGroupBuyBindingUnavailable() {
+        return new BusinessException(
+                ErrorCode.SERVICE_UNAVAILABLE,
+                "Group-buy idempotency binding could not be verified");
+    }
+
+    private GroupBuyTeam newGroupBuyTeam(GroupBuyActivity activity, Long userId, LocalDateTime createdAt) {
         return new GroupBuyTeam(
                 idGenerator.nextId(),
                 activity.id(),
@@ -570,7 +742,56 @@ public class MarketingApplicationService {
                 activity.targetSize(),
                 1,
                 activity.targetSize() == 1 ? GroupBuyStatus.SUCCEEDED : GroupBuyStatus.OPEN,
-                now().plusHours(activity.durationHours()));
+                createdAt.plusHours(activity.durationHours()));
+    }
+
+    private static void requireSameSeckillPayload(SeckillOrder existing, SeckillRequestDto request) {
+        if (!Objects.equals(existing.activityId(), request.activityId())
+                || !Objects.equals(existing.userId(), request.userId())
+                || !Objects.equals(existing.orderId(), request.orderId())
+                || existing.quantity() != request.quantity()) {
+            throw idempotencyConflict();
+        }
+    }
+
+    private static void requireSameGroupBuyPayload(GroupBuyTeam existing, GroupBuyJoinRequestDto request) {
+        boolean differentActivity = !Objects.equals(existing.activityId(), request.activityId());
+        boolean differentTeam = request.teamId() != null && !Objects.equals(existing.id(), request.teamId());
+        boolean creationRetry = request.teamId() == null && Objects.equals(existing.leaderUserId(), request.userId());
+        if (differentActivity || differentTeam || !creationRetry && request.teamId() == null) {
+            throw idempotencyConflict();
+        }
+    }
+
+    private void validateJoinableTeam(GroupBuyTeam team, GroupBuyActivity activity) {
+        if (!Objects.equals(team.activityId(), activity.id())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Group-buy team belongs to another activity");
+        }
+        if (!Objects.equals(team.skuId(), activity.skuId())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Group-buy team SKU does not match activity");
+        }
+        if (team.targetSize() != activity.targetSize()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Group-buy team target size does not match activity");
+        }
+        if (!GroupBuyStatus.OPEN.equals(team.status())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Group-buy team is not OPEN");
+        }
+        if (!now().isBefore(team.expiresAt())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Group-buy team has expired");
+        }
+    }
+
+    private static String seckillRequestFingerprint(SeckillRequestDto request) {
+        return "activityId=" + request.activityId()
+                + ";userId=" + request.userId()
+                + ";orderId=" + request.orderId()
+                + ";quantity=" + request.quantity();
+    }
+
+    private record GroupBuyBindingClaim(GroupBuyIdempotencyBinding binding, boolean owner) {}
+
+    private static BusinessException idempotencyConflict() {
+        return new BusinessException(ErrorCode.CONFLICT, "Idempotency key was already used for another request");
     }
 
     private GroupBuyTeam requireTeam(Long teamId) {
@@ -659,5 +880,29 @@ public class MarketingApplicationService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, label + " is too long");
         }
         return trimmed;
+    }
+
+    /**
+     * Keeps the source-compatible constructor useful for focused unit tests and trusted callers
+     * that instantiate the service directly. Spring production wiring always supplies the JPA
+     * implementation, so this is not a second production authority.
+     */
+    private static final class LocalGroupBuyIdempotencyBindingStore implements GroupBuyIdempotencyBindingStore {
+
+        private final Map<BindingKey, GroupBuyIdempotencyBinding> bindings = new ConcurrentHashMap<>();
+
+        @Override
+        public Optional<GroupBuyIdempotencyBinding> find(Long tenantId, Long userId, String idempotencyKey) {
+            return Optional.ofNullable(bindings.get(new BindingKey(tenantId, userId, idempotencyKey)));
+        }
+
+        @Override
+        public boolean reserve(GroupBuyIdempotencyBinding binding) {
+            return bindings.putIfAbsent(
+                            new BindingKey(binding.tenantId(), binding.userId(), binding.idempotencyKey()), binding)
+                    == null;
+        }
+
+        private record BindingKey(Long tenantId, Long userId, String idempotencyKey) {}
     }
 }

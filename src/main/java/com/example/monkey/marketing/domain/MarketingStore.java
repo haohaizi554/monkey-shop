@@ -12,6 +12,8 @@ public interface MarketingStore {
 
     CouponDefinition saveCoupon(CouponDefinition coupon);
 
+    boolean claimCouponQuota(Long couponId);
+
     Optional<UserCoupon> findUserCoupon(Long userId, Long couponId);
 
     Optional<UserCoupon> findUserCouponByCode(Long userId, String couponCode);
@@ -30,6 +32,8 @@ public interface MarketingStore {
 
     SeckillActivity saveSeckillActivity(SeckillActivity activity);
 
+    boolean reserveSeckillStock(Long activityId, int quantity);
+
     Optional<SeckillOrder> findSeckillOrder(Long activityId, Long userId, String idempotencyKey);
 
     int purchasedQuantity(Long activityId, Long userId);
@@ -41,6 +45,8 @@ public interface MarketingStore {
     Optional<GroupBuyTeam> findGroupBuyTeam(Long teamId);
 
     GroupBuyTeam saveGroupBuyTeam(GroupBuyTeam team);
+
+    boolean joinOpenGroupBuyTeam(Long teamId);
 
     boolean hasGroupBuyMember(Long teamId, Long userId);
 

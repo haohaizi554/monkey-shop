@@ -8,10 +8,16 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "marketing_user_coupon")
+@Table(
+        name = "marketing_user_coupon",
+        uniqueConstraints =
+                @UniqueConstraint(
+                        name = "uk_marketing_user_coupon_idempotency",
+                        columnNames = {"tenant_id", "idempotency_key"}))
 public class MarketingUserCouponEntity extends TenantScopedJpaEntity {
 
     @Id
