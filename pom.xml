@@ -24,7 +24,7 @@
         <tomcat.version>10.1.56</tomcat.version>
         <jackson-bom.version>2.21.4</jackson-bom.version>
         <log4j2.version>2.26.0</log4j2.version>
-        <dependency-check-maven.version>12.2.2</dependency-check-maven.version>
+        <dependency-check-maven.version>13.0.0</dependency-check-maven.version>
         <autoUpdate>false</autoUpdate>
         <jacoco.version>0.8.15</jacoco.version>
         <pitest.version>1.30.0</pitest.version>
