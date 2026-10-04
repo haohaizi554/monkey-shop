@@ -43,9 +43,17 @@ app:
     require-redis-token-store: ${APP_JWT_REQUIRE_REDIS_TOKEN_STORE:true}
   rate-limit:
     require-redis-state: ${APP_RATE_LIMIT_REQUIRE_REDIS_STATE:true}
+  cart:
+    require-redis-state: ${APP_CART_REQUIRE_REDIS_STATE:true}
+  risk:
+    require-redis-state: ${APP_RISK_REQUIRE_REDIS_STATE:true}
+  image-reference:
+    provider: ${APP_IMAGE_REFERENCE_PROVIDER:redis}
   logistics:
+    gateway: unavailable
     webhook-secret: ${APP_LOGISTICS_WEBHOOK_SECRET}
   payment:
+    gateway: unavailable
     callback-secret: ${APP_PAYMENT_CALLBACK_SECRET}
   snowflake:
     node-lease:

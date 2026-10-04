@@ -600,6 +600,8 @@ class SecurityConfigTest {
                 adminRoute(HttpMethod.POST, "/api/orders/return/approve/1"),
                 adminRoute(HttpMethod.POST, "/api/orders/return/confirm/1"),
                 adminRoute(HttpMethod.POST, "/api/membership/price-drops/scan"),
+                adminRoute(HttpMethod.GET, "/api/membership/admin/7/dashboard"),
+                adminRoute(HttpMethod.POST, "/api/membership/admin/7/level"),
                 adminRoute(HttpMethod.DELETE, "/api/monkeys/1"),
                 authenticatedRoute(HttpMethod.DELETE, "/api/orders/1"));
     }
@@ -609,8 +611,8 @@ class SecurityConfigTest {
                 publicRoute(HttpMethod.GET, "/api/v1/monkeys"),
                 publicRoute(HttpMethod.GET, "/api/v1/users/me"),
                 publicRoute(HttpMethod.GET, "/api/v1/auth/captcha/config"),
-                publicRoute(HttpMethod.GET, "/api/v1/openapi"),
-                publicRoute(HttpMethod.GET, "/api/v1/docs"),
+                deniedRoute(HttpMethod.GET, "/api/v1/openapi"),
+                deniedRoute(HttpMethod.GET, "/api/v1/docs"),
                 publicRoute(HttpMethod.POST, "/api/v1/auth/login"),
                 publicRoute(HttpMethod.POST, "/api/v1/auth/register"),
                 publicRoute(HttpMethod.POST, "/api/v1/auth/refresh"),
@@ -668,6 +670,8 @@ class SecurityConfigTest {
                 adminRoute(HttpMethod.POST, "/api/v1/orders/return/approve/1"),
                 adminRoute(HttpMethod.POST, "/api/v1/orders/return/confirm/1"),
                 adminRoute(HttpMethod.POST, "/api/v1/membership/price-drops/scan"),
+                adminRoute(HttpMethod.GET, "/api/v1/membership/admin/7/dashboard"),
+                adminRoute(HttpMethod.POST, "/api/v1/membership/admin/7/level"),
                 adminRoute(HttpMethod.DELETE, "/api/v1/monkeys/1"),
                 authenticatedRoute(HttpMethod.DELETE, "/api/v1/orders/1"));
     }
@@ -682,6 +686,10 @@ class SecurityConfigTest {
 
     private static Arguments adminRoute(HttpMethod method, String path) {
         return Arguments.of(method, path, 401, 403, 200);
+    }
+
+    private static Arguments deniedRoute(HttpMethod method, String path) {
+        return Arguments.of(method, path, 401, 403, 403);
     }
 
     @RestController
@@ -806,6 +814,16 @@ class SecurityConfigTest {
 
         @PostMapping({"/api/membership/price-drops/scan", "/api/v1/membership/price-drops/scan"})
         String membershipPriceDropScan() {
+            return "ok";
+        }
+
+        @GetMapping({"/api/membership/admin/7/dashboard", "/api/v1/membership/admin/7/dashboard"})
+        String membershipAdminDashboard() {
+            return "ok";
+        }
+
+        @PostMapping({"/api/membership/admin/7/level", "/api/v1/membership/admin/7/level"})
+        String membershipAdminLevel() {
             return "ok";
         }
 

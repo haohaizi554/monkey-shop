@@ -60,7 +60,7 @@ public class TenantContextFilter extends OncePerRequestFilter {
                 return;
             }
 
-            Long tenantId = resolveTenantId(user, requestedTenantId);
+            Long tenantId = resolveTenantId(request, user, requestedTenantId);
             if (!tenantAccessGateway.isServiceableTenant(tenantId)) {
                 writeProblem(response, request, ErrorCode.FORBIDDEN);
                 return;
@@ -93,14 +93,26 @@ public class TenantContextFilter extends OncePerRequestFilter {
                         || "TENANT_ADMIN".equals(authority.getAuthority()));
     }
 
-    private static Long resolveTenantId(SessionUser user, Long requestedTenantId) {
+    private static Long resolveTenantId(HttpServletRequest request, SessionUser user, Long requestedTenantId) {
         if (user != null && !"ADMIN".equals(user.role())) {
             return user.tenantId();
         }
-        if (requestedTenantId != null) {
+        if (requestedTenantId != null && (user != null || anonymousMaySelectTenant(request))) {
             return requestedTenantId;
         }
         return user == null ? SessionUser.DEFAULT_TENANT_ID : user.tenantId();
+    }
+
+    private static boolean anonymousMaySelectTenant(HttpServletRequest request) {
+        if (isSafeMethod(request.getMethod())) {
+            return true;
+        }
+        String path = ApiPaths.canonicalize(request.getRequestURI());
+        return "/api/payments/callback".equals(path) || "/api/logistics/webhook".equals(path);
+    }
+
+    private static boolean isSafeMethod(String method) {
+        return "GET".equals(method) || "HEAD".equals(method) || "OPTIONS".equals(method);
     }
 
     private static Long parseTenantHeader(String rawTenantId) {

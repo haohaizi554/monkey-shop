@@ -8,6 +8,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.net.ServerSocket;
 import org.junit.jupiter.api.Test;
 import org.redisson.client.RedisConnectionException;
+import org.redisson.config.ClusterServersConfig;
 import org.redisson.config.Config;
 import org.redisson.config.SingleServerConfig;
 
@@ -36,6 +37,21 @@ class RedissonConfigTest {
         Config config = RedissonConfig.singleServerConfig("redis.internal", 6380, "", "", true);
 
         assertThat(config.useSingleServer().getAddress()).isEqualTo("rediss://redis.internal:6380");
+    }
+
+    @Test
+    void clusterConfigUsesEveryConfiguredNodeInNativeClusterMode() {
+        Config config = RedissonConfig.redisConfig(
+                "ignored", 6379, "monkeyshop", "secret", true,
+                "redis-a.internal:6379, redis-b.internal:6380");
+
+        ClusterServersConfig server = config.useClusterServers();
+        assertThat(server.getNodeAddresses())
+                .containsExactly(
+                        "rediss://redis-a.internal:6379",
+                        "rediss://redis-b.internal:6380");
+        assertThat(configValue(config, "getUsername")).isEqualTo("monkeyshop");
+        assertThat(configValue(config, "getPassword")).isEqualTo("secret");
     }
 
     private static int unusedLocalPort() throws IOException {

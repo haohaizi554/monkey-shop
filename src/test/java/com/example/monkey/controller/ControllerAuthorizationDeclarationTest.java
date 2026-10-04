@@ -95,6 +95,10 @@ class ControllerAuthorizationDeclarationTest {
         assertAuthorization(com.example.monkey.payment.interfaces.PaymentController.class, "callback", "permitAll()");
         assertAuthorization(
                 com.example.monkey.logistics.interfaces.LogisticsController.class, "webhook", "permitAll()");
+        assertAuthorization(
+                com.example.monkey.logistics.interfaces.LogisticsController.class,
+                "createShipment",
+                "hasAuthority('ORDER_MANAGE')");
     }
 
     private static boolean isMappedEndpoint(Method method) {

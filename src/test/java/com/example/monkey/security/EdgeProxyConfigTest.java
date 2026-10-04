@@ -82,6 +82,18 @@ class EdgeProxyConfigTest {
     }
 
     @Test
+    void productionProfilesRequireRedisBackedCartStateAndCheckoutLocks() throws IOException {
+        String prod = Files.readString(Path.of("src/main/resources/application-prod.yml"), StandardCharsets.UTF_8);
+        String staging =
+                Files.readString(Path.of("src/main/resources/application-staging.yml"), StandardCharsets.UTF_8);
+        String helmValues = Files.readString(Path.of("helm/monkeyshop/values.yaml"), StandardCharsets.UTF_8);
+
+        assertThat(prod).contains("require-redis-state: ${APP_CART_REQUIRE_REDIS_STATE:true}");
+        assertThat(staging).contains("require-redis-state: ${APP_CART_REQUIRE_REDIS_STATE:true}");
+        assertThat(helmValues).contains("APP_CART_REQUIRE_REDIS_STATE: \"true\"");
+    }
+
+    @Test
     void productionProfilesEnableExternalHumanVerificationAndPiiEncryption() throws IOException {
         String prod = Files.readString(Path.of("src/main/resources/application-prod.yml"), StandardCharsets.UTF_8);
         String staging =

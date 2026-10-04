@@ -1,12 +1,15 @@
 package com.example.monkey.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
 class SupplyChainAutomationTest {
@@ -124,6 +127,7 @@ class SupplyChainAutomationTest {
     void verifyKyvernoSupplyChainGateIsWiredIntoCi() throws IOException {
         String ci = Files.readString(Path.of(".github/workflows/ci.yaml"), StandardCharsets.UTF_8);
         String script = Files.readString(Path.of("scripts/verify-kyverno-supply-chain.ps1"), StandardCharsets.UTF_8);
+        String policy = Files.readString(Path.of("deploy/kyverno/monkeyshop-image-policy.yaml"), StandardCharsets.UTF_8);
 
         assertThat(ci)
                 .contains("Verify WS7 manifests")
@@ -139,6 +143,48 @@ class SupplyChainAutomationTest {
                 .contains("must render the prod app image by immutable digest")
                 .contains("must not use an all-zero digest placeholder")
                 .contains("Kyverno supply-chain gate completed successfully");
+        assertThat(policy)
+                .contains("\"ghcr.io/haohaizi554/monkey-shop:*\"")
+                .contains("\"ghcr.io/haohaizi554/monkey-shop@sha256:*\"")
+                .contains(
+                        "subjectRegExp: https://github.com/haohaizi554/monkey-shop/.github/workflows/ci.yaml@refs/.+")
+                .doesNotContain("ghcr.io/*/monkeyshop*", "harbor.example.com/monkeyshop/monkeyshop*")
+                .doesNotContain("JavaScript_MonkeyShop");
+    }
+
+    @Test
+    void kyvernoSupplyChainVerifierExecutesAndRejectsAnUntrustedProductionRepository() throws Exception {
+        String powershell = findPowerShell();
+        assumeTrue(powershell != null, "PowerShell is required for the executable supply-chain check");
+
+        Path renderedDir = Files.createTempDirectory(Path.of("target"), "kyverno-supply-chain-");
+        try {
+            String appDigest = "sha256:" + "a".repeat(64);
+            String initDigest = "sha256:" + "b".repeat(64);
+            for (String environment : List.of("dev", "staging", "prod")) {
+                Files.writeString(
+                        renderedDir.resolve("monkeyshop-" + environment + ".yaml"),
+                        podManifest("ghcr.io/haohaizi554/monkey-shop@" + appDigest, "busybox@" + initDigest),
+                        StandardCharsets.UTF_8);
+            }
+
+            VerificationResult valid = runKyvernoVerifier(powershell, renderedDir);
+            assertThat(valid.exitCode()).as(valid.output()).isZero();
+
+            Files.writeString(
+                    renderedDir.resolve("monkeyshop-prod.yaml"),
+                    podManifest("ghcr.io/untrusted/monkey-shop@" + appDigest, "busybox@" + initDigest),
+                    StandardCharsets.UTF_8);
+            VerificationResult invalid = runKyvernoVerifier(powershell, renderedDir);
+            assertThat(invalid.exitCode()).as(invalid.output()).isNotZero();
+            assertThat(invalid.output()).contains("must render the prod app image by immutable digest");
+        } finally {
+            try (var paths = Files.walk(renderedDir)) {
+                for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                    Files.deleteIfExists(path);
+                }
+            }
+        }
     }
 
     @Test
@@ -375,4 +421,81 @@ class SupplyChainAutomationTest {
                 .doesNotContain("requireSSL=false")
                 .doesNotContain("verifyServerCertificate=false");
     }
+
+    private static String findPowerShell() throws Exception {
+        for (String candidate : List.of("pwsh", "powershell")) {
+            try {
+                Process process = new ProcessBuilder(candidate, "-NoProfile", "-NonInteractive", "-Command", "exit 0")
+                        .redirectErrorStream(true)
+                        .start();
+                if (process.waitFor(5, TimeUnit.SECONDS) && process.exitValue() == 0) {
+                    return candidate;
+                }
+                process.destroyForcibly();
+            } catch (IOException ignored) {
+                // Try the other platform name before allowing the test to be skipped.
+            }
+        }
+        return null;
+    }
+
+    private static VerificationResult runKyvernoVerifier(String powershell, Path renderedDir) throws Exception {
+        Path script = Path.of("scripts/verify-kyverno-supply-chain.ps1").toAbsolutePath();
+        Process process = new ProcessBuilder(
+                        powershell,
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-ExecutionPolicy",
+                        "Bypass",
+                        "-File",
+                        script.toString(),
+                        "-RenderedDir",
+                        renderedDir.toAbsolutePath().toString())
+                .directory(Path.of(".").toAbsolutePath().normalize().toFile())
+                .redirectErrorStream(true)
+                .start();
+        boolean finished = process.waitFor(30, TimeUnit.SECONDS);
+        if (!finished) {
+            process.destroyForcibly();
+            throw new IllegalStateException("Kyverno supply-chain verifier timed out");
+        }
+        String output;
+        try (var input = process.getInputStream()) {
+            output = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        return new VerificationResult(process.exitValue(), output);
+    }
+
+    private static String podManifest(String appImage, String initImage) {
+        return """
+                apiVersion: v1
+                kind: Pod
+                metadata:
+                  name: monkeyshop
+                spec:
+                  initContainers:
+                    - name: wait-for-mysql
+                      image: %s
+                  containers:
+                    - name: app
+                      image: %s
+                      securityContext:
+                        runAsNonRoot: true
+                        readOnlyRootFilesystem: true
+                        allowPrivilegeEscalation: false
+                        capabilities:
+                          drop:
+                            - ALL
+                      resources:
+                        requests:
+                          cpu: 1m
+                          memory: 1Mi
+                        limits:
+                          cpu: 1m
+                          memory: 1Mi
+                """
+                .formatted(initImage, appImage);
+    }
+
+    private record VerificationResult(int exitCode, String output) {}
 }

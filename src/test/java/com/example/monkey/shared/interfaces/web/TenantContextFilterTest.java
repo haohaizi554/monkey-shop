@@ -147,6 +147,32 @@ class TenantContextFilterTest {
     }
 
     @Test
+    void anonymousWriteIgnoresTenantHeaderExceptSignedCallbacks() throws Exception {
+        when(tenantAccessGateway.isServiceableTenant(1L)).thenReturn(true);
+        when(tenantAccessGateway.isServiceableTenant(200L)).thenReturn(true);
+        MockHttpServletRequest tracking = new MockHttpServletRequest("POST", "/api/v1/tracking/events");
+        tracking.addHeader(TenantContextFilter.TENANT_HEADER, "200");
+
+        filter.doFilter(tracking, new MockHttpServletResponse(), (servletRequest, servletResponse) ->
+                assertThat(TenantContext.currentTenantIdOrDefault()).isEqualTo(1L));
+
+        MockHttpServletRequest callback = new MockHttpServletRequest("POST", "/api/v1/payments/callback");
+        callback.addHeader(TenantContextFilter.TENANT_HEADER, "200");
+        filter.doFilter(callback, new MockHttpServletResponse(), (servletRequest, servletResponse) ->
+                assertThat(TenantContext.currentTenantIdOrDefault()).isEqualTo(200L));
+    }
+
+    @Test
+    void anonymousCatalogReadCanSelectAServiceableTenant() throws Exception {
+        when(tenantAccessGateway.isServiceableTenant(200L)).thenReturn(true);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/catalog");
+        request.addHeader(TenantContextFilter.TENANT_HEADER, "200");
+
+        filter.doFilter(request, new MockHttpServletResponse(), (servletRequest, servletResponse) ->
+                assertThat(TenantContext.currentTenantIdOrDefault()).isEqualTo(200L));
+    }
+
+    @Test
     void nonApiResourcesBypassTenantLookup() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/assets/application.js");
         MockHttpServletResponse response = new MockHttpServletResponse();

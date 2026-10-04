@@ -152,6 +152,21 @@ class SecurityFilterChainMatrixTest {
                 true,
                 200,
                 "inventory compensation with ORDER_MANAGE");
+        Stream<Arguments> logisticsShipmentCreation = Stream.concat(
+                aliases(
+                        List.of("/logistics/shipments"),
+                        HttpMethod.POST,
+                        PrincipalKind.USER,
+                        true,
+                        403,
+                        "shipment creation without ORDER_MANAGE"),
+                aliases(
+                        List.of("/logistics/shipments"),
+                        HttpMethod.POST,
+                        PrincipalKind.ORDER_MANAGER,
+                        true,
+                        200,
+                        "shipment creation with ORDER_MANAGE"));
         Stream<Arguments> membershipAdminActions = Stream.concat(
                 aliases(
                         List.of("/membership/points/earn", "/membership/level", "/membership/price-drops/scan"),
@@ -225,6 +240,7 @@ class SecurityFilterChainMatrixTest {
                         marketingAdminReturn,
                         inventoryReleaseDenied,
                         inventoryReleaseAllowed,
+                        logisticsShipmentCreation,
                         membershipAdminActions,
                         csrfAndDefaults)
                 .flatMap(stream -> stream);
@@ -347,6 +363,11 @@ class SecurityFilterChainMatrixTest {
 
         @PostMapping({"/api/payments/callback", "/api/v1/payments/callback"})
         String paymentCallback() {
+            return "ok";
+        }
+
+        @PostMapping({"/api/logistics/shipments", "/api/v1/logistics/shipments"})
+        String logisticsShipment() {
             return "ok";
         }
 

@@ -143,7 +143,8 @@ public class SecurityConfig {
             TenantAccessGateway tenantAccessGateway,
             AuditService auditService,
             ObjectMapper objectMapper,
-            @Value("${app.security.csp.upgrade-insecure-requests:true}") boolean cspUpgradeInsecureRequests)
+            @Value("${app.security.csp.upgrade-insecure-requests:true}") boolean cspUpgradeInsecureRequests,
+            @Value("${app.security.expose-api-docs:false}") boolean exposeApiDocs)
             throws Exception {
         http.csrf(csrf -> csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
                         .csrfTokenRequestHandler(new SpaCsrfTokenRequestHandler())
@@ -192,15 +193,11 @@ public class SecurityConfig {
                                 "/css/**",
                                 "/js/**",
                                 "/images/**",
-                                "/api/v1/openapi",
-                                "/api/v1/openapi/**",
-                                "/api/v1/docs",
-                                "/api/v1/docs/**",
                                 "/actuator/health",
                                 "/actuator/health/**",
-                                "/actuator/prometheus",
-                                "/swagger-ui/**",
-                                "/v3/api-docs/**")
+                                "/actuator/prometheus")
+                        .permitAll()
+                        .requestMatchers(request -> exposeApiDocs && isApiDocRequest(request))
                         .permitAll()
                         .requestMatchers(
                                 "/api/auth/captcha",
@@ -306,8 +303,11 @@ public class SecurityConfig {
                                 "/api/v1/payments/refund")
                         .hasAuthority("ORDER_READ_OWN")
                         .requestMatchers(
+                                HttpMethod.POST,
                                 "/api/logistics/shipments",
-                                "/api/v1/logistics/shipments",
+                                "/api/v1/logistics/shipments")
+                        .hasAuthority("ORDER_MANAGE")
+                        .requestMatchers(
                                 "/api/logistics/orders/**",
                                 "/api/v1/logistics/orders/**",
                                 "/api/logistics/tracking/**",
@@ -328,6 +328,8 @@ public class SecurityConfig {
                                 "/api/v1/membership/level",
                                 "/api/membership/price-drops/scan",
                                 "/api/v1/membership/price-drops/scan")
+                        .hasAuthority("MEMBERSHIP_ADMIN")
+                        .requestMatchers("/api/membership/admin/**", "/api/v1/membership/admin/**")
                         .hasAuthority("MEMBERSHIP_ADMIN")
                         .requestMatchers("/api/membership/**", "/api/v1/membership/**")
                         .hasAuthority("MEMBERSHIP_WRITE")
@@ -477,6 +479,14 @@ public class SecurityConfig {
             CsrfTokenRequestHandler delegate = StringUtils.hasText(headerValue) ? plain : xor;
             return delegate.resolveCsrfTokenValue(request, csrfToken);
         }
+    }
+
+    private static boolean isApiDocRequest(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        return uri.startsWith("/api/v1/openapi")
+                || uri.startsWith("/api/v1/docs")
+                || uri.startsWith("/swagger-ui")
+                || uri.startsWith("/v3/api-docs");
     }
 
     private static boolean isCsrfIgnoredPublicPost(HttpServletRequest request) {
