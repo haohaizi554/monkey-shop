@@ -61,7 +61,21 @@ const orders = [
   },
 ]
 
-async function installAdminMocks(page: Page) {
+const canonicalStatusCases = [
+  { status: 'PENDING_PAYMENT', label: 'Pending payment', tone: 'warning' },
+  { status: 'FULFILLING', label: 'Fulfilling', tone: 'info' },
+  { status: 'CANCELLED', label: 'Cancelled', tone: 'neutral' },
+  { status: 'FAILED', label: 'Failed', tone: 'danger' },
+] as const
+
+const canonicalStatusOrders = canonicalStatusCases.map((statusCase, index) => ({
+  ...orders[0],
+  id: 21 + index,
+  orderNo: `ORDER-${statusCase.status}`,
+  status: statusCase.status,
+}))
+
+async function installAdminMocks(page: Page, orderRows = orders) {
   await page.addInitScript(() => {
     localStorage.setItem('monkeyshop-locale', 'en')
     localStorage.setItem('monkeyshop-theme', 'light')
@@ -90,12 +104,12 @@ async function installAdminMocks(page: Page) {
       const keyword = (url.searchParams.get('keyword') ?? '').trim().toLocaleLowerCase()
       data = pageResult(
         keyword
-          ? orders.filter((order) =>
+          ? orderRows.filter((order) =>
               [order.orderNo, order.productName, order.buyerName].some((value) =>
                 value.toLocaleLowerCase().includes(keyword),
               ),
             )
-          : orders,
+          : orderRows,
       )
     } else if (pathname === '/monkeys/1' && request.method() === 'DELETE') {
       await new Promise((resolve) => setTimeout(resolve, 450))
@@ -121,6 +135,19 @@ async function installAdminMocks(page: Page) {
     })
   })
 }
+
+test('admin order status tags use canonical labels and tones for valid states', async ({ page }) => {
+  await installAdminMocks(page, canonicalStatusOrders)
+  await page.goto('/admin')
+
+  for (const [index, statusCase] of canonicalStatusCases.entries()) {
+    const row = page.locator(`.admin-data-row--order-${21 + index}`)
+    await expect(row).toBeVisible()
+    await expect(row.locator('.status-tag')).toContainText(statusCase.label)
+    await expect(row.locator('.status-tag')).toHaveAttribute('data-tone', statusCase.tone)
+  }
+  await expect(page.locator('.order-table')).not.toContainText('Unknown')
+})
 
 test('admin product mutation is row-scoped while trace and URL order search stay usable', async ({
   page,

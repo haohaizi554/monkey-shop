@@ -6,6 +6,7 @@ type Operation = 'claim' | 'redeem' | 'return' | 'quote' | 'seckill' | 'group-bu
 type MarketingMocks = {
   gates?: Partial<Record<Operation, Promise<void>>>
   failureCount?: Partial<Record<Operation, number>>
+  couponStatus?: string
 }
 
 function ok(data: unknown) {
@@ -23,7 +24,7 @@ function operationFor(pathname: string): Operation | undefined {
   }[pathname] as Operation | undefined
 }
 
-function resultFor(operation: Operation) {
+function resultFor(operation: Operation, couponResultStatus?: string) {
   if (operation === 'quote')
     return {
       originalAmount: '128.00',
@@ -57,7 +58,9 @@ function resultFor(operation: Operation) {
     couponId: 2400000000001,
     couponCode: 'PLATFORM-20',
     userId: 1,
-    status: operation === 'return' ? 'RETURNED' : operation === 'redeem' ? 'USED' : 'CLAIMED',
+    status:
+      couponResultStatus ??
+      (operation === 'return' ? 'RETURNED' : operation === 'redeem' ? 'USED' : 'CLAIMED'),
     claimedAt: '2026-07-12T08:00:00',
   }
 }
@@ -121,7 +124,7 @@ async function installMarketingMocks(page: Page, mocks: MarketingMocks = {}) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(ok(resultFor(operation))),
+      body: JSON.stringify(ok(resultFor(operation, mocks.couponStatus))),
     })
   })
   return calls
@@ -219,8 +222,21 @@ test('group retry clears its task error and preserves a completed quote', async 
   await group.getByRole('button', { name: 'Join group buy' }).click()
   await expect(group.getByTestId('group-error')).toHaveCount(0)
   await expect(group.getByTestId('group-result')).toContainText('Open')
+  await expect(group.getByTestId('group-result').locator('strong')).toHaveText('Team 99: 2/3')
+  await expect(group.getByTestId('group-result').getByText('Open', { exact: true })).toHaveCount(1)
   await expect(quote.getByTestId('quote-result')).toContainText('Payable')
   expect(requests(calls, 'group-buy')).toBe(2)
+})
+
+test('unknown coupon status remains neutral and explicitly unavailable', async ({ page }) => {
+  await installMarketingMocks(page, { couponStatus: 'FUTURE_STATUS' })
+  await page.goto('/marketing')
+  const coupon = task(page, 'Coupon')
+  await coupon.getByRole('button', { name: 'Claim', exact: true }).click()
+
+  const status = coupon.getByTestId('coupon-result').locator('.status-tag')
+  await expect(status).toHaveAttribute('data-tone', 'neutral')
+  await expect(status).toHaveText('Status unavailable')
 })
 
 test('coupon claim blocks invalid ID expressions and blank idempotency keys before a request', async ({

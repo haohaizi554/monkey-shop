@@ -34,6 +34,20 @@ interface InventoryQuery {
 
 type ReservationStatus = InventoryReservation['status']
 
+// RouterView may recreate this view while a query-only navigation settles. Keep the
+// session-local snapshots above the component scope so an in-flight mutation can still
+// reconcile into the active view without losing the previous table identities.
+const inventorySessionStocksState = useAsyncState<WarehouseStock[]>({ preserveData: true })
+const inventorySessionReconciliationState = useAsyncState<InventoryReconciliation>({
+  preserveData: true,
+})
+const inventorySessionReservations = ref<InventoryReservation[]>([])
+const inventorySessionPendingKeys = ref(new Set<string>())
+const inventorySessionActiveSkuId = ref<number | null>(null)
+const inventorySessionAppliedSkuId = ref<number | null>(null)
+const inventorySessionAppliedRegion = ref('')
+const inventorySessionStockQueryPending = ref(false)
+
 const inventoryQuerySchema: RouteQuerySchema<InventoryQuery> = {
   parse(query: LocationQuery) {
     const rawSku = Array.isArray(query.skuId) ? query.skuId[0] : query.skuId
@@ -55,19 +69,20 @@ const inventoryQuerySchema: RouteQuerySchema<InventoryQuery> = {
 const { t } = useI18n()
 const notify = useNotify()
 const { state: query, replaceNow } = useRouteQueryState(inventoryQuerySchema, { debounceMs: 250 })
-const stocksState = useAsyncState<WarehouseStock[]>({ preserveData: true })
-const reconciliationState = useAsyncState<InventoryReconciliation>({ preserveData: true })
-const reservations = ref<InventoryReservation[]>([])
+const stocksState = inventorySessionStocksState
+const reconciliationState = inventorySessionReconciliationState
+const reservations = inventorySessionReservations
 const reservationKey = ref('')
 const reserveQuantity = ref(1)
 const reservationError = ref('')
-const pendingKeys = ref(new Set<string>())
-const stockQueryPending = ref(false)
+const pendingKeys = inventorySessionPendingKeys
+const stockQueryPending = inventorySessionStockQueryPending
 let stockLoadTimer: ReturnType<typeof setTimeout> | undefined
 
 const stocks = computed(() => stocksState.data.value ?? [])
-const appliedRegion = ref('')
-const appliedSkuId = ref<number | null>(null)
+const appliedRegion = inventorySessionAppliedRegion
+const appliedSkuId = inventorySessionAppliedSkuId
+const activeSkuId = inventorySessionActiveSkuId
 const normalizedRegion = computed(() => query.region.trim().toLocaleLowerCase())
 const displayedRegion = computed(() =>
   query.skuId !== appliedSkuId.value || stocksState.status.value === 'updating'
@@ -151,9 +166,13 @@ function setPending(key: string, value: boolean) {
   pendingKeys.value = next
 }
 
+function canPatchStockForSku(skuId: number): boolean {
+  return activeSkuId.value === skuId && appliedSkuId.value === skuId
+}
+
 function patchStock(nextStock: WarehouseStock) {
   const rows = stocksState.data.value
-  if (!rows) return
+  if (!rows || !canPatchStockForSku(nextStock.skuId)) return
   const index = rows.findIndex(
     (stock) => stock.skuId === nextStock.skuId && stock.warehouseId === nextStock.warehouseId,
   )
@@ -167,7 +186,7 @@ function patchReservation(nextReservation: InventoryReservation) {
   )
   if (index >= 0) reservations.value.splice(index, 1, nextReservation)
   else reservations.value.unshift(nextReservation)
-  if (query.skuId === nextReservation.skuId) patchStock(nextReservation.stock)
+  if (canPatchStockForSku(nextReservation.skuId)) patchStock(nextReservation.stock)
 }
 
 function discrepancyKey(row: InventoryDiscrepancy): string {
@@ -189,6 +208,15 @@ function mergeDiscrepancies(
 }
 
 async function loadStocks() {
+  console.error(
+    'DEBUG shared load',
+    query.skuId,
+    activeSkuId.value,
+    appliedSkuId.value,
+    stocksState.data.value,
+    stocksState.status.value,
+  )
+  if (activeSkuId.value !== query.skuId) return
   if (!query.skuId) {
     appliedRegion.value = ''
     appliedSkuId.value = null
@@ -202,11 +230,11 @@ async function loadStocks() {
     preserveData: true,
     isEmpty: (rows) => rows.length === 0,
   })
-  if (loaded !== null) {
+  if (loaded !== null && activeSkuId.value === skuId) {
     appliedSkuId.value = skuId
     appliedRegion.value = requestedRegion
-    if (query.skuId === skuId) stockQueryPending.value = false
-  } else if (query.skuId === skuId && stocksState.status.value === 'error') {
+    stockQueryPending.value = false
+  } else if (activeSkuId.value === skuId && stocksState.status.value === 'error') {
     stockQueryPending.value = false
   }
 }
@@ -246,7 +274,7 @@ async function reserveCurrentSku() {
       quantity: reserveQuantity.value,
       reservationKey: keyValue,
     })
-    if (query.skuId === reservation.skuId) stocksState.cancel()
+    if (canPatchStockForSku(reservation.skuId)) stocksState.cancel()
     patchReservation(reservation)
     reservationKey.value = ''
     notify.success(t('inventory.reserved'), { key: 'inventory:reserve:success' })
@@ -263,7 +291,7 @@ async function releaseReservation(reservation: InventoryReservation) {
   setPending(pendingKey, true)
   try {
     const releasedReservation = await releaseInventory(reservation.reservationKey)
-    if (query.skuId === releasedReservation.skuId) stocksState.cancel()
+    if (canPatchStockForSku(releasedReservation.skuId)) stocksState.cancel()
     patchReservation(releasedReservation)
     notify.success(t('inventory.released'), { key: 'inventory:release:success' })
   } catch (error) {
@@ -288,6 +316,7 @@ async function runReconciliation() {
 watch(
   () => query.skuId,
   () => {
+    activeSkuId.value = query.skuId
     stockQueryPending.value = query.skuId !== null && query.skuId !== appliedSkuId.value
     scheduleStockLoad()
   },

@@ -234,6 +234,92 @@ test('inventory allows a search during reservation and cancels the stale stock r
   await expect(page.getByText('EAST-STALE')).toHaveCount(0)
 })
 
+test('inventory does not mix a mutation into preserved rows while the next SKU loads', async ({
+  page,
+}) => {
+  let stock8Requests = 0
+  let userRequests = 0
+  page.on('console', (message) => console.error('DEBUG BROWSER', message.text()))
+  let releaseStock8!: () => void
+  const stock8Gate = new Promise<void>((resolve) => {
+    releaseStock8 = resolve
+  })
+  let releaseReservation!: () => void
+  const reservationGate = new Promise<void>((resolve) => {
+    releaseReservation = resolve
+  })
+
+  await page.addInitScript(() => {
+    localStorage.setItem('monkeyshop-locale', 'en')
+    localStorage.setItem('monkeyshop-theme', 'light')
+  })
+  await page.route('**/api/v1/**', async (route) => {
+    const request = route.request()
+    const pathname = new URL(request.url()).pathname.replace('/api/v1', '')
+    let data: unknown = []
+    if (pathname === '/users/me') {
+      userRequests += 1
+      data = { isLogin: true, identity: 'ADMIN', username: 'admin' }
+    } else if (pathname === '/inventory/skus/7/stocks') {
+      data = [stock(12, 1, 'SKU-7-CURRENT')]
+    } else if (pathname === '/inventory/skus/8/stocks') {
+      stock8Requests += 1
+      await stock8Gate
+      data = [stock(18, 2, 'SKU-8-CURRENT', 'East', 8)]
+    } else if (pathname === '/inventory/reservations' && request.method() === 'POST') {
+      await reservationGate
+      data = {
+        reservationKey: 'sku-8-reservation',
+        skuId: 8,
+        warehouseId: 2,
+        quantity: 1,
+        status: 'RESERVED',
+        expiresAt: '2026-07-12T09:00:00',
+        stock: stock(17, 2, 'SKU-8-MUTATION', 'East', 8),
+      }
+    } else if (pathname === '/tracking/events') {
+      data = { id: 1, eventType: 'PAGE_VIEW' }
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(ok(data)),
+    })
+  })
+
+  await page.goto('/inventory?skuId=7')
+  await expect(page.getByText('SKU-7-CURRENT', { exact: true })).toBeVisible()
+  await page.getByRole('spinbutton', { name: 'SKU id' }).fill('8')
+  await page.getByRole('textbox', { name: 'Region' }).fill('East')
+  await expect(page).toHaveURL(/skuId=8/)
+  await expect.poll(() => stock8Requests).toBe(1)
+  console.error(
+    'DEBUG FOCUSED PRE MUTATION',
+    userRequests,
+    await page.locator('.async-state-view').first().getAttribute('data-status'),
+    await page.locator('body').innerText(),
+  )
+
+  await page.getByRole('textbox', { name: 'Reservation key' }).fill('sku-8-reservation')
+  const reservationRequest = page.waitForRequest((request) =>
+    request.url().endsWith('/api/v1/inventory/reservations'),
+  )
+  await page.getByRole('button', { name: 'Reserve', exact: true }).click()
+  await reservationRequest
+  releaseReservation()
+
+  await expect(page.getByText('sku-8-reservation', { exact: true })).toBeVisible()
+  await expect(page.getByText('SKU-7-CURRENT', { exact: true })).toBeVisible()
+  await expect(page.getByText('SKU-8-MUTATION', { exact: true })).toHaveCount(0)
+  await expect(page.locator('.async-state-view[data-status="updating"]')).toBeVisible()
+
+  releaseStock8()
+  await expect(page.getByText('SKU-8-CURRENT', { exact: true })).toBeVisible()
+  await expect(page.getByText('SKU-7-CURRENT', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('SKU-8-MUTATION', { exact: true })).toHaveCount(0)
+  await expect(page.locator('.async-state-view[data-status="updating"]')).toHaveCount(0)
+})
+
 test('inventory scopes reservation locking and patches each reservation row independently', async ({
   page,
 }) => {

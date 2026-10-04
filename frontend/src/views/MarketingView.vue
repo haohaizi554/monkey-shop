@@ -83,7 +83,8 @@ function couponStatusTone(status: string): StatusTone {
   if (status === 'CLAIMED') return 'success'
   if (status === 'USED') return 'info'
   if (status === 'RETURNED') return 'neutral'
-  return 'warning'
+  if (status === 'EXPIRED') return 'warning'
+  return 'neutral'
 }
 
 function groupStatus(status: string): string {
@@ -100,6 +101,15 @@ function groupStatusTone(status: string): StatusTone {
   if (status === 'SUCCEEDED') return 'success'
   if (status === 'CANCELLED') return 'danger'
   return 'neutral'
+}
+
+function groupSummary(group: GroupBuyTeam): string {
+  return t('marketing.groupSummary', {
+    id: group.id,
+    joined: group.joinedCount,
+    target: group.targetSize,
+    status: '',
+  }).replace(/[,\uFF0C]\s*$/, '')
 }
 
 async function runClaimCoupon() {
@@ -509,14 +519,7 @@ async function runJoinGroup() {
           </p>
           <div v-if="latestGroup" data-testid="group-result" class="task-result" role="status">
             <span>{{ t('marketing.latestResult') }}</span
-            ><strong>{{
-              t('marketing.groupSummary', {
-                id: latestGroup.id,
-                joined: latestGroup.joinedCount,
-                target: latestGroup.targetSize,
-                status: groupStatus(latestGroup.status),
-              })
-            }}</strong
+            ><strong>{{ groupSummary(latestGroup) }}</strong
             ><StatusTag
               :status="latestGroup.status"
               :label="groupStatus(latestGroup.status)"

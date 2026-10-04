@@ -20,7 +20,7 @@ import { useAsyncState } from '@/composables/useAsyncState'
 import { useNotify } from '@/composables/useNotify'
 import { useRouteQueryState, type RouteQuerySchema } from '@/composables/useRouteQueryState'
 import type { Monkey, MonkeyRequest, Order, Stats } from '@/types'
-import { dateTime, money, orderStatusKey, orderStatusLabel } from '@/utils/format'
+import { dateTime, money, orderStatusKey } from '@/utils/format'
 
 defineOptions({ name: 'AdminView' })
 
@@ -618,7 +618,6 @@ refreshAdmin()
               <template #default="{ row }">
                 <StatusTag
                   :status="orderStatusKey(row.status)"
-                  :label="orderStatusLabel(row.status)"
                 />
               </template>
             </el-table-column>
