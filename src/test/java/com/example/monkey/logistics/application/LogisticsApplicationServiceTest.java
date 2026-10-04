@@ -9,8 +9,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.example.monkey.logistics.application.dto.ShipmentCreateRequestDto;
 import com.example.monkey.logistics.application.dto.LogisticsTrackingResponseDto;
+import com.example.monkey.logistics.application.dto.ShipmentCreateRequestDto;
 import com.example.monkey.logistics.application.dto.TrackingWebhookRequestDto;
 import com.example.monkey.logistics.domain.AddressParser;
 import com.example.monkey.logistics.domain.FreightChargeMode;
@@ -36,6 +36,7 @@ import com.example.monkey.order.domain.OrderStore;
 import com.example.monkey.order.domain.OrderStore.OrderRecord;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionUser;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
@@ -57,9 +58,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import com.example.monkey.shared.application.tenant.TenantContext;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -147,22 +147,76 @@ class LogisticsApplicationServiceTest {
         gateway.blockProviderCall();
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
-            Future<LogisticsTrackingResponseDto> first = executor.submit(
-                    () -> service.createShipment(admin(), request(), "ship-key-1"));
+            Future<LogisticsTrackingResponseDto> first =
+                    executor.submit(() -> service.createShipment(admin(), request(), "ship-key-1"));
             assertThat(gateway.providerEntered.await(5, TimeUnit.SECONDS)).isTrue();
-            Future<LogisticsTrackingResponseDto> second = executor.submit(
-                    () -> service.createShipment(admin(), request(), "ship-key-2"));
-            LogisticsTrackingResponseDto secondResult = second.get(5, TimeUnit.SECONDS);
+            Future<LogisticsTrackingResponseDto> second =
+                    executor.submit(() -> service.createShipment(admin(), request(), "ship-key-2"));
+            assertThatThrownBy(() -> second.get(5, TimeUnit.SECONDS))
+                    .isInstanceOf(java.util.concurrent.ExecutionException.class)
+                    .cause()
+                    .isInstanceOfSatisfying(
+                            BusinessException.class,
+                            exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.SERVICE_UNAVAILABLE));
             gateway.allowProviderToReturn.countDown();
             LogisticsTrackingResponseDto firstResult = first.get(5, TimeUnit.SECONDS);
+            LogisticsTrackingResponseDto replay = service.createShipment(admin(), request(), "ship-key-2");
 
-            assertThat(firstResult.trackingNo()).isEqualTo(secondResult.trackingNo());
+            assertThat(firstResult.trackingNo()).isEqualTo(replay.trackingNo());
             assertThat(gateway.createCalls).isEqualTo(1);
             assertThat(logisticsStore.trackings).hasSize(1);
         } finally {
             gateway.allowProviderToReturn.countDown();
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void sameIdempotencyKeyDoesNotTreatAnUnacceptedShipmentAsSuccess() throws Exception {
+        when(orderStore.findById(10L)).thenReturn(Optional.of(order()));
+        when(idGenerator.nextId()).thenReturn(7000L, 7001L);
+        gateway.blockProviderCall();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<LogisticsTrackingResponseDto> first =
+                    executor.submit(() -> service.createShipment(admin(), request(), "ship-key"));
+            assertThat(gateway.providerEntered.await(5, TimeUnit.SECONDS)).isTrue();
+
+            assertThatThrownBy(() -> service.createShipment(admin(), request(), "ship-key"))
+                    .isInstanceOfSatisfying(
+                            BusinessException.class,
+                            exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.SERVICE_UNAVAILABLE));
+
+            gateway.allowProviderToReturn.countDown();
+            LogisticsTrackingResponseDto created = first.get(5, TimeUnit.SECONDS);
+            LogisticsTrackingResponseDto replay = service.createShipment(admin(), request(), "ship-key");
+
+            assertThat(replay.trackingNo()).isEqualTo(created.trackingNo());
+            assertThat(gateway.createCalls).isEqualTo(1);
+        } finally {
+            gateway.allowProviderToReturn.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void sameKeyAfterFailedDeleteOfUnacceptedShipmentIsRetried() {
+        when(orderStore.findById(10L)).thenReturn(Optional.of(order()));
+        when(idGenerator.nextId()).thenReturn(7000L, 7001L);
+        gateway.failNextProviderCall();
+        logisticsStore.failNextDelete = true;
+
+        assertThatThrownBy(() -> service.createShipment(admin(), request(), "ship-stuck"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.SERVICE_UNAVAILABLE));
+        assertThat(logisticsStore.trackings).hasSize(1);
+
+        LogisticsTrackingResponseDto retried = service.createShipment(admin(), request(), "ship-stuck");
+
+        assertThat(retried.trackingNo()).isEqualTo("SF7000");
+        assertThat(gateway.createCalls).isEqualTo(2);
+        assertThat(gateway.providerTokens).containsExactly("SF7000", "SF7000");
     }
 
     @Test
@@ -214,7 +268,6 @@ class LogisticsApplicationServiceTest {
     @Test
     void migratedLegacyClaimBlocksNewIdempotencyKeyBeforeProviderCall() {
         when(orderStore.findById(10L)).thenReturn(Optional.of(order()));
-        when(idGenerator.nextId()).thenReturn(7001L);
         shipmentClaimStore.seedAccepted(new ShipmentCreationClaim(
                 7000L,
                 1L,
@@ -399,8 +452,7 @@ class LogisticsApplicationServiceTest {
 
         assertThat(first.status()).isEqualTo(TrackingStatus.SIGNED);
         assertThat(replay.status()).isEqualTo(TrackingStatus.SIGNED);
-        verify(orderFulfillmentPort)
-                .markDelivered(1L, 10L, 7000L, Instant.parse("2026-07-04T12:00:00Z"));
+        verify(orderFulfillmentPort).markDelivered(1L, 10L, 7000L, Instant.parse("2026-07-04T12:00:00Z"));
     }
 
     @Test
@@ -620,6 +672,16 @@ class LogisticsApplicationServiceTest {
         private final Map<Long, ShipmentCreationClaim> byOrder = new LinkedHashMap<>();
         private final Map<String, ShipmentCreationClaim> byKey = new LinkedHashMap<>();
 
+        @Override
+        public synchronized java.util.Optional<ShipmentCreationClaim> findByTenantAndOrder(
+                long tenantId, long orderId) {
+            ShipmentCreationClaim claim = byOrder.get(orderId);
+            if (claim == null || claim.tenantId() != tenantId) {
+                return java.util.Optional.empty();
+            }
+            return java.util.Optional.of(claim);
+        }
+
         private synchronized void seedAccepted(ShipmentCreationClaim claim) {
             byOrder.put(claim.orderId(), claim);
             byKey.put(claim.ownerUserId() + ":" + claim.idempotencyKey(), claim);
@@ -630,12 +692,17 @@ class LogisticsApplicationServiceTest {
                 ShipmentCreationClaim candidate, LocalDateTime now, Duration leaseDuration) {
             ShipmentCreationClaim keyClaim = byKey.get(candidate.ownerUserId() + ":" + candidate.idempotencyKey());
             ShipmentCreationClaim orderClaim = byOrder.get(candidate.orderId());
-            if (keyClaim != null && (!keyClaim.sameOrder(candidate.tenantId(), candidate.orderId())
-                    || !keyClaim.requestFingerprint().equals(candidate.requestFingerprint()))) {
+            if (keyClaim != null
+                    && (!keyClaim.sameOrder(candidate.tenantId(), candidate.orderId())
+                            || !keyClaim.requestFingerprint().equals(candidate.requestFingerprint()))) {
                 throw new BusinessException(ErrorCode.CONFLICT, "Idempotency-Key is already bound");
             }
-            if (orderClaim != null && (!orderClaim.sameRequest(
-                    candidate.tenantId(), candidate.orderId(), candidate.ownerUserId(), candidate.requestFingerprint()))) {
+            if (orderClaim != null
+                    && (!orderClaim.sameRequest(
+                            candidate.tenantId(),
+                            candidate.orderId(),
+                            candidate.ownerUserId(),
+                            candidate.requestFingerprint()))) {
                 throw new BusinessException(ErrorCode.CONFLICT, "Order already has a different shipment request");
             }
             ShipmentCreationClaim existing = keyClaim == null ? orderClaim : keyClaim;
@@ -660,8 +727,8 @@ class LogisticsApplicationServiceTest {
             if (existing.accepted() || existing.leaseExpiresAt().isAfter(now)) {
                 return new ShipmentClaimReservation(existing, false);
             }
-            ShipmentCreationClaim renewed = existing.withLease(
-                    UUID.randomUUID().toString(), now.plus(leaseDuration), now);
+            ShipmentCreationClaim renewed =
+                    existing.withLease(UUID.randomUUID().toString(), now.plus(leaseDuration), now);
             byOrder.put(renewed.orderId(), renewed);
             byKey.put(renewed.ownerUserId() + ":" + renewed.idempotencyKey(), renewed);
             return new ShipmentClaimReservation(renewed, true);
@@ -704,6 +771,7 @@ class LogisticsApplicationServiceTest {
     private static final class InMemoryLogisticsStore implements LogisticsStore {
         private final Map<Long, LogisticsTracking> trackings = new LinkedHashMap<>();
         private final List<TrackingEventRecord> events = new ArrayList<>();
+        private boolean failNextDelete;
 
         @Override
         public Optional<LogisticsTracking> findByTrackingNo(String trackingNo) {
@@ -736,6 +804,10 @@ class LogisticsApplicationServiceTest {
 
         @Override
         public void deleteTracking(Long trackingId) {
+            if (failNextDelete) {
+                failNextDelete = false;
+                throw new IllegalStateException("delete failed");
+            }
             trackings.remove(trackingId);
         }
 

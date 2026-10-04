@@ -98,6 +98,7 @@ class UserServiceTest {
                 .satisfies(exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.VALIDATION_ERROR));
 
         verify(passwordHasher, never()).hash(any());
+        verify(userAccountStore, never()).findByUsername(any());
         verify(userAccountStore, never()).save(any(UserAccount.class));
     }
 
@@ -141,13 +142,17 @@ class UserServiceTest {
             List<Long> observedTenantIds = new ArrayList<>();
             when(passwordHasher.hash("StrongPass1!")).thenReturn("encoded-password");
             doAnswer(invocation -> {
-                observedTenantIds.add(TenantContext.currentTenantIdOrDefault());
-                return Optional.empty();
-            }).when(userAccountStore).findByUsername("alice");
+                        observedTenantIds.add(TenantContext.currentTenantIdOrDefault());
+                        return Optional.empty();
+                    })
+                    .when(userAccountStore)
+                    .findByUsername("alice");
             doAnswer(invocation -> {
-                observedTenantIds.add(TenantContext.currentTenantIdOrDefault());
-                return withId(invocation.getArgument(0), 7L);
-            }).when(userAccountStore).save(any(UserAccount.class));
+                        observedTenantIds.add(TenantContext.currentTenantIdOrDefault());
+                        return withId(invocation.getArgument(0), 7L);
+                    })
+                    .when(userAccountStore)
+                    .save(any(UserAccount.class));
 
             userService.register("alice", "StrongPass1!", "18888888888", null);
 
@@ -155,9 +160,11 @@ class UserServiceTest {
             assertThat(saved.tenantId()).isEqualTo(200L);
 
             doAnswer(invocation -> {
-                observedTenantIds.add(TenantContext.currentTenantIdOrDefault());
-                return Optional.of(saved);
-            }).when(userAccountStore).findByUsername("alice");
+                        observedTenantIds.add(TenantContext.currentTenantIdOrDefault());
+                        return Optional.of(saved);
+                    })
+                    .when(userAccountStore)
+                    .findByUsername("alice");
             when(passwordHasher.matches("StrongPass1!", "encoded-password")).thenReturn(true);
 
             AuthPrincipal authenticated = userService.authenticate("alice", "StrongPass1!");
@@ -440,13 +447,12 @@ class UserServiceTest {
 
     @Test
     void updatePasswordRejectsWeakPasswordBeforeSaving() {
-        when(userAccountStore.findById(7L)).thenReturn(Optional.of(account()));
-
         assertThatExceptionOfType(BusinessException.class)
                 .isThrownBy(() -> userService.updatePassword(7L, "18888888888", "Password1"))
                 .withMessageStartingWith("password policy violation")
                 .satisfies(exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.VALIDATION_ERROR));
 
+        verify(userAccountStore, never()).findById(any());
         verify(userAccountStore, never()).save(any(UserAccount.class));
     }
 

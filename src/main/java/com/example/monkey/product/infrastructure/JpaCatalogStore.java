@@ -1,10 +1,10 @@
 package com.example.monkey.product.infrastructure;
 
 import com.example.monkey.product.domain.CatalogSku;
-import com.example.monkey.product.domain.CatalogStore.CatalogPage;
-import com.example.monkey.product.domain.CatalogStore.CatalogPageRequest;
 import com.example.monkey.product.domain.CatalogSpu;
 import com.example.monkey.product.domain.CatalogStore;
+import com.example.monkey.product.domain.CatalogStore.CatalogPage;
+import com.example.monkey.product.domain.CatalogStore.CatalogPageRequest;
 import com.example.monkey.product.domain.CategoryNode;
 import com.example.monkey.product.domain.ProductPriceBook;
 import com.example.monkey.product.domain.SkuSpecification;
@@ -71,7 +71,8 @@ public class JpaCatalogStore implements CatalogStore {
     @Override
     public CatalogSpu save(CatalogSpu spu) {
         Optional<ProductSpu> existing = spuRepository.findById(spu.id());
-        requireImageTrackingConfigured(spu.imageUrl(), existing.map(ProductSpu::getImageUrl).orElse(null));
+        requireImageTrackingConfigured(
+                spu.imageUrl(), existing.map(ProductSpu::getImageUrl).orElse(null));
         ProductSpu entity = existing.orElseGet(() -> new ProductSpu(spu.id()));
         ProductPriceBook priceBook = spu.priceBook();
         entity.setCategoryId(spu.categoryId());
@@ -105,8 +106,7 @@ public class JpaCatalogStore implements CatalogStore {
 
     @Override
     public CatalogPage findManagementPage(CatalogPageRequest request) {
-        PageRequest pageable = PageRequest.of(
-                request.page(), request.size(), Sort.by(Sort.Order.desc("id")));
+        PageRequest pageable = PageRequest.of(request.page(), request.size(), Sort.by(Sort.Order.desc("id")));
         Page<ProductSpu> page = spuRepository.findManagementPage(
                 TenantContext.currentTenantIdOrDefault(), request.status(), request.keyword(), pageable);
         List<CatalogSpu> content = page.getContent().stream()
@@ -128,9 +128,7 @@ public class JpaCatalogStore implements CatalogStore {
 
     @Override
     public Optional<CatalogSpu> findSpuById(Long spuId) {
-        return spuRepository
-                .findById(spuId)
-                .map(spu -> toDomain(spu, activeSkus(spuId)));
+        return spuRepository.findById(spuId).map(spu -> toDomain(spu, activeSkus(spuId)));
     }
 
     @Override

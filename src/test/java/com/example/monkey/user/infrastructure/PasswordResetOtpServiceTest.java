@@ -61,8 +61,7 @@ class PasswordResetOtpServiceTest {
                 redisTemplate,
                 true);
 
-        assertThat(runConcurrentConsumers(
-                        () -> service.consumeResetOtp("alice", "18888888888", "654321")))
+        assertThat(runConcurrentConsumers(() -> service.consumeResetOtp("alice", "18888888888", "654321")))
                 .containsExactlyInAnyOrder(true, false);
     }
 
@@ -105,12 +104,10 @@ class PasswordResetOtpServiceTest {
                 true);
 
         TenantContext.setTenantId(1L);
-        assertThat(service.consumeResetChallenge(
-                        "alice", "18888888888", "alice@example.com", "654321", "email-token"))
+        assertThat(service.consumeResetChallenge("alice", "18888888888", "alice@example.com", "654321", "email-token"))
                 .isTrue();
         TenantContext.setTenantId(2L);
-        assertThat(service.consumeResetChallenge(
-                        "alice", "18888888888", "alice@example.com", "654321", "email-token"))
+        assertThat(service.consumeResetChallenge("alice", "18888888888", "alice@example.com", "654321", "email-token"))
                 .isTrue();
 
         assertThat(keyBatches).hasSize(2).allSatisfy(keys -> {
@@ -152,12 +149,10 @@ class PasswordResetOtpServiceTest {
                 .satisfies(script -> assertThat(script)
                         .contains("PSETEX', KEYS[1]", "PSETEX', KEYS[2]")
                         .doesNotContain("DEL"));
-        assertThat(dualStoreKeyBatches)
-                .singleElement()
-                .satisfies(keys -> {
-                    assertThat(keys).hasSize(2);
-                    assertThat(redisHashTag(keys.get(0))).isNotBlank().isEqualTo(redisHashTag(keys.get(1)));
-                });
+        assertThat(dualStoreKeyBatches).singleElement().satisfies(keys -> {
+            assertThat(keys).hasSize(2);
+            assertThat(redisHashTag(keys.get(0))).isNotBlank().isEqualTo(redisHashTag(keys.get(1)));
+        });
     }
 
     @Test
@@ -443,7 +438,8 @@ class PasswordResetOtpServiceTest {
     void requiredRedisStateEnforcesPhoneCooldownFromRedis() {
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
         mockRedisValues(redisTemplate);
-        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class))).thenReturn(-1L);
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class)))
+                .thenReturn(-1L);
         PasswordResetOtpService service = new PasswordResetOtpService(
                 new MutableClock(),
                 () -> 654321,
@@ -462,7 +458,8 @@ class PasswordResetOtpServiceTest {
     void requiredRedisStateLimitsDailyCountFromRedis() {
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
         mockRedisValues(redisTemplate);
-        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class))).thenReturn(-1L);
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class)))
+                .thenReturn(-1L);
         PasswordResetOtpService service = new PasswordResetOtpService(
                 new MutableClock(),
                 () -> 654321,
@@ -481,7 +478,8 @@ class PasswordResetOtpServiceTest {
     void requiredRedisStateAllowsFifthDailyResetRequestBoundary() {
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
         mockRedisValues(redisTemplate);
-        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class))).thenReturn(5L);
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class)))
+                .thenReturn(5L);
         PasswordResetOtpService service = new PasswordResetOtpService(
                 new MutableClock(),
                 () -> 654321,
@@ -621,7 +619,8 @@ class PasswordResetOtpServiceTest {
     private static ValueOperations<String, String> mockRedisValues(StringRedisTemplate redisTemplate) {
         ValueOperations<String, String> redisValues = mock(ValueOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(redisValues);
-        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class))).thenReturn(1L);
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class)))
+                .thenReturn(1L);
         return redisValues;
     }
 

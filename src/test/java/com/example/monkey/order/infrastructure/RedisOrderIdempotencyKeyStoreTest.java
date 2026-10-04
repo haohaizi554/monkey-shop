@@ -41,8 +41,7 @@ class RedisOrderIdempotencyKeyStoreTest {
         store.reserve(42L, "order-key-1", "request-hash", Duration.ofHours(24));
 
         verify(valueOperations)
-                .setIfAbsent(
-                        "order:idempotency:tenant:3:user:42:order-key-1", "request-hash", Duration.ofHours(24));
+                .setIfAbsent("order:idempotency:tenant:3:user:42:order-key-1", "request-hash", Duration.ofHours(24));
     }
 
     @Test
@@ -60,8 +59,7 @@ class RedisOrderIdempotencyKeyStoreTest {
         TenantContext.setTenantId(3L);
         doThrow(new RuntimeException("redis unavailable"))
                 .when(valueOperations)
-                .setIfAbsent(
-                        "order:idempotency:tenant:3:user:42:order-key-1", "request-hash", Duration.ofHours(24));
+                .setIfAbsent("order:idempotency:tenant:3:user:42:order-key-1", "request-hash", Duration.ofHours(24));
 
         assertThatCode(() -> store.reserve(42L, "order-key-1", "request-hash", Duration.ofHours(24)))
                 .doesNotThrowAnyException();

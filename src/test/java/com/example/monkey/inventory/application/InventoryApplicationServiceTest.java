@@ -36,8 +36,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Supplier;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 
 class InventoryApplicationServiceTest {
@@ -117,10 +117,10 @@ class InventoryApplicationServiceTest {
                 new WarehouseStock(101L, 2200000000001L, "BJ-01", "CN-BJ", 5, 0, 0, 0, 1, 0));
         InventoryApplicationService service = service(store, Duration.ofMinutes(15));
 
-        InventoryReservationResponseDto first = service.reserve(
-                new InventoryReserveRequestDto(101L, null, "CN-BJ", 10L, 1, "same-key"));
-        InventoryReservationResponseDto replay = service.reserve(
-                new InventoryReserveRequestDto(101L, null, "  CN-BJ  ", 10L, 1, "same-key"));
+        InventoryReservationResponseDto first =
+                service.reserve(new InventoryReserveRequestDto(101L, null, "CN-BJ", 10L, 1, "same-key"));
+        InventoryReservationResponseDto replay =
+                service.reserve(new InventoryReserveRequestDto(101L, null, "  CN-BJ  ", 10L, 1, "same-key"));
 
         assertThat(replay).isEqualTo(first);
         assertThat(store.stock(101L, 2200000000001L).availableQuantity()).isEqualTo(4);
@@ -132,15 +132,16 @@ class InventoryApplicationServiceTest {
         InMemoryInventoryStore store = new InMemoryInventoryStore(
                 new WarehouseStock(101L, 2200000000001L, "BJ-01", "CN-BJ", 5, 0, 0, 0, 1, 0),
                 new WarehouseStock(101L, 2200000000002L, "SH-01", "CN-SH", 5, 0, 0, 0, 1, 0));
-        InventoryApplicationService service = service(store, new CoordinatedInventoryLockManager(), Duration.ofMinutes(15));
+        InventoryApplicationService service =
+                service(store, new CoordinatedInventoryLockManager(), Duration.ofMinutes(15));
         InventoryReserveRequestDto first =
                 new InventoryReserveRequestDto(101L, 2200000000001L, null, 10L, 1, "racing-key");
         InventoryReserveRequestDto second =
                 new InventoryReserveRequestDto(101L, 2200000000002L, null, 11L, 2, "racing-key");
 
         var executor = Executors.newFixedThreadPool(2);
-        List<Callable<ReservationAttempt>> tasks = List.of(
-                () -> attempt(service, first), () -> attempt(service, second));
+        List<Callable<ReservationAttempt>> tasks =
+                List.of(() -> attempt(service, first), () -> attempt(service, second));
         List<ReservationAttempt> attempts = executor.invokeAll(tasks).stream()
                 .map(future -> {
                     try {
@@ -169,9 +170,7 @@ class InventoryApplicationServiceTest {
     }
 
     private static void assertDifferentPayloadRejected(
-            InMemoryInventoryStore store,
-            InventoryReserveRequestDto first,
-            InventoryReserveRequestDto different) {
+            InMemoryInventoryStore store, InventoryReserveRequestDto first, InventoryReserveRequestDto different) {
         InventoryApplicationService service = service(store, Duration.ofMinutes(15));
 
         service.reserve(first);
@@ -183,8 +182,7 @@ class InventoryApplicationServiceTest {
                 .isEqualTo(ErrorCode.CONFLICT);
     }
 
-    private static ReservationAttempt attempt(
-            InventoryApplicationService service, InventoryReserveRequestDto request) {
+    private static ReservationAttempt attempt(InventoryApplicationService service, InventoryReserveRequestDto request) {
         try {
             InventoryReservationResponseDto response = service.reserve(request);
             return new ReservationAttempt(true, response.quantity());
@@ -268,14 +266,7 @@ class InventoryApplicationServiceTest {
                 new WarehouseStock(101L, 2200000000001L, "BJ-01", "CN-BJ", 4, 6, 0, 0, 1, 0));
         LocalDateTime expiresAt = LocalDateTime.of(2026, 7, 4, 0, 15);
         store.saveReservation(new InventoryReservation(
-                9001L,
-                "lifecycle-race",
-                101L,
-                2200000000001L,
-                10L,
-                1,
-                InventoryReservationStatus.RESERVED,
-                expiresAt));
+                9001L, "lifecycle-race", 101L, 2200000000001L, 10L, 1, InventoryReservationStatus.RESERVED, expiresAt));
         store.saveReservation(new InventoryReservation(
                 9002L,
                 "unrelated-reservation",
@@ -286,8 +277,8 @@ class InventoryApplicationServiceTest {
                 InventoryReservationStatus.RESERVED,
                 expiresAt));
 
-        InventoryApplicationService service = service(
-                store, new CoordinatedSerializedInventoryLockManager(), Duration.ofMinutes(15));
+        InventoryApplicationService service =
+                service(store, new CoordinatedSerializedInventoryLockManager(), Duration.ofMinutes(15));
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             List<Callable<InventoryReservationResponseDto>> tasks = List.of(
@@ -306,7 +297,9 @@ class InventoryApplicationServiceTest {
             InventoryReservationStatus terminalStatus =
                     deduct ? InventoryReservationStatus.DEDUCTED : InventoryReservationStatus.RELEASED;
             InventoryOperation operation = deduct ? InventoryOperation.DEDUCT : InventoryOperation.RELEASE;
-            assertThat(responses).hasSize(2).allSatisfy(response -> assertThat(response.status()).isEqualTo(terminalStatus));
+            assertThat(responses)
+                    .hasSize(2)
+                    .allSatisfy(response -> assertThat(response.status()).isEqualTo(terminalStatus));
             assertThat(store.stock(101L, 2200000000001L).availableQuantity()).isEqualTo(deduct ? 4 : 5);
             assertThat(store.stock(101L, 2200000000001L).lockedQuantity()).isEqualTo(5);
             assertThat(store.stock(101L, 2200000000001L).deductedQuantity()).isEqualTo(deduct ? 1 : 0);

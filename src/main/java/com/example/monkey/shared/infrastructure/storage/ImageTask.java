@@ -81,7 +81,12 @@ public class ImageTask {
             ActiveTenantIterator activeTenantIterator,
             ObjectStorageService objectStorageService,
             @Value("${app.upload.cleanup.grace-period:PT24H}") Duration gracePeriod) {
-        this(storedImageReferenceReader, imageReferenceService, objectStorageService, activeTenantIterator, gracePeriod);
+        this(
+                storedImageReferenceReader,
+                imageReferenceService,
+                objectStorageService,
+                activeTenantIterator,
+                gracePeriod);
     }
 
     @Autowired
@@ -91,7 +96,8 @@ public class ImageTask {
             ObjectStorageService objectStorageService,
             ActiveTenantIterator activeTenantIterator,
             @Value("${app.upload.cleanup.grace-period:PT24H}") Duration gracePeriod) {
-        this.storedImageReferenceReader = Objects.requireNonNull(storedImageReferenceReader, "storedImageReferenceReader");
+        this.storedImageReferenceReader =
+                Objects.requireNonNull(storedImageReferenceReader, "storedImageReferenceReader");
         this.imageReferenceService = Objects.requireNonNull(imageReferenceService, "imageReferenceService");
         this.objectStorageService = Objects.requireNonNull(objectStorageService, "objectStorageService");
         this.activeTenantIterator = activeTenantIterator;
@@ -153,7 +159,8 @@ public class ImageTask {
             List<CleanupCandidate> logicalAssetFiles = entry.getValue();
             if (referencedPaths.contains(canonicalPath)
                     || logicalAssetFiles.stream()
-                            .anyMatch(candidate -> !candidate.lastModified().plus(gracePeriod).isBefore(now))) {
+                            .anyMatch(candidate ->
+                                    !candidate.lastModified().plus(gracePeriod).isBefore(now))) {
                 continue;
             }
             try {
@@ -171,7 +178,8 @@ public class ImageTask {
         try {
             for (CleanupCandidate candidate : candidates) {
                 if (!objectStorageService.delete(candidate.objectKey())) {
-                    throw new IllegalStateException("Object storage did not confirm deletion of " + candidate.objectKey());
+                    throw new IllegalStateException(
+                            "Object storage did not confirm deletion of " + candidate.objectKey());
                 }
                 log.info("Deleted orphan image {}", candidate.publicUrl());
             }
@@ -186,8 +194,7 @@ public class ImageTask {
     private static List<String> mergeReferenceSnapshots(
             Collection<String> discoveredReferences, Collection<String> confirmedReferences) {
         Map<String, Integer> maximumCounts = referenceCounts(discoveredReferences);
-        referenceCounts(confirmedReferences)
-                .forEach((path, count) -> maximumCounts.merge(path, count, Math::max));
+        referenceCounts(confirmedReferences).forEach((path, count) -> maximumCounts.merge(path, count, Math::max));
         List<String> mergedReferences = new ArrayList<>();
         maximumCounts.forEach((path, count) -> {
             for (int occurrence = 0; occurrence < count; occurrence++) {
@@ -289,6 +296,5 @@ public class ImageTask {
         return objectKey.substring(slash + 1).contains("default_");
     }
 
-    private record CleanupCandidate(
-            String objectKey, String publicUrl, String canonicalPath, Instant lastModified) {}
+    private record CleanupCandidate(String objectKey, String publicUrl, String canonicalPath, Instant lastModified) {}
 }

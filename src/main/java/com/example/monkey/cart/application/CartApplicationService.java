@@ -304,16 +304,15 @@ public class CartApplicationService {
         return lockManager.withCheckoutLock(
                 userId,
                 key,
-                () -> transactions.execute(() -> CartDtoAssembler.toResponse(
-                        checkoutLocked(
-                                userId,
-                                request,
-                                key,
-                                () -> selectedCheckoutInputLines(userId, request.province()),
-                                true,
-                                deviceFingerprint,
-                                clientIp,
-                                "cart.checkout"))));
+                () -> transactions.execute(() -> CartDtoAssembler.toResponse(checkoutLocked(
+                        userId,
+                        request,
+                        key,
+                        () -> selectedCheckoutInputLines(userId, request.province()),
+                        true,
+                        deviceFingerprint,
+                        clientIp,
+                        "cart.checkout"))));
     }
 
     @WithSpan("cart.checkout.direct")
@@ -335,16 +334,15 @@ public class CartApplicationService {
         return lockManager.withCheckoutLock(
                 userId,
                 key,
-                () -> transactions.execute(() -> CartDtoAssembler.toResponse(
-                        checkoutLocked(
-                                userId,
-                                checkoutRequest,
-                                key,
-                                () -> directCheckoutInputLines(userId, request),
-                                false,
-                                deviceFingerprint,
-                                clientIp,
-                                "cart.checkout.direct"))));
+                () -> transactions.execute(() -> CartDtoAssembler.toResponse(checkoutLocked(
+                        userId,
+                        checkoutRequest,
+                        key,
+                        () -> directCheckoutInputLines(userId, request),
+                        false,
+                        deviceFingerprint,
+                        clientIp,
+                        "cart.checkout.direct"))));
     }
 
     private CheckoutOrder checkoutLocked(
@@ -720,9 +718,7 @@ public class CartApplicationService {
     private Map<Long, CartSkuSnapshot> skuSnapshots(PriceContext priceContext, List<CartItem> items) {
         Map<Long, CartSkuSnapshot> snapshots = new HashMap<>();
         for (CartItem item : items) {
-            catalogReader
-                    .findActiveSku(item.skuId(), priceContext)
-                    .ifPresent(sku -> snapshots.put(item.skuId(), sku));
+            catalogReader.findActiveSku(item.skuId(), priceContext).ifPresent(sku -> snapshots.put(item.skuId(), sku));
         }
         return snapshots;
     }

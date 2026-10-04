@@ -15,8 +15,8 @@ import com.example.monkey.shared.application.tenant.ActiveTenantIterator;
 import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import com.example.monkey.shared.domain.storage.ObjectStorageService;
-import com.example.monkey.shared.domain.storage.StoredImageReferenceSource;
 import com.example.monkey.shared.domain.storage.StoredImageReferenceReader;
+import com.example.monkey.shared.domain.storage.StoredImageReferenceSource;
 import com.example.monkey.tenant.domain.ActiveTenantReader;
 import java.io.IOException;
 import java.lang.reflect.Method;
@@ -99,7 +99,8 @@ class ImageTaskTest {
         task.cleanUpOrphanImages();
         referenceService.release("/images/product/shared.png");
 
-        assertThat(referenceService.referenceCount("/images/product/shared.png")).isEqualTo(1L);
+        assertThat(referenceService.referenceCount("/images/product/shared.png"))
+                .isEqualTo(1L);
         assertThat(shared).isRegularFile();
     }
 
@@ -151,7 +152,8 @@ class ImageTaskTest {
         assertThatThrownBy(task::cleanUpOrphanImages).isInstanceOf(IllegalStateException.class);
 
         assertThat(storage.deletedObjectKeys).isEmpty();
-        assertThat(referenceService.referenceCount("/images/product/last-known-good.png")).isEqualTo(1L);
+        assertThat(referenceService.referenceCount("/images/product/last-known-good.png"))
+                .isEqualTo(1L);
     }
 
     @Test
@@ -165,7 +167,8 @@ class ImageTaskTest {
         assertThatThrownBy(task::cleanUpOrphanImages).isInstanceOf(IllegalStateException.class);
 
         assertThat(storage.deletedObjectKeys).isEmpty();
-        assertThat(referenceService.referenceCount("/images/product/last-known-good.png")).isEqualTo(1L);
+        assertThat(referenceService.referenceCount("/images/product/last-known-good.png"))
+                .isEqualTo(1L);
     }
 
     @Test
@@ -254,7 +257,8 @@ class ImageTaskTest {
 
         assertThatThrownBy(task::cleanUpOrphanImages).isInstanceOf(IllegalStateException.class);
 
-        assertThat(referenceService.referenceCount("/images/avatar/last-known-good.png")).isEqualTo(1L);
+        assertThat(referenceService.referenceCount("/images/avatar/last-known-good.png"))
+                .isEqualTo(1L);
     }
 
     @Test
@@ -298,8 +302,7 @@ class ImageTaskTest {
     void rebuildIncludesModernSpuAndReviewImagesEvenWithoutLegacyMonkeyRows() throws Exception {
         ProductSpuRepository spuRepository = mock(ProductSpuRepository.class);
         OrderReviewRepository reviewRepository = mock(OrderReviewRepository.class);
-        when(spuRepository.findImageUrls(PageRequest.of(0, 10)))
-                .thenReturn(List.of("/images/product/spu.png"));
+        when(spuRepository.findImageUrls(PageRequest.of(0, 10))).thenReturn(List.of("/images/product/spu.png"));
         when(reviewRepository.findImageUrls(PageRequest.of(0, 10)))
                 .thenReturn(List.of(" /images/avatar/review-a.png\n/images/avatar/review-b.png "));
 
@@ -318,15 +321,16 @@ class ImageTaskTest {
         assertThat(reviewA).isRegularFile();
         assertThat(reviewB).isRegularFile();
         assertThat(referenceService.referenceCount("/images/product/spu.png")).isEqualTo(1L);
-        assertThat(referenceService.referenceCount("/images/avatar/review-a.png")).isEqualTo(1L);
-        assertThat(referenceService.referenceCount("/images/avatar/review-b.png")).isEqualTo(1L);
+        assertThat(referenceService.referenceCount("/images/avatar/review-a.png"))
+                .isEqualTo(1L);
+        assertThat(referenceService.referenceCount("/images/avatar/review-b.png"))
+                .isEqualTo(1L);
     }
 
     @Test
     void doesNotDeleteImageRetainedAfterDiscoveryBeforeSnapshotCas() throws Exception {
         Path retainedAfterSnapshot = writeOldImage("product/retained-after-snapshot.png");
-        RetainBeforeSnapshotCasReferenceService referenceService =
-                new RetainBeforeSnapshotCasReferenceService();
+        RetainBeforeSnapshotCasReferenceService referenceService = new RetainBeforeSnapshotCasReferenceService();
         ImageTask task = new ImageTask(
                 storedImageReferenceReader, referenceService, uploadRoot.toString(), Duration.ofHours(24));
         ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -377,10 +381,8 @@ class ImageTaskTest {
     @Test
     void successfulCompleteSnapshotRunsDeletionStateMaintenance() {
         RecordingObjectStorageService storage = new RecordingObjectStorageService();
-        RecordingMaintenanceReferenceService referenceService =
-                new RecordingMaintenanceReferenceService();
-        ImageTask task = new ImageTask(
-                storedImageReferenceReader, referenceService, storage, Duration.ofHours(24));
+        RecordingMaintenanceReferenceService referenceService = new RecordingMaintenanceReferenceService();
+        ImageTask task = new ImageTask(storedImageReferenceReader, referenceService, storage, Duration.ofHours(24));
 
         task.cleanUpOrphanImages();
 
@@ -429,15 +431,13 @@ class ImageTaskTest {
         return new ActiveTenantIterator(tenantReader, transactionManager);
     }
 
-    private static final class RetainBeforeSnapshotCasReferenceService
-            extends InMemoryImageReferenceService {
+    private static final class RetainBeforeSnapshotCasReferenceService extends InMemoryImageReferenceService {
 
         private final CountDownLatch snapshotPublishRequested = new CountDownLatch(1);
         private final CountDownLatch retainCompleted = new CountDownLatch(1);
 
         @Override
-        public boolean replaceIfUnchanged(
-                Collection<String> imagePaths, long expectedVersion) {
+        public boolean replaceIfUnchanged(Collection<String> imagePaths, long expectedVersion) {
             snapshotPublishRequested.countDown();
             await(retainCompleted);
             return super.replaceIfUnchanged(imagePaths, expectedVersion);
@@ -461,8 +461,7 @@ class ImageTaskTest {
         }
     }
 
-    private static final class RecordingMaintenanceReferenceService
-            extends InMemoryImageReferenceService {
+    private static final class RecordingMaintenanceReferenceService extends InMemoryImageReferenceService {
 
         private int maintenanceCalls;
         private List<String> lastAuthoritativeReferences = List.of();
@@ -476,8 +475,7 @@ class ImageTaskTest {
             maintenanceCalls++;
             lastAuthoritativeReferences = List.copyOf(authoritativeReferences);
             lastExistingStorageReferences = List.copyOf(existingStorageReferences);
-            return super.maintainDeletionState(
-                    authoritativeReferences, existingStorageReferences, nowEpochMillis);
+            return super.maintainDeletionState(authoritativeReferences, existingStorageReferences, nowEpochMillis);
         }
     }
 
@@ -536,14 +534,19 @@ class ImageTaskTest {
 
         @Override
         public PresignedGetUrl createPresignedGetUrl(String objectKey, Duration ttl) {
-            return new PresignedGetUrl(objectKey, publicUrl(objectKey), Instant.now().plus(ttl));
+            return new PresignedGetUrl(
+                    objectKey, publicUrl(objectKey), Instant.now().plus(ttl));
         }
 
         @Override
         public PresignedPostForm createPresignedPost(
                 String objectKey, String contentType, long maxSizeBytes, Duration ttl) {
             return new PresignedPostForm(
-                    objectKey, "/upload", java.util.Map.of(), publicUrl(objectKey), Instant.now().plus(ttl));
+                    objectKey,
+                    "/upload",
+                    java.util.Map.of(),
+                    publicUrl(objectKey),
+                    Instant.now().plus(ttl));
         }
 
         @Override

@@ -97,8 +97,7 @@ class CartApplicationServiceTest {
     void checkoutRejectsAnAlreadyPoisonedCartItemBeforeReservation() {
         Fixture fixture = new Fixture();
         LocalDateTime now = LocalDateTime.now(CLOCK);
-        fixture.cartStore.seed(new CartSnapshot(
-                USER.id(), List.of(new CartItem(1001L, 99L, 1, true, now, now))));
+        fixture.cartStore.seed(new CartSnapshot(USER.id(), List.of(new CartItem(1001L, 99L, 1, true, now, now))));
 
         assertThatThrownBy(() -> fixture.service.checkout(
                         USER, new CartCheckoutRequestDto(9L, "CN-BJ", List.of("SHOP-10")), "poisoned-shop"))
@@ -526,7 +525,8 @@ class CartApplicationServiceTest {
         fixture.seedSelectedCart();
         fixture.catalog.put(
                 1001L,
-                new CartSkuSnapshot(1001L, 501L, 1L, 11L, "SKU-1001", "Phone XL", "/phone.png", new BigDecimal("120.00")));
+                new CartSkuSnapshot(
+                        1001L, 501L, 1L, 11L, "SKU-1001", "Phone XL", "/phone.png", new BigDecimal("120.00")));
 
         var preview =
                 fixture.service.previewCheckout(USER, new CartCheckoutRequestDto(9L, "CN-SH", List.of("SHOP-10")));
@@ -541,8 +541,8 @@ class CartApplicationServiceTest {
         Fixture previewFixture = new Fixture();
         previewFixture.seedSelectedCart();
 
-        var preview = previewFixture.service.previewCheckout(
-                USER, new CartCheckoutRequestDto(9L, " cn-bj ", List.of()));
+        var preview =
+                previewFixture.service.previewCheckout(USER, new CartCheckoutRequestDto(9L, " cn-bj ", List.of()));
 
         assertThat(preview.originalAmount()).isEqualByComparingTo("230.00");
         assertThat(previewFixture.priceContextRequests).containsExactly("7:CN-BJ");
@@ -594,7 +594,8 @@ class CartApplicationServiceTest {
             this.cartStore = cartStore;
             catalog.put(
                     1001L,
-                    new CartSkuSnapshot(1001L, 501L, 1L, 11L, "SKU-1001", "Phone", "/phone.png", new BigDecimal("100.00")));
+                    new CartSkuSnapshot(
+                            1001L, 501L, 1L, 11L, "SKU-1001", "Phone", "/phone.png", new BigDecimal("100.00")));
             catalog.put(
                     1002L,
                     new CartSkuSnapshot(

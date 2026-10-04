@@ -2,9 +2,9 @@ package com.example.monkey.search.application.dto;
 
 import com.example.monkey.search.domain.SearchQuery;
 import com.example.monkey.search.domain.SearchSort;
-import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
@@ -33,8 +33,7 @@ public record SearchProductQueryRequestDto(
         this(keyword, categoryId, attributeKey, attributeValue, sort, page, size, null, null, null);
     }
 
-    @AssertTrue(message = "minPrice must not exceed maxPrice")
-    public boolean isPriceRangeValid() {
+    @AssertTrue(message = "minPrice must not exceed maxPrice") public boolean isPriceRangeValid() {
         return minPrice == null || maxPrice == null || minPrice.compareTo(maxPrice) <= 0;
     }
 

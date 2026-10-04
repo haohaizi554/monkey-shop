@@ -123,8 +123,7 @@ public class RedisImageReferenceService implements ImageReferenceService {
             return 1
             """, Long.class);
 
-    static final DefaultRedisScript<Long> PUBLISH_IF_UNCHANGED_SCRIPT =
-            new DefaultRedisScript<>("""
+    static final DefaultRedisScript<Long> PUBLISH_IF_UNCHANGED_SCRIPT = new DefaultRedisScript<>("""
                     local protocol = redis.call('HGET', KEYS[3], ARGV[4])
                     if protocol and protocol ~= ARGV[5] then
                       return -4
@@ -205,8 +204,7 @@ public class RedisImageReferenceService implements ImageReferenceService {
             return 1
             """, Long.class);
 
-    private static final DefaultRedisScript<Long> FINALIZE_DELETION_SCRIPT =
-            new DefaultRedisScript<>("""
+    private static final DefaultRedisScript<Long> FINALIZE_DELETION_SCRIPT = new DefaultRedisScript<>("""
                     if redis.call('HGET', KEYS[1], ARGV[1]) ~= ARGV[2] then
                       return 0
                     end
@@ -220,16 +218,14 @@ public class RedisImageReferenceService implements ImageReferenceService {
                     return 1
                     """, Long.class);
 
-    private static final DefaultRedisScript<Long> ABANDON_DELETION_SCRIPT =
-            new DefaultRedisScript<>("""
+    private static final DefaultRedisScript<Long> ABANDON_DELETION_SCRIPT = new DefaultRedisScript<>("""
                     if redis.call('HGET', KEYS[1], ARGV[1]) ~= ARGV[2] then
                       return 0
                     end
                     return redis.call('HDEL', KEYS[1], ARGV[1])
                     """, Long.class);
 
-    private static final DefaultRedisScript<Long> MAINTAIN_TOMBSTONE_SCRIPT =
-            new DefaultRedisScript<>("""
+    private static final DefaultRedisScript<Long> MAINTAIN_TOMBSTONE_SCRIPT = new DefaultRedisScript<>("""
                     if redis.call('HGET', KEYS[3], ARGV[4]) ~= ARGV[5]
                         or redis.call('HGET', KEYS[3], ARGV[3]) ~= '1' then
                       return -3
@@ -272,19 +268,34 @@ public class RedisImageReferenceService implements ImageReferenceService {
     private final ObjectStorageService objectStorageService;
 
     public RedisImageReferenceService(StringRedisTemplate redisTemplate) {
-        this(redisTemplate, null, Duration.ofMinutes(30), Duration.ofDays(7), DEFAULT_MAX_DELETION_TOMBSTONES,
+        this(
+                redisTemplate,
+                null,
+                Duration.ofMinutes(30),
+                Duration.ofDays(7),
+                DEFAULT_MAX_DELETION_TOMBSTONES,
                 DEFAULT_MAINTENANCE_BATCH_SIZE);
     }
 
     public RedisImageReferenceService(StringRedisTemplate redisTemplate, RedissonClient redissonClient) {
-        this(redisTemplate, redissonClient, Duration.ofMinutes(30), Duration.ofDays(7),
-                DEFAULT_MAX_DELETION_TOMBSTONES, DEFAULT_MAINTENANCE_BATCH_SIZE);
+        this(
+                redisTemplate,
+                redissonClient,
+                Duration.ofMinutes(30),
+                Duration.ofDays(7),
+                DEFAULT_MAX_DELETION_TOMBSTONES,
+                DEFAULT_MAINTENANCE_BATCH_SIZE);
     }
 
     public RedisImageReferenceService(
             StringRedisTemplate redisTemplate, RedissonClient redissonClient, Duration deletionClaimStaleAfter) {
-        this(redisTemplate, redissonClient, deletionClaimStaleAfter, Duration.ofDays(7),
-                DEFAULT_MAX_DELETION_TOMBSTONES, DEFAULT_MAINTENANCE_BATCH_SIZE);
+        this(
+                redisTemplate,
+                redissonClient,
+                deletionClaimStaleAfter,
+                Duration.ofDays(7),
+                DEFAULT_MAX_DELETION_TOMBSTONES,
+                DEFAULT_MAINTENANCE_BATCH_SIZE);
     }
 
     public RedisImageReferenceService(
@@ -316,8 +327,7 @@ public class RedisImageReferenceService implements ImageReferenceService {
         this.redisTemplate = redisTemplate;
         this.redissonClient = redissonClient;
         this.deletionClaimStaleAfter = requireNonNegative(deletionClaimStaleAfter, "deletionClaimStaleAfter");
-        this.deletionTombstoneRetention = requireNonNegative(deletionTombstoneRetention,
-                "deletionTombstoneRetention");
+        this.deletionTombstoneRetention = requireNonNegative(deletionTombstoneRetention, "deletionTombstoneRetention");
         if (maxDeletionTombstones <= 0L) {
             throw new IllegalArgumentException("maxDeletionTombstones must be positive");
         }
@@ -338,8 +348,12 @@ public class RedisImageReferenceService implements ImageReferenceService {
         if (path == null) {
             return;
         }
-        Long count = redisTemplate.execute(RETAIN_SCRIPT,
-                List.of(COUNTS_HASH, TOMBSTONES_HASH, META_HASH), path, VERSION_FIELD, PROTOCOL_FIELD,
+        Long count = redisTemplate.execute(
+                RETAIN_SCRIPT,
+                List.of(COUNTS_HASH, TOMBSTONES_HASH, META_HASH),
+                path,
+                VERSION_FIELD,
+                PROTOCOL_FIELD,
                 PROTOCOL_VERSION);
         if (count != null && count == -1L) {
             throw new IllegalStateException("Image path has already been deleted and cannot be reused");
@@ -356,8 +370,8 @@ public class RedisImageReferenceService implements ImageReferenceService {
         if (path == null) {
             return;
         }
-        Long count = redisTemplate.execute(RELEASE_SCRIPT, List.of(COUNTS_HASH, META_HASH),
-                path, VERSION_FIELD, PROTOCOL_FIELD, PROTOCOL_VERSION);
+        Long count = redisTemplate.execute(
+                RELEASE_SCRIPT, List.of(COUNTS_HASH, META_HASH), path, VERSION_FIELD, PROTOCOL_FIELD, PROTOCOL_VERSION);
         if (count == null || count == -4L || count < 0L) {
             throw protocolFailure("release image reference", count);
         }
@@ -372,8 +386,8 @@ public class RedisImageReferenceService implements ImageReferenceService {
         if (path == null) {
             return 0L;
         }
-        Long count = redisTemplate.execute(REFERENCE_COUNT_SCRIPT, List.of(COUNTS_HASH, META_HASH),
-                path, PROTOCOL_FIELD, PROTOCOL_VERSION);
+        Long count = redisTemplate.execute(
+                REFERENCE_COUNT_SCRIPT, List.of(COUNTS_HASH, META_HASH), path, PROTOCOL_FIELD, PROTOCOL_VERSION);
         if (count == null || count == -4L || count < 0L) {
             throw protocolFailure("read image reference count", count);
         }
@@ -382,8 +396,13 @@ public class RedisImageReferenceService implements ImageReferenceService {
 
     @Override
     public void clear() {
-        Long version = redisTemplate.execute(CLEAR_SCRIPT, List.of(COUNTS_HASH, META_HASH), VERSION_FIELD,
-                READY_FIELD, PROTOCOL_FIELD, PROTOCOL_VERSION);
+        Long version = redisTemplate.execute(
+                CLEAR_SCRIPT,
+                List.of(COUNTS_HASH, META_HASH),
+                VERSION_FIELD,
+                READY_FIELD,
+                PROTOCOL_FIELD,
+                PROTOCOL_VERSION);
         if (version == null || version == -4L || version <= 0L) {
             throw protocolFailure("clear image references", version);
         }
@@ -409,8 +428,8 @@ public class RedisImageReferenceService implements ImageReferenceService {
 
     @Override
     public boolean authoritativeSnapshotReady() {
-        Long ready = redisTemplate.execute(READY_SCRIPT, List.of(META_HASH), READY_FIELD, PROTOCOL_FIELD,
-                PROTOCOL_VERSION);
+        Long ready =
+                redisTemplate.execute(READY_SCRIPT, List.of(META_HASH), READY_FIELD, PROTOCOL_FIELD, PROTOCOL_VERSION);
         if (ready == null || ready < 0L) {
             throw new IllegalStateException("Unable to read image reference snapshot readiness from Redis");
         }
@@ -427,10 +446,17 @@ public class RedisImageReferenceService implements ImageReferenceService {
             return false;
         }
         String token = UUID.randomUUID().toString();
-        String claim = redisTemplate.execute(CLAIM_DELETION_SCRIPT,
-                List.of(COUNTS_HASH, TOMBSTONES_HASH, META_HASH), path, token,
-                Long.toString(deletionClaimStaleAfter.toMillis()), READY_FIELD, PROTOCOL_FIELD, PROTOCOL_VERSION,
-                Long.toString(maxDeletionTombstones), CLAIM_GENERATION_FIELD);
+        String claim = redisTemplate.execute(
+                CLAIM_DELETION_SCRIPT,
+                List.of(COUNTS_HASH, TOMBSTONES_HASH, META_HASH),
+                path,
+                token,
+                Long.toString(deletionClaimStaleAfter.toMillis()),
+                READY_FIELD,
+                PROTOCOL_FIELD,
+                PROTOCOL_VERSION,
+                Long.toString(maxDeletionTombstones),
+                CLAIM_GENERATION_FIELD);
         if ("UNREADY".equals(claim)) {
             log.warn("Skipped image deletion until a compatible authoritative reference snapshot is ready");
             return false;
@@ -447,9 +473,14 @@ public class RedisImageReferenceService implements ImageReferenceService {
         if (claim == null || !claim.startsWith("CLAIMED:")) {
             throw new IllegalStateException("Unable to claim image deletion in Redis");
         }
-        Long verified = redisTemplate.execute(VERIFY_DELETION_SCRIPT,
-                List.of(COUNTS_HASH, TOMBSTONES_HASH, META_HASH), path, READY_FIELD, PROTOCOL_FIELD,
-                PROTOCOL_VERSION, claim);
+        Long verified = redisTemplate.execute(
+                VERIFY_DELETION_SCRIPT,
+                List.of(COUNTS_HASH, TOMBSTONES_HASH, META_HASH),
+                path,
+                READY_FIELD,
+                PROTOCOL_FIELD,
+                PROTOCOL_VERSION,
+                claim);
         if (verified == null) {
             throw new IllegalStateException("Unable to validate image deletion claim in Redis");
         }
@@ -473,8 +504,10 @@ public class RedisImageReferenceService implements ImageReferenceService {
     }
 
     @Override
-    public DeletionMaintenanceResult maintainDeletionState(Collection<String> authoritativeReferences,
-            Collection<String> existingStorageReferences, long nowEpochMillis) {
+    public DeletionMaintenanceResult maintainDeletionState(
+            Collection<String> authoritativeReferences,
+            Collection<String> existingStorageReferences,
+            long nowEpochMillis) {
         if (!authoritativeSnapshotReady()) {
             return DeletionMaintenanceResult.NONE;
         }
@@ -485,7 +518,8 @@ public class RedisImageReferenceService implements ImageReferenceService {
         int compactedTombstones = 0;
         int transitions = 0;
         HashOperations<String, Object, Object> tombstones = redisTemplate.opsForHash();
-        ScanOptions scanOptions = ScanOptions.scanOptions().count(maintenanceBatchSize).build();
+        ScanOptions scanOptions =
+                ScanOptions.scanOptions().count(maintenanceBatchSize).build();
         try (Cursor<Map.Entry<Object, Object>> cursor = tombstones.scan(TOMBSTONES_HASH, scanOptions)) {
             while (cursor.hasNext()) {
                 Map.Entry<Object, Object> entry = cursor.next();
@@ -554,15 +588,20 @@ public class RedisImageReferenceService implements ImageReferenceService {
             stageArguments.add(path);
             stageArguments.add(count);
         });
-        Long staged = redisTemplate.execute(STAGE_SNAPSHOT_SCRIPT, List.of(stagingKey),
-                stageArguments.toArray(Object[]::new));
+        Long staged = redisTemplate.execute(
+                STAGE_SNAPSHOT_SCRIPT, List.of(stagingKey), stageArguments.toArray(Object[]::new));
         if (staged == null || staged != 1L) {
             throw new IllegalStateException("Unable to stage image reference snapshot in Redis");
         }
         try {
-            Long published = redisTemplate.execute(PUBLISH_IF_UNCHANGED_SCRIPT,
+            Long published = redisTemplate.execute(
+                    PUBLISH_IF_UNCHANGED_SCRIPT,
                     List.of(COUNTS_HASH, TOMBSTONES_HASH, META_HASH, stagingKey),
-                    Long.toString(expectedVersion), VERSION_FIELD, READY_FIELD, PROTOCOL_FIELD, PROTOCOL_VERSION,
+                    Long.toString(expectedVersion),
+                    VERSION_FIELD,
+                    READY_FIELD,
+                    PROTOCOL_FIELD,
+                    PROTOCOL_VERSION,
                     STAGING_SENTINEL);
             if (published == null || published == -4L) {
                 throw protocolFailure("publish image reference snapshot", published);
@@ -583,8 +622,8 @@ public class RedisImageReferenceService implements ImageReferenceService {
     }
 
     private void finalizeDeletion(String path, String claim, boolean deleted) {
-        Long finalized = redisTemplate.execute(FINALIZE_DELETION_SCRIPT, List.of(TOMBSTONES_HASH), path, claim,
-                deleted ? "1" : "0");
+        Long finalized = redisTemplate.execute(
+                FINALIZE_DELETION_SCRIPT, List.of(TOMBSTONES_HASH), path, claim, deleted ? "1" : "0");
         if (finalized == null) {
             throw new IllegalStateException("Unable to finalize image deletion claim in Redis");
         }
@@ -604,9 +643,15 @@ public class RedisImageReferenceService implements ImageReferenceService {
     }
 
     private boolean maintainTombstone(String path, String expectedMarker, String operation) {
-        Long maintained = redisTemplate.execute(MAINTAIN_TOMBSTONE_SCRIPT,
-                List.of(COUNTS_HASH, TOMBSTONES_HASH, META_HASH), path, expectedMarker, READY_FIELD,
-                PROTOCOL_FIELD, PROTOCOL_VERSION, operation,
+        Long maintained = redisTemplate.execute(
+                MAINTAIN_TOMBSTONE_SCRIPT,
+                List.of(COUNTS_HASH, TOMBSTONES_HASH, META_HASH),
+                path,
+                expectedMarker,
+                READY_FIELD,
+                PROTOCOL_FIELD,
+                PROTOCOL_VERSION,
+                operation,
                 Long.toString(deletionClaimStaleAfter.toMillis()),
                 Long.toString(deletionTombstoneRetention.toMillis()));
         if (maintained == null || maintained == -3L) {
@@ -622,8 +667,8 @@ public class RedisImageReferenceService implements ImageReferenceService {
                     .filter(ImageReferenceService::isTrackable)
                     .map(path -> managedPath(path, false))
                     .filter(java.util.Objects::nonNull)
-                    .forEach(path -> replacement.merge(path, "1",
-                            (left, right) -> Long.toString(Long.parseLong(left) + Long.parseLong(right))));
+                    .forEach(path -> replacement.merge(
+                            path, "1", (left, right) -> Long.toString(Long.parseLong(left) + Long.parseLong(right))));
         }
         return replacement;
     }

@@ -14,8 +14,7 @@ public interface InventoryStockRepository extends JpaRepository<InventoryStock, 
     List<InventoryStock> findBySkuIdOrderByAvailableQuantityDesc(Long skuId);
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
-    @Query(
-            value = """
+    @Query(value = """
                     UPDATE inventory_stock
                     SET available_quantity = :availableQuantity,
                         locked_quantity = :lockedQuantity,
@@ -27,8 +26,7 @@ public interface InventoryStockRepository extends JpaRepository<InventoryStock, 
                       AND warehouse_id = :warehouseId
                       AND tenant_id = :tenantId
                       AND version = :expectedVersion
-                    """,
-            nativeQuery = true)
+                    """, nativeQuery = true)
     int updateQuantities(
             @Param("skuId") Long skuId,
             @Param("warehouseId") Long warehouseId,

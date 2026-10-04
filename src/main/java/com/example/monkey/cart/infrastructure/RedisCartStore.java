@@ -158,8 +158,7 @@ public class RedisCartStore implements CartStore {
             removeFallbackItem(identity, skuId.toString(), ttl);
             return;
         }
-        execute(
-                REMOVE_ITEM_SCRIPT, List.of(key(identity)), skuId.toString(), Long.toString(ttlSeconds(ttl)));
+        execute(REMOVE_ITEM_SCRIPT, List.of(key(identity)), skuId.toString(), Long.toString(ttlSeconds(ttl)));
     }
 
     @Override

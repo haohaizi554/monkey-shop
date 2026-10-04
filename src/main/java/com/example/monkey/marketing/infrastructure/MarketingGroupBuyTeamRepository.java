@@ -14,8 +14,7 @@ public interface MarketingGroupBuyTeamRepository extends JpaRepository<Marketing
             GroupBuyStatus status, LocalDateTime now);
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
-    @Query(
-            value = """
+    @Query(value = """
                     UPDATE marketing_group_buy_team
                     SET joined_count = joined_count + :delta,
                         status = CASE
@@ -27,13 +26,11 @@ public interface MarketingGroupBuyTeamRepository extends JpaRepository<Marketing
                       AND tenant_id = :tenantId
                       AND status = 'OPEN'
                       AND joined_count + :delta <= target_size
-                    """,
-            nativeQuery = true)
+                    """, nativeQuery = true)
     int joinIfOpen(@Param("id") Long id, @Param("tenantId") long tenantId, @Param("delta") int delta);
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
-    @Query(
-            value = """
+    @Query(value = """
                     UPDATE marketing_group_buy_team
                     SET status = :nextStatus,
                         version = version + 1
@@ -41,8 +38,7 @@ public interface MarketingGroupBuyTeamRepository extends JpaRepository<Marketing
                       AND tenant_id = :tenantId
                       AND status = :currentStatus
                       AND joined_count = :joinedCount
-                    """,
-            nativeQuery = true)
+                    """, nativeQuery = true)
     int transitionStatus(
             @Param("id") Long id,
             @Param("tenantId") long tenantId,

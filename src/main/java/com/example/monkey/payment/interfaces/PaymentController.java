@@ -43,11 +43,7 @@ public class PaymentController {
             @AuthenticationPrincipal SessionUser currentUser,
             HttpServletRequest httpRequest) {
         return Result.success(paymentApplicationService.createPayment(
-                currentUser,
-                request,
-                idempotencyKey,
-                deviceFingerprint,
-                ClientIps.resolve(httpRequest)));
+                currentUser, request, idempotencyKey, deviceFingerprint, ClientIps.resolve(httpRequest)));
     }
 
     @PostMapping("/callback")

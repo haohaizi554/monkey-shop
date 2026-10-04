@@ -21,9 +21,9 @@ import com.example.monkey.product.domain.ProductStatus;
 import com.example.monkey.product.domain.SkuCartesianProductGenerator;
 import com.example.monkey.product.domain.SkuSpecification;
 import com.example.monkey.product.domain.SpecificationDimension;
+import com.example.monkey.shared.application.dto.PageResponseDto;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.storage.ImageReferenceTransactions;
-import com.example.monkey.shared.application.dto.PageResponseDto;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
@@ -146,9 +146,8 @@ public class ProductCatalogApplicationService {
     @WithSpan("catalog.management-page")
     @Transactional(readOnly = true)
     public PageResponseDto<CatalogSpuResponseDto> findManagementPage(CatalogManagementPageQueryDto request) {
-        CatalogManagementPageQueryDto safeRequest = request == null
-                ? new CatalogManagementPageQueryDto(0, 20, null, null)
-                : request;
+        CatalogManagementPageQueryDto safeRequest =
+                request == null ? new CatalogManagementPageQueryDto(0, 20, null, null) : request;
         CatalogStore.CatalogPage page = catalogStore.findManagementPage(safeRequest.toRequest());
         return PageResponseDto.from(
                 page.content().stream().map(CatalogDtoAssembler::toResponse).toList(),
@@ -192,9 +191,7 @@ public class ProductCatalogApplicationService {
                     return new CatalogSku(
                             previous == null ? idGenerator.nextId() : previous.id(),
                             spuId,
-                            previous == null
-                                    ? "SPU-" + spuId + "-" + specification.codeSuffix()
-                                    : previous.skuCode(),
+                            previous == null ? "SPU-" + spuId + "-" + specification.codeSuffix() : previous.skuCode(),
                             specification,
                             priceBook,
                             true);

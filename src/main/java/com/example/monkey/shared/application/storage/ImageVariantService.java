@@ -2,9 +2,9 @@ package com.example.monkey.shared.application.storage;
 
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
+import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import com.example.monkey.shared.domain.storage.ObjectStorageKey;
 import com.example.monkey.shared.domain.storage.ObjectStorageService;
-import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;

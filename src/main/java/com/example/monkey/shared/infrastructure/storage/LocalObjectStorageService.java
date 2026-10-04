@@ -144,8 +144,10 @@ public class LocalObjectStorageService implements ObjectStorageService {
                     if (!normalizedPath.startsWith(uploadRoot)) {
                         throw new IOException("object storage path escapes upload root: " + path);
                     }
-                    String objectKey = uploadRoot.relativize(normalizedPath).toString().replace('\\', '/');
-                    objects.add(new StoredObjectMetadata(objectKey, Files.getLastModifiedTime(path).toInstant()));
+                    String objectKey =
+                            uploadRoot.relativize(normalizedPath).toString().replace('\\', '/');
+                    objects.add(new StoredObjectMetadata(
+                            objectKey, Files.getLastModifiedTime(path).toInstant()));
                 }
             } catch (UncheckedIOException exception) {
                 throw exception.getCause();

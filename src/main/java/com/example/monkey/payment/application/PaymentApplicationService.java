@@ -2,6 +2,7 @@ package com.example.monkey.payment.application;
 
 import static com.example.monkey.shared.application.security.AuthenticatedPrincipals.requireUserId;
 
+import com.example.monkey.membership.domain.PurchasePointsLifecycle;
 import com.example.monkey.order.domain.OrderStatus;
 import com.example.monkey.order.domain.OrderStore;
 import com.example.monkey.order.domain.OrderStore.CheckoutOrderLineRecord;
@@ -43,7 +44,6 @@ import com.example.monkey.payment.domain.RefundAuditIntent;
 import com.example.monkey.payment.domain.RefundAuditState;
 import com.example.monkey.payment.domain.RefundResponseSnapshot;
 import com.example.monkey.risk.domain.CommercialRiskGate;
-import com.example.monkey.membership.domain.PurchasePointsLifecycle;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.application.tenant.TenantContext;
@@ -650,10 +650,8 @@ public class PaymentApplicationService {
         this.userMfaVerifier = userMfaVerifier;
         this.idGenerator = idGenerator;
         this.auditService = auditService;
-        this.authoritativeTrackingPort = Objects.requireNonNull(
-                authoritativeTrackingPort, "authoritativeTrackingPort");
-        this.purchasePointsLifecycle = Objects.requireNonNull(
-                purchasePointsLifecycle, "purchasePointsLifecycle");
+        this.authoritativeTrackingPort = Objects.requireNonNull(authoritativeTrackingPort, "authoritativeTrackingPort");
+        this.purchasePointsLifecycle = Objects.requireNonNull(purchasePointsLifecycle, "purchasePointsLifecycle");
         this.reconciliationSource = Objects.requireNonNull(reconciliationSource, "reconciliationSource");
         this.commercialRiskGate = Objects.requireNonNull(commercialRiskGate, "commercialRiskGate");
         this.paymentTransactions = paymentTransactions;
@@ -733,14 +731,7 @@ public class PaymentApplicationService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN, "Order is not available for payment"));
         BigDecimal amount = money(order.price());
         commercialRiskGate.requireAllowed(
-                userId,
-                null,
-                null,
-                order.id(),
-                deviceFingerprint,
-                clientIp,
-                "payment.create",
-                request.totpCode());
+                userId, null, null, order.id(), deviceFingerprint, clientIp, "payment.create", request.totpCode());
         PaymentRequestFingerprint fingerprint =
                 PaymentRequestFingerprint.of(order.id(), request.method(), amount, "CNY");
         PaymentStore.PaymentIntent existing = paymentTransactions.execute(
@@ -1145,14 +1136,15 @@ public class PaymentApplicationService {
                         PaymentOrder paid = confirmPayment(
                                 latest.payment(),
                                 result.providerTradeNo(),
-                                "payment:query:" + latest.payment().paymentNo());
+                                queryRequestKey(latest.payment().paymentNo()));
                         paymentStore.savePaymentQueryAttempt(
                                 paid, latest.queryAttempt().stop());
                         return true;
                     }
                     if (PaymentStatus.FAILED.equals(result.status())) {
                         PaymentOrder failed = failPayment(
-                                latest.payment(), "query:" + latest.payment().paymentNo());
+                                latest.payment(),
+                                queryRequestKey(latest.payment().paymentNo()));
                         paymentStore.savePaymentQueryAttempt(
                                 failed, latest.queryAttempt().stop());
                         return true;
@@ -1196,15 +1188,12 @@ public class PaymentApplicationService {
         PaymentMethod provider = PaymentMethod.WECHAT;
         LocalDate reportDate = LocalDate.now(clock).minusDays(1);
         PaymentReconciliationSource.Statement statement = reconciliationSource.fetch(provider, reportDate);
-        if (statement == null
-                || !provider.equals(statement.provider())
-                || !reportDate.equals(statement.reportDate())) {
+        if (statement == null || !provider.equals(statement.provider()) || !reportDate.equals(statement.reportDate())) {
             throw new BusinessException(
                     ErrorCode.SERVICE_UNAVAILABLE,
                     "Payment reconciliation provider statement is incomplete or for the wrong report date");
         }
-        return PaymentDtoAssembler.toResponse(
-                reconcileInternal(provider, reportDate, statement.lines(), true));
+        return PaymentDtoAssembler.toResponse(reconcileInternal(provider, reportDate, statement.lines(), true));
     }
 
     private PaymentReservation reservePayment(
@@ -1679,9 +1668,7 @@ public class PaymentApplicationService {
                     } else {
                         requireRefundableOrderStatus(payment);
                     }
-                    PaymentEvent event = fullRefund
-                            ? PaymentEvent.REFUND_ALL
-                            : PaymentEvent.REFUND_PARTIAL;
+                    PaymentEvent event = fullRefund ? PaymentEvent.REFUND_ALL : PaymentEvent.REFUND_PARTIAL;
                     PaymentStatus nextStatus = nextPaymentStatus(payment.status(), event);
                     PaymentOrder updated = paymentStore.savePayment(payment.refund(amount, nextStatus, now()));
                     purchasePointsLifecycle.onRefundSucceeded(new PurchasePointsLifecycle.PurchaseRefund(
@@ -2065,6 +2052,10 @@ public class PaymentApplicationService {
         throw new BusinessException(ErrorCode.CONFLICT, "Order status could not be synchronized after payment");
     }
 
+    private static String queryRequestKey(String paymentNo) {
+        return "payment:query:" + paymentNo;
+    }
+
     private PaymentOrder failPayment(PaymentOrder payment, String requestKey) {
         if (!PaymentStatus.PENDING.equals(payment.status())) {
             return payment;
@@ -2178,7 +2169,9 @@ public class PaymentApplicationService {
                                 && !PaymentStatus.PARTIALLY_REFUNDED.equals(payment.status())) {
                             return payment;
                         }
-                        if (money(paymentStore.sumAcceptedRefundAmount(payment.id())).compareTo(BigDecimal.ZERO) > 0) {
+                        if (money(paymentStore.sumAcceptedRefundAmount(payment.id()))
+                                        .compareTo(BigDecimal.ZERO)
+                                > 0) {
                             return payment;
                         }
                         nextPaymentStatus(payment.status(), PaymentEvent.SUSPEND);
@@ -2245,22 +2238,21 @@ public class PaymentApplicationService {
             String status,
             String callbackId,
             String secret) {
-        return sha256Hex(
-                tenantId
-                        + ":"
-                        + provider
-                        + ":"
-                        + paymentNo
-                        + ":"
-                        + providerTradeNo
-                        + ":"
-                        + money(amount)
-                        + ":"
-                        + status
-                        + ":"
-                        + callbackId
-                        + ":"
-                        + secret);
+        return sha256Hex(tenantId
+                + ":"
+                + provider
+                + ":"
+                + paymentNo
+                + ":"
+                + providerTradeNo
+                + ":"
+                + money(amount)
+                + ":"
+                + status
+                + ":"
+                + callbackId
+                + ":"
+                + secret);
     }
 
     /**
@@ -2347,7 +2339,8 @@ public class PaymentApplicationService {
     private static void assertGatewayStatus(
             PaymentGatewayResult result, Set<PaymentStatus> allowedStatuses, String operation) {
         if (result == null || result.status() == null || !allowedStatuses.contains(result.status())) {
-            throw new BusinessException(ErrorCode.CONFLICT, "Payment gateway returned an invalid " + operation + " status");
+            throw new BusinessException(
+                    ErrorCode.CONFLICT, "Payment gateway returned an invalid " + operation + " status");
         }
     }
 
@@ -2439,8 +2432,7 @@ public class PaymentApplicationService {
     private static PaymentReconciliationSource defaultReconciliationSource() {
         return (provider, reportDate) -> {
             throw new BusinessException(
-                    ErrorCode.SERVICE_UNAVAILABLE,
-                    "Payment reconciliation provider statement is unavailable");
+                    ErrorCode.SERVICE_UNAVAILABLE, "Payment reconciliation provider statement is unavailable");
         };
     }
 

@@ -12,7 +12,8 @@ import org.junit.jupiter.api.Test;
 
 class SearchProductQueryRequestDtoTest {
 
-    private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
+    private final Validator validator =
+            Validation.buildDefaultValidatorFactory().getValidator();
 
     @Test
     void mapsPriceAndStockFiltersToTheSearchQuery() {
@@ -60,16 +61,7 @@ class SearchProductQueryRequestDtoTest {
     @Test
     void keepsInclusivePriceBoundaries() {
         SearchProductQueryRequestDto request = new SearchProductQueryRequestDto(
-                null,
-                null,
-                null,
-                null,
-                null,
-                0,
-                20,
-                new BigDecimal("0.00"),
-                new BigDecimal("0.00"),
-                false);
+                null, null, null, null, null, 0, 20, new BigDecimal("0.00"), new BigDecimal("0.00"), false);
 
         assertThat(validator.validate(request)).isEmpty();
         assertThat(request.toQuery().minPrice()).isZero();

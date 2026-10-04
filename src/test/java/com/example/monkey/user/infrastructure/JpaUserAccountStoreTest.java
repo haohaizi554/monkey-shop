@@ -8,9 +8,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import com.example.monkey.user.domain.UserAccountStore.UserAccount;
 import com.example.monkey.user.domain.UserRoles;
-import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -41,7 +41,8 @@ class JpaUserAccountStoreTest {
 
     @BeforeEach
     void setUp() {
-        store = new JpaUserAccountStore(userRepository, passwordHistoryRepository, roleRepository, imageReferenceService);
+        store = new JpaUserAccountStore(
+                userRepository, passwordHistoryRepository, roleRepository, imageReferenceService);
     }
 
     @Test

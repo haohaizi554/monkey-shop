@@ -26,20 +26,12 @@ class RiskApplicationCommercialRiskGateTest {
 
         gate.requireAllowed(7L, 10L, 1001L, 88L, "device-7", "203.0.113.10", "marketing.seckill.order");
 
-        verify(riskApplicationService).requireAllowed(
-                eq(new SessionUser(7L, "USER", false, 41L)),
-                eq(new RiskAssessmentRequestDto(
-                        null,
-                        "device-7",
-                        null,
-                        1001L,
-                        88L,
-                        10L,
-                        null,
-                        null,
-                        null,
-                        null)),
-                eq("203.0.113.10"),
-                eq("marketing.seckill.order"));
+        verify(riskApplicationService)
+                .requireAllowed(
+                        eq(new SessionUser(7L, "USER", false, 41L)),
+                        eq(new RiskAssessmentRequestDto(
+                                null, "device-7", null, 1001L, 88L, 10L, null, null, null, null)),
+                        eq("203.0.113.10"),
+                        eq("marketing.seckill.order"));
     }
 }

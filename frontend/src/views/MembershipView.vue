@@ -69,7 +69,9 @@ const identitySummary = computed(() => {
       : t('membership.identityNotSubmitted')
   }
   if (identityStatus.value === 'REJECTED') return t('membership.identityRejectedHint')
-  const maskedValues = [profile.value?.maskedRealName, profile.value?.maskedIdCardNo].filter(Boolean)
+  const maskedValues = [profile.value?.maskedRealName, profile.value?.maskedIdCardNo].filter(
+    Boolean,
+  )
   return maskedValues.length ? maskedValues.join(' / ') : t('membership.identityVerified')
 })
 const identityFormVisible = computed(
@@ -326,7 +328,10 @@ onMounted(() => {
           </el-tag>
         </header>
 
-        <p v-if="identityStatus === 'PENDING' && profile?.identitySubmittedAt" class="identity-note">
+        <p
+          v-if="identityStatus === 'PENDING' && profile?.identitySubmittedAt"
+          class="identity-note"
+        >
           {{ $t('membership.identityPendingHint') }}
         </p>
         <form v-if="identityFormVisible" class="identity-form" @submit.prevent="submitIdentity">

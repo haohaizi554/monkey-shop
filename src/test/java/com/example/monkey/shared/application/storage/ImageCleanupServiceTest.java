@@ -71,8 +71,8 @@ class ImageCleanupServiceTest {
         Path image = uploadRoot.resolve("avatar/compatibility.png");
         Files.createDirectories(image.getParent());
         Files.writeString(image, "image");
-        ImageCleanupService compatibilityCleanup = new ImageCleanupService(
-                imageReferenceService, imageUsageChecker, uploadRoot.toString());
+        ImageCleanupService compatibilityCleanup =
+                new ImageCleanupService(imageReferenceService, imageUsageChecker, uploadRoot.toString());
 
         compatibilityCleanup.tryDelete("/images/avatar/compatibility.png");
 
@@ -163,7 +163,8 @@ class ImageCleanupServiceTest {
 
         Thread cleanupThread = new Thread(() -> cleanup.tryDelete("/images/avatar/concurrent.png"));
         cleanupThread.start();
-        assertThat(concurrentReferences.firstReferenceCheck.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(concurrentReferences.firstReferenceCheck.await(5, TimeUnit.SECONDS))
+                .isTrue();
 
         concurrentReferences.retain("/images/avatar/concurrent.png");
         cleanupThread.join(5_000L);

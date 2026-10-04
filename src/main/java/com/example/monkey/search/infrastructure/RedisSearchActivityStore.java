@@ -154,7 +154,9 @@ public class RedisSearchActivityStore implements SearchActivityStore {
                 .limit(Math.max(1, limit))
                 .toList();
         return values.isEmpty()
-                ? fallbackSnapshots.getOrDefault(tenantId, List.of()).stream().limit(Math.max(1, limit)).toList()
+                ? fallbackSnapshots.getOrDefault(tenantId, List.of()).stream()
+                        .limit(Math.max(1, limit))
+                        .toList()
                 : values;
     }
 

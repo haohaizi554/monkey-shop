@@ -87,3 +87,7 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # The WS7 gate requires this exact Java 21 build stage. Dependabot
+      # otherwise treats maven:3-eclipse-temurin-2x as a minor update.
+      - dependency-name: "maven"

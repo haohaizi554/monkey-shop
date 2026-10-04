@@ -178,11 +178,10 @@ class TenantApplicationServiceTest {
             return new TenantExportProvider.ExportResult(
                     TenantExportStatus.SUCCEEDED, "provider-job-1600", "s3://tenant-exports/200/1600.tink", null);
         });
-        when(tenantStore.saveExportJob(any(TenantDataExportJob.class)))
-                .thenAnswer(invocation -> {
-                    assertThat(TenantContext.currentTenantId()).contains(200L);
-                    return invocation.getArgument(0);
-                });
+        when(tenantStore.saveExportJob(any(TenantDataExportJob.class))).thenAnswer(invocation -> {
+            assertThat(TenantContext.currentTenantId()).contains(200L);
+            return invocation.getArgument(0);
+        });
         doAnswer(invocation -> {
                     assertThat(TenantContext.currentTenantId()).contains(200L);
                     return null;

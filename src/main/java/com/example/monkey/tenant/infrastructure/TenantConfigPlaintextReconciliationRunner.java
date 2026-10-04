@@ -16,8 +16,7 @@ public class TenantConfigPlaintextReconciliationRunner implements ApplicationRun
 
     private final TenantConfigPlaintextReconciliationService reconciliationService;
 
-    public TenantConfigPlaintextReconciliationRunner(
-            TenantConfigPlaintextReconciliationService reconciliationService) {
+    public TenantConfigPlaintextReconciliationRunner(TenantConfigPlaintextReconciliationService reconciliationService) {
         this.reconciliationService = reconciliationService;
     }
 

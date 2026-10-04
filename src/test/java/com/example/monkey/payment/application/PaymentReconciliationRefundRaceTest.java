@@ -17,8 +17,8 @@ import static org.mockito.Mockito.when;
 import com.example.monkey.order.domain.OrderStatus;
 import com.example.monkey.order.domain.OrderStore;
 import com.example.monkey.payment.application.dto.PaymentReconciliationRequestDto;
-import com.example.monkey.payment.application.dto.PaymentRefundRequestDto;
 import com.example.monkey.payment.application.dto.PaymentReconciliationResponseDto;
+import com.example.monkey.payment.application.dto.PaymentRefundRequestDto;
 import com.example.monkey.payment.application.dto.ReconciliationLineDto;
 import com.example.monkey.payment.domain.PaymentCallbackReplayGuard;
 import com.example.monkey.payment.domain.PaymentGateway;
@@ -48,9 +48,9 @@ import com.example.monkey.user.domain.UserMfaVerifier;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
@@ -72,8 +72,8 @@ class PaymentReconciliationRefundRaceTest {
     private static final LocalDate REPORT_DATE = LocalDate.of(2026, 7, 4);
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-07-04T08:30:00Z"), ZoneOffset.UTC);
     private static final SessionUser CUSTOMER = new SessionUser(42L, "CUSTOMER");
-    private static final PaymentTransitionResolver TRANSITIONS = (currentStatus, event) ->
-            PaymentTransitionPolicy.nextStatus(currentStatus, event)
+    private static final PaymentTransitionResolver TRANSITIONS =
+            (currentStatus, event) -> PaymentTransitionPolicy.nextStatus(currentStatus, event)
                     .orElseThrow(() -> new BusinessException(
                             ErrorCode.CONFLICT, PaymentTransitionPolicy.STATUS_TRANSITION_NOT_ALLOWED));
 
@@ -96,12 +96,13 @@ class PaymentReconciliationRefundRaceTest {
         when(paymentStore.findPaidByProviderAndDate(any(PaymentMethod.class), any(LocalDate.class)))
                 .thenAnswer(invocation -> raceStore.paidCandidates());
         when(paymentStore.withLockedPayment(anyString(), any()))
-                .thenAnswer(invocation -> raceStore.withLockedPayment(invocation.getArgument(0), invocation.getArgument(1)));
+                .thenAnswer(invocation ->
+                        raceStore.withLockedPayment(invocation.getArgument(0), invocation.getArgument(1)));
         when(paymentStore.sumAcceptedRefundAmount(anyLong()))
                 .thenAnswer(invocation -> raceStore.sumAcceptedRefundAmount(invocation.getArgument(0)));
         when(paymentStore.findRefundRequest(anyLong(), anyString()))
-                .thenAnswer(invocation -> raceStore.findRefundRequest(
-                        invocation.getArgument(0), invocation.getArgument(1)));
+                .thenAnswer(invocation ->
+                        raceStore.findRefundRequest(invocation.getArgument(0), invocation.getArgument(1)));
         when(paymentStore.savePayment(any(PaymentOrder.class)))
                 .thenAnswer(invocation -> raceStore.savePayment(invocation.getArgument(0)));
         when(paymentStore.saveReport(any(PaymentReconciliationReport.class)))
@@ -246,12 +247,10 @@ class PaymentReconciliationRefundRaceTest {
                 .isInstanceOf(PaymentGatewayException.class);
 
         assertThat(raceStore.sumAcceptedRefundAmount(100L)).isEqualByComparingTo(BigDecimal.ZERO);
-        assertThat(raceStore.findRefundRequest(100L, "terminal-refund"))
-                .get()
-                .satisfies(refund -> {
-                    assertThat(refund.ledger().status()).isEqualTo(PaymentLedgerStatus.FAILED);
-                    assertThat(refund.operationState()).isEqualTo(PaymentOperationState.TERMINAL_FAILED);
-                });
+        assertThat(raceStore.findRefundRequest(100L, "terminal-refund")).get().satisfies(refund -> {
+            assertThat(refund.ledger().status()).isEqualTo(PaymentLedgerStatus.FAILED);
+            assertThat(refund.operationState()).isEqualTo(PaymentOperationState.TERMINAL_FAILED);
+        });
 
         reconcileMismatch();
 
@@ -316,8 +315,7 @@ class PaymentReconciliationRefundRaceTest {
     @Test
     void customerFullRefundAtomicallyClosesReturnShippingOrder() {
         when(orderStore.findById(10L)).thenReturn(Optional.of(orderWithStatus(OrderStatus.RETURN_SHIPPING)));
-        when(orderStore.transitionStatus(
-                        10L, OrderStatus.RETURN_SHIPPING.label(), OrderStatus.REFUNDED.label(), null))
+        when(orderStore.transitionStatus(10L, OrderStatus.RETURN_SHIPPING.label(), OrderStatus.REFUNDED.label(), null))
                 .thenReturn(1);
         when(paymentGateway.refund(any(PaymentOrder.class), any(BigDecimal.class), anyString()))
                 .thenReturn(new com.example.monkey.payment.domain.PaymentGatewayResult(
@@ -338,8 +336,7 @@ class PaymentReconciliationRefundRaceTest {
     @Test
     void fullRefundCasFailureDoesNotCommitPaymentOrClaimSuccess() {
         when(orderStore.findById(10L)).thenReturn(Optional.of(orderWithStatus(OrderStatus.RETURN_SHIPPING)));
-        when(orderStore.transitionStatus(
-                        10L, OrderStatus.RETURN_SHIPPING.label(), OrderStatus.REFUNDED.label(), null))
+        when(orderStore.transitionStatus(10L, OrderStatus.RETURN_SHIPPING.label(), OrderStatus.REFUNDED.label(), null))
                 .thenReturn(0);
         when(paymentGateway.refund(any(PaymentOrder.class), any(BigDecimal.class), anyString()))
                 .thenReturn(new com.example.monkey.payment.domain.PaymentGatewayResult(

@@ -13,14 +13,14 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.example.monkey.membership.application.dto.LevelChangeRequestDto;
 import com.example.monkey.membership.application.dto.IdentityReviewRequestDto;
+import com.example.monkey.membership.application.dto.LevelChangeRequestDto;
+import com.example.monkey.membership.application.dto.MemberProfileDto;
 import com.example.monkey.membership.application.dto.PointsEarnRequestDto;
 import com.example.monkey.membership.application.dto.PointsRedeemRequestDto;
 import com.example.monkey.membership.application.dto.RealNameVerifyRequestDto;
-import com.example.monkey.membership.application.dto.MemberProfileDto;
-import com.example.monkey.membership.domain.MemberProfile;
 import com.example.monkey.membership.domain.IdentityVerificationStatus;
+import com.example.monkey.membership.domain.MemberProfile;
 import com.example.monkey.membership.domain.MembershipActivityStore;
 import com.example.monkey.membership.domain.MembershipCheckIn;
 import com.example.monkey.membership.domain.MembershipLevel;
@@ -45,8 +45,8 @@ import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
-import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 class MembershipIdentityPointsIntegrityTest {
 
@@ -97,12 +97,10 @@ class MembershipIdentityPointsIntegrityTest {
 
     @Test
     void membershipControllerExposesAnExplicitAdminIdentityReviewAction() throws Exception {
-        String controller =
-                java.nio.file.Files.readString(java.nio.file.Path.of("src/main/java/com/example/monkey/membership/interfaces/MembershipController.java"));
+        String controller = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/java/com/example/monkey/membership/interfaces/MembershipController.java"));
 
-        assertThat(controller)
-                .contains("/admin/{userId}/identity/review")
-                .contains("reviewIdentity");
+        assertThat(controller).contains("/admin/{userId}/identity/review").contains("reviewIdentity");
     }
 
     @Test
@@ -116,8 +114,7 @@ class MembershipIdentityPointsIntegrityTest {
         UserMfaVerifier mfaVerifier = mock(UserMfaVerifier.class);
         when(mfaVerifier.verifyCode("SECRET", "123456")).thenReturn(true);
 
-        MembershipApplicationService service = service(
-                store, userAccountStore(ADMIN, true), auditService, mfaVerifier);
+        MembershipApplicationService service = service(store, userAccountStore(ADMIN, true), auditService, mfaVerifier);
 
         var dashboard = service.reviewIdentity(
                 ADMIN,
@@ -148,8 +145,8 @@ class MembershipIdentityPointsIntegrityTest {
         UserMfaVerifier mfaVerifier = mock(UserMfaVerifier.class);
         when(mfaVerifier.verifyCode("SECRET", "123456")).thenReturn(true);
 
-        MembershipApplicationService service = service(
-                store, userAccountStore(ADMIN, true), mock(AuditService.class), mfaVerifier);
+        MembershipApplicationService service =
+                service(store, userAccountStore(ADMIN, true), mock(AuditService.class), mfaVerifier);
 
         var dashboard = service.reviewIdentity(
                 ADMIN,
@@ -172,8 +169,8 @@ class MembershipIdentityPointsIntegrityTest {
         UserMfaVerifier mfaVerifier = mock(UserMfaVerifier.class);
         when(mfaVerifier.verifyCode("SECRET", "123456")).thenReturn(true);
 
-        MembershipApplicationService service = service(
-                store, userAccountStore(ADMIN, true), mock(AuditService.class), mfaVerifier);
+        MembershipApplicationService service =
+                service(store, userAccountStore(ADMIN, true), mock(AuditService.class), mfaVerifier);
 
         assertThatThrownBy(() -> service.reviewIdentity(
                         ADMIN,
@@ -212,8 +209,8 @@ class MembershipIdentityPointsIntegrityTest {
         UserMfaVerifier mfaVerifier = mock(UserMfaVerifier.class);
         when(mfaVerifier.verifyCode("SECRET", "123456")).thenReturn(true);
 
-        MembershipApplicationService service = service(
-                store, userAccountStore(USER, true), mock(AuditService.class), mfaVerifier);
+        MembershipApplicationService service =
+                service(store, userAccountStore(USER, true), mock(AuditService.class), mfaVerifier);
 
         assertThatThrownBy(() -> service.changeLevel(
                         USER, new LevelChangeRequestDto(MembershipLevel.SILVER, "manual", "123456")))
@@ -248,7 +245,7 @@ class MembershipIdentityPointsIntegrityTest {
                         ADMIN, new PointsEarnRequestDto(9002L, BigDecimal.valueOf(121), "order:9002"), "purchase-1"))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
-                exception -> assertThat(exception.errorCode())
+                        exception -> assertThat(exception.errorCode())
                                 .isEqualTo(com.example.monkey.shared.domain.exception.ErrorCode.CONFLICT));
     }
 
@@ -293,7 +290,8 @@ class MembershipIdentityPointsIntegrityTest {
         MembershipApplicationService service = service(store, userAccountStore(USER, false), mock(AuditService.class));
         service.redeemPoints(USER, new PointsRedeemRequestDto(50, "wallet-redemption"), "redeem-1");
 
-        assertThatThrownBy(() -> service.redeemPoints(USER, new PointsRedeemRequestDto(60, "wallet-redemption"), "redeem-1"))
+        assertThatThrownBy(() ->
+                        service.redeemPoints(USER, new PointsRedeemRequestDto(60, "wallet-redemption"), "redeem-1"))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception -> assertThat(exception.errorCode())
@@ -316,7 +314,10 @@ class MembershipIdentityPointsIntegrityTest {
                 ADMIN, 7L, new PointsEarnRequestDto(null, BigDecimal.valueOf(25), "manual correction"), "adjust-1");
 
         assertThatThrownBy(() -> service.earnPointsAsAdmin(
-                        ADMIN, 7L, new PointsEarnRequestDto(null, BigDecimal.valueOf(26), "different correction"), "adjust-1"))
+                        ADMIN,
+                        7L,
+                        new PointsEarnRequestDto(null, BigDecimal.valueOf(26), "different correction"),
+                        "adjust-1"))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception -> assertThat(exception.errorCode())
@@ -326,8 +327,8 @@ class MembershipIdentityPointsIntegrityTest {
     @Test
     void checkInReplayWithTheSameKeyOnAnotherDateConflicts() {
         MembershipStore store = mock(MembershipStore.class);
-        MembershipCheckIn existing = new MembershipCheckIn(
-                4001L, 7L, LocalDate.of(2026, 7, 3), 2, 12, "check-in-1", NOW.minusDays(1));
+        MembershipCheckIn existing =
+                new MembershipCheckIn(4001L, 7L, LocalDate.of(2026, 7, 3), 2, 12, "check-in-1", NOW.minusDays(1));
         when(store.findCheckInByIdempotencyKey(7L, "check-in-1")).thenReturn(Optional.of(existing));
         when(store.findWallet(7L)).thenReturn(Optional.of(wallet(12)));
 
@@ -343,8 +344,8 @@ class MembershipIdentityPointsIntegrityTest {
     @Test
     void checkInWithANewKeyAfterTodayWasAlreadyCompletedConflicts() {
         MembershipStore store = mock(MembershipStore.class);
-        MembershipCheckIn existing = new MembershipCheckIn(
-                4001L, 7L, LocalDate.of(2026, 7, 4), 2, 12, "check-in-1", NOW);
+        MembershipCheckIn existing =
+                new MembershipCheckIn(4001L, 7L, LocalDate.of(2026, 7, 4), 2, 12, "check-in-1", NOW);
         when(store.findCheckInByIdempotencyKey(7L, "check-in-2")).thenReturn(Optional.empty());
         when(store.findCheckIn(7L, LocalDate.of(2026, 7, 4))).thenReturn(Optional.of(existing));
 
@@ -395,9 +396,8 @@ class MembershipIdentityPointsIntegrityTest {
     }
 
     private static UserAccount account(SessionUser principal, boolean mfaEnabled) {
-        List<String> authorities = "ADMIN".equals(principal.role())
-                ? List.of("MEMBERSHIP_ADMIN")
-                : List.of("MEMBERSHIP_WRITE");
+        List<String> authorities =
+                "ADMIN".equals(principal.role()) ? List.of("MEMBERSHIP_ADMIN") : List.of("MEMBERSHIP_WRITE");
         return new UserAccount(
                 principal.id(),
                 "user-" + principal.id(),

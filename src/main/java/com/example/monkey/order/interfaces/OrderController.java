@@ -43,9 +43,7 @@ public class OrderController {
     private final OrderApplicationService orderApplicationService;
     private final OrderService orderService;
 
-    public OrderController(
-            OrderApplicationService orderApplicationService,
-            OrderService orderService) {
+    public OrderController(OrderApplicationService orderApplicationService, OrderService orderService) {
         this.orderApplicationService = orderApplicationService;
         this.orderService = orderService;
     }

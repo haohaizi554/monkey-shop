@@ -11,16 +11,13 @@ public interface MarketingCouponRepository extends JpaRepository<MarketingCoupon
     Optional<MarketingCouponEntity> findByCode(String code);
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
-    @Query(
-            value = """
+    @Query(value = """
                     UPDATE marketing_coupon
                     SET claimed_count = claimed_count + :quantity,
                         version = version + 1
                     WHERE id = :id
                       AND tenant_id = :tenantId
                       AND claimed_count + :quantity <= total_quota
-                    """,
-            nativeQuery = true)
-    int incrementClaimed(
-            @Param("id") Long id, @Param("tenantId") long tenantId, @Param("quantity") int quantity);
+                    """, nativeQuery = true)
+    int incrementClaimed(@Param("id") Long id, @Param("tenantId") long tenantId, @Param("quantity") int quantity);
 }

@@ -43,19 +43,13 @@ class PaymentControllerRiskSignalTest {
                 LocalDateTime.parse("2026-08-28T07:00:00"));
         when(request.getAttribute(org.mockito.ArgumentMatchers.anyString())).thenReturn(null);
         when(request.getRemoteAddr()).thenReturn("203.0.113.9");
-        when(paymentApplicationService.createPayment(
-                        user, createRequest, "payment-key", "device-a", "203.0.113.9"))
+        when(paymentApplicationService.createPayment(user, createRequest, "payment-key", "device-a", "203.0.113.9"))
                 .thenReturn(response);
 
         var result = controller.createPayment("payment-key", "device-a", createRequest, user, request);
 
         assertThat(result.data()).isEqualTo(response);
         verify(paymentApplicationService)
-                .createPayment(
-                        eq(user),
-                        eq(createRequest),
-                        eq("payment-key"),
-                        eq("device-a"),
-                        eq("203.0.113.9"));
+                .createPayment(eq(user), eq(createRequest), eq("payment-key"), eq("device-a"), eq("203.0.113.9"));
     }
 }

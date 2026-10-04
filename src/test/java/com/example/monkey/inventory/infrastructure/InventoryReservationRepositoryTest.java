@@ -30,38 +30,11 @@ class InventoryReservationRepositoryTest {
         String secondFingerprint = "b".repeat(64);
 
         int first = repository.insertIfAbsent(
-                9001L,
-                1L,
-                "shared-key",
-                firstFingerprint,
-                101L,
-                2200000000001L,
-                1L,
-                1,
-                "RESERVED",
-                expiresAt);
+                9001L, 1L, "shared-key", firstFingerprint, 101L, 2200000000001L, 1L, 1, "RESERVED", expiresAt);
         int sameTenantReplay = repository.insertIfAbsent(
-                9002L,
-                1L,
-                "shared-key",
-                secondFingerprint,
-                101L,
-                2200000000001L,
-                2L,
-                2,
-                "RESERVED",
-                expiresAt);
+                9002L, 1L, "shared-key", secondFingerprint, 101L, 2200000000001L, 2L, 2, "RESERVED", expiresAt);
         int otherTenant = repository.insertIfAbsent(
-                9003L,
-                2L,
-                "shared-key",
-                secondFingerprint,
-                101L,
-                2200000000001L,
-                3L,
-                2,
-                "RESERVED",
-                expiresAt);
+                9003L, 2L, "shared-key", secondFingerprint, 101L, 2200000000001L, 3L, 2, "RESERVED", expiresAt);
 
         assertThat(first).isOne();
         assertThat(sameTenantReplay).isZero();

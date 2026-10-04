@@ -125,7 +125,9 @@ class TenantUniqueConstraintMappingTest {
             Table table = expected.entityType().getAnnotation(Table.class);
 
             assertThat(table)
-                    .as("%s should declare a table mapping", expected.entityType().getSimpleName())
+                    .as(
+                            "%s should declare a table mapping",
+                            expected.entityType().getSimpleName())
                     .isNotNull();
             assertThat(table.name()).isEqualTo(expected.tableName());
             assertThat(table.uniqueConstraints())
@@ -142,7 +144,9 @@ class TenantUniqueConstraintMappingTest {
                 Column column = field.getAnnotation(Column.class);
 
                 assertThat(column)
-                        .as("%s.%s should have explicit column metadata", expected.entityType().getSimpleName(), fieldName)
+                        .as(
+                                "%s.%s should have explicit column metadata",
+                                expected.entityType().getSimpleName(), fieldName)
                         .isNotNull();
                 assertThat(column.unique())
                         .as("%s.%s must not generate a global unique index", expected.tableName(), fieldName)
@@ -165,9 +169,5 @@ class TenantUniqueConstraintMappingTest {
     }
 
     private record ExpectedConstraint(
-            Class<?> entityType,
-            String tableName,
-            String constraintName,
-            String[] columnNames,
-            String... fieldNames) {}
+            Class<?> entityType, String tableName, String constraintName, String[] columnNames, String... fieldNames) {}
 }

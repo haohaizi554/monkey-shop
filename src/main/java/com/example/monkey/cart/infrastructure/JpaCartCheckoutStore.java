@@ -10,11 +10,11 @@ import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -74,8 +74,7 @@ public class JpaCartCheckoutStore implements CartCheckoutStore {
         return toDomain(savedCheckout);
     }
 
-    private void saveLine(
-            Long checkoutId, Long subOrderId, java.time.LocalDateTime createdAt, CheckoutLine line) {
+    private void saveLine(Long checkoutId, Long subOrderId, java.time.LocalDateTime createdAt, CheckoutLine line) {
         CartCheckoutLineEntity existing = lineRepository.findById(line.id()).orElse(null);
         String oldImage = existing == null ? null : existing.getProductImage();
         String newImage = line.productImage();
@@ -99,7 +98,8 @@ public class JpaCartCheckoutStore implements CartCheckoutStore {
                 if (ImageReferenceService.isTrackable(line.productImage())) {
                     throw missingImageReferenceServices();
                 }
-                CartCheckoutLineEntity existing = lineRepository.findById(line.id()).orElse(null);
+                CartCheckoutLineEntity existing =
+                        lineRepository.findById(line.id()).orElse(null);
                 if (existing != null && ImageReferenceService.isTrackable(existing.getProductImage())) {
                     throw missingImageReferenceServices();
                 }

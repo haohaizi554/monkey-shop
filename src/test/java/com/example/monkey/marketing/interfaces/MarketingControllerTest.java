@@ -1,5 +1,7 @@
 package com.example.monkey.marketing.interfaces;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mock;
@@ -7,9 +9,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.monkey.marketing.application.MarketingApplicationService;
 import com.example.monkey.marketing.application.dto.CouponClaimRequestDto;
@@ -97,8 +96,9 @@ class MarketingControllerTest {
         SeckillRequestDto request = new SeckillRequestDto(10L, null, 101L, 1, "seckill-1", null);
 
         assertThatThrownBy(() -> controller.createSeckillOrder(request, "device-1", httpRequest, currentUser))
-                .isInstanceOfSatisfying(BusinessException.class, exception ->
-                        assertThat(exception.errorCode()).isEqualTo(ErrorCode.VALIDATION_ERROR));
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.VALIDATION_ERROR));
 
         verifyNoInteractions(service);
     }

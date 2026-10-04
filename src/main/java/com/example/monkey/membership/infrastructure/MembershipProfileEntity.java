@@ -1,7 +1,7 @@
 package com.example.monkey.membership.infrastructure;
 
-import com.example.monkey.membership.domain.MembershipLevel;
 import com.example.monkey.membership.domain.IdentityVerificationStatus;
+import com.example.monkey.membership.domain.MembershipLevel;
 import com.example.monkey.shared.infrastructure.tenant.TenantScopedJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

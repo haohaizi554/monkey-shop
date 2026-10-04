@@ -46,9 +46,7 @@ public class ImageCleanupService {
     }
 
     public ImageCleanupService(
-            ImageReferenceService imageReferenceService,
-            ImageUsageChecker imageUsageChecker,
-            String uploadPath) {
+            ImageReferenceService imageReferenceService, ImageUsageChecker imageUsageChecker, String uploadPath) {
         this(imageReferenceService, imageUsageChecker, localCleanupComponents(uploadPath));
     }
 
@@ -89,8 +87,7 @@ public class ImageCleanupService {
         if (canonicalObjectKey == null || imageVariantService == null) {
             return;
         }
-        String providerCanonicalReference = resolveProviderCanonicalReference(
-                canonicalObjectKey, canonicalImagePath);
+        String providerCanonicalReference = resolveProviderCanonicalReference(canonicalObjectKey, canonicalImagePath);
         if (providerCanonicalReference == null) {
             return;
         }
@@ -136,7 +133,9 @@ public class ImageCleanupService {
             }
             return ImageVariantService.canonicalPathForVariant(publicReference.trim());
         } catch (RuntimeException resolutionFailure) {
-            log.warn("Skipped image cleanup because the provider public reference could not be resolved", resolutionFailure);
+            log.warn(
+                    "Skipped image cleanup because the provider public reference could not be resolved",
+                    resolutionFailure);
             return null;
         }
     }

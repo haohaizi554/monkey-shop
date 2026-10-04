@@ -11,18 +11,18 @@ import static org.mockito.Mockito.when;
 import com.example.monkey.shared.application.observability.AuditService;
 import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.domain.exception.BusinessException;
-import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
 import com.example.monkey.shared.domain.id.IdGenerator;
-import com.example.monkey.tenant.application.TenantDtoAssembler;
+import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
 import com.example.monkey.tenant.application.TenantApplicationService;
+import com.example.monkey.tenant.application.TenantDtoAssembler;
 import com.example.monkey.tenant.application.dto.TenantConfigRequestDto;
 import com.example.monkey.tenant.domain.Tenant;
 import com.example.monkey.tenant.domain.TenantConfig;
 import com.example.monkey.tenant.domain.TenantConfigType;
+import com.example.monkey.tenant.domain.TenantExportProvider;
 import com.example.monkey.tenant.domain.TenantPlan;
 import com.example.monkey.tenant.domain.TenantStatus;
 import com.example.monkey.tenant.domain.TenantStore;
-import com.example.monkey.tenant.domain.TenantExportProvider;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
@@ -64,15 +64,16 @@ class TenantConfigSecretContractTest {
             String value = invocation.getArgument(0);
             return value.startsWith("enc:")
                     ? value
-                    : "enc:" + Base64.getUrlEncoder().withoutPadding()
-                            .encodeToString(value.getBytes(StandardCharsets.UTF_8));
+                    : "enc:"
+                            + Base64.getUrlEncoder()
+                                    .withoutPadding()
+                                    .encodeToString(value.getBytes(StandardCharsets.UTF_8));
         });
         when(cryptoService.decrypt(anyString())).thenAnswer(invocation -> {
             String value = invocation.getArgument(0);
             return value.startsWith("enc:")
                     ? new String(
-                            Base64.getUrlDecoder().decode(value.substring("enc:".length())),
-                            StandardCharsets.UTF_8)
+                            Base64.getUrlDecoder().decode(value.substring("enc:".length())), StandardCharsets.UTF_8)
                     : value;
         });
         store = new JpaTenantStore(
@@ -149,10 +150,7 @@ class TenantConfigSecretContractTest {
                         LocalDateTime.parse("2026-08-28T10:00:00"),
                         0L));
         TenantApplicationService service = new TenantApplicationService(
-                tenantStore,
-                idGenerator,
-                mock(AuditService.class),
-                mock(TenantExportProvider.class));
+                tenantStore, idGenerator, mock(AuditService.class), mock(TenantExportProvider.class));
 
         var response = service.upsertConfig(
                 new SessionUser(1L, "ADMIN", false, 200L),
@@ -177,9 +175,7 @@ class TenantConfigSecretContractTest {
         when(configRepository.save(any(TenantConfigEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(idGenerator.nextId()).thenReturn(9001L, 9002L);
 
-        store.saveConfig(
-                config(300L, Map.of("apiKey", MASKED_VALUE, "merchantId", "merchant-123")),
-                1L);
+        store.saveConfig(config(300L, Map.of("apiKey", MASKED_VALUE, "merchantId", "merchant-123")), 1L);
         Map<String, String> preserved = objectMapper.readValue(captureConfig().getSettingsJson(), SETTINGS);
         assertThat(preserved.get("apiKey")).isEqualTo(ciphertext("old-secret"));
 
@@ -193,9 +189,7 @@ class TenantConfigSecretContractTest {
         when(configRepository.findByTenantIdAndConfigTypeAndProvider(200L, TenantConfigType.PAYMENT, "wechat"))
                 .thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> store.saveConfig(
-                        config(300L, Map.of("apiKey", MASKED_VALUE)),
-                        1L))
+        assertThatThrownBy(() -> store.saveConfig(config(300L, Map.of("apiKey", MASKED_VALUE)), 1L))
                 .isInstanceOf(BusinessException.class);
     }
 
@@ -229,8 +223,7 @@ class TenantConfigSecretContractTest {
         TenantConfigPlaintextReconciliationService reconciler =
                 new TenantConfigPlaintextReconciliationService(jdbcTemplate, cryptoService, null, 1);
 
-        TenantConfigPlaintextReconciliationService.ReconciliationReport report =
-                reconciler.reconcileLegacyPlaintext();
+        TenantConfigPlaintextReconciliationService.ReconciliationReport report = reconciler.reconcileLegacyPlaintext();
 
         assertThat(report.configs()).isEqualTo(1);
         assertThat(report.history()).isEqualTo(1);
@@ -247,11 +240,8 @@ class TenantConfigSecretContractTest {
         assertThat((String) jdbcTemplate.updates.get(1).args()[0]).doesNotContain("legacy-old");
         assertThat((String) jdbcTemplate.updates.get(1).args()[1]).doesNotContain("legacy-new");
 
-        jdbcTemplate.thenRows(row(
-                        "id",
-                        1L,
-                        "settings_json",
-                        "{\"apiKey\":\"enc:bGVnYWN5LXNlY3JldA\"}"))
+        jdbcTemplate
+                .thenRows(row("id", 1L, "settings_json", "{\"apiKey\":\"enc:bGVnYWN5LXNlY3JldA\"}"))
                 .thenRows()
                 .thenRows(row(
                         "id",
@@ -272,10 +262,7 @@ class TenantConfigSecretContractTest {
         TenantStore tenantStore = mock(TenantStore.class);
         when(tenantStore.findTenant(200L)).thenReturn(Optional.of(tenant()));
         TenantApplicationService service = new TenantApplicationService(
-                tenantStore,
-                mock(IdGenerator.class),
-                mock(AuditService.class),
-                mock(TenantExportProvider.class));
+                tenantStore, mock(IdGenerator.class), mock(AuditService.class), mock(TenantExportProvider.class));
         Map<String, String> blankKey = new HashMap<>();
         blankKey.put(" ", "value");
         Map<String, String> nullValue = new HashMap<>();
@@ -318,8 +305,7 @@ class TenantConfigSecretContractTest {
     }
 
     private static String ciphertext(String value) {
-        return "enc:" + Base64.getUrlEncoder().withoutPadding()
-                .encodeToString(value.getBytes(StandardCharsets.UTF_8));
+        return "enc:" + Base64.getUrlEncoder().withoutPadding().encodeToString(value.getBytes(StandardCharsets.UTF_8));
     }
 
     private TenantConfig config(Long id, Map<String, String> settings) {
@@ -336,13 +322,15 @@ class TenantConfigSecretContractTest {
 
     private TenantConfigEntity captureConfig() {
         ArgumentCaptor<TenantConfigEntity> captor = ArgumentCaptor.forClass(TenantConfigEntity.class);
-        org.mockito.Mockito.verify(configRepository, org.mockito.Mockito.atLeastOnce()).save(captor.capture());
+        org.mockito.Mockito.verify(configRepository, org.mockito.Mockito.atLeastOnce())
+                .save(captor.capture());
         return captor.getAllValues().get(captor.getAllValues().size() - 1);
     }
 
     private TenantConfigHistoryEntity captureHistory() {
         ArgumentCaptor<TenantConfigHistoryEntity> captor = ArgumentCaptor.forClass(TenantConfigHistoryEntity.class);
-        org.mockito.Mockito.verify(historyRepository, org.mockito.Mockito.atLeastOnce()).save(captor.capture());
+        org.mockito.Mockito.verify(historyRepository, org.mockito.Mockito.atLeastOnce())
+                .save(captor.capture());
         return captor.getAllValues().get(captor.getAllValues().size() - 1);
     }
 

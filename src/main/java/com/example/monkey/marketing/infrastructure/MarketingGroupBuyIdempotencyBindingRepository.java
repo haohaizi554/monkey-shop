@@ -14,8 +14,7 @@ public interface MarketingGroupBuyIdempotencyBindingRepository
             Long tenantId, Long userId, String idempotencyKey);
 
     @Modifying(flushAutomatically = true)
-    @Query(
-            value = """
+    @Query(value = """
                     INSERT IGNORE INTO marketing_group_buy_idempotency_binding (
                         tenant_id,
                         user_id,
@@ -33,8 +32,7 @@ public interface MarketingGroupBuyIdempotencyBindingRepository
                         :createdAt,
                         :updatedAt
                     )
-                    """,
-            nativeQuery = true)
+                    """, nativeQuery = true)
     int insertIfAbsent(
             @Param("tenantId") Long tenantId,
             @Param("userId") Long userId,

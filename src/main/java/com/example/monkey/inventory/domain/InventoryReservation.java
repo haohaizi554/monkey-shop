@@ -70,16 +70,7 @@ public record InventoryReservation(
             InventoryReservationStatus status,
             LocalDateTime expiresAt,
             String requestFingerprint) {
-        this(
-                id,
-                reservationKey,
-                requestFingerprint,
-                skuId,
-                warehouseId,
-                orderId,
-                quantity,
-                status,
-                expiresAt);
+        this(id, reservationKey, requestFingerprint, skuId, warehouseId, orderId, quantity, status, expiresAt);
     }
 
     public boolean matchesRequestFingerprint(String expectedFingerprint) {

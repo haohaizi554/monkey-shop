@@ -1,9 +1,9 @@
 package com.example.monkey.user.infrastructure;
 
+import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import com.example.monkey.user.domain.UserAccountStore;
 import com.example.monkey.user.domain.UserAccountStore.UserAccount;
 import com.example.monkey.user.domain.UserRoles;
-import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -64,7 +64,10 @@ public class JpaUserAccountStore implements UserAccountStore {
         requireImageTrackingConfigured(
                 account.avatar(),
                 imageReferenceService == null && account.id() != null
-                        ? userRepository.findById(account.id()).map(User::getAvatar).orElse(null)
+                        ? userRepository
+                                .findById(account.id())
+                                .map(User::getAvatar)
+                                .orElse(null)
                         : null);
         User savedUser = userRepository.save(toEntity(account));
         return toRecord(savedUser);

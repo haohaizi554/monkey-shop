@@ -80,8 +80,8 @@ class ProductDomainTest {
         assertThatThrownBy(() -> new CatalogSku(1L, 10L, "SKU-1", specification, null, true))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("SKU price book is required");
-        assertThatThrownBy(() ->
-                        new CatalogSpu(10L, 3L, 1L, "phone", "phone title", null, null, null, null, null, null, List.of()))
+        assertThatThrownBy(() -> new CatalogSpu(
+                        10L, 3L, 1L, "phone", "phone title", null, null, null, null, null, null, List.of()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("SPU price book is required");
     }

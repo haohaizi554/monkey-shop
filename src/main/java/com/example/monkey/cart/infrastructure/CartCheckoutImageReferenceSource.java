@@ -40,8 +40,7 @@ public class CartCheckoutImageReferenceSource implements StoredImageReferenceSou
         Objects.requireNonNull(consumer, "consumer");
         int pageNumber = 0;
         while (true) {
-            List<String> values =
-                    lineRepository.findProductImages(PageRequest.of(pageNumber, referenceScanBatchSize));
+            List<String> values = lineRepository.findProductImages(PageRequest.of(pageNumber, referenceScanBatchSize));
             if (values == null || values.isEmpty()) {
                 return;
             }

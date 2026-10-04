@@ -188,7 +188,7 @@ function queryTenantId(): ApiId | undefined {
   return parsePositiveApiId(tenantQueryValue.value.trim())
 }
 
-function replaceTenantQuery(tenantId?: number) {
+function replaceTenantQuery(tenantId?: ApiId) {
   const nextValue = tenantId === undefined ? '' : String(tenantId)
   const nextQuery = {
     ...route.query,

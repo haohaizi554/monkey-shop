@@ -75,16 +75,7 @@ class PaymentCommercialRiskBoundaryTest {
                 .isSameAs(blocked);
 
         verify(orderStore).findVisibleByIdAndUserId(10L, 42L);
-        verify(riskGate)
-                .requireAllowed(
-                        42L,
-                        null,
-                        null,
-                        10L,
-                        "device-a",
-                        "203.0.113.7",
-                        "payment.create",
-                        "123456");
+        verify(riskGate).requireAllowed(42L, null, null, 10L, "device-a", "203.0.113.7", "payment.create", "123456");
         verify(paymentStore, never()).findByUserIdAndIdempotencyKey(anyLong(), any());
         verify(paymentStore, never()).savePayment(any(), any(), any(), any(), any());
         verifyNoInteractions(paymentGateway);

@@ -44,8 +44,8 @@ const inventorySessionReconciliationState = useAsyncState<InventoryReconciliatio
 })
 const inventorySessionReservations = ref<InventoryReservation[]>([])
 const inventorySessionPendingKeys = ref(new Set<string>())
-const inventorySessionActiveSkuId = ref<number | null>(null)
-const inventorySessionAppliedSkuId = ref<number | null>(null)
+const inventorySessionActiveSkuId = ref<ApiId | null>(null)
+const inventorySessionAppliedSkuId = ref<ApiId | null>(null)
 const inventorySessionAppliedRegion = ref('')
 const inventorySessionStockQueryPending = ref(false)
 

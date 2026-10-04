@@ -73,12 +73,11 @@ public class MarketingController {
             @AuthenticationPrincipal SessionUser currentUser) {
         if (request.orderId() != null) {
             throw new BusinessException(
-                    ErrorCode.VALIDATION_ERROR,
-                    "orderId must be omitted from public seckill requests");
+                    ErrorCode.VALIDATION_ERROR, "orderId must be omitted from public seckill requests");
         }
         String clientIp = ClientIps.resolve(httpRequest);
-        return Result.success(marketingApplicationService.createSeckillOrder(
-                request, currentUser.id(), clientIp, deviceFingerprint));
+        return Result.success(
+                marketingApplicationService.createSeckillOrder(request, currentUser.id(), clientIp, deviceFingerprint));
     }
 
     @PostMapping("/group-buy/join")
@@ -89,7 +88,7 @@ public class MarketingController {
             HttpServletRequest httpRequest,
             @AuthenticationPrincipal SessionUser currentUser) {
         String clientIp = ClientIps.resolve(httpRequest);
-        return Result.success(marketingApplicationService.joinGroupBuy(
-                request, currentUser.id(), clientIp, deviceFingerprint));
+        return Result.success(
+                marketingApplicationService.joinGroupBuy(request, currentUser.id(), clientIp, deviceFingerprint));
     }
 }

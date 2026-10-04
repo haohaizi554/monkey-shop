@@ -58,7 +58,9 @@ public class JpaProductCatalog implements ProductCatalog {
 
     @Override
     public ProductRecord save(ProductRecord product) {
-        Monkey existing = product.id() == null ? null : monkeyRepository.findById(product.id()).orElse(null);
+        Monkey existing = product.id() == null
+                ? null
+                : monkeyRepository.findById(product.id()).orElse(null);
         requireImageTrackingConfigured(
                 product.imageUrl(), imageReferenceService == null && existing != null ? existing.getImageUrl() : null);
         Monkey entity = toEntity(product);

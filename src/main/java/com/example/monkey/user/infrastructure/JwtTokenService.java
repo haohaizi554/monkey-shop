@@ -725,7 +725,8 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
 
     private JwtTokenPair recoverAtomicRefreshTokenRotation(
             AuthenticatedRefreshToken refreshToken, String encryptedRotation) {
-        RefreshTokenRotation rotation = decryptRotation(refreshToken.userId(), refreshToken.tokenId(), encryptedRotation)
+        RefreshTokenRotation rotation = decryptRotation(
+                        refreshToken.userId(), refreshToken.tokenId(), encryptedRotation)
                 .filter(candidate -> refreshToken.userId().equals(candidate.userId()))
                 .filter(candidate -> refreshToken.tenantId().equals(candidate.tenantId()))
                 .filter(candidate -> now().isBefore(candidate.recoverUntil()))
@@ -768,8 +769,13 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
                 .filter(rotation -> current.isBefore(rotation.recoverUntil()));
     }
 
-    private boolean storeRefreshTokenRotationInRedis(Long userId, String refreshTokenId, RefreshTokenRotation rotation) {
-        if (redisTemplate == null || userId == null || userId <= 0 || !StringUtils.hasText(refreshTokenId) || rotation == null) {
+    private boolean storeRefreshTokenRotationInRedis(
+            Long userId, String refreshTokenId, RefreshTokenRotation rotation) {
+        if (redisTemplate == null
+                || userId == null
+                || userId <= 0
+                || !StringUtils.hasText(refreshTokenId)
+                || rotation == null) {
             return false;
         }
         Duration ttl = Duration.between(now(), rotation.recoverUntil());
@@ -796,7 +802,9 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
         }
         try {
             return decryptRotation(
-                    userId, refreshTokenId, redisTemplate.opsForValue().get(refreshRotationKey(userId, refreshTokenId)));
+                    userId,
+                    refreshTokenId,
+                    redisTemplate.opsForValue().get(refreshRotationKey(userId, refreshTokenId)));
         } catch (Exception e) {
             if (requireRedisTokenStore) {
                 throw tokenStoreUnavailable("refresh-token rotation recovery", e);
@@ -1088,7 +1096,11 @@ public class JwtTokenService implements SessionTokenService, SessionTokenTranspo
     }
 
     private boolean storeRefreshTokenInRedis(Long userId, String refreshTokenId, Instant expiresAt) {
-        if (redisTemplate == null || userId == null || userId <= 0 || !StringUtils.hasText(refreshTokenId) || expiresAt == null) {
+        if (redisTemplate == null
+                || userId == null
+                || userId <= 0
+                || !StringUtils.hasText(refreshTokenId)
+                || expiresAt == null) {
             return false;
         }
         Duration ttl = Duration.between(now(), expiresAt);

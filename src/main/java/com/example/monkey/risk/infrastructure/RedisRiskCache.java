@@ -94,12 +94,14 @@ public class RedisRiskCache implements RiskCache {
 
     @Override
     public long countUsersForDevice(String deviceFingerprintHash) {
-        return countSet(userKey(TenantContext.currentTenantIdOrDefault(), deviceFingerprintHash), fallbackUsersByDevice);
+        return countSet(
+                userKey(TenantContext.currentTenantIdOrDefault(), deviceFingerprintHash), fallbackUsersByDevice);
     }
 
     @Override
     public long countPhonesForDevice(String deviceFingerprintHash) {
-        return countSet(phoneKey(TenantContext.currentTenantIdOrDefault(), deviceFingerprintHash), fallbackPhonesByDevice);
+        return countSet(
+                phoneKey(TenantContext.currentTenantIdOrDefault(), deviceFingerprintHash), fallbackPhonesByDevice);
     }
 
     @Override
@@ -108,8 +110,7 @@ public class RedisRiskCache implements RiskCache {
         if (activityId == null || productId == null || !StringUtils.hasText(deviceFingerprintHash) || userId == null) {
             return 0L;
         }
-        String key = seckillKey(
-                TenantContext.currentTenantIdOrDefault(), activityId, productId, deviceFingerprintHash);
+        String key = seckillKey(TenantContext.currentTenantIdOrDefault(), activityId, productId, deviceFingerprintHash);
         fallbackSeckillUsers
                 .computeIfAbsent(key, ignored -> ConcurrentHashMap.newKeySet())
                 .add(Long.toString(userId));
@@ -199,8 +200,7 @@ public class RedisRiskCache implements RiskCache {
         return DEVICE_USER_PREFIX + "tenant:" + tenantId + ":" + deviceFingerprintHash + ":phones";
     }
 
-    private static String seckillKey(
-            long tenantId, Long activityId, Long productId, String deviceFingerprintHash) {
+    private static String seckillKey(long tenantId, Long activityId, Long productId, String deviceFingerprintHash) {
         return SECKILL_PREFIX + "tenant:" + tenantId + ":" + activityId + ":" + productId + ":device:"
                 + deviceFingerprintHash;
     }

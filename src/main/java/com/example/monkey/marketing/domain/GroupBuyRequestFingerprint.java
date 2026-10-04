@@ -14,8 +14,8 @@ public final class GroupBuyRequestFingerprint {
     public static String of(Long activityId, Long userId, Long teamId) {
         Objects.requireNonNull(activityId, "activity id is required");
         Objects.requireNonNull(userId, "user id is required");
-        String canonical = "v1|activityId=" + activityId + "|userId=" + userId + "|teamId="
-                + (teamId == null ? "null" : teamId);
+        String canonical =
+                "v1|activityId=" + activityId + "|userId=" + userId + "|teamId=" + (teamId == null ? "null" : teamId);
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             return HexFormat.of().formatHex(digest.digest(canonical.getBytes(StandardCharsets.UTF_8)));

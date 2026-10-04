@@ -52,7 +52,9 @@ public class JpaOrderStore implements OrderStore {
 
     /** Compatibility constructor for direct mapping tests that do not execute image-tracked persistence. */
     public JpaOrderStore(
-            OrderRepository orderRepository, StockLogRepository stockLogRepository, OrderLineRepository orderLineRepository) {
+            OrderRepository orderRepository,
+            StockLogRepository stockLogRepository,
+            OrderLineRepository orderLineRepository) {
         this(orderRepository, stockLogRepository, orderLineRepository, null);
     }
 
@@ -173,7 +175,10 @@ public class JpaOrderStore implements OrderStore {
             throw missingImageReferenceServices();
         }
         if (order.id() != null
-                && orderRepository.findById(order.id()).map(JpaOrderStore::hasTrackableOrderImage).orElse(false)) {
+                && orderRepository
+                        .findById(order.id())
+                        .map(JpaOrderStore::hasTrackableOrderImage)
+                        .orElse(false)) {
             throw missingImageReferenceServices();
         }
     }
@@ -184,12 +189,13 @@ public class JpaOrderStore implements OrderStore {
         }
         for (CheckoutOrderRecord snapshot : orders) {
             validateImageTracking(snapshot.order());
-            if (snapshot.lines().stream()
-                    .anyMatch(line -> ImageReferenceService.isTrackable(line.productImage()))) {
+            if (snapshot.lines().stream().anyMatch(line -> ImageReferenceService.isTrackable(line.productImage()))) {
                 throw missingImageReferenceServices();
             }
             if (snapshot.order().id() != null
-                    && orderLineRepository.findByOrderIdOrderByIdAsc(snapshot.order().id()).stream()
+                    && orderLineRepository
+                            .findByOrderIdOrderByIdAsc(snapshot.order().id())
+                            .stream()
                             .anyMatch(line -> ImageReferenceService.isTrackable(line.getProductImage()))) {
                 throw missingImageReferenceServices();
             }

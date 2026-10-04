@@ -17,14 +17,19 @@ import com.example.monkey.user.domain.UserPasswordPolicy;
 import com.example.monkey.user.domain.UserRoles;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionOperations;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 @Service
@@ -42,6 +47,7 @@ public class UserService {
     private final UserPasswordPolicy passwordPolicy;
     private final UserMfaVerifier totpService;
     private final String missingAccountPasswordHash;
+    private final TransactionOperations accountTransactions;
 
     @Autowired
     public UserService(
@@ -50,7 +56,8 @@ public class UserService {
             ImageCleanupService imageCleanupService,
             ImageReferenceService imageReferenceService,
             UserPasswordPolicy passwordPolicy,
-            UserMfaVerifier totpService) {
+            UserMfaVerifier totpService,
+            PlatformTransactionManager transactionManager) {
         this(
                 userAccountStore,
                 passwordHasher,
@@ -58,7 +65,8 @@ public class UserService {
                 imageReferenceService,
                 passwordPolicy,
                 totpService,
-                passwordHasher.hash(UUID.randomUUID().toString()));
+                passwordHasher.hash(UUID.randomUUID().toString()),
+                new TransactionTemplate(transactionManager));
     }
 
     UserService(
@@ -69,6 +77,26 @@ public class UserService {
             UserPasswordPolicy passwordPolicy,
             UserMfaVerifier totpService,
             String missingAccountPasswordHash) {
+        this(
+                userAccountStore,
+                passwordHasher,
+                imageCleanupService,
+                imageReferenceService,
+                passwordPolicy,
+                totpService,
+                missingAccountPasswordHash,
+                inlineTransactions());
+    }
+
+    UserService(
+            UserAccountStore userAccountStore,
+            UserPasswordHasher passwordHasher,
+            ImageCleanupService imageCleanupService,
+            ImageReferenceService imageReferenceService,
+            UserPasswordPolicy passwordPolicy,
+            UserMfaVerifier totpService,
+            String missingAccountPasswordHash,
+            TransactionOperations accountTransactions) {
         this.userAccountStore = userAccountStore;
         this.passwordHasher = passwordHasher;
         this.imageCleanupService = imageCleanupService;
@@ -76,17 +104,21 @@ public class UserService {
         this.passwordPolicy = passwordPolicy;
         this.totpService = totpService;
         this.missingAccountPasswordHash = missingAccountPasswordHash;
+        this.accountTransactions = accountTransactions == null ? inlineTransactions() : accountTransactions;
     }
 
-    @Transactional
     public void register(String username, String password, String phone, String avatarPath) {
         register(username, password, phone, null, avatarPath);
     }
 
-    @Transactional
     public void register(String username, String password, String phone, String email, String avatarPath) {
-        long tenantId = TenantContext.currentTenantIdOrDefault();
         passwordPolicy.validateOrThrow(password);
+        accountTransactions.executeWithoutResult(
+                status -> persistRegistration(username, password, phone, email, avatarPath));
+    }
+
+    private void persistRegistration(String username, String password, String phone, String email, String avatarPath) {
+        long tenantId = TenantContext.currentTenantIdOrDefault();
         if (userAccountStore.findByUsername(username).isPresent()) {
             throw new BusinessException(ErrorCode.CONFLICT, REGISTRATION_FAILED);
         }
@@ -192,17 +224,19 @@ public class UserService {
         }
     }
 
-    @Transactional
     public void updatePassword(Long userId, String phone, String newPassword) {
-        UserAccount user = userAccountStore.findById(userId).orElse(null);
-        if (user == null) {
-            throw new BusinessException(ErrorCode.NOT_FOUND, "user not found");
-        }
-        updatePasswordForUser(user, userId, phone, newPassword);
+        passwordPolicy.validateOrThrow(newPassword);
+        accountTransactions.executeWithoutResult(
+                status -> updatePasswordInTransaction(userId, phone, newPassword, null));
     }
 
-    @Transactional
     public void updatePassword(Long userId, String phone, String newPassword, String username) {
+        passwordPolicy.validateOrThrow(newPassword);
+        accountTransactions.executeWithoutResult(
+                status -> updatePasswordInTransaction(userId, phone, newPassword, username));
+    }
+
+    private void updatePasswordInTransaction(Long userId, String phone, String newPassword, String username) {
         UserAccount user = userId != null
                 ? userAccountStore.findById(userId).orElse(null)
                 : userAccountStore.findByUsername(username).orElse(null);
@@ -227,7 +261,6 @@ public class UserService {
                 || (user.email() != null && user.email().equalsIgnoreCase(email.trim()));
     }
 
-    @Transactional
     public void resetPasswordAfterOtp(String username, String phone, String newPassword) {
         updatePassword(null, phone, newPassword, username);
     }
@@ -269,7 +302,6 @@ public class UserService {
         if (user.phone() == null || !user.phone().equals(phone)) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "phone verification failed");
         }
-        passwordPolicy.validateOrThrow(newPassword);
         Long effectiveUserId = user.id() != null ? user.id() : requestedUserId;
         if (passwordMatchesRecentHistory(effectiveUserId, user.passwordHash(), newPassword)) {
             throw new BusinessException(ErrorCode.CONFLICT, "password was used recently");
@@ -293,6 +325,15 @@ public class UserService {
         }
         return recentPasswordHashes.stream()
                 .anyMatch(previousHash -> passwordHasher.matches(rawPassword, previousHash));
+    }
+
+    private static TransactionOperations inlineTransactions() {
+        return new TransactionOperations() {
+            @Override
+            public <T> T execute(TransactionCallback<T> action) {
+                return action.doInTransaction(new SimpleTransactionStatus());
+            }
+        };
     }
 
     private static String normalizeRole(String role) {

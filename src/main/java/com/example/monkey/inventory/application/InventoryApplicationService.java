@@ -108,7 +108,8 @@ public class InventoryApplicationService implements InventoryReservationLifecycl
         String province = InventoryReservationFingerprint.normalizeProvince(request.province());
         Optional<InventoryReservation> existing = inventoryStore.findReservation(reservationKey);
         if (existing.isPresent()) {
-            String fingerprint = fingerprint(request, reservationKey, province, existing.get().warehouseId());
+            String fingerprint = fingerprint(
+                    request, reservationKey, province, existing.get().warehouseId());
             requireMatchingReservation(existing.get(), fingerprint);
             return toReservationResponse(
                     existing.get(),

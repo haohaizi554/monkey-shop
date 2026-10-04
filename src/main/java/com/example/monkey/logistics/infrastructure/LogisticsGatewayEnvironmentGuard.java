@@ -1,8 +1,8 @@
 package com.example.monkey.logistics.infrastructure;
 
 import jakarta.annotation.PostConstruct;
-import org.springframework.core.env.Environment;
 import org.springframework.context.annotation.Profile;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -17,7 +17,8 @@ public final class LogisticsGatewayEnvironmentGuard {
 
     @PostConstruct
     void rejectSandboxGatewayInSharedEnvironment() {
-        String configuredGateway = environment.getProperty("app.logistics.gateway", "").trim();
+        String configuredGateway =
+                environment.getProperty("app.logistics.gateway", "").trim();
         if ("sandbox".equalsIgnoreCase(configuredGateway)) {
             throw new IllegalStateException(
                     "sandbox logistics gateway is forbidden in prod/staging; configure a real adapter or unavailable");

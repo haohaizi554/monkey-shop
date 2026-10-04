@@ -25,8 +25,7 @@ public class RiskApplicationCommercialRiskGate implements CommercialRiskGate {
             String deviceFingerprint,
             String clientIp,
             String operation) {
-        requireAllowed(
-                userId, activityId, productId, orderId, deviceFingerprint, clientIp, operation, null);
+        requireAllowed(userId, activityId, productId, orderId, deviceFingerprint, clientIp, operation, null);
     }
 
     @Override
@@ -42,16 +41,7 @@ public class RiskApplicationCommercialRiskGate implements CommercialRiskGate {
         riskApplicationService.requireAllowed(
                 new SessionUser(userId, "USER", false, TenantContext.currentTenantIdOrDefault()),
                 new RiskAssessmentRequestDto(
-                        null,
-                        deviceFingerprint,
-                        null,
-                        productId,
-                        orderId,
-                        activityId,
-                        null,
-                        null,
-                        null,
-                        totpCode),
+                        null, deviceFingerprint, null, productId, orderId, activityId, null, null, null, totpCode),
                 clientIp,
                 operation);
     }

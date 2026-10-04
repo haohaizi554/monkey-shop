@@ -144,8 +144,7 @@ class OrderControllerTest {
 
         assertThat(result.code()).isEqualTo("OK");
         assertThat(result.data()).isSameAs(order);
-        verify(orderApplicationService).createOrder(
-                currentUser, 3L, 5L, "order-key-1", "device-a", "203.0.113.7");
+        verify(orderApplicationService).createOrder(currentUser, 3L, 5L, "order-key-1", "device-a", "203.0.113.7");
     }
 
     @Test

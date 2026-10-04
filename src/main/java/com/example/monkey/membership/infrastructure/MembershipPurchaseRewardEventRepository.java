@@ -19,9 +19,7 @@ public interface MembershipPurchaseRewardEventRepository
                and e.eventKey = :eventKey
             """)
     Optional<MembershipPurchaseRewardEventEntity> findLockedByTenantIdAndPaymentIdAndEventKey(
-            @Param("tenantId") Long tenantId,
-            @Param("paymentId") Long paymentId,
-            @Param("eventKey") String eventKey);
+            @Param("tenantId") Long tenantId, @Param("paymentId") Long paymentId, @Param("eventKey") String eventKey);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""

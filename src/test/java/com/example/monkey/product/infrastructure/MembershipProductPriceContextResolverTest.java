@@ -16,15 +16,13 @@ class MembershipProductPriceContextResolverTest {
     @Test
     void anonymousAndBasicUsersCannotClaimMemberPricing() {
         MembershipStore membershipStore = mock();
-        MembershipProductPriceContextResolver resolver =
-                new MembershipProductPriceContextResolver(membershipStore);
+        MembershipProductPriceContextResolver resolver = new MembershipProductPriceContextResolver(membershipStore);
 
-        assertThat(resolver.resolve(null, " cn-bj "))
-                .satisfies(context -> {
-                    assertThat(context.userIdentity()).isEqualTo("ANONYMOUS");
-                    assertThat(context.region()).isEqualTo("CN-BJ");
-                    assertThat(context.isMember()).isFalse();
-                });
+        assertThat(resolver.resolve(null, " cn-bj ")).satisfies(context -> {
+            assertThat(context.userIdentity()).isEqualTo("ANONYMOUS");
+            assertThat(context.region()).isEqualTo("CN-BJ");
+            assertThat(context.isMember()).isFalse();
+        });
         verifyNoInteractions(membershipStore);
 
         MemberProfile basicProfile = mock();
@@ -40,14 +38,12 @@ class MembershipProductPriceContextResolverTest {
         MemberProfile goldProfile = mock();
         when(goldProfile.level()).thenReturn(MembershipLevel.GOLD);
         when(membershipStore.findProfile(7L)).thenReturn(Optional.of(goldProfile));
-        MembershipProductPriceContextResolver resolver =
-                new MembershipProductPriceContextResolver(membershipStore);
+        MembershipProductPriceContextResolver resolver = new MembershipProductPriceContextResolver(membershipStore);
 
-        assertThat(resolver.resolve(7L, "CN-BJ"))
-                .satisfies(context -> {
-                    assertThat(context.userIdentity()).isEqualTo("MEMBER");
-                    assertThat(context.region()).isEqualTo("CN-BJ");
-                    assertThat(context.isMember()).isTrue();
-                });
+        assertThat(resolver.resolve(7L, "CN-BJ")).satisfies(context -> {
+            assertThat(context.userIdentity()).isEqualTo("MEMBER");
+            assertThat(context.region()).isEqualTo("CN-BJ");
+            assertThat(context.isMember()).isTrue();
+        });
     }
 }

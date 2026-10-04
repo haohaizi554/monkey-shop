@@ -243,7 +243,8 @@ class JpaOrderStoreTest {
         JpaOrderStore compatibilityStore = new JpaOrderStore(orderRepository, stockLogRepository, orderLineRepository);
         when(orderRepository.findById(10L)).thenReturn(Optional.of(order()));
 
-        assertThatThrownBy(() -> compatibilityStore.savePlacedOrder(unsavedRecordWithoutImages().withId(10L)))
+        assertThatThrownBy(() -> compatibilityStore.savePlacedOrder(
+                        unsavedRecordWithoutImages().withId(10L)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Image reference services are required for trackable image writes");
 
@@ -320,8 +321,8 @@ class JpaOrderStoreTest {
     void saveCheckoutOrdersDoesNotRetainImagesWhenReplayCarriesAnExistingOrderId() {
         when(orderRepository.save(any(Order.class))).thenReturn(order());
 
-        store.saveCheckoutOrders(List.of(new CheckoutOrderRecord(
-                record(), List.of(checkoutLine(101L, 1L, 2, "cart:42:pay:101")))));
+        store.saveCheckoutOrders(
+                List.of(new CheckoutOrderRecord(record(), List.of(checkoutLine(101L, 1L, 2, "cart:42:pay:101")))));
 
         verify(imageReferenceService, never()).retain(any());
         verify(orderRepository).save(any(Order.class));

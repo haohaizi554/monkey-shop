@@ -36,7 +36,8 @@ class TenantExportMigrationLocalMySqlTest {
                                     WHERE success = 1
                                     ORDER BY installed_rank DESC
                                     LIMIT 1
-                                    """, String.class)).isEqualTo(latestAvailableMigrationVersion(flyway));
+                                    """, String.class))
+                    .isEqualTo(latestAvailableMigrationVersion(flyway));
             assertThat(schema.jdbcTemplate().queryForObject("""
                                     SELECT COUNT(*)
                                     FROM information_schema.columns

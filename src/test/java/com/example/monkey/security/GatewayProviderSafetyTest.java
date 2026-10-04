@@ -32,10 +32,8 @@ import org.springframework.context.annotation.Import;
 
 class GatewayProviderSafetyTest {
 
-    private static final String PAYMENT_INFRASTRUCTURE =
-            "src/main/java/com/example/monkey/payment/infrastructure/";
-    private static final String LOGISTICS_INFRASTRUCTURE =
-            "src/main/java/com/example/monkey/logistics/infrastructure/";
+    private static final String PAYMENT_INFRASTRUCTURE = "src/main/java/com/example/monkey/payment/infrastructure/";
+    private static final String LOGISTICS_INFRASTRUCTURE = "src/main/java/com/example/monkey/logistics/infrastructure/";
 
     @Test
     void unavailablePaymentGatewayRejectsCreateQueryAndRefund() throws Exception {
@@ -80,9 +78,7 @@ class GatewayProviderSafetyTest {
         new ApplicationContextRunner()
                 .withUserConfiguration(PaymentGatewayConfiguration.class, LogisticsGatewayConfiguration.class)
                 .withPropertyValues(
-                        "spring.profiles.active=dev",
-                        "app.payment.gateway=sandbox",
-                        "app.logistics.gateway=sandbox")
+                        "spring.profiles.active=dev", "app.payment.gateway=sandbox", "app.logistics.gateway=sandbox")
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context.getBeansOfType(SandboxPaymentGateway.class))
@@ -152,9 +148,7 @@ class GatewayProviderSafetyTest {
     @Test
     void helmDefaultsAndSharedOverridesAreExplicitlyUnavailable() throws IOException {
         for (String valuesFile : new String[] {
-            "helm/monkeyshop/values.yaml",
-            "helm/monkeyshop/values-prod.yaml",
-            "helm/monkeyshop/values-staging.yaml"
+            "helm/monkeyshop/values.yaml", "helm/monkeyshop/values-prod.yaml", "helm/monkeyshop/values-staging.yaml"
         }) {
             assertThat(read(valuesFile))
                     .containsPattern("(?m)^\\s+APP_PAYMENT_GATEWAY:\\s+unavailable\\s*$")

@@ -63,7 +63,7 @@ public class RedisMarketingIdempotencyStore implements MarketingIdempotencyStore
     }
 
     private static String redisKey(String scope, Long userId, String idempotencyKey) {
-        return REDIS_KEY_PREFIX + "tenant:" + TenantContext.currentTenantIdOrDefault() + ":" + scope + ":"
-                + userId + ":" + idempotencyKey;
+        return REDIS_KEY_PREFIX + "tenant:" + TenantContext.currentTenantIdOrDefault() + ":" + scope + ":" + userId
+                + ":" + idempotencyKey;
     }
 }

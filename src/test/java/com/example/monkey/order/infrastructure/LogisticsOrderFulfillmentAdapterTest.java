@@ -81,7 +81,8 @@ class LogisticsOrderFulfillmentAdapterTest {
     @Test
     void signedShipmentCompletesShippedOrderThroughCanonicalResolver() {
         when(orderStore.findById(10L)).thenReturn(Optional.of(order(OrderStatus.SHIPPED)));
-        when(transitionResolver.nextStatus(OrderStatus.SHIPPED, OrderEvent.RECEIVE)).thenReturn(OrderStatus.COMPLETED);
+        when(transitionResolver.nextStatus(OrderStatus.SHIPPED, OrderEvent.RECEIVE))
+                .thenReturn(OrderStatus.COMPLETED);
         when(orderStore.transitionStatus(10L, OrderStatus.SHIPPED.label(), OrderStatus.COMPLETED.label(), null))
                 .thenReturn(1);
 
@@ -97,20 +98,15 @@ class LogisticsOrderFulfillmentAdapterTest {
         when(transitionResolver.nextStatus(OrderStatus.PARTIALLY_SHIPPED, OrderEvent.RECEIVE_PARTIAL))
                 .thenReturn(OrderStatus.PARTIALLY_RECEIVED);
         when(orderStore.transitionStatus(
-                        10L,
-                        OrderStatus.PARTIALLY_SHIPPED.label(),
-                        OrderStatus.PARTIALLY_RECEIVED.label(),
-                        null))
+                        10L, OrderStatus.PARTIALLY_SHIPPED.label(), OrderStatus.PARTIALLY_RECEIVED.label(), null))
                 .thenReturn(1);
 
         adapter.markDelivered(1L, 10L, 7000L, Instant.parse("2026-07-04T12:00:00Z"));
 
         verify(transitionResolver).nextStatus(OrderStatus.PARTIALLY_SHIPPED, OrderEvent.RECEIVE_PARTIAL);
-        verify(orderStore).transitionStatus(
-                10L,
-                OrderStatus.PARTIALLY_SHIPPED.label(),
-                OrderStatus.PARTIALLY_RECEIVED.label(),
-                null);
+        verify(orderStore)
+                .transitionStatus(
+                        10L, OrderStatus.PARTIALLY_SHIPPED.label(), OrderStatus.PARTIALLY_RECEIVED.label(), null);
     }
 
     @Test

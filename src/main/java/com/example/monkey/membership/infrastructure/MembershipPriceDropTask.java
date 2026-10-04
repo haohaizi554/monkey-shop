@@ -23,6 +23,7 @@ public class MembershipPriceDropTask {
             name = "membership-price-drop-scan",
             lockAtMostFor = "${app.membership.price-drop-lock-at-most-for:PT10M}")
     public void scanPriceDrops() {
-        activeTenantIterator.forEachActiveTenant(tenantId -> membershipApplicationService.scanPriceDrops().scanned());
+        activeTenantIterator.forEachActiveTenant(
+                tenantId -> membershipApplicationService.scanPriceDrops().scanned());
     }
 }

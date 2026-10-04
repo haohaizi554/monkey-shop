@@ -153,13 +153,19 @@ class TenantContextFilterTest {
         MockHttpServletRequest tracking = new MockHttpServletRequest("POST", "/api/v1/tracking/events");
         tracking.addHeader(TenantContextFilter.TENANT_HEADER, "200");
 
-        filter.doFilter(tracking, new MockHttpServletResponse(), (servletRequest, servletResponse) ->
-                assertThat(TenantContext.currentTenantIdOrDefault()).isEqualTo(1L));
+        filter.doFilter(
+                tracking,
+                new MockHttpServletResponse(),
+                (servletRequest, servletResponse) ->
+                        assertThat(TenantContext.currentTenantIdOrDefault()).isEqualTo(1L));
 
         MockHttpServletRequest callback = new MockHttpServletRequest("POST", "/api/v1/payments/callback");
         callback.addHeader(TenantContextFilter.TENANT_HEADER, "200");
-        filter.doFilter(callback, new MockHttpServletResponse(), (servletRequest, servletResponse) ->
-                assertThat(TenantContext.currentTenantIdOrDefault()).isEqualTo(200L));
+        filter.doFilter(
+                callback,
+                new MockHttpServletResponse(),
+                (servletRequest, servletResponse) ->
+                        assertThat(TenantContext.currentTenantIdOrDefault()).isEqualTo(200L));
     }
 
     @Test
@@ -168,8 +174,11 @@ class TenantContextFilterTest {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/catalog");
         request.addHeader(TenantContextFilter.TENANT_HEADER, "200");
 
-        filter.doFilter(request, new MockHttpServletResponse(), (servletRequest, servletResponse) ->
-                assertThat(TenantContext.currentTenantIdOrDefault()).isEqualTo(200L));
+        filter.doFilter(
+                request,
+                new MockHttpServletResponse(),
+                (servletRequest, servletResponse) ->
+                        assertThat(TenantContext.currentTenantIdOrDefault()).isEqualTo(200L));
     }
 
     @Test

@@ -106,32 +106,28 @@ class RedisRiskCacheTest {
         List<String> seenKeys = new ArrayList<>();
         when(redisTemplate.opsForSet()).thenReturn(setOperations);
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(setOperations.add(anyString(), anyString()))
-                .thenAnswer(invocation -> {
-                    seenKeys.add(invocation.getArgument(0));
-                    return true;
-                });
-        when(setOperations.size(anyString()))
-                .thenAnswer(invocation -> {
-                    seenKeys.add(invocation.getArgument(0));
-                    return 0L;
-                });
-        when(redisTemplate.expire(anyString(), any(Duration.class)))
-                .thenAnswer(invocation -> {
-                    seenKeys.add(invocation.getArgument(0));
-                    return true;
-                });
+        when(setOperations.add(anyString(), anyString())).thenAnswer(invocation -> {
+            seenKeys.add(invocation.getArgument(0));
+            return true;
+        });
+        when(setOperations.size(anyString())).thenAnswer(invocation -> {
+            seenKeys.add(invocation.getArgument(0));
+            return 0L;
+        });
+        when(redisTemplate.expire(anyString(), any(Duration.class))).thenAnswer(invocation -> {
+            seenKeys.add(invocation.getArgument(0));
+            return true;
+        });
         doAnswer(invocation -> {
                     seenKeys.add(invocation.getArgument(0));
                     return null;
                 })
                 .when(valueOperations)
                 .set(anyString(), anyString(), any(Duration.class));
-        when(valueOperations.get(anyString()))
-                .thenAnswer(invocation -> {
-                    seenKeys.add(invocation.getArgument(0));
-                    return null;
-                });
+        when(valueOperations.get(anyString())).thenAnswer(invocation -> {
+            seenKeys.add(invocation.getArgument(0));
+            return null;
+        });
 
         RedisRiskCache redisCache = new RedisRiskCache(redisTemplate, new ObjectMapper().findAndRegisterModules());
         RiskScore score = riskScore(77L, 10);
@@ -151,15 +147,16 @@ class RedisRiskCacheTest {
         redisCache.cacheScore(score, Duration.ofMinutes(30));
         redisCache.findScore(77L);
 
-        assertThat(seenKeys).contains(
-                "risk:device:tenant:1:same-device:users",
-                "risk:device:tenant:2:same-device:users",
-                "risk:device:tenant:1:same-device:phones",
-                "risk:device:tenant:2:same-device:phones",
-                "risk:seckill:tenant:1:10:20:device:same-device",
-                "risk:seckill:tenant:2:10:20:device:same-device",
-                "risk:score:user:1:77",
-                "risk:score:user:2:77");
+        assertThat(seenKeys)
+                .contains(
+                        "risk:device:tenant:1:same-device:users",
+                        "risk:device:tenant:2:same-device:users",
+                        "risk:device:tenant:1:same-device:phones",
+                        "risk:device:tenant:2:same-device:phones",
+                        "risk:seckill:tenant:1:10:20:device:same-device",
+                        "risk:seckill:tenant:2:10:20:device:same-device",
+                        "risk:score:user:1:77",
+                        "risk:score:user:2:77");
     }
 
     @Test
@@ -179,8 +176,9 @@ class RedisRiskCacheTest {
                 new RedisRiskCache(redisTemplate, new ObjectMapper().findAndRegisterModules(), true);
 
         assertThatThrownBy(() -> requiredCache.countUsersForDevice("same-device"))
-                .isInstanceOfSatisfying(BusinessException.class, exception ->
-                        assertThat(exception.errorCode()).isEqualTo(ErrorCode.SERVICE_UNAVAILABLE));
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.SERVICE_UNAVAILABLE));
     }
 
     private static RiskScore riskScore(Long userId, int score) {

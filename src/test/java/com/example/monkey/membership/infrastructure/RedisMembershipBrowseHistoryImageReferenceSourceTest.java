@@ -33,16 +33,17 @@ class RedisMembershipBrowseHistoryImageReferenceSourceTest {
 
     @Test
     void fallbackPathEmitsEveryLiveProductImageWithMultiplicityAndTenantIsolation() {
-        RedisMembershipActivityStore activityStore =
-                new RedisMembershipActivityStore(noRedis(), objectMapper());
+        RedisMembershipActivityStore activityStore = new RedisMembershipActivityStore(noRedis(), objectMapper());
         RedisMembershipBrowseHistoryImageReferenceSource source =
                 new RedisMembershipBrowseHistoryImageReferenceSource(activityStore);
         LocalDateTime now = LocalDateTime.now().minusMinutes(2);
 
         TenantContext.setTenantId(11L);
         activityStore.record(item(1L, 100L, "/images/shared.png", now, now.plusHours(1)), Duration.ofHours(1));
-        activityStore.record(item(2L, 101L, "/images/shared.png", now.plusSeconds(1), now.plusHours(1)), Duration.ofHours(1));
-        activityStore.record(item(3L, 102L, "/images/expired.png", now.minusHours(2), now.minusMinutes(1)), Duration.ofHours(1));
+        activityStore.record(
+                item(2L, 101L, "/images/shared.png", now.plusSeconds(1), now.plusHours(1)), Duration.ofHours(1));
+        activityStore.record(
+                item(3L, 102L, "/images/expired.png", now.minusHours(2), now.minusMinutes(1)), Duration.ofHours(1));
         TenantContext.setTenantId(12L);
         activityStore.record(item(4L, 100L, "/images/other-tenant.png", now, now.plusHours(1)), Duration.ofHours(1));
 
@@ -50,8 +51,7 @@ class RedisMembershipBrowseHistoryImageReferenceSourceTest {
         List<String> references = new ArrayList<>();
         source.forEachReferencedImagePath(references::add);
 
-        assertThat(references).containsExactlyInAnyOrder(
-                "/images/shared.png", "/images/shared.png");
+        assertThat(references).containsExactlyInAnyOrder("/images/shared.png", "/images/shared.png");
         assertThat(source.isUsed("/images/shared.png")).isTrue();
         assertThat(source.isUsed("/images/other-tenant.png")).isFalse();
     }
@@ -62,8 +62,7 @@ class RedisMembershipBrowseHistoryImageReferenceSourceTest {
         StringRedisTemplate redisTemplate = mock();
         when(provider.getIfAvailable()).thenReturn(redisTemplate);
         when(redisTemplate.scan(any(ScanOptions.class))).thenThrow(new IllegalStateException("Redis unavailable"));
-        RedisMembershipActivityStore activityStore =
-                new RedisMembershipActivityStore(provider, objectMapper());
+        RedisMembershipActivityStore activityStore = new RedisMembershipActivityStore(provider, objectMapper());
         RedisMembershipBrowseHistoryImageReferenceSource source =
                 new RedisMembershipBrowseHistoryImageReferenceSource(activityStore);
         LocalDateTime now = LocalDateTime.now().minusMinutes(2);
@@ -92,8 +91,7 @@ class RedisMembershipBrowseHistoryImageReferenceSourceTest {
         when(zSet.range(anyString(), eq(0L), eq(-1L))).thenThrow(new IllegalStateException("Redis unavailable"));
         when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(keys);
         when(keys.hasNext()).thenReturn(false);
-        RedisMembershipActivityStore activityStore =
-                new RedisMembershipActivityStore(provider, objectMapper());
+        RedisMembershipActivityStore activityStore = new RedisMembershipActivityStore(provider, objectMapper());
         RedisMembershipBrowseHistoryImageReferenceSource source =
                 new RedisMembershipBrowseHistoryImageReferenceSource(activityStore);
         LocalDateTime now = LocalDateTime.now().minusMinutes(2);
@@ -121,9 +119,8 @@ class RedisMembershipBrowseHistoryImageReferenceSourceTest {
         when(redisTemplate.opsForZSet()).thenReturn(zSet);
         when(zSet.range(eq("membership:browse:tenant:11:user:100"), eq(0L), eq(-1L)))
                 .thenReturn(Set.of("not-json"));
-        RedisMembershipBrowseHistoryImageReferenceSource source =
-                new RedisMembershipBrowseHistoryImageReferenceSource(
-                        new RedisMembershipActivityStore(provider, objectMapper()));
+        RedisMembershipBrowseHistoryImageReferenceSource source = new RedisMembershipBrowseHistoryImageReferenceSource(
+                new RedisMembershipActivityStore(provider, objectMapper()));
         TenantContext.setTenantId(11L);
 
         assertThatThrownBy(() -> source.forEachReferencedImagePath(ignored -> {}))
@@ -146,10 +143,19 @@ class RedisMembershipBrowseHistoryImageReferenceSourceTest {
         when(redisTemplate.opsForZSet()).thenReturn(zSet);
         when(zSet.range(eq("membership:browse:tenant:11:user:100"), eq(0L), eq(-1L)))
                 .thenReturn(Set.of(
-                        serialize(item(1L, 100L, "/images/live.png", LocalDateTime.now(), LocalDateTime.now().plusHours(1))),
-                        serialize(item(2L, 100L, "/images/expired.png", LocalDateTime.now().minusHours(2), LocalDateTime.now().minusMinutes(1)))));
-        RedisMembershipActivityStore activityStore =
-                new RedisMembershipActivityStore(provider, objectMapper());
+                        serialize(item(
+                                1L,
+                                100L,
+                                "/images/live.png",
+                                LocalDateTime.now(),
+                                LocalDateTime.now().plusHours(1))),
+                        serialize(item(
+                                2L,
+                                100L,
+                                "/images/expired.png",
+                                LocalDateTime.now().minusHours(2),
+                                LocalDateTime.now().minusMinutes(1)))));
+        RedisMembershipActivityStore activityStore = new RedisMembershipActivityStore(provider, objectMapper());
         RedisMembershipBrowseHistoryImageReferenceSource source =
                 new RedisMembershipBrowseHistoryImageReferenceSource(activityStore);
         TenantContext.setTenantId(11L);

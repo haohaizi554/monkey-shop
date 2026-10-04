@@ -127,7 +127,8 @@ class SupplyChainAutomationTest {
     void verifyKyvernoSupplyChainGateIsWiredIntoCi() throws IOException {
         String ci = Files.readString(Path.of(".github/workflows/ci.yaml"), StandardCharsets.UTF_8);
         String script = Files.readString(Path.of("scripts/verify-kyverno-supply-chain.ps1"), StandardCharsets.UTF_8);
-        String policy = Files.readString(Path.of("deploy/kyverno/monkeyshop-image-policy.yaml"), StandardCharsets.UTF_8);
+        String policy =
+                Files.readString(Path.of("deploy/kyverno/monkeyshop-image-policy.yaml"), StandardCharsets.UTF_8);
 
         assertThat(ci)
                 .contains("Verify WS7 manifests")
@@ -146,8 +147,7 @@ class SupplyChainAutomationTest {
         assertThat(policy)
                 .contains("\"ghcr.io/haohaizi554/monkey-shop:*\"")
                 .contains("\"ghcr.io/haohaizi554/monkey-shop@sha256:*\"")
-                .contains(
-                        "subjectRegExp: https://github.com/haohaizi554/monkey-shop/.github/workflows/ci.yaml@refs/.+")
+                .contains("subjectRegExp: https://github.com/haohaizi554/monkey-shop/.github/workflows/ci.yaml@refs/.+")
                 .doesNotContain("ghcr.io/*/monkeyshop*", "harbor.example.com/monkeyshop/monkeyshop*")
                 .doesNotContain("JavaScript_MonkeyShop");
     }
@@ -493,8 +493,7 @@ class SupplyChainAutomationTest {
                         limits:
                           cpu: 1m
                           memory: 1Mi
-                """
-                .formatted(initImage, appImage);
+                """.formatted(initImage, appImage);
     }
 
     private record VerificationResult(int exitCode, String output) {}

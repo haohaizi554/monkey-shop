@@ -46,7 +46,7 @@ class RedissonOrderLockManagerTest {
 
     @Test
     void runsOperationWhenCreateOrderLockIsAcquired() throws InterruptedException {
-        when(lock.tryLock(2000, 10000, TimeUnit.MILLISECONDS)).thenReturn(true);
+        when(lock.tryLock(2000, TimeUnit.MILLISECONDS)).thenReturn(true);
         when(lock.isHeldByCurrentThread()).thenReturn(true);
 
         String result = orderLockManager.withCreateOrderLock(42L, 7L, () -> "created");
@@ -57,7 +57,7 @@ class RedissonOrderLockManagerTest {
 
     @Test
     void isolatesCreateOrderLocksAcrossTenantsWithTheSameUserAndProductIds() throws InterruptedException {
-        when(lock.tryLock(2000, 10000, TimeUnit.MILLISECONDS)).thenReturn(true);
+        when(lock.tryLock(2000, TimeUnit.MILLISECONDS)).thenReturn(true);
         when(lock.isHeldByCurrentThread()).thenReturn(true);
 
         TenantContext.setTenantId(9L);
@@ -74,7 +74,7 @@ class RedissonOrderLockManagerTest {
 
     @Test
     void rejectsConcurrentOrderCreationWhenLockCannotBeAcquired() throws InterruptedException {
-        when(lock.tryLock(2000, 10000, TimeUnit.MILLISECONDS)).thenReturn(false);
+        when(lock.tryLock(2000, TimeUnit.MILLISECONDS)).thenReturn(false);
 
         assertThatThrownBy(() -> orderLockManager.withCreateOrderLock(42L, 7L, () -> "created"))
                 .isInstanceOfSatisfying(BusinessException.class, exception -> {
@@ -87,7 +87,7 @@ class RedissonOrderLockManagerTest {
 
     @Test
     void preservesInterruptStatusWhenLockAcquisitionIsInterrupted() throws InterruptedException {
-        when(lock.tryLock(2000, 10000, TimeUnit.MILLISECONDS)).thenThrow(new InterruptedException("stop"));
+        when(lock.tryLock(2000, TimeUnit.MILLISECONDS)).thenThrow(new InterruptedException("stop"));
 
         try {
             assertThatThrownBy(() -> orderLockManager.withCreateOrderLock(42L, 7L, () -> "created"))
@@ -103,18 +103,33 @@ class RedissonOrderLockManagerTest {
 
     @Test
     void wrapsRedissonRuntimeFailures() throws InterruptedException {
-        when(lock.tryLock(2000, 10000, TimeUnit.MILLISECONDS)).thenThrow(new IllegalStateException("redis down"));
+        when(lock.tryLock(2000, TimeUnit.MILLISECONDS)).thenThrow(new IllegalStateException("redis down"));
 
         assertThatThrownBy(() -> orderLockManager.withCreateOrderLock(42L, 7L, () -> "created"))
                 .isInstanceOfSatisfying(BusinessException.class, exception -> {
                     assertThat(exception.errorCode()).isEqualTo(ErrorCode.SERVICE_UNAVAILABLE);
                     assertThat(exception).hasMessage("Order lock service is unavailable");
+                    assertThat(exception).hasCauseInstanceOf(IllegalStateException.class);
                 });
     }
 
     @Test
+    void propagatesOrderCreationFailuresInsteadOfReportingTheLockAsUnavailable() throws InterruptedException {
+        when(lock.tryLock(2000, TimeUnit.MILLISECONDS)).thenReturn(true);
+        when(lock.isHeldByCurrentThread()).thenReturn(true);
+
+        assertThatThrownBy(() -> orderLockManager.withCreateOrderLock(42L, 7L, () -> {
+                    throw new IllegalStateException("Insufficient locked inventory");
+                }))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Insufficient locked inventory");
+
+        verify(lock).unlock();
+    }
+
+    @Test
     void propagatesBusinessFailuresAndStillUnlocks() throws InterruptedException {
-        when(lock.tryLock(2000, 10000, TimeUnit.MILLISECONDS)).thenReturn(true);
+        when(lock.tryLock(2000, TimeUnit.MILLISECONDS)).thenReturn(true);
         when(lock.isHeldByCurrentThread()).thenReturn(true);
 
         assertThatThrownBy(() -> orderLockManager.withCreateOrderLock(42L, 7L, () -> {

@@ -17,7 +17,8 @@ class Ws8MembershipWorkflowTest {
                 read("src/main/java/com/example/monkey/membership/application/MembershipApplicationService.java");
         String controller = read("src/main/java/com/example/monkey/membership/interfaces/MembershipController.java");
         String migration = read("src/main/resources/db/migration/V35__membership_points_wallet.sql");
-        String integrityMigration = read("src/main/resources/db/migration/V60__membership_identity_points_integrity.sql");
+        String integrityMigration =
+                read("src/main/resources/db/migration/V60__membership_identity_points_integrity.sql");
         String frontendApi = read("frontend/src/api/membership.ts");
         String frontend = read("frontend/src/views/MembershipView.vue");
         String script = read("scripts/verify-ws8-membership.ps1");

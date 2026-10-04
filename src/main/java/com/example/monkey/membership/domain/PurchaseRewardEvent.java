@@ -23,8 +23,14 @@ public record PurchaseRewardEvent(
     public PurchaseRewardEvent {
         refundAmount = money(refundAmount);
         cumulativeRefundedAmount = money(cumulativeRefundedAmount);
-        if (rewardFactId == null || rewardFactId <= 0 || paymentId == null || paymentId <= 0
-                || orderId == null || orderId <= 0 || userId == null || userId <= 0) {
+        if (rewardFactId == null
+                || rewardFactId <= 0
+                || paymentId == null
+                || paymentId <= 0
+                || orderId == null
+                || orderId <= 0
+                || userId == null
+                || userId <= 0) {
             throw new IllegalArgumentException("purchase reward event ownership ids must be positive");
         }
         if (type == null || eventKey == null || eventKey.isBlank() || fingerprint == null || fingerprint.isBlank()) {

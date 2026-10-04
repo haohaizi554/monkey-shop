@@ -5,8 +5,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
 import { launch } from 'chrome-launcher'
-import lighthouse from 'lighthouse'
-import desktopConfig from 'lighthouse/core/config/desktop-config.js'
+import lighthouse, { desktopConfig } from 'lighthouse'
 import { preview } from 'vite'
 
 import { collectLighthouseFailures, resolveMockApiRequest } from './lighthouse-gate.mjs'

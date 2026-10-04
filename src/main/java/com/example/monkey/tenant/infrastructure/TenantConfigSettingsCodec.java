@@ -35,8 +35,7 @@ public final class TenantConfigSettingsCodec {
         return encodeForWrite(requestedSettings, decode(existingSettingsJson));
     }
 
-    public String encodeForWrite(
-            Map<String, String> requestedSettings, Map<String, String> persistedSettings) {
+    public String encodeForWrite(Map<String, String> requestedSettings, Map<String, String> persistedSettings) {
         requireEncryption();
         Map<String, String> merged = TenantConfigValuePolicy.mergeMaskedValues(requestedSettings, persistedSettings);
         return writeEncrypted(merged);

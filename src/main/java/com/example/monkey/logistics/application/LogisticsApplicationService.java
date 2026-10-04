@@ -14,16 +14,16 @@ import com.example.monkey.logistics.domain.FreightQuote;
 import com.example.monkey.logistics.domain.LogisticsCarrier;
 import com.example.monkey.logistics.domain.LogisticsGateway;
 import com.example.monkey.logistics.domain.LogisticsGatewayResult;
-import com.example.monkey.logistics.domain.OrderFulfillmentPort;
 import com.example.monkey.logistics.domain.LogisticsStore;
+import com.example.monkey.logistics.domain.LogisticsTracking;
+import com.example.monkey.logistics.domain.LogisticsTransitionResolver;
+import com.example.monkey.logistics.domain.LogisticsWebhookReplayGuard;
+import com.example.monkey.logistics.domain.OrderFulfillmentPort;
+import com.example.monkey.logistics.domain.ParsedAddress;
 import com.example.monkey.logistics.domain.ShipmentClaimReservation;
 import com.example.monkey.logistics.domain.ShipmentClaimStatus;
 import com.example.monkey.logistics.domain.ShipmentCreationClaim;
 import com.example.monkey.logistics.domain.ShipmentCreationClaimStore;
-import com.example.monkey.logistics.domain.LogisticsTracking;
-import com.example.monkey.logistics.domain.LogisticsTransitionResolver;
-import com.example.monkey.logistics.domain.LogisticsWebhookReplayGuard;
-import com.example.monkey.logistics.domain.ParsedAddress;
 import com.example.monkey.logistics.domain.TrackingEvent;
 import com.example.monkey.logistics.domain.TrackingEventRecord;
 import com.example.monkey.logistics.domain.TrackingStatus;
@@ -47,20 +47,21 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionDefinition;
-import org.springframework.transaction.support.TransactionOperations;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 @Service
@@ -72,6 +73,8 @@ public class LogisticsApplicationService {
     private static final Duration SHIPMENT_CLAIM_LEASE = Duration.ofMinutes(5);
     private static final String CUSTOMER_ROLE = "CUSTOMER";
     private static final String SYSTEM_ROLE = "SYSTEM";
+    private static final String SHIPMENT_IN_PROGRESS =
+            "Shipment creation is already in progress; retry after the provider call settles";
 
     private final LogisticsStore logisticsStore;
     private final LogisticsGateway logisticsGateway;
@@ -225,16 +228,27 @@ public class LogisticsApplicationService {
         OrderRecord order = requireOrder(request.orderId());
         Long ownerUserId = requireOrderOwner(order);
         ParsedAddress canonicalAddress = addressFor(order);
-        String requestFingerprint = shipmentFingerprint(
-                tenantId, order, ownerUserId, request, canonicalAddress);
+        String requestFingerprint = shipmentFingerprint(tenantId, order, ownerUserId, request, canonicalAddress);
+        Optional<ShipmentCreationClaim> currentClaim =
+                shipmentClaimStore.findByTenantAndOrder(tenantId, requireOrderId(order));
+        if (currentClaim.isPresent()) {
+            ShipmentCreationClaim claim =
+                    requireClaimCompatible(currentClaim.get(), tenantId, order, ownerUserId, requestFingerprint);
+            if (claim.accepted()) {
+                return toResponse(requireClaimReplay(claim, order, requestFingerprint));
+            }
+            if (claim.leaseExpiresAt().isAfter(now())) {
+                throw shipmentInProgress();
+            }
+        }
         var existing = logisticsStore.findByUserIdAndIdempotencyKey(ownerUserId, key);
         if (existing.isPresent()) {
-            return toResponse(requireReplayCompatible(existing.get(), order, requestFingerprint));
+            requireReplayCompatible(existing.get(), order, requestFingerprint);
         }
         // Reject a stale/non-shippable canonical order before creating the durable provider claim.
         orderFulfillmentPort.requireShippable(tenantId, requireOrderId(order));
-        FreightQuote quote = quote(
-                request.carrier(), canonicalAddress.province(), request.weightKg(), request.itemCount());
+        FreightQuote quote =
+                quote(request.carrier(), canonicalAddress.province(), request.weightKg(), request.itemCount());
         Long requestedShipmentId = idGenerator.nextId();
         LocalDateTime now = now();
         ShipmentCreationClaim candidate = new ShipmentCreationClaim(
@@ -251,21 +265,16 @@ public class LogisticsApplicationService {
                 now,
                 now);
         ShipmentClaimReservation reservation = shipmentClaimStore.reserve(candidate, now, SHIPMENT_CLAIM_LEASE);
-        ShipmentCreationClaim claim = requireClaimCompatible(
-                reservation.claim(), tenantId, order, ownerUserId, requestFingerprint);
+        ShipmentCreationClaim claim =
+                requireClaimCompatible(reservation.claim(), tenantId, order, ownerUserId, requestFingerprint);
         if (!reservation.acquired()) {
+            if (!claim.accepted()) {
+                throw shipmentInProgress();
+            }
             return toResponse(requireClaimReplay(claim, order, requestFingerprint));
         }
         return createShipmentLocked(
-                currentUser,
-                actorUserId,
-                order,
-                request,
-                key,
-                canonicalAddress,
-                quote,
-                requestFingerprint,
-                claim);
+                currentUser, actorUserId, order, request, key, canonicalAddress, quote, requestFingerprint, claim);
     }
 
     @WithSpan("logistics.find")
@@ -477,22 +486,25 @@ public class LogisticsApplicationService {
             OrderRecord order,
             long ownerUserId,
             String requestFingerprint) {
-        if (claim == null
-                || !claim.sameRequest(tenantId, requireOrderId(order), ownerUserId, requestFingerprint)) {
-            throw new BusinessException(
-                    ErrorCode.CONFLICT, "Shipment creation claim is bound to a different request");
+        if (claim == null || !claim.sameRequest(tenantId, requireOrderId(order), ownerUserId, requestFingerprint)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Shipment creation claim is bound to a different request");
         }
         return claim;
     }
 
     private LogisticsTracking requireClaimReplay(
             ShipmentCreationClaim claim, OrderRecord order, String requestFingerprint) {
+        if (claim == null || !claim.accepted()) {
+            throw shipmentInProgress();
+        }
         LogisticsTracking tracking = logisticsStore
                 .findByTrackingNo(claim.providerToken())
-                .orElseThrow(() -> new BusinessException(
-                        ErrorCode.SERVICE_UNAVAILABLE,
-                        "Shipment creation is already in progress; retry after the provider call settles"));
+                .orElseThrow(LogisticsApplicationService::shipmentInProgress);
         return requireReplayCompatible(tracking, order, requestFingerprint);
+    }
+
+    private static BusinessException shipmentInProgress() {
+        return new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, SHIPMENT_IN_PROGRESS);
     }
 
     private static String shipmentFingerprint(
@@ -518,8 +530,8 @@ public class LogisticsApplicationService {
                 canonicalAddress == null ? "" : canonical(canonicalAddress.district()),
                 canonicalAddress == null ? "" : canonical(canonicalAddress.detail()));
         try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(payload.getBytes(StandardCharsets.UTF_8)));
+            return HexFormat.of()
+                    .formatHex(MessageDigest.getInstance("SHA-256").digest(payload.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("Shipment request fingerprint could not be initialized", exception);
         }
@@ -629,20 +641,8 @@ public class LogisticsApplicationService {
     }
 
     private void audit(
-            String eventType,
-            Long actorUserId,
-            String actorRole,
-            String subject,
-            String sourceIp,
-            String detail) {
-        auditService.record(
-                eventType,
-                AuditService.OUTCOME_SUCCESS,
-                actorUserId,
-                actorRole,
-                subject,
-                sourceIp,
-                detail);
+            String eventType, Long actorUserId, String actorRole, String subject, String sourceIp, String detail) {
+        auditService.record(eventType, AuditService.OUTCOME_SUCCESS, actorUserId, actorRole, subject, sourceIp, detail);
     }
 
     private static String auditRole(SessionUser currentUser) {

@@ -10,8 +10,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.example.monkey.marketing.application.dto.SeckillRequestDto;
 import com.example.monkey.marketing.application.dto.GroupBuyJoinRequestDto;
+import com.example.monkey.marketing.application.dto.SeckillRequestDto;
 import com.example.monkey.marketing.domain.GroupBuyActivity;
 import com.example.monkey.marketing.domain.GroupBuyTeam;
 import com.example.monkey.marketing.domain.MarketingIdempotencyStore;
@@ -47,8 +47,12 @@ class MarketingCommercialBoundaryTest {
                         10,
                         0,
                         1,
-                        Instant.parse("2025-12-31T23:59:00Z").atZone(ZoneOffset.UTC).toLocalDateTime(),
-                        Instant.parse("2026-01-02T00:00:00Z").atZone(ZoneOffset.UTC).toLocalDateTime())));
+                        Instant.parse("2025-12-31T23:59:00Z")
+                                .atZone(ZoneOffset.UTC)
+                                .toLocalDateTime(),
+                        Instant.parse("2026-01-02T00:00:00Z")
+                                .atZone(ZoneOffset.UTC)
+                                .toLocalDateTime())));
         when(store.reserveSeckillStock(10L, 1)).thenReturn(true);
         when(store.saveSeckillOrder(any(SeckillOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -63,19 +67,17 @@ class MarketingCommercialBoundaryTest {
                 riskGate);
 
         service.createSeckillOrder(
-                new SeckillRequestDto(10L, 7L, 88L, 1, "risk-key", null),
-                7L,
-                "203.0.113.10",
-                "device-7");
+                new SeckillRequestDto(10L, 7L, 88L, 1, "risk-key", null), 7L, "203.0.113.10", "device-7");
 
-        verify(riskGate).requireAllowed(
-                eq(7L),
-                eq(10L),
-                eq(1001L),
-                eq(88L),
-                eq("device-7"),
-                eq("203.0.113.10"),
-                eq("marketing.seckill.order"));
+        verify(riskGate)
+                .requireAllowed(
+                        eq(7L),
+                        eq(10L),
+                        eq(1001L),
+                        eq(88L),
+                        eq("device-7"),
+                        eq("203.0.113.10"),
+                        eq("marketing.seckill.order"));
     }
 
     @Test
@@ -111,13 +113,17 @@ class MarketingCommercialBoundaryTest {
         MarketingApplicationService service = service(store, riskGate);
 
         service.joinGroupBuy(
-                new GroupBuyJoinRequestDto(activity.id(), 7L, null, "group-key"),
-                7L,
-                "203.0.113.10",
-                "device-7");
+                new GroupBuyJoinRequestDto(activity.id(), 7L, null, "group-key"), 7L, "203.0.113.10", "device-7");
 
-        verify(riskGate).requireAllowed(
-                eq(7L), eq(activity.id()), eq(activity.skuId()), eq(null), eq("device-7"), eq("203.0.113.10"), eq("marketing.group-buy.join"));
+        verify(riskGate)
+                .requireAllowed(
+                        eq(7L),
+                        eq(activity.id()),
+                        eq(activity.skuId()),
+                        eq(null),
+                        eq("device-7"),
+                        eq("203.0.113.10"),
+                        eq("marketing.group-buy.join"));
     }
 
     @Test

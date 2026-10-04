@@ -1,9 +1,5 @@
 import { parsePositiveApiId, type ApiId } from '@/api/ids'
-import type {
-  CatalogSpu,
-  CatalogSpuWriteRequest,
-  ProductStatus,
-} from '@/types'
+import type { CatalogSpu, CatalogSpuWriteRequest, ProductStatus } from '@/types'
 
 export interface CatalogAdminForm {
   id: ApiId | null

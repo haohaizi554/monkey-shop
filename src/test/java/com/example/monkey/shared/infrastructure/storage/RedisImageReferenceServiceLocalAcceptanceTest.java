@@ -33,13 +33,11 @@ class RedisImageReferenceServiceLocalAcceptanceTest {
             CountDownLatch deletionStarted = new CountDownLatch(1);
             CountDownLatch finishDeletion = new CountDownLatch(1);
             try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-                var deletion = executor.submit(() -> first.deleteIfUnreferenced(
-                        "/images/avatar/shared.png",
-                        () -> {
-                            deletionStarted.countDown();
-                            await(finishDeletion);
-                            return true;
-                        }));
+                var deletion = executor.submit(() -> first.deleteIfUnreferenced("/images/avatar/shared.png", () -> {
+                    deletionStarted.countDown();
+                    await(finishDeletion);
+                    return true;
+                }));
                 assertThat(deletionStarted.await(5, TimeUnit.SECONDS)).isTrue();
 
                 assertThatThrownBy(() -> second.retain("/images/avatar/shared.png"))
@@ -66,17 +64,14 @@ class RedisImageReferenceServiceLocalAcceptanceTest {
             assertThat(service.deleteIfUnreferenced("/images/avatar/first.png", () -> true))
                     .isTrue();
             service.maintainDeletionState(
-                    List.of(),
-                    List.of("/images/avatar/first.png"),
-                    System.currentTimeMillis() + 1L);
+                    List.of(), List.of("/images/avatar/first.png"), System.currentTimeMillis() + 1L);
             assertThat(service.deleteIfUnreferenced("/images/avatar/first.png", () -> true))
                     .isTrue();
             assertThatThrownBy(() -> service.deleteIfUnreferenced("/images/avatar/second.png", () -> true))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("capacity");
 
-            var maintenance = service.maintainDeletionState(
-                    List.of(), List.of(), System.currentTimeMillis() + 1L);
+            var maintenance = service.maintainDeletionState(List.of(), List.of(), System.currentTimeMillis() + 1L);
 
             assertThat(maintenance.compactedTombstones()).isEqualTo(1);
             assertThat(service.deleteIfUnreferenced("/images/avatar/second.png", () -> true))
@@ -119,8 +114,7 @@ class RedisImageReferenceServiceLocalAcceptanceTest {
 
             service.replace(List.of("/images/avatar/persistent.png"));
 
-            assertThat(fixture.redisTemplate.getExpire(
-                            RedisImageReferenceService.COUNTS_HASH, TimeUnit.MILLISECONDS))
+            assertThat(fixture.redisTemplate.getExpire(RedisImageReferenceService.COUNTS_HASH, TimeUnit.MILLISECONDS))
                     .isEqualTo(-1L);
         }
     }
@@ -152,8 +146,7 @@ class RedisImageReferenceServiceLocalAcceptanceTest {
     @Test
     void realMaintenanceCapsTransitionsPerRunAndEventuallyCompactsEveryMarker() {
         try (RedisFixture fixture = RedisFixture.connect()) {
-            RedisImageReferenceService service = fixture.service(
-                    Duration.ZERO, Duration.ZERO, 100L, 1);
+            RedisImageReferenceService service = fixture.service(Duration.ZERO, Duration.ZERO, 100L, 1);
             service.replace(List.of());
             assertThat(service.deleteIfUnreferenced("/images/avatar/first-batch.png", () -> true))
                     .isTrue();
@@ -168,8 +161,7 @@ class RedisImageReferenceServiceLocalAcceptanceTest {
         }
     }
 
-    private static Long publishStaging(
-            StringRedisTemplate redisTemplate, String stagingKey, long expectedVersion) {
+    private static Long publishStaging(StringRedisTemplate redisTemplate, String stagingKey, long expectedVersion) {
         return redisTemplate.execute(
                 RedisImageReferenceService.PUBLISH_IF_UNCHANGED_SCRIPT,
                 List.of(
@@ -207,8 +199,7 @@ class RedisImageReferenceServiceLocalAcceptanceTest {
         private final JedisConnectionFactory connectionFactory;
         private final StringRedisTemplate redisTemplate;
 
-        private RedisFixture(
-                JedisConnectionFactory connectionFactory, StringRedisTemplate redisTemplate) {
+        private RedisFixture(JedisConnectionFactory connectionFactory, StringRedisTemplate redisTemplate) {
             this.connectionFactory = connectionFactory;
             this.redisTemplate = redisTemplate;
         }
@@ -229,23 +220,14 @@ class RedisImageReferenceServiceLocalAcceptanceTest {
             return fixture;
         }
 
-        RedisImageReferenceService service(
-                Duration claimStaleAfter, Duration tombstoneRetention, long maxTombstones) {
+        RedisImageReferenceService service(Duration claimStaleAfter, Duration tombstoneRetention, long maxTombstones) {
             return service(claimStaleAfter, tombstoneRetention, maxTombstones, 100);
         }
 
         RedisImageReferenceService service(
-                Duration claimStaleAfter,
-                Duration tombstoneRetention,
-                long maxTombstones,
-                int maintenanceBatchSize) {
+                Duration claimStaleAfter, Duration tombstoneRetention, long maxTombstones, int maintenanceBatchSize) {
             return new RedisImageReferenceService(
-                    redisTemplate,
-                    null,
-                    claimStaleAfter,
-                    tombstoneRetention,
-                    maxTombstones,
-                    maintenanceBatchSize);
+                    redisTemplate, null, claimStaleAfter, tombstoneRetention, maxTombstones, maintenanceBatchSize);
         }
 
         @Override

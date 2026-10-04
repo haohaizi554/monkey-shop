@@ -71,15 +71,16 @@ public class MembershipPurchasePointsService implements PurchasePointsLifecycle 
             return;
         }
 
-        PurchaseRewardFact existing = membershipStore.findPurchaseReward(payment.paymentId()).orElse(null);
+        PurchaseRewardFact existing =
+                membershipStore.findPurchaseReward(payment.paymentId()).orElse(null);
         if (existing != null) {
             assertFact(existing, payment, paidAmount);
             membershipStore.savePurchaseRewardEvent(awardEvent(existing, payment, fingerprint));
             return;
         }
 
-        Optional<PointsLedgerEntry> existingLedger = membershipStore.findLedger(
-                payment.userId(), AWARD_LEDGER_PREFIX + payment.paymentId());
+        Optional<PointsLedgerEntry> existingLedger =
+                membershipStore.findLedger(payment.userId(), AWARD_LEDGER_PREFIX + payment.paymentId());
         if (existingLedger.isPresent()) {
             throw conflict("Purchase reward ledger exists without a durable reward fact");
         }
@@ -108,7 +109,8 @@ public class MembershipPurchasePointsService implements PurchasePointsLifecycle 
                 0,
                 now(),
                 now());
-        PurchaseRewardFact savedFact = Optional.ofNullable(membershipStore.savePurchaseReward(fact)).orElse(fact);
+        PurchaseRewardFact savedFact =
+                Optional.ofNullable(membershipStore.savePurchaseReward(fact)).orElse(fact);
         membershipStore.saveLedger(new PointsLedgerEntry(
                 idGenerator.nextId(),
                 payment.userId(),
@@ -139,7 +141,8 @@ public class MembershipPurchasePointsService implements PurchasePointsLifecycle 
             throw conflict("Cumulative refund amount is invalid");
         }
         String eventKey = requireEventKey(refund.eventKey());
-        String fingerprint = refundFingerprint(tenantId, refund, originalPaidAmount, refundAmount, cumulativeRefundedAmount);
+        String fingerprint =
+                refundFingerprint(tenantId, refund, originalPaidAmount, refundAmount, cumulativeRefundedAmount);
 
         Optional<PurchaseRewardEvent> event = findEvent(refund.paymentId(), eventKey);
         if (event.isPresent()) {
@@ -180,8 +183,7 @@ public class MembershipPurchasePointsService implements PurchasePointsLifecycle 
                     now()));
         }
 
-        PurchaseRewardFact updatedFact = fact.withRefundProgress(
-                targetReversedPoints, cumulativeRefundedAmount, now());
+        PurchaseRewardFact updatedFact = fact.withRefundProgress(targetReversedPoints, cumulativeRefundedAmount, now());
         PurchaseRewardFact savedFact = Optional.ofNullable(membershipStore.savePurchaseReward(updatedFact))
                 .orElse(updatedFact);
         membershipStore.savePurchaseRewardEvent(new PurchaseRewardEvent(
@@ -240,24 +242,28 @@ public class MembershipPurchasePointsService implements PurchasePointsLifecycle 
     }
 
     private MemberProfile profile(Long userId) {
-        return membershipStore.findProfile(userId).orElseGet(() -> membershipStore.saveProfile(new MemberProfile(
-                idGenerator.nextId(),
-                userId,
-                MembershipLevel.BASIC,
-                0,
-                null,
-                null,
-                null,
-                null,
-                null,
-                0,
-                now(),
-                now())));
+        return membershipStore
+                .findProfile(userId)
+                .orElseGet(() -> membershipStore.saveProfile(new MemberProfile(
+                        idGenerator.nextId(),
+                        userId,
+                        MembershipLevel.BASIC,
+                        0,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        0,
+                        now(),
+                        now())));
     }
 
     private PointsWallet wallet(Long userId) {
-        return membershipStore.findWallet(userId).orElseGet(() -> membershipStore.saveWallet(
-                new PointsWallet(idGenerator.nextId(), userId, 0, 0, 0, 0, 0, now(), now())));
+        return membershipStore
+                .findWallet(userId)
+                .orElseGet(() -> membershipStore.saveWallet(
+                        new PointsWallet(idGenerator.nextId(), userId, 0, 0, 0, 0, 0, now(), now())));
     }
 
     private static long calculateAwardedPoints(BigDecimal paidAmount, MembershipLevel level) {
@@ -332,15 +338,25 @@ public class MembershipPurchasePointsService implements PurchasePointsLifecycle 
     }
 
     private static void requirePaymentIds(PurchasePointsLifecycle.PurchasePayment payment) {
-        if (payment == null || payment.paymentId() == null || payment.orderId() == null || payment.userId() == null
-                || payment.paymentId() <= 0 || payment.orderId() <= 0 || payment.userId() <= 0) {
+        if (payment == null
+                || payment.paymentId() == null
+                || payment.orderId() == null
+                || payment.userId() == null
+                || payment.paymentId() <= 0
+                || payment.orderId() <= 0
+                || payment.userId() <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Payment reward ownership facts are required");
         }
     }
 
     private static void requireRefundIds(PurchasePointsLifecycle.PurchaseRefund refund) {
-        if (refund == null || refund.paymentId() == null || refund.orderId() == null || refund.userId() == null
-                || refund.paymentId() <= 0 || refund.orderId() <= 0 || refund.userId() <= 0) {
+        if (refund == null
+                || refund.paymentId() == null
+                || refund.orderId() == null
+                || refund.userId() == null
+                || refund.paymentId() <= 0
+                || refund.orderId() <= 0
+                || refund.userId() <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Refund reward ownership facts are required");
         }
     }
@@ -409,8 +425,8 @@ public class MembershipPurchasePointsService implements PurchasePointsLifecycle 
 
     private static String sha256Hex(String value) {
         try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(value.getBytes(StandardCharsets.UTF_8)));
+            return HexFormat.of()
+                    .formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is unavailable", exception);
         }

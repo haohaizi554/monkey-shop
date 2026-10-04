@@ -38,8 +38,8 @@ import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -521,10 +521,11 @@ class JwtTokenServiceTest {
                 .satisfies(keys -> assertThat(keys)
                         .containsExactly(
                                 predecessorKey,
-                         taggedRefreshTokenKey(1L, successor.refreshTokenId()),
-                         taggedRefreshRotationKey(1L, predecessor.refreshTokenId()),
-                         taggedRevokedUserKey(1L))
-                        .allSatisfy(key -> assertThat(redisHashTag(key)).isNotBlank().isEqualTo("1")));
+                                taggedRefreshTokenKey(1L, successor.refreshTokenId()),
+                                taggedRefreshRotationKey(1L, predecessor.refreshTokenId()),
+                                taggedRevokedUserKey(1L))
+                        .allSatisfy(key ->
+                                assertThat(redisHashTag(key)).isNotBlank().isEqualTo("1")));
         verify(redisValues, never())
                 .setIfAbsent(startsWith("jwt:refresh:rotation-lock:"), anyString(), any(Duration.class));
     }
@@ -568,13 +569,12 @@ class JwtTokenServiceTest {
             assertThat(firstRotation.get(2, TimeUnit.SECONDS)).isNotNull();
             assertThat(secondRotation.get(2, TimeUnit.SECONDS)).isNotNull();
             assertThat(executedKeys).hasSize(2);
-            assertThat(executedKeys)
-                    .allSatisfy(keys -> {
-                        assertThat(keys).hasSize(4);
-                        String tag = redisHashTag(keys.get(0));
-                        assertThat(tag).isNotBlank();
-                        assertThat(keys).allSatisfy(key -> assertThat(redisHashTag(key)).isEqualTo(tag));
-                    });
+            assertThat(executedKeys).allSatisfy(keys -> {
+                assertThat(keys).hasSize(4);
+                String tag = redisHashTag(keys.get(0));
+                assertThat(tag).isNotBlank();
+                assertThat(keys).allSatisfy(key -> assertThat(redisHashTag(key)).isEqualTo(tag));
+            });
             assertThat(executedKeys)
                     .extracting(keys -> redisHashTag(keys.get(0)))
                     .containsExactlyInAnyOrder("1", "2");
@@ -649,7 +649,8 @@ class JwtTokenServiceTest {
                 .orElseThrow(() -> new AssertionError("Refresh token rotation should succeed"));
         when(redisValues.get(taggedRefreshRotationKey(1L, predecessor.refreshTokenId())))
                 .thenAnswer(ignored -> encryptedRecovery.get());
-        when(redisTemplate.hasKey(taggedRefreshTokenKey(1L, successor.refreshTokenId()))).thenReturn(true);
+        when(redisTemplate.hasKey(taggedRefreshTokenKey(1L, successor.refreshTokenId())))
+                .thenReturn(true);
         JwtTokenService secondNode = redisRequiredTokenService(redisTemplate);
 
         SessionTokenService.RecoveredRefreshToken recovered = secondNode
@@ -820,7 +821,8 @@ class JwtTokenServiceTest {
         mockRedisValues(redisTemplate);
         JwtTokenService tokenService = redisRequiredTokenService(redisTemplate);
         JwtTokenPair tokenPair = tokenService.issueTokenPair(1L, "USER");
-        when(redisTemplate.hasKey(taggedRefreshTokenKey(1L, tokenPair.refreshTokenId()))).thenReturn(true);
+        when(redisTemplate.hasKey(taggedRefreshTokenKey(1L, tokenPair.refreshTokenId())))
+                .thenReturn(true);
         doThrow(new RuntimeException("redis unavailable"))
                 .when(redisTemplate)
                 .execute(any(RedisScript.class), anyList(), any(Object[].class));

@@ -205,16 +205,7 @@ public class RiskApplicationService {
         // commercial operation (through requireAllowed), otherwise any authenticated caller can
         // manufacture review cases for unrelated resources or score arbitrary prices.
         return new RiskAssessmentRequestDto(
-                null,
-                request.deviceFingerprint(),
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                request.totpCode());
+                null, request.deviceFingerprint(), null, null, null, null, null, null, null, request.totpCode());
     }
 
     @WithSpan("risk.review.list")

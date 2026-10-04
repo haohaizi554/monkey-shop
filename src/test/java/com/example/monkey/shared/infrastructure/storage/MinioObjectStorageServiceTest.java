@@ -14,16 +14,16 @@ import io.minio.MinioClient;
 import io.minio.PostPolicy;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
+import io.minio.Result;
 import io.minio.StatObjectArgs;
 import io.minio.StatObjectResponse;
 import io.minio.messages.Item;
-import io.minio.Result;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZonedDateTime;
-import java.util.Map;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class MinioObjectStorageServiceTest {
@@ -109,7 +109,8 @@ class MinioObjectStorageServiceTest {
 
         assertThat(storage.resolveObjectKey("https://cdn.example.test/assets/product/item.png"))
                 .isEqualTo("product/item.png");
-        assertThat(storage.resolveObjectKey("https://unrelated.example.test/product/item.png")).isNull();
+        assertThat(storage.resolveObjectKey("https://unrelated.example.test/product/item.png"))
+                .isNull();
         assertThat(storage.exists("product/item.png")).isTrue();
         assertThat(storage.listStoredObjects())
                 .extracting(ObjectStorageService.StoredObjectMetadata::objectKey)

@@ -23,6 +23,7 @@ public class InventoryReservationExpiryTask {
             name = "inventory-release-expired-reservations",
             lockAtMostFor = "${app.inventory.release-lock-at-most-for:PT10M}")
     public void releaseExpiredReservations() {
-        activeTenantIterator.forEachRetainedTenant(tenantId -> inventoryApplicationService.releaseExpiredReservations());
+        activeTenantIterator.forEachRetainedTenant(
+                tenantId -> inventoryApplicationService.releaseExpiredReservations());
     }
 }

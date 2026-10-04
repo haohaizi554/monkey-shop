@@ -162,7 +162,9 @@ class LoginAttemptServiceTest {
                     assertThat(key).doesNotContain("Alice", "alice", IP_A);
                     assertThat(redisHashTag(key)).isNotBlank();
                 });
-        assertThat(execution.keys()).extracting(LoginAttemptServiceTest::redisHashTag).containsOnly(redisHashTag(execution.keys().get(0)));
+        assertThat(execution.keys())
+                .extracting(LoginAttemptServiceTest::redisHashTag)
+                .containsOnly(redisHashTag(execution.keys().get(0)));
     }
 
     @Test

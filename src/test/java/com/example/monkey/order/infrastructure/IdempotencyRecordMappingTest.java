@@ -26,8 +26,7 @@ class IdempotencyRecordMappingTest {
 
     @Test
     void migrationExpandsHistoricalIdempotencyUniquenessToTenantScope() throws IOException {
-        Path migration =
-                Path.of("src/main/resources/db/migration/V59__tenant_scope_order_idempotency.sql");
+        Path migration = Path.of("src/main/resources/db/migration/V59__tenant_scope_order_idempotency.sql");
 
         assertThat(migration).exists();
         assertThat(Files.readString(migration, StandardCharsets.UTF_8))

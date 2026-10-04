@@ -302,10 +302,7 @@ public class SecurityConfig {
                                 "/api/payments/refund",
                                 "/api/v1/payments/refund")
                         .hasAuthority("ORDER_READ_OWN")
-                        .requestMatchers(
-                                HttpMethod.POST,
-                                "/api/logistics/shipments",
-                                "/api/v1/logistics/shipments")
+                        .requestMatchers(HttpMethod.POST, "/api/logistics/shipments", "/api/v1/logistics/shipments")
                         .hasAuthority("ORDER_MANAGE")
                         .requestMatchers(
                                 "/api/logistics/orders/**",

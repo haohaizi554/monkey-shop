@@ -113,11 +113,12 @@ requireIncludes(
   'structured reconciliation endpoint',
 )
 requireIncludes('src/api/risk.ts', "url: '/risk/assess'", 'risk assessment endpoint')
-requireIncludes('src/composables/useCheckout.ts', 'await assessRisk({', 'checkout risk gate')
+requireIncludes('src/api/http.ts', 'X-Device-Fingerprint', 'checkout device fingerprint header')
+requireIncludes('src/composables/useCheckout.ts', 'createOrder(', 'order checkout submission')
 requireIncludes(
   'src/composables/useCheckout.ts',
-  "assessment.decision !== 'ALLOW'",
-  'risk decision enforcement',
+  'directCheckoutCart(',
+  'direct checkout submission',
 )
 requireIncludes('src/router/index.ts', "path: '/admin/orders'", 'admin order workspace')
 requireIncludes('src/router/index.ts', "path: '/admin/payments'", 'admin payment workspace')

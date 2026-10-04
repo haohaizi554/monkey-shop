@@ -5,10 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -262,8 +262,7 @@ class OrderServiceTest {
                 .when(commercialRiskGate)
                 .requireAllowed(42L, null, 7L, null, "device-risk", "203.0.113.7", "order.create");
 
-        assertThatThrownBy(() -> orderService.createOrder(
-                        42L, 7L, 3L, "order-key-risk", "device-risk", "203.0.113.7"))
+        assertThatThrownBy(() -> orderService.createOrder(42L, 7L, 3L, "order-key-risk", "device-risk", "203.0.113.7"))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.FORBIDDEN));
@@ -305,8 +304,7 @@ class OrderServiceTest {
         assertThat(result).isEqualTo(response());
         verify(orderProductPort, never()).deductProductStock(any());
         verify(orderStore, never()).savePlacedOrder(any(OrderRecord.class));
-        verify(authoritativeTrackingPort, never())
-                .recordOrderCreated(any(), any(), any(), any(), any());
+        verify(authoritativeTrackingPort, never()).recordOrderCreated(any(), any(), any(), any(), any());
     }
 
     @Test

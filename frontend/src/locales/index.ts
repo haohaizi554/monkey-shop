@@ -1856,9 +1856,12 @@ const messages = {
       identityVerified: '\u7ba1\u7406\u5458\u5df2\u5ba1\u6838\u901a\u8fc7',
       identityPending: '\u5f85\u5ba1\u6838',
       identityRejected: '\u5ba1\u6838\u9a73\u56de',
-      identityPendingHint: '\u60a8\u63d0\u4ea4\u7684\u5b9e\u540d\u4fe1\u606f\u6b63\u5728\u7b49\u5f85\u7ba1\u7406\u5458\u5ba1\u6838\u3002',
-      identityRejectedHint: '\u60a8\u63d0\u4ea4\u7684\u5b9e\u540d\u4fe1\u606f\u672a\u901a\u8fc7\u5ba1\u6838\uff0c\u53ef\u91cd\u65b0\u63d0\u4ea4\u3002',
-      identityNotSubmitted: '\u63d0\u4ea4\u5b9e\u540d\u4fe1\u606f\u540e\u7531\u7ba1\u7406\u5458\u5ba1\u6838\u3002',
+      identityPendingHint:
+        '\u60a8\u63d0\u4ea4\u7684\u5b9e\u540d\u4fe1\u606f\u6b63\u5728\u7b49\u5f85\u7ba1\u7406\u5458\u5ba1\u6838\u3002',
+      identityRejectedHint:
+        '\u60a8\u63d0\u4ea4\u7684\u5b9e\u540d\u4fe1\u606f\u672a\u901a\u8fc7\u5ba1\u6838\uff0c\u53ef\u91cd\u65b0\u63d0\u4ea4\u3002',
+      identityNotSubmitted:
+        '\u63d0\u4ea4\u5b9e\u540d\u4fe1\u606f\u540e\u7531\u7ba1\u7406\u5458\u5ba1\u6838\u3002',
       identitySubmitted: '\u5b9e\u540d\u4fe1\u606f\u5df2\u63d0\u4ea4\u5f85\u5ba1\u6838',
       submitIdentity: '\u63d0\u4ea4\u5ba1\u6838',
       earned: '\u79ef\u5206\u5df2\u5165\u8d26',
@@ -2028,7 +2031,8 @@ const messages = {
       memberPrice: '\u4f1a\u5458\u4ef7',
       strikePrice: '\u5212\u7ebf\u4ef7',
       specifications: 'SKU \u89c4\u683c',
-      specificationsHint: '\u8bf7\u8f93\u5165 JSON \u5bf9\u8c61\uff0c\u4f8b\u5982 {"color":["\u9ed1\u8272","\u767d\u8272"]}\u3002',
+      specificationsHint:
+        '\u8bf7\u8f93\u5165 JSON \u5bf9\u8c61\uff0c\u4f8b\u5982 {"color":["\u9ed1\u8272","\u767d\u8272"]}\u3002',
       attributes: '\u5c5e\u6027 JSON',
       regionPrices: '\u5730\u533a\u4ef7\u683c JSON',
       detailJsonLd: '\u8be6\u60c5 JSON-LD',
@@ -2161,8 +2165,10 @@ const messages = {
         '\u660e\u786e\u5ba1\u6838\u4f1a\u5458\u63d0\u4ea4\u7684\u5b9e\u540d\u4fe1\u606f\uff0c\u654f\u611f\u4fe1\u606f\u5728\u6b64\u4ec5\u4ee5\u8131\u654f\u5f62\u5f0f\u663e\u793a\u3002',
       identityReviewDecision: '\u5ba1\u6838\u51b3\u5b9a',
       identityReviewReason: '\u5ba1\u6838\u539f\u56e0',
-      identityReviewReasonPlaceholder: '\u8bb0\u5f55\u5230\u5ba1\u8ba1\u65e5\u5fd7\u7684\u539f\u56e0',
-      identityReviewConfirm: '\u786e\u8ba4\u4e3a\u4f1a\u5458 {userId} \u5e94\u7528{decision}\u51b3\u5b9a\u5417\uff1f\u539f\u56e0\uff1a{reason}',
+      identityReviewReasonPlaceholder:
+        '\u8bb0\u5f55\u5230\u5ba1\u8ba1\u65e5\u5fd7\u7684\u539f\u56e0',
+      identityReviewConfirm:
+        '\u786e\u8ba4\u4e3a\u4f1a\u5458 {userId} \u5e94\u7528{decision}\u51b3\u5b9a\u5417\uff1f\u539f\u56e0\uff1a{reason}',
       identityReviewTotp: '\u7ba1\u7406\u5458 TOTP',
       reviewIdentity: '\u5ba1\u6838\u5b9e\u540d',
       identityRejectedSuccess: '\u5b9e\u540d\u5df2\u6807\u8bb0\u4e3a\u9a73\u56de',

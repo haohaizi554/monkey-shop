@@ -332,14 +332,8 @@ public class OrderService {
                 return orderLockManager.withCreateOrderLock(
                         userId,
                         monkeyId,
-                        () -> transactionOperations.execute(status ->
-                                createOrderInTransaction(
-                                        userId,
-                                        monkeyId,
-                                        addressId,
-                                        normalizedIdempotencyKey,
-                                        deviceFingerprint,
-                                        clientIp)));
+                        () -> transactionOperations.execute(status -> createOrderInTransaction(
+                                userId, monkeyId, addressId, normalizedIdempotencyKey, deviceFingerprint, clientIp)));
             });
         } catch (BusinessException e) {
             auditOrderCreateFailure(userId, monkeyId, e.errorCode().code());
@@ -376,13 +370,7 @@ public class OrderService {
 
         ensureOrderPlaceable(userId, buyer, product, address);
         commercialRiskGate.requireAllowed(
-                userId,
-                null,
-                product.id(),
-                null,
-                deviceFingerprint,
-                clientIp,
-                "order.create");
+                userId, null, product.id(), null, deviceFingerprint, clientIp, "order.create");
         if (!orderProductPort.deductProductStock(monkeyId)) {
             businessMetricsService.recordStockDeductFailure();
             throw new BusinessException(ErrorCode.OUT_OF_STOCK, "Insufficient stock");

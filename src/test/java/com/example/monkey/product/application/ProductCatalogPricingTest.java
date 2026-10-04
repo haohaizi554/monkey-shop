@@ -35,8 +35,7 @@ class ProductCatalogPricingTest {
         CatalogStore catalogStore = mock();
         ProductPriceContextResolver priceContextResolver = mock();
         when(catalogStore.findSpuById(11L)).thenReturn(Optional.of(spu()));
-        when(priceContextResolver.resolve(7L, "cn-bj"))
-                .thenReturn(new PriceContext("MEMBER", "CN-BJ"));
+        when(priceContextResolver.resolve(7L, "cn-bj")).thenReturn(new PriceContext("MEMBER", "CN-BJ"));
         ProductCatalogApplicationService service = new ProductCatalogApplicationService(
                 catalogStore,
                 mock(CategoryTreeCache.class),
@@ -57,8 +56,8 @@ class ProductCatalogPricingTest {
     void publicDetailHidesEveryNonListedSpuAsNotFound(ProductStatus status) {
         CatalogStore catalogStore = mock();
         when(catalogStore.findSpuById(11L)).thenReturn(Optional.of(spu(status)));
-        ProductCatalogApplicationService service = service(
-                catalogStore, mock(ProductPriceStrategy.class), mock(ProductPriceContextResolver.class));
+        ProductCatalogApplicationService service =
+                service(catalogStore, mock(ProductPriceStrategy.class), mock(ProductPriceContextResolver.class));
 
         assertThatExceptionOfType(BusinessException.class)
                 .isThrownBy(() -> service.getSpu(11L))
@@ -69,8 +68,8 @@ class ProductCatalogPricingTest {
     void publicDetailAllowsListedSpu() {
         CatalogStore catalogStore = mock();
         when(catalogStore.findSpuById(11L)).thenReturn(Optional.of(spu(ProductStatus.LISTED)));
-        ProductCatalogApplicationService service = service(
-                catalogStore, mock(ProductPriceStrategy.class), mock(ProductPriceContextResolver.class));
+        ProductCatalogApplicationService service =
+                service(catalogStore, mock(ProductPriceStrategy.class), mock(ProductPriceContextResolver.class));
 
         var response = service.getSpu(11L);
 

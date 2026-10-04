@@ -6,8 +6,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.product.domain.CatalogSku;
@@ -29,8 +29,8 @@ class JpaCatalogStoreTest {
     private final ProductSkuRepository skuRepository = mock(ProductSkuRepository.class);
     private final ProductCategoryRepository categoryRepository = mock(ProductCategoryRepository.class);
     private final ImageReferenceService imageReferenceService = mock(ImageReferenceService.class);
-    private final JpaCatalogStore store =
-            new JpaCatalogStore(spuRepository, skuRepository, categoryRepository, new ObjectMapper(), imageReferenceService);
+    private final JpaCatalogStore store = new JpaCatalogStore(
+            spuRepository, skuRepository, categoryRepository, new ObjectMapper(), imageReferenceService);
 
     @Test
     void savingAnExistingSpuStatusNeverDeletesOrRecreatesReferencedSkus() {

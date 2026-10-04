@@ -35,37 +35,25 @@ public class InMemoryImageReferenceService implements ImageReferenceService {
     private boolean authoritativeSnapshotReady;
 
     public InMemoryImageReferenceService() {
-        this(
-                Duration.ofMinutes(30),
-                DEFAULT_DELETION_TOMBSTONE_RETENTION,
-                DEFAULT_MAX_DELETION_TOMBSTONES);
+        this(Duration.ofMinutes(30), DEFAULT_DELETION_TOMBSTONE_RETENTION, DEFAULT_MAX_DELETION_TOMBSTONES);
     }
 
     InMemoryImageReferenceService(Duration deletionClaimStaleAfter) {
-        this(
-                deletionClaimStaleAfter,
-                DEFAULT_DELETION_TOMBSTONE_RETENTION,
-                DEFAULT_MAX_DELETION_TOMBSTONES);
+        this(deletionClaimStaleAfter, DEFAULT_DELETION_TOMBSTONE_RETENTION, DEFAULT_MAX_DELETION_TOMBSTONES);
     }
 
     public InMemoryImageReferenceService(
-            @Value("${app.upload.cleanup.deletion-claim-stale-after:PT30M}")
-                    Duration deletionClaimStaleAfter,
-            @Value("${app.upload.cleanup.deletion-tombstone-retention:P7D}")
-                    Duration deletionTombstoneRetention,
-            @Value("${app.upload.cleanup.max-deletion-tombstones:100000}")
-                    int maxDeletionTombstones) {
+            @Value("${app.upload.cleanup.deletion-claim-stale-after:PT30M}") Duration deletionClaimStaleAfter,
+            @Value("${app.upload.cleanup.deletion-tombstone-retention:P7D}") Duration deletionTombstoneRetention,
+            @Value("${app.upload.cleanup.max-deletion-tombstones:100000}") int maxDeletionTombstones) {
         this(deletionClaimStaleAfter, deletionTombstoneRetention, maxDeletionTombstones, null);
     }
 
     @Autowired
     public InMemoryImageReferenceService(
-            @Value("${app.upload.cleanup.deletion-claim-stale-after:PT30M}")
-                    Duration deletionClaimStaleAfter,
-            @Value("${app.upload.cleanup.deletion-tombstone-retention:P7D}")
-                    Duration deletionTombstoneRetention,
-            @Value("${app.upload.cleanup.max-deletion-tombstones:100000}")
-                    int maxDeletionTombstones,
+            @Value("${app.upload.cleanup.deletion-claim-stale-after:PT30M}") Duration deletionClaimStaleAfter,
+            @Value("${app.upload.cleanup.deletion-tombstone-retention:P7D}") Duration deletionTombstoneRetention,
+            @Value("${app.upload.cleanup.max-deletion-tombstones:100000}") int maxDeletionTombstones,
             ObjectStorageService objectStorageService) {
         this.deletionClaimStaleAfter = Objects.requireNonNull(deletionClaimStaleAfter, "deletionClaimStaleAfter");
         this.deletionTombstoneRetention =
@@ -188,8 +176,7 @@ public class InMemoryImageReferenceService implements ImageReferenceService {
             if (existingMarker == null && deletionTombstones.size() >= maxDeletionTombstones) {
                 throw new IllegalStateException("Image deletion tombstone capacity is exhausted; cleanup is disabled");
             }
-            deletionTombstones.put(
-                    canonicalPath, new DeletionMarker(DeletionState.CLAIMED, claimToken, claimedAt));
+            deletionTombstones.put(canonicalPath, new DeletionMarker(DeletionState.CLAIMED, claimToken, claimedAt));
             version++;
         }
 
@@ -226,15 +213,13 @@ public class InMemoryImageReferenceService implements ImageReferenceService {
             }
             if (existing.contains(path)) {
                 if (marker.state() == DeletionState.DELETED) {
-                    entry.setValue(new DeletionMarker(
-                            DeletionState.RETRYABLE, marker.claimToken(), nowEpochMillis));
+                    entry.setValue(new DeletionMarker(DeletionState.RETRYABLE, marker.claimToken(), nowEpochMillis));
                     version++;
                 }
                 continue;
             }
             if (marker.state() == DeletionState.CLAIMED
-                    && nowEpochMillis - marker.changedAtMillis()
-                            >= deletionClaimStaleAfter.toMillis()) {
+                    && nowEpochMillis - marker.changedAtMillis() >= deletionClaimStaleAfter.toMillis()) {
                 entry.setValue(new DeletionMarker(DeletionState.DELETED, marker.claimToken(), nowEpochMillis));
                 recoveredClaims++;
                 markedDeleted++;
@@ -248,8 +233,7 @@ public class InMemoryImageReferenceService implements ImageReferenceService {
                 continue;
             }
             if (marker.state() == DeletionState.DELETED
-                    && nowEpochMillis - marker.changedAtMillis()
-                            >= deletionTombstoneRetention.toMillis()) {
+                    && nowEpochMillis - marker.changedAtMillis() >= deletionTombstoneRetention.toMillis()) {
                 iterator.remove();
                 compactedTombstones++;
                 version++;

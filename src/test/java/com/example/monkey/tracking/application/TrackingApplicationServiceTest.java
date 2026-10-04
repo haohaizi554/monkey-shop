@@ -16,8 +16,8 @@ import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import com.example.monkey.shared.domain.id.IdGenerator;
-import com.example.monkey.tracking.domain.AuthoritativeTrackingPort;
 import com.example.monkey.tracking.application.dto.TrackingEventRequestDto;
+import com.example.monkey.tracking.domain.AuthoritativeTrackingPort;
 import com.example.monkey.tracking.domain.ProductProfile;
 import com.example.monkey.tracking.domain.TrackingEvent;
 import com.example.monkey.tracking.domain.TrackingEventType;
@@ -33,10 +33,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 class TrackingApplicationServiceTest {
 

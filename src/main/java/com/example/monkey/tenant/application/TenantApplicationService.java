@@ -297,7 +297,8 @@ public class TenantApplicationService {
                     continue;
                 }
                 try {
-                    TenantDataExportJob updated = tenantStore.saveExportJob(job.apply(providerResult, LocalDateTime.now()));
+                    TenantDataExportJob updated =
+                            tenantStore.saveExportJob(job.apply(providerResult, LocalDateTime.now()));
                     if (updated.status() == TenantExportStatus.SUCCEEDED) {
                         auditService.recordReliable(
                                 AuditService.TENANT_EXPORT_COMPLETED,
@@ -309,7 +310,8 @@ public class TenantApplicationService {
                                 "tenantId=" + updated.tenantId() + ",artifactAvailable=true");
                     }
                 } catch (RuntimeException exception) {
-                    LOGGER.warn("Tenant export job {} could not apply its provider result; it remains retryable", job.id());
+                    LOGGER.warn(
+                            "Tenant export job {} could not apply its provider result; it remains retryable", job.id());
                 }
             } finally {
                 restoreTenantContext(previousTenantId);

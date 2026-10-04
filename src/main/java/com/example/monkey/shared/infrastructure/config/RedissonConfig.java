@@ -25,8 +25,7 @@ public class RedissonConfig {
         return Redisson.create(redisConfig(host, port, username, password, sslEnabled, clusterNodes));
     }
 
-    public RedissonClient redissonClient(
-            String host, int port, String username, String password, boolean sslEnabled) {
+    public RedissonClient redissonClient(String host, int port, String username, String password, boolean sslEnabled) {
         return Redisson.create(singleServerConfig(host, port, username, password, sslEnabled));
     }
 
@@ -35,12 +34,7 @@ public class RedissonConfig {
     }
 
     static Config redisConfig(
-            String host,
-            int port,
-            String username,
-            String password,
-            boolean sslEnabled,
-            String clusterNodes) {
+            String host, int port, String username, String password, boolean sslEnabled, String clusterNodes) {
         Config config = new Config();
         if (StringUtils.hasText(username)) {
             config.setUsername(username);

@@ -49,8 +49,7 @@ public class RedisMembershipBrowseHistoryImageReferenceSource implements StoredI
         try {
             activityStore.forEachLiveBrowseHistoryItem(consumer);
         } catch (RuntimeException failure) {
-            throw new IllegalStateException(
-                    "Unable to read Redis membership browse history image references", failure);
+            throw new IllegalStateException("Unable to read Redis membership browse history image references", failure);
         }
     }
 

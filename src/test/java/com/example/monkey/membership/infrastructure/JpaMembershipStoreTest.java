@@ -333,7 +333,8 @@ class JpaMembershipStoreTest {
     @Test
     void findProductDoesNotResolveUnlistedOrForeignTenantCatalogProducts() {
         TenantContext.setTenantId(22L);
-        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of());
 
         assertThat(store.findProduct(9001L)).isEmpty();
 

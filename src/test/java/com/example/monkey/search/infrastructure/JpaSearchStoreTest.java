@@ -18,12 +18,12 @@ import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.sql.ResultSet;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -48,8 +48,10 @@ class JpaSearchStoreTest {
     @Test
     void searchPushesFilteringCountingPagingAndStockAggregationToTheDatabase() {
         TenantContext.setTenantId(42L);
-        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
-        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(Object[].class))).thenReturn(0L);
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of());
+        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(Object[].class)))
+                .thenReturn(0L);
 
         SearchPage page = store.search(new SearchQuery(
                 "phone",
@@ -140,7 +142,8 @@ class JpaSearchStoreTest {
                     when(resultSet.getInt("score")).thenReturn(130);
                     return List.of(rowMapper.mapRow(resultSet, 0));
                 });
-        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(Object[].class))).thenReturn(1L);
+        when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), any(Object[].class)))
+                .thenReturn(1L);
 
         SearchPage page = store.search(new SearchQuery("phone", null, Map.of(), SearchSort.RELEVANCE, 0, 10));
 

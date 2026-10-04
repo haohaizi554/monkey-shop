@@ -54,7 +54,9 @@ class PaymentReconciliationTaskTest {
 
         assertThat(observedTenantIds).containsExactly(1L, 2L);
         assertThat(TenantContext.currentTenantId()).isEmpty();
-        assertThat(PaymentReconciliationTask.class.getMethod("reconcileYesterday").isAnnotationPresent(Scheduled.class))
+        assertThat(PaymentReconciliationTask.class
+                        .getMethod("reconcileYesterday")
+                        .isAnnotationPresent(Scheduled.class))
                 .isTrue();
         verify(activeTenantIterator).forEachRetainedTenant(any());
         verify(activeTenantIterator, never()).forEachActiveTenant(any());

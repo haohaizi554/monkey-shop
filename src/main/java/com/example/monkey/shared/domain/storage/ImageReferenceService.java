@@ -97,11 +97,9 @@ public interface ImageReferenceService {
         replace(imagePaths);
     }
 
-    record DeletionMaintenanceResult(
-            int recoveredClaims, int markedDeleted, int compactedTombstones) {
+    record DeletionMaintenanceResult(int recoveredClaims, int markedDeleted, int compactedTombstones) {
 
-        public static final DeletionMaintenanceResult NONE =
-                new DeletionMaintenanceResult(0, 0, 0);
+        public static final DeletionMaintenanceResult NONE = new DeletionMaintenanceResult(0, 0, 0);
     }
 
     static boolean isTrackable(String imagePath) {

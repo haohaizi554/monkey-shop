@@ -65,10 +65,7 @@ class CartInfrastructureTest {
         when(provider.getIfAvailable()).thenReturn(null);
 
         assertThatThrownBy(() -> new RedisCartStore(
-                        provider,
-                        new ObjectMapper().registerModule(new JavaTimeModule()),
-                        Clock.systemUTC(),
-                        true))
+                        provider, new ObjectMapper().registerModule(new JavaTimeModule()), Clock.systemUTC(), true))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Cart Redis state is required");
     }
@@ -85,11 +82,10 @@ class CartInfrastructureTest {
         RedisCartStore store = new RedisCartStore(
                 provider, new ObjectMapper().registerModule(new JavaTimeModule()), Clock.systemUTC(), true);
 
-        assertThatThrownBy(() -> store.findCart(7L))
-                .isInstanceOfSatisfying(BusinessException.class, exception -> {
-                    assertThat(exception.errorCode()).isEqualTo(ErrorCode.SERVICE_UNAVAILABLE);
-                    assertThat(exception.getMessage()).contains("Cart state is temporarily unavailable");
-                });
+        assertThatThrownBy(() -> store.findCart(7L)).isInstanceOfSatisfying(BusinessException.class, exception -> {
+            assertThat(exception.errorCode()).isEqualTo(ErrorCode.SERVICE_UNAVAILABLE);
+            assertThat(exception.getMessage()).contains("Cart state is temporarily unavailable");
+        });
     }
 
     @Test
@@ -103,8 +99,7 @@ class CartInfrastructureTest {
                 provider, new ObjectMapper().registerModule(new JavaTimeModule()), Clock.systemUTC(), true);
         LocalDateTime now = LocalDateTime.parse("2026-01-01T00:00:00");
 
-        assertThatThrownBy(() -> store.putItem(
-                        7L, new CartItem(1001L, 1L, 1, true, now, now), Duration.ofDays(7)))
+        assertThatThrownBy(() -> store.putItem(7L, new CartItem(1001L, 1L, 1, true, now, now), Duration.ofDays(7)))
                 .isInstanceOfSatisfying(BusinessException.class, exception -> {
                     assertThat(exception.errorCode()).isEqualTo(ErrorCode.SERVICE_UNAVAILABLE);
                     assertThat(exception.getMessage()).contains("Cart state is temporarily unavailable");
@@ -369,11 +364,7 @@ class CartInfrastructureTest {
         when(subOrderRepository.findByCheckoutIdOrderByIdAsc(1L)).thenReturn(List.of(subOrderEntity(now)));
         when(lineRepository.findByCheckoutIdOrderBySubOrderIdAscIdAsc(1L)).thenReturn(List.of(lineEntity(now)));
         JpaCartCheckoutStore store = new JpaCartCheckoutStore(
-                checkoutRepository,
-                subOrderRepository,
-                lineRepository,
-                imageReferenceService,
-                imageCleanupService);
+                checkoutRepository, subOrderRepository, lineRepository, imageReferenceService, imageCleanupService);
 
         assertThat(store.save(checkout).id()).isEqualTo(1L);
         CheckoutOrder restored = store.findByUserIdAndIdempotencyKey(7L, "idem").orElseThrow();
@@ -440,8 +431,8 @@ class CartInfrastructureTest {
         JpaCartCatalogReader reader =
                 new JpaCartCatalogReader(jdbcTemplate, new ObjectMapper(), new IdentityRegionPriceStrategy());
 
-        CartSkuSnapshot result = reader.findActiveSku(1001L, new PriceContext("MEMBER", "CN-BJ"))
-                .orElseThrow();
+        CartSkuSnapshot result =
+                reader.findActiveSku(1001L, new PriceContext("MEMBER", "CN-BJ")).orElseThrow();
 
         assertThat(result.salePrice()).isEqualByComparingTo("80.00");
     }
@@ -481,6 +472,24 @@ class CartInfrastructureTest {
         assertThat(result).isEqualTo("ok");
         verify(lock).tryLock(2000L, TimeUnit.MILLISECONDS);
         verify(lock, never()).tryLock(anyLong(), anyLong(), eq(TimeUnit.MILLISECONDS));
+        verify(lock).unlock();
+    }
+
+    @Test
+    void checkoutLockKeepsInventoryFailureSeparateFromLockOutage() throws InterruptedException {
+        ObjectProvider<RedissonClient> provider = mock();
+        RedissonClient client = mock();
+        RLock lock = mock();
+        when(provider.getIfAvailable()).thenReturn(client);
+        when(client.getLock(anyString())).thenReturn(lock);
+        when(lock.tryLock(2000L, TimeUnit.MILLISECONDS)).thenReturn(true);
+        when(lock.isHeldByCurrentThread()).thenReturn(true);
+
+        assertThatThrownBy(() -> new RedissonCartLockManager(provider).withCheckoutLock(7L, "idem", () -> {
+                    throw new IllegalStateException("Insufficient locked inventory");
+                }))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Insufficient locked inventory");
         verify(lock).unlock();
     }
 

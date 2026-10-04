@@ -1,7 +1,7 @@
 package com.example.monkey.membership.application.dto;
 
-import com.example.monkey.membership.domain.MembershipLevel;
 import com.example.monkey.membership.domain.IdentityVerificationStatus;
+import com.example.monkey.membership.domain.MembershipLevel;
 import java.time.LocalDateTime;
 import java.util.List;
 

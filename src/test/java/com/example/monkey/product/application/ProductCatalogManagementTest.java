@@ -7,8 +7,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.monkey.product.application.dto.CatalogManagementPageQueryDto;
-import com.example.monkey.product.application.dto.CatalogUpdateSpuRequestDto;
 import com.example.monkey.product.application.dto.CatalogSpecificationDimensionDto;
+import com.example.monkey.product.application.dto.CatalogUpdateSpuRequestDto;
 import com.example.monkey.product.domain.CatalogSpu;
 import com.example.monkey.product.domain.CatalogStore;
 import com.example.monkey.product.domain.CategoryTreeCache;
@@ -33,7 +33,8 @@ class ProductCatalogManagementTest {
         CatalogStore store = mock();
         CatalogSpu draft = spu(ProductStatus.DRAFT);
         CatalogStore.CatalogPage page = new CatalogStore.CatalogPage(List.of(draft), 0, 20, 1);
-        when(store.findManagementPage(any(CatalogStore.CatalogPageRequest.class))).thenReturn(page);
+        when(store.findManagementPage(any(CatalogStore.CatalogPageRequest.class)))
+                .thenReturn(page);
         ProductCatalogApplicationService service = service(store, mock(IdGenerator.class));
 
         PageResponseDto<?> result = service.findManagementPage(new CatalogManagementPageQueryDto(0, 20, null, null));
@@ -73,7 +74,9 @@ class ProductCatalogManagementTest {
 
         assertThat(response.id()).isEqualTo(11L);
         assertThat(response.status()).isEqualTo(ProductStatus.DRAFT);
-        assertThat(response.skus()).singleElement().satisfies(sku -> assertThat(sku.id()).isEqualTo(200L));
+        assertThat(response.skus())
+                .singleElement()
+                .satisfies(sku -> assertThat(sku.id()).isEqualTo(200L));
     }
 
     @Test

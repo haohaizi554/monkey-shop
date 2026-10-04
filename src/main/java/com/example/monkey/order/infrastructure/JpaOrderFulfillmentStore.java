@@ -137,7 +137,10 @@ public class JpaOrderFulfillmentStore implements OrderFulfillmentStore {
     public OrderReview saveReview(OrderReview review) {
         String persistedImages = null;
         if (imageReferenceService == null && review.id() != null) {
-            persistedImages = reviewRepository.findById(review.id()).map(OrderReviewEntity::getImageUrls).orElse(null);
+            persistedImages = reviewRepository
+                    .findById(review.id())
+                    .map(OrderReviewEntity::getImageUrls)
+                    .orElse(null);
         }
         requireImageTrackingConfigured(persistedImages, review.imageUrls());
         return toDomain(reviewRepository.save(toEntity(review)));

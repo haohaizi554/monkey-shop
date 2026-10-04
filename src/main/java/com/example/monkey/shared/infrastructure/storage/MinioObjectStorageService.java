@@ -15,10 +15,10 @@ import io.minio.errors.ErrorResponseException;
 import io.minio.messages.Item;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZonedDateTime;
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -143,8 +143,10 @@ public class MinioObjectStorageService implements ObjectStorageService {
     public boolean exists(String objectKey) throws IOException {
         String normalizedObjectKey = ObjectStorageKey.normalize(objectKey);
         try {
-            if (minioClient.statObject(
-                            StatObjectArgs.builder().bucket(bucket).object(normalizedObjectKey).build())
+            if (minioClient.statObject(StatObjectArgs.builder()
+                            .bucket(bucket)
+                            .object(normalizedObjectKey)
+                            .build())
                     == null) {
                 throw new IOException("object storage stat returned no metadata");
             }
@@ -184,7 +186,8 @@ public class MinioObjectStorageService implements ObjectStorageService {
                     if (item.lastModified() == null) {
                         throw new IOException("object storage list returned an object without last-modified metadata");
                     }
-                    objects.add(new StoredObjectMetadata(objectKey, item.lastModified().toInstant()));
+                    objects.add(new StoredObjectMetadata(
+                            objectKey, item.lastModified().toInstant()));
                 }
             }
             return List.copyOf(objects);
@@ -199,8 +202,10 @@ public class MinioObjectStorageService implements ObjectStorageService {
     public boolean delete(String objectKey) throws IOException {
         String normalizedObjectKey = ObjectStorageKey.normalize(objectKey);
         try {
-            minioClient.removeObject(
-                    RemoveObjectArgs.builder().bucket(bucket).object(normalizedObjectKey).build());
+            minioClient.removeObject(RemoveObjectArgs.builder()
+                    .bucket(bucket)
+                    .object(normalizedObjectKey)
+                    .build());
             return true;
         } catch (ErrorResponseException exception) {
             if (isMissingObject(exception)) {
@@ -287,10 +292,13 @@ public class MinioObjectStorageService implements ObjectStorageService {
 
     private static boolean hasUriScheme(String value) {
         int separator = value.indexOf(':');
-        return separator > 0 && value.substring(0, separator).chars().allMatch(character -> Character.isLetterOrDigit(character)
-                || character == '+'
-                || character == '-'
-                || character == '.');
+        return separator > 0
+                && value.substring(0, separator)
+                        .chars()
+                        .allMatch(character -> Character.isLetterOrDigit(character)
+                                || character == '+'
+                                || character == '-'
+                                || character == '.');
     }
 
     private static boolean sameOrigin(URI left, URI right) {
@@ -325,7 +333,9 @@ public class MinioObjectStorageService implements ObjectStorageService {
     }
 
     private static boolean isMissingObject(ErrorResponseException exception) {
-        String errorCode = exception.errorResponse() == null ? null : exception.errorResponse().code();
+        String errorCode = exception.errorResponse() == null
+                ? null
+                : exception.errorResponse().code();
         return "NoSuchKey".equals(errorCode) || "NoSuchObject".equals(errorCode);
     }
 }

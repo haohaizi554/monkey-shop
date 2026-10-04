@@ -2,6 +2,8 @@ package com.example.monkey.shared.infrastructure.storage;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import com.example.monkey.shared.domain.storage.ObjectStorageService;
@@ -11,8 +13,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 class InMemoryImageReferenceServiceTest {
 
@@ -170,11 +170,9 @@ class InMemoryImageReferenceServiceTest {
         InMemoryImageReferenceService service = new InMemoryImageReferenceService();
 
         assertThat(service.authoritativeSnapshotReady()).isFalse();
-        assertThat(service.deleteIfUnreferenced(
-                        "/images/avatar/not-initialized.png",
-                        () -> {
-                            throw new AssertionError("physical deletion must not run before initialization");
-                        }))
+        assertThat(service.deleteIfUnreferenced("/images/avatar/not-initialized.png", () -> {
+                    throw new AssertionError("physical deletion must not run before initialization");
+                }))
                 .isFalse();
 
         service.replace(List.of());
@@ -193,8 +191,8 @@ class InMemoryImageReferenceServiceTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("capacity");
 
-        ImageReferenceService.DeletionMaintenanceResult result = service.maintainDeletionState(
-                List.of(), List.of(), System.currentTimeMillis() + 1L);
+        ImageReferenceService.DeletionMaintenanceResult result =
+                service.maintainDeletionState(List.of(), List.of(), System.currentTimeMillis() + 1L);
 
         assertThat(result.compactedTombstones()).isEqualTo(1);
         assertThat(service.deleteIfUnreferenced("/images/avatar/next.png", () -> true))
@@ -227,9 +225,7 @@ class InMemoryImageReferenceServiceTest {
                 .isTrue();
 
         service.maintainDeletionState(
-                List.of(),
-                List.of("/images/avatar/still-present.png"),
-                System.currentTimeMillis() + 1L);
+                List.of(), List.of("/images/avatar/still-present.png"), System.currentTimeMillis() + 1L);
 
         assertThat(service.deleteIfUnreferenced("/images/avatar/still-present.png", () -> true))
                 .isTrue();

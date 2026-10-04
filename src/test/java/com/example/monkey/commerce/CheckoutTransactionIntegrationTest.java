@@ -60,9 +60,9 @@ import com.example.monkey.order.infrastructure.OrderRepository;
 import com.example.monkey.order.infrastructure.StockLogRepository;
 import com.example.monkey.product.domain.PriceContext;
 import com.example.monkey.shared.application.observability.AuditService;
+import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.application.storage.ImageCleanupService;
 import com.example.monkey.shared.application.storage.ImageVariantService;
-import com.example.monkey.shared.application.security.SessionUser;
 import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
@@ -191,8 +191,7 @@ class CheckoutTransactionIntegrationTest {
         jdbcTemplate.update("DELETE FROM inventory_reservation");
         jdbcTemplate.update("DELETE FROM inventory_stock");
         jdbcTemplate.update("DELETE FROM inventory_warehouse");
-        LocalObjectStorageService imageStorageService =
-                new LocalObjectStorageService(imageUploadRoot.toString(), "");
+        LocalObjectStorageService imageStorageService = new LocalObjectStorageService(imageUploadRoot.toString(), "");
         imageStorageService.store("avatar/checkout-avatar.png", new byte[] {1}, "image/png");
         imageStorageService.store("product/checkout-phone.png", new byte[] {2}, "image/png");
         imageStorageService.store("product/checkout-keyboard.png", new byte[] {3}, "image/png");

@@ -4,6 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -12,10 +16,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 
 import com.example.monkey.order.domain.OrderStatus;
 import com.example.monkey.order.domain.OrderStore;
@@ -89,10 +89,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.LongStream;
@@ -1176,12 +1176,10 @@ class PaymentApplicationServiceTest {
                         BusinessException.class,
                         exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
 
-        assertThat(paymentStore.findByPaymentNo("PAY1000"))
-                .get()
-                .satisfies(payment -> {
-                    assertThat(payment.status()).isEqualTo(PaymentStatus.PENDING);
-                    assertThat(payment.providerTradeNo()).isNull();
-                });
+        assertThat(paymentStore.findByPaymentNo("PAY1000")).get().satisfies(payment -> {
+            assertThat(payment.status()).isEqualTo(PaymentStatus.PENDING);
+            assertThat(payment.providerTradeNo()).isNull();
+        });
         assertThat(paymentStore.paymentOperation("PAY1000").state()).isEqualTo(PaymentOperationState.RESERVED);
         assertThat(paymentStore.ledgers).isEmpty();
         verify(orderStore, never())
@@ -1203,12 +1201,10 @@ class PaymentApplicationServiceTest {
                         BusinessException.class,
                         exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
 
-        assertThat(paymentStore.findByPaymentNo("PAY1000"))
-                .get()
-                .satisfies(payment -> {
-                    assertThat(payment.status()).isEqualTo(PaymentStatus.PENDING);
-                    assertThat(payment.providerTradeNo()).isNull();
-                });
+        assertThat(paymentStore.findByPaymentNo("PAY1000")).get().satisfies(payment -> {
+            assertThat(payment.status()).isEqualTo(PaymentStatus.PENDING);
+            assertThat(payment.providerTradeNo()).isNull();
+        });
         assertThat(paymentStore.paymentOperation("PAY1000").state()).isEqualTo(PaymentOperationState.RESERVED);
         assertThat(paymentStore.ledgers).isEmpty();
         verify(orderStore, never())
@@ -1276,8 +1272,10 @@ class PaymentApplicationServiceTest {
 
         verify(authoritativeTrackingPort)
                 .recordPaymentSuccess(
-                        eq(42L), eq(10L), eq(new BigDecimal("100.00")), eq(FIXED_CLOCK.instant().atZone(ZoneOffset.UTC)
-                                .toLocalDateTime()));
+                        eq(42L),
+                        eq(10L),
+                        eq(new BigDecimal("100.00")),
+                        eq(FIXED_CLOCK.instant().atZone(ZoneOffset.UTC).toLocalDateTime()));
     }
 
     @Test
@@ -1317,13 +1315,15 @@ class PaymentApplicationServiceTest {
         RuntimeException trackingFailure = new IllegalStateException("tracking persistence failed");
         doThrow(trackingFailure)
                 .when(authoritativeTrackingPort)
-                .recordPaymentSuccess(anyLong(), anyLong(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+                .recordPaymentSuccess(
+                        anyLong(), anyLong(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
 
         assertThatThrownBy(() -> service.handleCallback(
                         callback("cb-tracking-failure", "SUCCESS", new BigDecimal("100.00")), "127.0.0.1"))
                 .isSameAs(trackingFailure);
         verify(authoritativeTrackingPort)
-                .recordPaymentSuccess(anyLong(), anyLong(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+                .recordPaymentSuccess(
+                        anyLong(), anyLong(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -1564,17 +1564,17 @@ class PaymentApplicationServiceTest {
                 PaymentStatus.PARTIALLY_REFUNDED, "RF-mismatch", null, new BigDecimal("29.99"));
 
         assertThatThrownBy(() -> service.refund(
-                        user(), new PaymentRefundRequestDto("PAY100", new BigDecimal("30.00"), "mismatch"), "refund-key"))
+                        user(),
+                        new PaymentRefundRequestDto("PAY100", new BigDecimal("30.00"), "mismatch"),
+                        "refund-key"))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
 
-        assertThat(paymentStore.findByPaymentNo("PAY100"))
-                .get()
-                .satisfies(payment -> {
-                    assertThat(payment.status()).isEqualTo(PaymentStatus.PAID);
-                    assertThat(payment.refundedAmount()).isEqualByComparingTo(BigDecimal.ZERO);
-                });
+        assertThat(paymentStore.findByPaymentNo("PAY100")).get().satisfies(payment -> {
+            assertThat(payment.status()).isEqualTo(PaymentStatus.PAID);
+            assertThat(payment.refundedAmount()).isEqualByComparingTo(BigDecimal.ZERO);
+        });
         assertThat(paymentStore.ledgers).singleElement().satisfies(ledger -> {
             assertThat(ledger.type()).isEqualTo(PaymentLedgerType.REFUND);
             assertThat(ledger.status()).isEqualTo(PaymentLedgerStatus.ACCEPTED);
@@ -1591,17 +1591,17 @@ class PaymentApplicationServiceTest {
                 new PaymentGatewayResult(PaymentStatus.PAID, "RF-paid", null, new BigDecimal("30.00"));
 
         assertThatThrownBy(() -> service.refund(
-                        user(), new PaymentRefundRequestDto("PAY100", new BigDecimal("30.00"), "invalid-status"), "refund-key"))
+                        user(),
+                        new PaymentRefundRequestDto("PAY100", new BigDecimal("30.00"), "invalid-status"),
+                        "refund-key"))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.CONFLICT));
 
-        assertThat(paymentStore.findByPaymentNo("PAY100"))
-                .get()
-                .satisfies(payment -> {
-                    assertThat(payment.status()).isEqualTo(PaymentStatus.PAID);
-                    assertThat(payment.refundedAmount()).isEqualByComparingTo(BigDecimal.ZERO);
-                });
+        assertThat(paymentStore.findByPaymentNo("PAY100")).get().satisfies(payment -> {
+            assertThat(payment.status()).isEqualTo(PaymentStatus.PAID);
+            assertThat(payment.refundedAmount()).isEqualByComparingTo(BigDecimal.ZERO);
+        });
         assertThat(paymentStore.ledgers).singleElement().satisfies(ledger -> {
             assertThat(ledger.type()).isEqualTo(PaymentLedgerType.REFUND);
             assertThat(ledger.status()).isEqualTo(PaymentLedgerStatus.ACCEPTED);
@@ -2153,6 +2153,30 @@ class PaymentApplicationServiceTest {
     }
 
     @Test
+    void timedOutQueryFailureUsesTheSameRequestKeyAsConfirmation() {
+        saveQueryReadyPayment(
+                pendingPayment().withProviderTradeNo("wx-prepay-1", LocalDateTime.parse("2026-07-04T08:00:00")));
+        paymentGateway.queryResult = new PaymentGatewayResult(PaymentStatus.FAILED, null, null, BigDecimal.ZERO);
+
+        int handled = service.queryTimedOutPayments();
+
+        assertThat(handled).isEqualTo(1);
+        assertThat(paymentStore.findByPaymentNo("PAY100"))
+                .get()
+                .extracting(PaymentOrder::status)
+                .isEqualTo(PaymentStatus.FAILED);
+        verify(auditService)
+                .record(
+                        AuditService.PAYMENT_FAILED,
+                        AuditService.OUTCOME_SUCCESS,
+                        42L,
+                        "CUSTOMER",
+                        "PAY100",
+                        null,
+                        "requestKey=payment:query:PAY100");
+    }
+
+    @Test
     void timedOutPaidQueryAmountMismatchLeavesPaymentPendingBeforeConfirmation() {
         saveQueryReadyPayment(
                 pendingPayment().withProviderTradeNo("wx-prepay-1", LocalDateTime.parse("2026-07-04T08:00:00")));
@@ -2172,17 +2196,19 @@ class PaymentApplicationServiceTest {
 
     @Test
     void timedOutQueryAmountMismatchIsIsolatedAndLaterPaymentStillConfirms() {
-        PaymentOrder mismatched = pendingPayment().withProviderTradeNo(
-                "wx-prepay-1", LocalDateTime.parse("2026-07-04T08:00:00"));
-        PaymentOrder valid = pendingPayment(101L, 11L, "pay-key-2").withProviderTradeNo(
-                "wx-prepay-2", LocalDateTime.parse("2026-07-04T08:00:00"));
+        PaymentOrder mismatched =
+                pendingPayment().withProviderTradeNo("wx-prepay-1", LocalDateTime.parse("2026-07-04T08:00:00"));
+        PaymentOrder valid = pendingPayment(101L, 11L, "pay-key-2")
+                .withProviderTradeNo("wx-prepay-2", LocalDateTime.parse("2026-07-04T08:00:00"));
         saveQueryReadyPayment(mismatched);
         saveQueryReadyPayment(valid);
         paymentGateway.queryResults.put(
-                "PAY100", new PaymentGatewayResult(PaymentStatus.PAID, "wx-trade-mismatch", null, new BigDecimal("99.99")));
+                "PAY100",
+                new PaymentGatewayResult(PaymentStatus.PAID, "wx-trade-mismatch", null, new BigDecimal("99.99")));
         paymentGateway.queryResults.put(
                 "PAY101", new PaymentGatewayResult(PaymentStatus.PAID, "wx-trade-2", null, new BigDecimal("100.00")));
-        when(orderStore.transitionStatus(anyLong(), anyString(), anyString(), isNull())).thenReturn(1);
+        when(orderStore.transitionStatus(anyLong(), anyString(), anyString(), isNull()))
+                .thenReturn(1);
 
         assertThat(service.queryTimedOutPayments()).isEqualTo(1);
 
@@ -2200,17 +2226,18 @@ class PaymentApplicationServiceTest {
 
     @Test
     void timedOutQueryStateTransitionFailureIsIsolatedAndLaterPaymentStillConfirms() {
-        PaymentOrder first = pendingPayment().withProviderTradeNo(
-                "wx-prepay-1", LocalDateTime.parse("2026-07-04T08:00:00"));
-        PaymentOrder second = pendingPayment(101L, 11L, "pay-key-2").withProviderTradeNo(
-                "wx-prepay-2", LocalDateTime.parse("2026-07-04T08:00:00"));
+        PaymentOrder first =
+                pendingPayment().withProviderTradeNo("wx-prepay-1", LocalDateTime.parse("2026-07-04T08:00:00"));
+        PaymentOrder second = pendingPayment(101L, 11L, "pay-key-2")
+                .withProviderTradeNo("wx-prepay-2", LocalDateTime.parse("2026-07-04T08:00:00"));
         saveQueryReadyPayment(first);
         saveQueryReadyPayment(second);
         paymentGateway.queryResults.put(
                 "PAY100", new PaymentGatewayResult(PaymentStatus.PAID, "wx-trade-1", null, new BigDecimal("100.00")));
         paymentGateway.queryResults.put(
                 "PAY101", new PaymentGatewayResult(PaymentStatus.PAID, "wx-trade-2", null, new BigDecimal("100.00")));
-        when(orderStore.transitionStatus(anyLong(), anyString(), anyString(), isNull())).thenReturn(1);
+        when(orderStore.transitionStatus(anyLong(), anyString(), anyString(), isNull()))
+                .thenReturn(1);
         AtomicBoolean failFirstTransition = new AtomicBoolean(true);
         service = newService(FIXED_CLOCK, (currentStatus, event) -> {
             if (PaymentEvent.CONFIRM.equals(event) && failFirstTransition.getAndSet(false)) {
@@ -2235,24 +2262,25 @@ class PaymentApplicationServiceTest {
 
     @Test
     void timedOutQueryTrackingFailureRollsBackCandidateRetriesAndContinuesBatch() {
-        PaymentOrder first = pendingPayment().withProviderTradeNo(
-                "wx-prepay-1", LocalDateTime.parse("2026-07-04T08:00:00"));
-        PaymentOrder second = pendingPayment(101L, 11L, "pay-key-2").withProviderTradeNo(
-                "wx-prepay-2", LocalDateTime.parse("2026-07-04T08:00:00"));
+        PaymentOrder first =
+                pendingPayment().withProviderTradeNo("wx-prepay-1", LocalDateTime.parse("2026-07-04T08:00:00"));
+        PaymentOrder second = pendingPayment(101L, 11L, "pay-key-2")
+                .withProviderTradeNo("wx-prepay-2", LocalDateTime.parse("2026-07-04T08:00:00"));
         saveQueryReadyPayment(first);
         saveQueryReadyPayment(second);
         paymentGateway.queryResults.put(
-                "PAY100", new PaymentGatewayResult(PaymentStatus.PAID, "wx-tracking-failure", null, new BigDecimal("100.00")));
+                "PAY100",
+                new PaymentGatewayResult(PaymentStatus.PAID, "wx-tracking-failure", null, new BigDecimal("100.00")));
         paymentGateway.queryResults.put(
                 "PAY101", new PaymentGatewayResult(PaymentStatus.PAID, "wx-trade-2", null, new BigDecimal("100.00")));
-        when(orderStore.transitionStatus(anyLong(), anyString(), anyString(), isNull())).thenReturn(1);
+        when(orderStore.transitionStatus(anyLong(), anyString(), anyString(), isNull()))
+                .thenReturn(1);
         doThrow(new IllegalStateException("tracking persistence failed"))
                 .when(authoritativeTrackingPort)
-                .recordPaymentSuccess(eq(42L), eq(10L), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+                .recordPaymentSuccess(
+                        eq(42L), eq(10L), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
         service = newService(
-                FIXED_CLOCK,
-                new PolicyPaymentTransitionResolver(),
-                new RollbackAwareTransactions(paymentStore));
+                FIXED_CLOCK, new PolicyPaymentTransitionResolver(), new RollbackAwareTransactions(paymentStore));
 
         assertThat(service.queryTimedOutPayments()).isEqualTo(1);
 
@@ -2269,7 +2297,8 @@ class PaymentApplicationServiceTest {
                 .get()
                 .satisfies(payment -> assertThat(payment.status()).isEqualTo(PaymentStatus.PAID));
         verify(authoritativeTrackingPort, times(2))
-                .recordPaymentSuccess(anyLong(), anyLong(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+                .recordPaymentSuccess(
+                        anyLong(), anyLong(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 
     @Test

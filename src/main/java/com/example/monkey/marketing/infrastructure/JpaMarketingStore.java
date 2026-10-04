@@ -158,8 +158,7 @@ public class JpaMarketingStore implements MarketingStore {
         if (quantity < 1) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Seckill quantity must be positive");
         }
-        return seckillActivityRepository.incrementSold(
-                        activityId, TenantContext.currentTenantIdOrDefault(), quantity)
+        return seckillActivityRepository.incrementSold(activityId, TenantContext.currentTenantIdOrDefault(), quantity)
                 == 1;
     }
 
@@ -192,7 +191,8 @@ public class JpaMarketingStore implements MarketingStore {
 
     @Override
     public GroupBuyTeam saveGroupBuyTeam(GroupBuyTeam team) {
-        MarketingGroupBuyTeamEntity existing = groupBuyTeamRepository.findById(team.id()).orElse(null);
+        MarketingGroupBuyTeamEntity existing =
+                groupBuyTeamRepository.findById(team.id()).orElse(null);
         if (existing == null) {
             return toDomain(groupBuyTeamRepository.save(toGroupBuyTeamEntity(team)));
         }
@@ -331,9 +331,8 @@ public class JpaMarketingStore implements MarketingStore {
     }
 
     private MarketingSeckillActivityEntity toSeckillActivityEntity(SeckillActivity activity) {
-        MarketingSeckillActivityEntity entity = seckillActivityRepository
-                .findById(activity.id())
-                .orElseGet(MarketingSeckillActivityEntity::new);
+        MarketingSeckillActivityEntity entity =
+                seckillActivityRepository.findById(activity.id()).orElseGet(MarketingSeckillActivityEntity::new);
         entity.setId(activity.id());
         entity.setSkuId(activity.skuId());
         entity.setActivityName(activity.activityName());
@@ -393,9 +392,8 @@ public class JpaMarketingStore implements MarketingStore {
     }
 
     private MarketingGroupBuyTeamEntity toGroupBuyTeamEntity(GroupBuyTeam team) {
-        MarketingGroupBuyTeamEntity entity = groupBuyTeamRepository
-                .findById(team.id())
-                .orElseGet(MarketingGroupBuyTeamEntity::new);
+        MarketingGroupBuyTeamEntity entity =
+                groupBuyTeamRepository.findById(team.id()).orElseGet(MarketingGroupBuyTeamEntity::new);
         entity.setId(team.id());
         entity.setActivityId(team.activityId());
         entity.setSkuId(team.skuId());

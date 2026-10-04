@@ -105,8 +105,7 @@ public class JpaTenantStore implements TenantStore, TenantAccessGateway {
         Optional<TenantConfigEntity> existing = configRepository.findByTenantIdAndConfigTypeAndProvider(
                 config.tenantId(), config.configType(), config.provider());
         String oldSettings = existing.map(TenantConfigEntity::getSettingsJson).orElse(null);
-        Map<String, String> persistedSettings = existing
-                .map(entity -> settingsCodec.decode(entity.getSettingsJson()))
+        Map<String, String> persistedSettings = existing.map(entity -> settingsCodec.decode(entity.getSettingsJson()))
                 .orElse(Map.of());
         TenantConfigEntity entity = existing.orElseGet(TenantConfigEntity::new);
         entity.setId(existing.map(TenantConfigEntity::getId).orElse(config.id()));
@@ -317,7 +316,10 @@ public class JpaTenantStore implements TenantStore, TenantAccessGateway {
         history.setId(idGenerator.nextId());
         history.setTenantId(saved.getTenantId());
         history.setConfigId(saved.getId());
-        history.setOldSettingsJson(oldSettings == null ? null : settingsCodec.reconcile(oldSettings).json());
+        history.setOldSettingsJson(
+                oldSettings == null
+                        ? null
+                        : settingsCodec.reconcile(oldSettings).json());
         history.setNewSettingsJson(saved.getSettingsJson());
         history.setOperatorUserId(operatorUserId);
         history.setChangedAt(saved.getUpdatedAt());
@@ -327,5 +329,4 @@ public class JpaTenantStore implements TenantStore, TenantAccessGateway {
     private String decrypt(String value) {
         return StringUtils.hasText(value) ? piiCryptoService.decrypt(value) : "";
     }
-
 }

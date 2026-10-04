@@ -46,19 +46,20 @@ public class RedissonCartLockManager implements CartLockManager {
         boolean acquired = false;
         try {
             acquired = lock.tryLock(WAIT_TIME.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
-            if (!acquired) {
-                throw new BusinessException(ErrorCode.CONFLICT, "Checkout is already in progress");
-            }
-            return action.get();
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "Checkout lock was interrupted");
-        } catch (BusinessException exception) {
-            throw exception;
+            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "Checkout lock was interrupted", exception);
         } catch (RuntimeException exception) {
-            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "Checkout lock is temporarily unavailable");
+            throw new BusinessException(
+                    ErrorCode.SERVICE_UNAVAILABLE, "Checkout lock is temporarily unavailable", exception);
+        }
+        if (!acquired) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Checkout is already in progress");
+        }
+        try {
+            return action.get();
         } finally {
-            if (acquired && lock.isHeldByCurrentThread()) {
+            if (lock.isHeldByCurrentThread()) {
                 lock.unlock();
             }
         }

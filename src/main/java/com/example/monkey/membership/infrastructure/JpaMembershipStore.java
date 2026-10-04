@@ -11,11 +11,10 @@ import com.example.monkey.membership.domain.PointsWallet;
 import com.example.monkey.membership.domain.PriceDropEvent;
 import com.example.monkey.membership.domain.ProductSnapshot;
 import com.example.monkey.membership.domain.PurchaseRewardEvent;
-import com.example.monkey.membership.domain.PurchaseRewardEventType;
 import com.example.monkey.membership.domain.PurchaseRewardFact;
-import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.application.storage.ImageCleanupService;
 import com.example.monkey.shared.application.storage.ImageReferenceTransactions;
+import com.example.monkey.shared.application.tenant.TenantContext;
 import com.example.monkey.shared.domain.storage.ImageReferenceService;
 import com.example.monkey.shared.infrastructure.privacy.PiiCryptoService;
 import java.sql.ResultSet;
@@ -24,8 +23,8 @@ import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 import java.util.Objects;
+import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -229,7 +228,9 @@ public class JpaMembershipStore implements MembershipStore {
         requirePurchaseRewardPersistence();
         MembershipPurchaseRewardEventEntity entity = event.id() == null
                 ? new MembershipPurchaseRewardEventEntity()
-                : purchaseRewardEventRepository.findById(event.id()).orElseGet(MembershipPurchaseRewardEventEntity::new);
+                : purchaseRewardEventRepository
+                        .findById(event.id())
+                        .orElseGet(MembershipPurchaseRewardEventEntity::new);
         entity.setId(event.id());
         entity.setRewardFactId(event.rewardFactId());
         entity.setPaymentId(event.paymentId());
@@ -293,7 +294,8 @@ public class JpaMembershipStore implements MembershipStore {
 
     @Override
     public MemberCollection saveCollection(MemberCollection collection) {
-        MemberCollectionEntity existing = collectionRepository.findById(collection.id()).orElse(null);
+        MemberCollectionEntity existing =
+                collectionRepository.findById(collection.id()).orElse(null);
         String oldImage = existing == null ? null : existing.getProductImage();
         requireImageTrackingConfigured(oldImage, collection.productImage());
         boolean imageChanged = !Objects.equals(oldImage, collection.productImage());
@@ -317,7 +319,8 @@ public class JpaMembershipStore implements MembershipStore {
     @Override
     @Transactional
     public void deleteCollection(Long userId, Long productId) {
-        MemberCollectionEntity existing = collectionRepository.findByUserIdAndProductId(userId, productId).orElse(null);
+        MemberCollectionEntity existing =
+                collectionRepository.findByUserIdAndProductId(userId, productId).orElse(null);
         requireImageTrackingConfigured(existing == null ? null : existing.getProductImage(), null);
         collectionRepository.deleteByUserIdAndProductId(userId, productId);
         if (imageReferenceService != null && existing != null) {
@@ -608,10 +611,7 @@ public class JpaMembershipStore implements MembershipStore {
     private static ProductSnapshot toProduct(ResultSet rs) throws SQLException {
         // Membership has no user identity or region context; use the catalog base price consistently.
         return new ProductSnapshot(
-                rs.getLong("id"),
-                rs.getString("name"),
-                rs.getString("image_url"),
-                rs.getBigDecimal("original_price"));
+                rs.getLong("id"), rs.getString("name"), rs.getString("image_url"), rs.getBigDecimal("original_price"));
     }
 
     private static CouponWalletEntry toCoupon(ResultSet rs) throws SQLException {

@@ -6,7 +6,7 @@ vi.mock('@/api/http', () => ({
   request: requestMock,
 }))
 
-import { listMonkeyPage } from '@/api/catalog'
+import { listCatalogProductPage } from '@/api/catalog'
 import { allOrderPage, myOrderPage } from '@/api/orders'
 import { addressPage } from '@/api/user'
 
@@ -36,10 +36,10 @@ describe('paged collection API contracts', () => {
       .mockResolvedValueOnce(page([{ id: 14, recipientName: 'Grace' }], 0, 2))
 
     await expect(
-      listMonkeyPage({
+      listCatalogProductPage({
         page: 2,
         size: 12,
-        sort: 'name,asc',
+        sort: 'NEWEST',
         keyword: 'golden',
         inStock: true,
         signal: controller.signal,
@@ -58,11 +58,11 @@ describe('paged collection API contracts', () => {
     expect(requestMock).toHaveBeenCalledTimes(4)
     expect(requestMock.mock.calls.map(([config]) => config)).toEqual([
       {
-        url: '/monkeys',
+        url: '/search/products',
         params: {
           page: 2,
           size: 12,
-          sort: 'name,asc',
+          sort: 'NEWEST',
           keyword: 'golden',
           inStock: true,
         },

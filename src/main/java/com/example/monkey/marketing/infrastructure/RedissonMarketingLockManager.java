@@ -25,7 +25,8 @@ public class RedissonMarketingLockManager implements MarketingLockManager {
 
     @Override
     public <T> T withCouponLock(Long couponId, Supplier<T> supplier) {
-        return withLock("marketing:tenant:" + TenantContext.currentTenantIdOrDefault() + ":coupon:" + couponId, supplier);
+        return withLock(
+                "marketing:tenant:" + TenantContext.currentTenantIdOrDefault() + ":coupon:" + couponId, supplier);
     }
 
     @Override
@@ -38,27 +39,26 @@ public class RedissonMarketingLockManager implements MarketingLockManager {
     @Override
     public <T> T withGroupBuyLock(Long teamId, Supplier<T> supplier) {
         return withLock(
-                "marketing:tenant:" + TenantContext.currentTenantIdOrDefault() + ":group-buy:team:" + teamId,
-                supplier);
+                "marketing:tenant:" + TenantContext.currentTenantIdOrDefault() + ":group-buy:team:" + teamId, supplier);
     }
 
     private <T> T withLock(String key, Supplier<T> supplier) {
         if (redissonClient == null) {
             throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "Marketing lock service is unavailable");
         }
+        RLock lock;
         try {
-            RLock lock = redissonClient.getLock(key);
-            return TransactionBoundLock.call(
-                    lock,
-                    WAIT_TIME,
-                    supplier,
-                    "Marketing resource is busy",
-                    "Marketing lock acquisition was interrupted",
-                    "Marketing lock service is unavailable");
-        } catch (BusinessException exception) {
-            throw exception;
+            lock = redissonClient.getLock(key);
         } catch (RuntimeException exception) {
-            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "Marketing lock service is unavailable");
+            throw new BusinessException(
+                    ErrorCode.SERVICE_UNAVAILABLE, "Marketing lock service is unavailable", exception);
         }
+        return TransactionBoundLock.call(
+                lock,
+                WAIT_TIME,
+                supplier,
+                "Marketing resource is busy",
+                "Marketing lock acquisition was interrupted",
+                "Marketing lock service is unavailable");
     }
 }

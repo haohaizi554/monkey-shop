@@ -202,8 +202,7 @@ public class PasswordResetOtpService implements PasswordResetChallengeService {
         }
 
         Instant now = clock.instant();
-        ChallengeRecords records = consumeChallengeRecords(
-                resetKey(username, normalizedPhone), normalizedEmail);
+        ChallengeRecords records = consumeChallengeRecords(resetKey(username, normalizedPhone), normalizedEmail);
         OtpRecord otpRecord = records.otp();
         EmailTokenRecord emailRecord = records.email();
         return otpRecord != null
@@ -219,7 +218,8 @@ public class PasswordResetOtpService implements PasswordResetChallengeService {
             enforceRedisPhoneLimit(normalizedPhone);
             return;
         }
-        PhoneIssueHistory history = phoneHistory.computeIfAbsent(phoneKey(normalizedPhone), ignored -> new PhoneIssueHistory());
+        PhoneIssueHistory history =
+                phoneHistory.computeIfAbsent(phoneKey(normalizedPhone), ignored -> new PhoneIssueHistory());
         synchronized (history) {
             history.removeExpired(now.minus(DAILY_WINDOW));
             if (history.isLimited(now)) {
@@ -313,8 +313,7 @@ public class PasswordResetOtpService implements PasswordResetChallengeService {
         }
         try {
             String combinedHashes = redisTemplate.execute(
-                    CONSUME_DUAL_FACTOR,
-                    List.of(redisOtpKey(challengeKey), redisEmailTokenKey(challengeKey, email)));
+                    CONSUME_DUAL_FACTOR, List.of(redisOtpKey(challengeKey), redisEmailTokenKey(challengeKey, email)));
             if (!StringUtils.hasText(combinedHashes)) {
                 return ChallengeRecords.empty();
             }
@@ -354,8 +353,8 @@ public class PasswordResetOtpService implements PasswordResetChallengeService {
     }
 
     private static String resetKey(String username, String phone) {
-        return TenantContext.currentTenantIdOrDefault() + ":" + normalize(username).toLowerCase() + ":"
-                + normalize(phone);
+        return TenantContext.currentTenantIdOrDefault() + ":"
+                + normalize(username).toLowerCase() + ":" + normalize(phone);
     }
 
     private static String resetKeyWithEmail(String challengeKey, String email) {

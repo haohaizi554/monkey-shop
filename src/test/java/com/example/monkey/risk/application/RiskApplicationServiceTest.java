@@ -82,11 +82,7 @@ class RiskApplicationServiceTest {
     void blockingAssessmentCommitsItsEvidenceInAnIndependentTransaction() throws Exception {
         Transactional boundary = RiskApplicationService.class
                 .getMethod(
-                        "requireAllowed",
-                        SessionUser.class,
-                        RiskAssessmentRequestDto.class,
-                        String.class,
-                        String.class)
+                        "requireAllowed", SessionUser.class, RiskAssessmentRequestDto.class, String.class, String.class)
                 .getAnnotation(Transactional.class);
 
         assertThat(boundary).isNotNull();
@@ -102,8 +98,7 @@ class RiskApplicationServiceTest {
 
         var result = service.assess(
                 new SessionUser(4L, "USER"),
-                new RiskAssessmentRequestDto(
-                        "19999999999", "browser-a", null, 20L, 30L, null, null, null, null, null),
+                new RiskAssessmentRequestDto("19999999999", "browser-a", null, 20L, 30L, null, null, null, null, null),
                 "203.0.113.1");
 
         assertThat(result.decision()).isEqualTo(RiskDecision.REVIEW);
@@ -127,7 +122,8 @@ class RiskApplicationServiceTest {
 
         assertThat(riskStore.scores.getLast().decision()).isEqualTo(RiskDecision.BLOCK);
         verify(sessionTokenService).revokeUserTokens(3L);
-        verify(businessMetricsService).recordRiskDecision(riskStore.scores.getLast().score(), false, true);
+        verify(businessMetricsService)
+                .recordRiskDecision(riskStore.scores.getLast().score(), false, true);
     }
 
     @Test
@@ -159,24 +155,13 @@ class RiskApplicationServiceTest {
         service.assess(
                 new SessionUser(7L, "USER"),
                 new RiskAssessmentRequestDto(
-                        "19999999999",
-                        "browser-a",
-                        "198.51.100.200",
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null),
+                        "19999999999", "browser-a", "198.51.100.200", null, null, null, null, null, null, null),
                 "203.0.113.7");
 
-        assertThat(riskStore.fingerprints)
-                .singleElement()
-                .satisfies(fingerprint -> {
-                    assertThat(fingerprint.clientIp()).isEqualTo("203.0.113.7");
-                    assertThat(fingerprint.phoneHmac()).isEqualTo("phone-13800000007");
-                });
+        assertThat(riskStore.fingerprints).singleElement().satisfies(fingerprint -> {
+            assertThat(fingerprint.clientIp()).isEqualTo("203.0.113.7");
+            assertThat(fingerprint.phoneHmac()).isEqualTo("phone-13800000007");
+        });
     }
 
     @Test
@@ -247,16 +232,7 @@ class RiskApplicationServiceTest {
         service.requireAllowed(
                 new SessionUser(userId, "USER"),
                 new RiskAssessmentRequestDto(
-                        null,
-                        "browser-a",
-                        null,
-                        productId,
-                        null,
-                        seckillActivityId,
-                        null,
-                        null,
-                        null,
-                        null),
+                        null, "browser-a", null, productId, null, seckillActivityId, null, null, null, null),
                 "203.0.113.1",
                 "marketing.seckill.order");
     }

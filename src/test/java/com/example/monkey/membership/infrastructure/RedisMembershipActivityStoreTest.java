@@ -57,8 +57,7 @@ class RedisMembershipActivityStoreTest {
         RedisMembershipActivityStore store =
                 new RedisMembershipActivityStore(noRedis(), new ObjectMapper().findAndRegisterModules());
         LocalDateTime now = LocalDateTime.now().minusMinutes(3);
-        BrowseHistoryItem tenantOneItem =
-                new BrowseHistoryItem(1L, 9L, 101L, "Tenant one", null, now, now.plusDays(7));
+        BrowseHistoryItem tenantOneItem = new BrowseHistoryItem(1L, 9L, 101L, "Tenant one", null, now, now.plusDays(7));
         BrowseHistoryItem tenantTwoItem =
                 new BrowseHistoryItem(2L, 9L, 101L, "Tenant two", null, now.plusMinutes(1), now.plusDays(7));
 
@@ -135,8 +134,7 @@ class RedisMembershipActivityStoreTest {
         RedisMembershipActivityStore store =
                 new RedisMembershipActivityStore(provider, new ObjectMapper().findAndRegisterModules());
         LocalDateTime now = LocalDateTime.now().minusMinutes(3);
-        BrowseHistoryItem tenantOneItem =
-                new BrowseHistoryItem(1L, 9L, 101L, "Tenant one", null, now, now.plusDays(7));
+        BrowseHistoryItem tenantOneItem = new BrowseHistoryItem(1L, 9L, 101L, "Tenant one", null, now, now.plusDays(7));
 
         TenantContext.setTenantId(1L);
         store.record(tenantOneItem, Duration.ofDays(7));

@@ -10,7 +10,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -83,7 +82,8 @@ class LocalObjectStorageServiceTest {
         assertThat(storage.resolveObjectKey("https://cdn.example.test/assets/product/item.png"))
                 .isEqualTo("product/item.png");
         assertThat(storage.resolveObjectKey("product/item.png")).isEqualTo("product/item.png");
-        assertThat(storage.resolveObjectKey("https://unrelated.example.test/product/item.png")).isNull();
+        assertThat(storage.resolveObjectKey("https://unrelated.example.test/product/item.png"))
+                .isNull();
         assertThat(storage.exists("product/item.png")).isTrue();
         assertThat(storage.exists("product/missing.png")).isFalse();
         assertThat(storage.listStoredObjects())

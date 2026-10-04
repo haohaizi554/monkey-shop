@@ -9,6 +9,7 @@ import com.example.monkey.shared.domain.exception.BusinessException;
 import com.example.monkey.shared.domain.exception.ErrorCode;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -26,6 +27,15 @@ public class JpaShipmentCreationClaimStore implements ShipmentCreationClaimStore
 
     public JpaShipmentCreationClaimStore(LogisticsShipmentClaimRepository repository) {
         this.repository = repository;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<ShipmentCreationClaim> findByTenantAndOrder(long tenantId, long orderId) {
+        if (tenantId != TenantContext.currentTenantIdOrDefault()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Shipment claim tenant does not match request tenant");
+        }
+        return repository.findByTenantIdAndOrderId(tenantId, orderId).map(JpaShipmentCreationClaimStore::toDomain);
     }
 
     @Override
@@ -78,13 +88,14 @@ public class JpaShipmentCreationClaimStore implements ShipmentCreationClaimStore
         if (byOrder.isPresent()) {
             assertCompatibleOrder(candidate, byOrder.get());
         }
-        if (byKey.isPresent() && byOrder.isPresent() && !byKey.get().getShipmentId().equals(byOrder.get().getShipmentId())) {
+        if (byKey.isPresent()
+                && byOrder.isPresent()
+                && !byKey.get().getShipmentId().equals(byOrder.get().getShipmentId())) {
             throw new BusinessException(ErrorCode.CONFLICT, "Shipment creation claim is inconsistent");
         }
         LogisticsShipmentClaimEntity existing = byKey.orElseGet(() -> byOrder.orElse(null));
         if (existing == null) {
-            throw new BusinessException(
-                    ErrorCode.SERVICE_UNAVAILABLE, "Shipment creation claim could not be verified");
+            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "Shipment creation claim could not be verified");
         }
         ShipmentCreationClaim current = toDomain(existing);
         if (current.accepted() || current.leaseExpiresAt().isAfter(effectiveNow)) {
@@ -114,20 +125,14 @@ public class JpaShipmentCreationClaimStore implements ShipmentCreationClaimStore
     public void releaseForRetry(ShipmentCreationClaim claim, LocalDateTime now) {
         requireTenant(claim);
         repository.releaseForRetry(
-                claim.tenantId(),
-                claim.shipmentId(),
-                claim.claimToken(),
-                now == null ? LocalDateTime.now() : now);
+                claim.tenantId(), claim.shipmentId(), claim.claimToken(), now == null ? LocalDateTime.now() : now);
     }
 
     @Override
     public void markAccepted(ShipmentCreationClaim claim, LocalDateTime now) {
         requireTenant(claim);
         int updated = repository.markAccepted(
-                claim.tenantId(),
-                claim.shipmentId(),
-                claim.claimToken(),
-                now == null ? LocalDateTime.now() : now);
+                claim.tenantId(), claim.shipmentId(), claim.claimToken(), now == null ? LocalDateTime.now() : now);
         if (updated != 1) {
             throw new BusinessException(
                     ErrorCode.SERVICE_UNAVAILABLE, "Shipment creation claim was lost before acceptance");
@@ -151,8 +156,7 @@ public class JpaShipmentCreationClaimStore implements ShipmentCreationClaimStore
     private static void assertCompatibleOrder(ShipmentCreationClaim candidate, LogisticsShipmentClaimEntity existing) {
         if (!candidate.requestFingerprint().equals(existing.getRequestFingerprint())
                 || candidate.ownerUserId() != existing.getOwnerUserId()) {
-            throw new BusinessException(
-                    ErrorCode.CONFLICT, "Order already has a different shipment request");
+            throw new BusinessException(ErrorCode.CONFLICT, "Order already has a different shipment request");
         }
     }
 

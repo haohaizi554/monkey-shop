@@ -13,6 +13,7 @@ public interface OrderReviewRepository extends JpaRepository<OrderReviewEntity, 
 
     long countByImageUrlsContaining(String imagePath);
 
-    @Query("SELECT review.imageUrls FROM OrderReviewEntity review WHERE review.imageUrls IS NOT NULL ORDER BY review.id")
+    @Query(
+            "SELECT review.imageUrls FROM OrderReviewEntity review WHERE review.imageUrls IS NOT NULL ORDER BY review.id")
     List<String> findImageUrls(Pageable pageable);
 }

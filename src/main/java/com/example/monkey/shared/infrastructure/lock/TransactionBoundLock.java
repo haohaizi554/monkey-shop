@@ -27,12 +27,19 @@ public final class TransactionBoundLock {
             String interruptedMessage,
             String unavailableMessage) {
         boolean acquired = false;
-        boolean releaseAfterTransaction = false;
         try {
             acquired = lock.tryLock(wait.toMillis(), TimeUnit.MILLISECONDS);
-            if (!acquired) {
-                throw new BusinessException(ErrorCode.CONFLICT, busyMessage);
-            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, interruptedMessage, exception);
+        } catch (RuntimeException exception) {
+            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, unavailableMessage, exception);
+        }
+        if (!acquired) {
+            throw new BusinessException(ErrorCode.CONFLICT, busyMessage);
+        }
+        boolean releaseAfterTransaction = false;
+        try {
             if (TransactionSynchronizationManager.isSynchronizationActive()) {
                 RLock held = lock;
                 TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -44,15 +51,8 @@ public final class TransactionBoundLock {
                 releaseAfterTransaction = true;
             }
             return action.get();
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, interruptedMessage);
-        } catch (BusinessException exception) {
-            throw exception;
-        } catch (RuntimeException exception) {
-            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, unavailableMessage);
         } finally {
-            if (acquired && !releaseAfterTransaction) {
+            if (!releaseAfterTransaction) {
                 unlock(lock);
             }
         }

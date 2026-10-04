@@ -36,8 +36,7 @@ public record PointsWallet(
 
     public PointsWallet apply(long points, LocalDateTime now) {
         if (points == 0) {
-            return new PointsWallet(
-                    id, userId, balance, totalEarned, totalSpent, pointsDebt, version, createTime, now);
+            return new PointsWallet(id, userId, balance, totalEarned, totalSpent, pointsDebt, version, createTime, now);
         }
         try {
             if (points > 0) {
@@ -83,8 +82,7 @@ public record PointsWallet(
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Refund reversal points must be non-negative");
         }
         if (points == 0) {
-            return new PointsWallet(
-                    id, userId, balance, totalEarned, totalSpent, pointsDebt, version, createTime, now);
+            return new PointsWallet(id, userId, balance, totalEarned, totalSpent, pointsDebt, version, createTime, now);
         }
         try {
             long consumed = Math.min(balance, points);

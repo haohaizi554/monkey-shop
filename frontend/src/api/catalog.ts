@@ -6,29 +6,11 @@ import type {
   CatalogSpu,
   CatalogSpuWriteRequest,
   CategoryNode,
-  Monkey,
-  MonkeyRequest,
   ProductStatus,
   SearchProduct,
   SearchSort,
   UploadResponse,
 } from '@/types'
-
-export interface MonkeyPageQuery {
-  page: number
-  size: number
-  sort?: string
-  keyword?: string
-  minPrice?: string | number
-  maxPrice?: string | number
-  inStock?: boolean
-  signal?: AbortSignal
-}
-
-export function listMonkeyPage(query: MonkeyPageQuery): Promise<PageEnvelope<Monkey>> {
-  const { signal, ...params } = query
-  return request<PageEnvelope<Monkey>>({ url: '/monkeys', params, signal })
-}
 
 export interface CatalogProductPageQuery {
   page: number
@@ -90,18 +72,6 @@ export function listCatalogProductPage(
 ): Promise<PageEnvelope<SearchProduct>> {
   const { signal, ...params } = query
   return request<PageEnvelope<SearchProduct>>({ url: '/search/products', params, signal })
-}
-
-export function addMonkey(payload: MonkeyRequest): Promise<Monkey> {
-  return request<Monkey>({ url: '/monkeys/add', method: 'POST', data: payload })
-}
-
-export function updateMonkey(payload: MonkeyRequest): Promise<Monkey> {
-  return request<Monkey>({ url: '/monkeys/update', method: 'POST', data: payload })
-}
-
-export async function deleteMonkey(id: ApiId): Promise<void> {
-  await request<void>({ url: `/monkeys/${id}`, method: 'DELETE' })
 }
 
 export async function uploadImage(file: File, type: 'avatar' | 'product'): Promise<UploadResponse> {

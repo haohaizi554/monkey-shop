@@ -136,7 +136,9 @@ async function installAdminMocks(page: Page, orderRows = orders) {
   })
 }
 
-test('admin order status tags use canonical labels and tones for valid states', async ({ page }) => {
+test('admin order status tags use canonical labels and tones for valid states', async ({
+  page,
+}) => {
   await installAdminMocks(page, canonicalStatusOrders)
   await page.goto('/admin')
 

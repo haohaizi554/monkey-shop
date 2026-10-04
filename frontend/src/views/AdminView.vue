@@ -40,7 +40,7 @@ import {
   emptyCatalogAdminForm,
   type CatalogAdminForm,
 } from '@/utils/catalogAdmin'
-import { dateTime, money, orderStatusKey, orderStatusLabel, statusType } from '@/utils/format'
+import { dateTime, money, orderStatusKey, statusType } from '@/utils/format'
 
 defineOptions({ name: 'AdminView' })
 
@@ -550,7 +550,12 @@ refreshAdmin()
         <template #filters>
           <el-select v-model="query.productStatus" clearable :aria-label="t('admin.statusFilter')">
             <el-option :label="t('admin.allProductStatuses')" value="" />
-            <el-option v-for="status in productStatuses" :key="status" :label="status" :value="status" />
+            <el-option
+              v-for="status in productStatuses"
+              :key="status"
+              :label="status"
+              :value="status"
+            />
           </el-select>
         </template>
         <template #actions>
@@ -702,9 +707,7 @@ refreshAdmin()
             </el-table-column>
             <el-table-column :label="t('common.status')" width="140">
               <template #default="{ row }">
-                <StatusTag
-                  :status="orderStatusKey(row.status)"
-                />
+                <StatusTag :status="orderStatusKey(row.status)" />
               </template>
             </el-table-column>
             <el-table-column :label="t('common.action')" width="180" fixed="right">

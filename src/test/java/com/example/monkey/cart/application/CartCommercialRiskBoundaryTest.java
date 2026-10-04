@@ -53,28 +53,13 @@ class CartCommercialRiskBoundaryTest {
         CommercialRiskGate riskGate = mock(CommercialRiskGate.class);
         ProductPriceContextResolver priceContextResolver = (userId, region) -> new PriceContext("MEMBER", region);
         CartSkuSnapshot canonicalSku = new CartSkuSnapshot(
-                1001L,
-                501L,
-                9L,
-                11L,
-                "SKU-1001",
-                "Phone",
-                "/images/product/phone.png",
-                new BigDecimal("100.00"));
-        when(catalogReader.findActiveSku(eq(1001L), any(PriceContext.class)))
-                .thenReturn(Optional.of(canonicalSku));
-        when(checkoutStore.findByUserIdAndIdempotencyKey(7L, "direct-risk-key"))
-                .thenReturn(Optional.empty());
+                1001L, 501L, 9L, 11L, "SKU-1001", "Phone", "/images/product/phone.png", new BigDecimal("100.00"));
+        when(catalogReader.findActiveSku(eq(1001L), any(PriceContext.class))).thenReturn(Optional.of(canonicalSku));
+        when(checkoutStore.findByUserIdAndIdempotencyKey(7L, "direct-risk-key")).thenReturn(Optional.empty());
         doThrow(new BusinessException(ErrorCode.FORBIDDEN, "blocked"))
                 .when(riskGate)
                 .requireAllowed(
-                        7L,
-                        null,
-                        canonicalSku.spuId(),
-                        null,
-                        "device-1",
-                        "203.0.113.7",
-                        "cart.checkout.direct");
+                        7L, null, canonicalSku.spuId(), null, "device-1", "203.0.113.7", "cart.checkout.direct");
 
         CartApplicationService service = new CartApplicationService(
                 cartStore,
@@ -103,28 +88,18 @@ class CartCommercialRiskBoundaryTest {
                 riskGate,
                 Clock.fixed(Instant.parse("2026-08-28T00:00:00Z"), ZoneOffset.UTC),
                 Duration.ofDays(7));
-        CartDirectCheckoutRequestDto request =
-                new CartDirectCheckoutRequestDto(1001L, 9L, 1, 77L, "CN-BJ", List.of());
+        CartDirectCheckoutRequestDto request = new CartDirectCheckoutRequestDto(1001L, 9L, 1, 77L, "CN-BJ", List.of());
 
         assertThatThrownBy(() -> service.directCheckout(
-                        new SessionUser(7L, "USER"),
-                        request,
-                        "direct-risk-key",
-                        "device-1",
-                        "203.0.113.7"))
-                .isInstanceOfSatisfying(BusinessException.class,
+                        new SessionUser(7L, "USER"), request, "direct-risk-key", "device-1", "203.0.113.7"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
                         exception -> org.assertj.core.api.Assertions.assertThat(exception.errorCode())
                                 .isEqualTo(ErrorCode.FORBIDDEN));
 
         verify(riskGate)
                 .requireAllowed(
-                        7L,
-                        null,
-                        canonicalSku.spuId(),
-                        null,
-                        "device-1",
-                        "203.0.113.7",
-                        "cart.checkout.direct");
+                        7L, null, canonicalSku.spuId(), null, "device-1", "203.0.113.7", "cart.checkout.direct");
         verify(checkoutStore, never()).save(any());
         verifyNoInteractions(inventory, marketing, formalOrderCreator);
     }

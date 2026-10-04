@@ -48,15 +48,19 @@ class Ws7DevOpsWorkflowTest {
                 .containsPattern("(?m)^\\s+APP_RISK_REQUIRE_REDIS_STATE:\\s+\"?true\"?\\s*$")
                 .doesNotContainPattern("(?m)^\\s+APP_IMAGE_REFERENCE_PROVIDER:\\s+memory\\s*$");
         assertThat(prodApplication)
-                .containsPattern("(?s)image-reference:\\s*\\n\\s+provider:\\s+\\$\\{APP_IMAGE_REFERENCE_PROVIDER:redis}")
+                .containsPattern(
+                        "(?s)image-reference:\\s*\\n\\s+provider:\\s+\\$\\{APP_IMAGE_REFERENCE_PROVIDER:redis}")
                 .doesNotContain("APP_IMAGE_REFERENCE_PROVIDER:memory");
         assertThat(stagingApplication)
-                .containsPattern("(?s)image-reference:\\s*\\n\\s+provider:\\s+\\$\\{APP_IMAGE_REFERENCE_PROVIDER:redis}")
+                .containsPattern(
+                        "(?s)image-reference:\\s*\\n\\s+provider:\\s+\\$\\{APP_IMAGE_REFERENCE_PROVIDER:redis}")
                 .doesNotContain("APP_IMAGE_REFERENCE_PROVIDER:memory");
         assertThat(prodApplication)
-                .containsPattern("(?s)risk:\\s*\\n\\s+require-redis-state:\\s+\\$\\{APP_RISK_REQUIRE_REDIS_STATE:true}");
+                .containsPattern(
+                        "(?s)risk:\\s*\\n\\s+require-redis-state:\\s+\\$\\{APP_RISK_REQUIRE_REDIS_STATE:true}");
         assertThat(stagingApplication)
-                .containsPattern("(?s)risk:\\s*\\n\\s+require-redis-state:\\s+\\$\\{APP_RISK_REQUIRE_REDIS_STATE:true}");
+                .containsPattern(
+                        "(?s)risk:\\s*\\n\\s+require-redis-state:\\s+\\$\\{APP_RISK_REQUIRE_REDIS_STATE:true}");
         assertThat(configMap)
                 .contains("range $key, $value := .Values.config")
                 .contains("{{ $key }}: {{ $value | quote }}");
@@ -240,7 +244,9 @@ class Ws7DevOpsWorkflowTest {
                         "-ExecutionPolicy",
                         "Bypass",
                         "-File",
-                        Path.of("scripts/verify-ws7-devops.ps1").toAbsolutePath().toString(),
+                        Path.of("scripts/verify-ws7-devops.ps1")
+                                .toAbsolutePath()
+                                .toString(),
                         "-HelmPath",
                         missingHelm.toString())
                 .directory(Path.of(".").toAbsolutePath().normalize().toFile())
@@ -257,9 +263,7 @@ class Ws7DevOpsWorkflowTest {
         }
 
         assertThat(process.exitValue()).as(output).isNotZero();
-        assertThat(output)
-                .contains("Helm is required but was not found.")
-                .doesNotContain("Download Helm");
+        assertThat(output).contains("Helm is required but was not found.").doesNotContain("Download Helm");
     }
 
     @Test

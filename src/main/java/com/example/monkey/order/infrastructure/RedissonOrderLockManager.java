@@ -14,7 +14,6 @@ import org.springframework.stereotype.Component;
 public class RedissonOrderLockManager implements OrderLockManager {
 
     private static final Duration WAIT_TIME = Duration.ofSeconds(2);
-    private static final Duration LEASE_TIME = Duration.ofSeconds(10);
 
     private final RedissonClient redissonClient;
 
@@ -25,24 +24,30 @@ public class RedissonOrderLockManager implements OrderLockManager {
     @Override
     public <T> T withCreateOrderLock(Long userId, Long productId, Supplier<T> operation) {
         long tenantId = TenantContext.currentTenantIdOrDefault();
-        RLock lock = redissonClient.getLock(lockName(tenantId, userId, productId));
+        RLock lock;
+        try {
+            lock = redissonClient.getLock(lockName(tenantId, userId, productId));
+        } catch (RuntimeException exception) {
+            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "Order lock service is unavailable", exception);
+        }
         boolean acquired = false;
         try {
-            acquired = lock.tryLock(
-                    WAIT_TIME.toMillis(), LEASE_TIME.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
-            if (!acquired) {
-                throw new BusinessException(ErrorCode.CONFLICT, "Order creation is already in progress");
-            }
-            return operation.get();
-        } catch (InterruptedException e) {
+            // No fixed lease: Redisson's watchdog renews the lock until this thread unlocks after commit.
+            acquired = lock.tryLock(WAIT_TIME.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "Order lock acquisition was interrupted");
-        } catch (BusinessException e) {
-            throw e;
-        } catch (RuntimeException e) {
-            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "Order lock service is unavailable");
+            throw new BusinessException(
+                    ErrorCode.SERVICE_UNAVAILABLE, "Order lock acquisition was interrupted", exception);
+        } catch (RuntimeException exception) {
+            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "Order lock service is unavailable", exception);
+        }
+        if (!acquired) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Order creation is already in progress");
+        }
+        try {
+            return operation.get();
         } finally {
-            if (acquired && lock.isHeldByCurrentThread()) {
+            if (lock.isHeldByCurrentThread()) {
                 lock.unlock();
             }
         }

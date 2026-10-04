@@ -84,8 +84,8 @@ class MultiTenantPrivacyJobIntegrationTest {
 
     @Test
     void retentionAndAuditJobsUseRetainedPopulationIncludingSuspendedAndExpiredTenants() {
-        ActiveTenantIterator iterator = new ActiveTenantIterator(
-                retainedTenants(List.of(1L), List.of(1L, 2L, 3L)), transactionManager());
+        ActiveTenantIterator iterator =
+                new ActiveTenantIterator(retainedTenants(List.of(1L), List.of(1L, 2L, 3L)), transactionManager());
         List<Long> retentionTenantIds = new ArrayList<>();
         PiiRetentionStore retentionStore = mock(PiiRetentionStore.class);
         when(retentionStore.anonymizeOrdersCreatedBefore(any(), any(LocalDateTime.class), any(), any(Integer.class)))

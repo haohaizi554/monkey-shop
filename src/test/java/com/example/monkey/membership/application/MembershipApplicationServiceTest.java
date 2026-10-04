@@ -105,8 +105,8 @@ class MembershipApplicationServiceTest {
                 .isInstanceOf(BusinessException.class);
 
         mfaVerifier.accept = true;
-        var dashboard =
-                service.changeLevel(ADMIN, new LevelChangeRequestDto(MembershipLevel.SILVER, "manual", VALID_TOTP_CODE));
+        var dashboard = service.changeLevel(
+                ADMIN, new LevelChangeRequestDto(MembershipLevel.SILVER, "manual", VALID_TOTP_CODE));
 
         assertThat(dashboard.profile().level()).isEqualTo(MembershipLevel.SILVER);
         assertThat(store.levelHistory).hasSize(1);
@@ -156,7 +156,8 @@ class MembershipApplicationServiceTest {
 
     @Test
     void compatibilityConstructorStillAllowsDefaultBrowseImage() {
-        store.products.put(101L, new ProductSnapshot(101L, "Phone", "/images/default_product.png", BigDecimal.valueOf(199)));
+        store.products.put(
+                101L, new ProductSnapshot(101L, "Phone", "/images/default_product.png", BigDecimal.valueOf(199)));
 
         compatibilityService().recordBrowse(USER, new BrowseRecordRequestDto(101L));
 
@@ -173,7 +174,8 @@ class MembershipApplicationServiceTest {
         serviceWithReferences.recordBrowse(USER, new BrowseRecordRequestDto(101L));
 
         assertThat(references.snapshotVersion()).isGreaterThan(staleVersion);
-        assertThat(references.replaceIfUnchanged(List.of("/images/other.png"), staleVersion)).isFalse();
+        assertThat(references.replaceIfUnchanged(List.of("/images/other.png"), staleVersion))
+                .isFalse();
         assertThat(activityStore.items).hasSize(1);
     }
 

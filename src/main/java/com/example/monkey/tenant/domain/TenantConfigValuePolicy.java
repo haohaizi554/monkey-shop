@@ -75,9 +75,7 @@ public final class TenantConfigValuePolicy {
         }
         Map<String, String> masked = new LinkedHashMap<>();
         for (Map.Entry<String, String> entry : settings.entrySet()) {
-            masked.put(
-                    entry.getKey(),
-                    SAFE_METADATA_KEYS.contains(entry.getKey()) ? entry.getValue() : MASKED_VALUE);
+            masked.put(entry.getKey(), SAFE_METADATA_KEYS.contains(entry.getKey()) ? entry.getValue() : MASKED_VALUE);
         }
         return Collections.unmodifiableMap(masked);
     }

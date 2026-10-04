@@ -13,8 +13,7 @@ public interface CartCheckoutLineRepository extends JpaRepository<CartCheckoutLi
 
     long countByProductImageStartingWith(String productImagePrefix);
 
-    @Query(
-            "SELECT line.productImage FROM CartCheckoutLineEntity line "
-                    + "WHERE line.productImage IS NOT NULL ORDER BY line.id")
+    @Query("SELECT line.productImage FROM CartCheckoutLineEntity line "
+            + "WHERE line.productImage IS NOT NULL ORDER BY line.id")
     List<String> findProductImages(Pageable pageable);
 }

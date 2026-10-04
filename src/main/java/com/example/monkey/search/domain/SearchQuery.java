@@ -1,8 +1,8 @@
 package com.example.monkey.search.domain;
 
+import java.math.BigDecimal;
 import java.util.Locale;
 import java.util.Map;
-import java.math.BigDecimal;
 
 public record SearchQuery(
         String keyword,
@@ -18,12 +18,7 @@ public record SearchQuery(
     private static final int MAX_PAGE_SIZE = 50;
 
     public SearchQuery(
-            String keyword,
-            Long categoryId,
-            Map<String, String> attributes,
-            SearchSort sort,
-            int page,
-            int size) {
+            String keyword, Long categoryId, Map<String, String> attributes, SearchSort sort, int page, int size) {
         this(keyword, categoryId, attributes, sort, page, size, null, null, false);
     }
 

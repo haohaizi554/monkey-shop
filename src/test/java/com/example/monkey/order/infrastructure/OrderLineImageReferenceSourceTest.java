@@ -21,7 +21,8 @@ class OrderLineImageReferenceSourceTest {
     @Test
     void reportsUsedForExactCanonicalImage() {
         OrderLineImageReferenceSource source = new OrderLineImageReferenceSource(orderLineRepository, 2);
-        when(orderLineRepository.countByProductImage("/images/product/used.png")).thenReturn(1L);
+        when(orderLineRepository.countByProductImage("/images/product/used.png"))
+                .thenReturn(1L);
 
         boolean used = source.isUsed(" /images/product/used.png ");
 
@@ -32,7 +33,8 @@ class OrderLineImageReferenceSourceTest {
     @Test
     void reportsUsedForCanonicalImageVariantPrefixWhenExactCountIsZero() {
         OrderLineImageReferenceSource source = new OrderLineImageReferenceSource(orderLineRepository, 2);
-        when(orderLineRepository.countByProductImage("/images/product/used.png")).thenReturn(0L);
+        when(orderLineRepository.countByProductImage("/images/product/used.png"))
+                .thenReturn(0L);
         when(orderLineRepository.countByProductImageStartingWith("/images/product/used.png@"))
                 .thenReturn(1L);
 
@@ -55,10 +57,9 @@ class OrderLineImageReferenceSourceTest {
 
         source.forEachReferencedImagePath(imagePaths::add);
 
-        assertThat(imagePaths).containsExactly(
-                "/images/product/shared.png",
-                "/images/product/shared.png",
-                "/images/product/variant.png");
+        assertThat(imagePaths)
+                .containsExactly(
+                        "/images/product/shared.png", "/images/product/shared.png", "/images/product/variant.png");
         verify(orderLineRepository).findProductImages(PageRequest.of(0, 2));
         verify(orderLineRepository).findProductImages(PageRequest.of(1, 2));
         verify(orderLineRepository).findProductImages(PageRequest.of(2, 2));

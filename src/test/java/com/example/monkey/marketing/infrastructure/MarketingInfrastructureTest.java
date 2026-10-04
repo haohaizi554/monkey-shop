@@ -22,9 +22,9 @@ import com.example.monkey.shared.application.tenant.TenantContext;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.concurrent.TimeUnit;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.redisson.api.RLock;
@@ -117,11 +117,9 @@ class MarketingInfrastructureTest {
         MarketingGroupBuyIdempotencyBindingEntity entity = groupBuyIdempotencyBindingEntity();
         when(repository.findByTenantIdAndUserIdAndIdempotencyKey(2L, 7L, "group:key"))
                 .thenReturn(Optional.of(entity));
-        when(repository.insertIfAbsent(
-                        eq(2L), eq(7L), eq("group:key"), eq(30L), eq("a".repeat(64)), eq(NOW), eq(NOW)))
+        when(repository.insertIfAbsent(eq(2L), eq(7L), eq("group:key"), eq(30L), eq("a".repeat(64)), eq(NOW), eq(NOW)))
                 .thenReturn(1);
-        JpaMarketingGroupBuyIdempotencyBindingStore store =
-                new JpaMarketingGroupBuyIdempotencyBindingStore(repository);
+        JpaMarketingGroupBuyIdempotencyBindingStore store = new JpaMarketingGroupBuyIdempotencyBindingStore(repository);
 
         TenantContext.setTenantId(2L);
         try {
@@ -141,8 +139,7 @@ class MarketingInfrastructureTest {
     void jpaGroupBuyIdempotencyBindingStoreRejectsCrossTenantAccess() {
         MarketingGroupBuyIdempotencyBindingRepository repository =
                 mock(MarketingGroupBuyIdempotencyBindingRepository.class);
-        JpaMarketingGroupBuyIdempotencyBindingStore store =
-                new JpaMarketingGroupBuyIdempotencyBindingStore(repository);
+        JpaMarketingGroupBuyIdempotencyBindingStore store = new JpaMarketingGroupBuyIdempotencyBindingStore(repository);
 
         TenantContext.setTenantId(2L);
         try {
@@ -201,7 +198,8 @@ class MarketingInfrastructureTest {
         TransactionSynchronizationManager.setActualTransactionActive(true);
         TransactionSynchronizationManager.initSynchronization();
         try {
-            assertThat(store.reserve("coupon:1", 7L, "key", "request", Duration.ofMinutes(5))).isTrue();
+            assertThat(store.reserve("coupon:1", 7L, "key", "request", Duration.ofMinutes(5)))
+                    .isTrue();
             TransactionSynchronizationManager.clearSynchronization();
             verify(valueOperations, never()).setIfAbsent(any(String.class), any(String.class), any(Duration.class));
         } finally {
@@ -268,13 +266,13 @@ class MarketingInfrastructureTest {
         RedissonMarketingLockManager lockManager = new RedissonMarketingLockManager(provider);
         AtomicBoolean businessMutationInvoked = new AtomicBoolean();
 
-        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
-                        lockManager.withGroupBuyLock(3L, () -> {
-                            businessMutationInvoked.set(true);
-                            return "group";
-                        }))
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> lockManager.withGroupBuyLock(3L, () -> {
+                    businessMutationInvoked.set(true);
+                    return "group";
+                }))
                 .isInstanceOf(com.example.monkey.shared.domain.exception.BusinessException.class)
-                .hasMessageContaining("lock service");
+                .hasMessageContaining("lock service")
+                .hasCauseInstanceOf(IllegalStateException.class);
         assertThat(businessMutationInvoked).isFalse();
     }
 

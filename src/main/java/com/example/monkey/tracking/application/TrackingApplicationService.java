@@ -99,8 +99,7 @@ public class TrackingApplicationService implements AuthoritativeTrackingPort {
                 request.amount(),
                 request.attributes(),
                 request.occurredAt());
-        return persistEvent(
-                event, clientIp, userId, currentUser == null ? null : currentUser.role());
+        return persistEvent(event, clientIp, userId, currentUser == null ? null : currentUser.role());
     }
 
     @Override
@@ -158,7 +157,8 @@ public class TrackingApplicationService implements AuthoritativeTrackingPort {
     private TrackingEventResponseDto persistEvent(
             TrackingEvent event, String clientIp, Long actorUserId, String actorRole) {
         TrackingEvent saved = trackingStore.saveEvent(event);
-        afterCommit(() -> businessMetricsService.recordTrackingEvent(saved.eventType().name()));
+        afterCommit(() ->
+                businessMetricsService.recordTrackingEvent(saved.eventType().name()));
         if (saved.eventType() == TrackingEventType.PAGE_VIEW) {
             afterCommit(() -> visitMetricsService.recordClientPageView(saved.page(), clientIp));
         }

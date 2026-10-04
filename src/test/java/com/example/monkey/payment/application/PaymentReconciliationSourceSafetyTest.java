@@ -50,7 +50,8 @@ class PaymentReconciliationSourceSafetyTest {
     void setUp() {
         paymentStore = mock(PaymentStore.class);
         idGenerator = mock(IdGenerator.class);
-        when(paymentStore.findPaidByProviderAndDate(PaymentMethod.WECHAT, YESTERDAY)).thenReturn(List.of());
+        when(paymentStore.findPaidByProviderAndDate(PaymentMethod.WECHAT, YESTERDAY))
+                .thenReturn(List.of());
         when(paymentStore.saveReport(any(PaymentReconciliationReport.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         when(idGenerator.nextId()).thenReturn(9000L);
@@ -105,8 +106,8 @@ class PaymentReconciliationSourceSafetyTest {
 
     @Test
     void explicitlyAuthoritativeEmptyStatementIsComparedAndCanBeBalanced() {
-        PaymentReconciliationSource emptyStatement = (provider, reportDate) ->
-                new PaymentReconciliationSource.Statement(provider, reportDate, List.of());
+        PaymentReconciliationSource emptyStatement =
+                (provider, reportDate) -> new PaymentReconciliationSource.Statement(provider, reportDate, List.of());
         PaymentApplicationService service = service(emptyStatement);
 
         var response = service.reconcileYesterday();

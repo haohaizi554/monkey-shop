@@ -98,7 +98,9 @@ public class JpaInventoryStore implements InventoryStore {
         if (inserted > 0) {
             return true;
         }
-        if (reservationRepository.findByTenantIdAndReservationKey(tenantId, reservation.reservationKey()).isEmpty()) {
+        if (reservationRepository
+                .findByTenantIdAndReservationKey(tenantId, reservation.reservationKey())
+                .isEmpty()) {
             throw new IllegalStateException(
                     "Inventory reservation insert was ignored without an existing idempotency claim");
         }
@@ -108,8 +110,7 @@ public class JpaInventoryStore implements InventoryStore {
     @Override
     public InventoryReservation saveReservation(InventoryReservation reservation) {
         InventoryReservationEntity entity = reservationRepository
-                .findByTenantIdAndReservationKey(
-                        TenantContext.currentTenantIdOrDefault(), reservation.reservationKey())
+                .findByTenantIdAndReservationKey(TenantContext.currentTenantIdOrDefault(), reservation.reservationKey())
                 .orElseGet(InventoryReservationEntity::new);
         entity.setId(reservation.id());
         entity.setReservationKey(reservation.reservationKey());

@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
@@ -45,9 +44,8 @@ class MembershipBrowseHistoryImageReferenceSourceTest {
                                 row(invocation, 11L, "/images/shared.png", NOW.plusMinutes(2)),
                                 row(invocation, 12L, "/images/expired.png", NOW.minusMinutes(1)))
                         : List.of());
-        MembershipBrowseHistoryImageReferenceSource source =
-                new MembershipBrowseHistoryImageReferenceSource(
-                        jdbcTemplate, 3, Clock.fixed(Instant.parse("2026-08-28T10:00:00Z"), ZoneOffset.UTC));
+        MembershipBrowseHistoryImageReferenceSource source = new MembershipBrowseHistoryImageReferenceSource(
+                jdbcTemplate, 3, Clock.fixed(Instant.parse("2026-08-28T10:00:00Z"), ZoneOffset.UTC));
         TenantContext.setTenantId(22L);
         List<String> references = new ArrayList<>();
 
@@ -56,7 +54,8 @@ class MembershipBrowseHistoryImageReferenceSourceTest {
         assertThat(references).containsExactly("/images/shared.png", "/images/shared.png");
         var query = org.mockito.ArgumentCaptor.forClass(String.class);
         var arguments = org.mockito.ArgumentCaptor.forClass(Object[].class);
-        org.mockito.Mockito.verify(jdbcTemplate, times(2)).query(query.capture(), any(RowMapper.class), arguments.capture());
+        org.mockito.Mockito.verify(jdbcTemplate, times(2))
+                .query(query.capture(), any(RowMapper.class), arguments.capture());
         assertThat(query.getValue())
                 .containsIgnoringCase("FROM membership_browse_history")
                 .containsIgnoringCase("tenant_id = ?")

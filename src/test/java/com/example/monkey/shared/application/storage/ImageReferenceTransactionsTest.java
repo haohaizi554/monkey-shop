@@ -54,8 +54,7 @@ class ImageReferenceTransactionsTest {
         ImageCleanupService cleanup = mock();
         beginTransaction();
 
-        ImageReferenceTransactions.releaseAfterCommit(
-                references, cleanup, "/images/product/old.png");
+        ImageReferenceTransactions.releaseAfterCommit(references, cleanup, "/images/product/old.png");
 
         verify(references, never()).release("/images/product/old.png");
         verify(cleanup, never()).tryDeleteCommitted("/images/product/old.png");
@@ -69,8 +68,7 @@ class ImageReferenceTransactionsTest {
         ImageReferenceService references = mock();
         TransactionSynchronizationManager.setActualTransactionActive(true);
 
-        assertThatThrownBy(() -> ImageReferenceTransactions.retainBeforeWrite(
-                        references, "/images/product/new.png"))
+        assertThatThrownBy(() -> ImageReferenceTransactions.retainBeforeWrite(references, "/images/product/new.png"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("synchronization");
 

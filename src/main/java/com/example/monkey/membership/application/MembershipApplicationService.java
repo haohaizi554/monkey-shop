@@ -165,9 +165,8 @@ public class MembershipApplicationService {
             Duration browsingTtl) {
         this.membershipStore = membershipStore;
         this.activityStore = activityStore;
-        this.imageReferenceService = imageReferenceService == null
-                ? UnconfiguredImageReferenceService.INSTANCE
-                : imageReferenceService;
+        this.imageReferenceService =
+                imageReferenceService == null ? UnconfiguredImageReferenceService.INSTANCE : imageReferenceService;
         this.levelTransitionResolver = levelTransitionResolver;
         this.userAccountStore = userAccountStore;
         this.userMfaVerifier = userMfaVerifier;
@@ -197,13 +196,12 @@ public class MembershipApplicationService {
     public MembershipDashboardDto verifyIdentity(SessionUser currentUser, RealNameVerifyRequestDto request) {
         Long userId = requireUserId(currentUser);
         MemberProfile current = profile(userId);
-        MemberProfile saved = membershipStore.saveProfile(current
-                .submitIdentity(
-                        requiredText(request.realName(), "realName"),
-                        null,
-                        requiredText(request.idCardNo(), "idCardNo"),
-                        null,
-                        now()));
+        MemberProfile saved = membershipStore.saveProfile(current.submitIdentity(
+                requiredText(request.realName(), "realName"),
+                null,
+                requiredText(request.idCardNo(), "idCardNo"),
+                null,
+                now()));
         auditAs(
                 IDENTITY_SUBMITTED_AUDIT_EVENT,
                 userId,
@@ -222,11 +220,7 @@ public class MembershipApplicationService {
         Long targetUserId = requireExistingUserId(userId);
         IdentityVerificationStatus decision = request.status();
         String reason = requiredText(request.reason(), "reason");
-        requireTotp(
-                administrator,
-                request.totpCode(),
-                "membership:" + targetUserId,
-                "identity-review");
+        requireTotp(administrator, request.totpCode(), "membership:" + targetUserId, "identity-review");
 
         MemberProfile saved = membershipStore.saveProfile(
                 profile(targetUserId).reviewIdentity(decision, administrator.id(), reason, now()));
@@ -540,19 +534,12 @@ public class MembershipApplicationService {
             String actorRole,
             String auditDetail) {
         String normalizedReferenceKey = trim(referenceKey);
-        String mutationFingerprint = mutationFingerprint(
-                userId, type, points, orderId, normalizedReferenceKey, idempotencyKey);
+        String mutationFingerprint =
+                mutationFingerprint(userId, type, points, orderId, normalizedReferenceKey, idempotencyKey);
         Optional<PointsLedgerEntry> existingLedger = membershipStore.findLedger(userId, idempotencyKey);
         if (existingLedger != null && existingLedger.isPresent()) {
             PointsLedgerEntry existing = existingLedger.get();
-            assertReplayMatches(
-                    existing,
-                    type,
-                    points,
-                    orderId,
-                    normalizedReferenceKey,
-                    idempotencyKey,
-                    userId);
+            assertReplayMatches(existing, type, points, orderId, normalizedReferenceKey, idempotencyKey, userId);
             return MembershipDtoAssembler.toLedger(existing);
         }
 
@@ -576,15 +563,12 @@ public class MembershipApplicationService {
             membershipStore.saveProfile(profile(userId).addGrowth(points, now()));
         }
         auditAs(
-                points >= 0
-                        ? AuditService.MEMBERSHIP_POINTS_EARNED
-                        : AuditService.MEMBERSHIP_POINTS_REDEEMED,
+                points >= 0 ? AuditService.MEMBERSHIP_POINTS_EARNED : AuditService.MEMBERSHIP_POINTS_REDEEMED,
                 actorUserId,
                 actorRole,
                 "points:" + saved.id(),
                 null,
-                "points=" + points + ",type=" + type
-                        + (StringUtils.hasText(auditDetail) ? "," + auditDetail : ""));
+                "points=" + points + ",type=" + type + (StringUtils.hasText(auditDetail) ? "," + auditDetail : ""));
         return MembershipDtoAssembler.toLedger(saved);
     }
 
@@ -694,7 +678,8 @@ public class MembershipApplicationService {
                 || !Objects.equals(trim(existing.referenceKey()), referenceKey)
                 || !Objects.equals(existing.idempotencyKey(), idempotencyKey)
                 || !Objects.equals(existing.userId(), userId)) {
-            throw new BusinessException(ErrorCode.CONFLICT, "Idempotency key was already used for another points intent");
+            throw new BusinessException(
+                    ErrorCode.CONFLICT, "Idempotency key was already used for another points intent");
         }
         if (StringUtils.hasText(existing.mutationFingerprint())) {
             String expected = mutationFingerprint(userId, type, points, orderId, referenceKey, idempotencyKey);
@@ -705,12 +690,7 @@ public class MembershipApplicationService {
     }
 
     private static String mutationFingerprint(
-            Long userId,
-            PointsLedgerType type,
-            long points,
-            Long orderId,
-            String referenceKey,
-            String idempotencyKey) {
+            Long userId, PointsLedgerType type, long points, Long orderId, String referenceKey, String idempotencyKey) {
         String canonical = String.join(
                 "|",
                 canonicalPart(String.valueOf(TenantContext.currentTenantIdOrDefault())),
@@ -721,8 +701,8 @@ public class MembershipApplicationService {
                 canonicalPart(referenceKey),
                 canonicalPart(idempotencyKey));
         try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(
-                    canonical.getBytes(StandardCharsets.UTF_8)));
+            return HexFormat.of()
+                    .formatHex(MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is not available", exception);
         }
@@ -823,8 +803,7 @@ public class MembershipApplicationService {
         @Override
         public void retain(String imagePath) {
             if (ImageReferenceService.isTrackable(imagePath)) {
-                throw new IllegalStateException(
-                        "Membership browse history image reference tracking is not configured");
+                throw new IllegalStateException("Membership browse history image reference tracking is not configured");
             }
         }
 

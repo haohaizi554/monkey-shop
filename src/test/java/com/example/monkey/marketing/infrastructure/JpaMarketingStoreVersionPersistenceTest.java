@@ -86,7 +86,8 @@ class JpaMarketingStoreVersionPersistenceTest {
                 .doesNotThrowAnyException();
 
         entityManager.clear();
-        MarketingSeckillActivityEntity saved = seckillActivityRepository.findById(2L).orElseThrow();
+        MarketingSeckillActivityEntity saved =
+                seckillActivityRepository.findById(2L).orElseThrow();
         assertThat(saved.getSoldQuantity()).isEqualTo(1);
         assertThat(versionOf("marketing_seckill_activity", 2L)).isEqualTo(1L);
     }
@@ -194,8 +195,7 @@ class JpaMarketingStoreVersionPersistenceTest {
         return new GroupBuyTeam(id, 20L, 1001L, 7L, 2, joinedCount, status, NOW.plusHours(2));
     }
 
-    private static MarketingGroupBuyTeamEntity groupBuyTeamEntity(
-            Long id, int joinedCount, GroupBuyStatus status) {
+    private static MarketingGroupBuyTeamEntity groupBuyTeamEntity(Long id, int joinedCount, GroupBuyStatus status) {
         MarketingGroupBuyTeamEntity entity = new MarketingGroupBuyTeamEntity();
         entity.setId(id);
         entity.setActivityId(20L);

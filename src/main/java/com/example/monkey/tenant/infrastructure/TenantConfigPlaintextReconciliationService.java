@@ -41,8 +41,7 @@ public class TenantConfigPlaintextReconciliationService {
         this(jdbcTemplate, piiCryptoService, objectMapper, transactionManager, batchSize, true);
     }
 
-    public TenantConfigPlaintextReconciliationService(
-            JdbcTemplate jdbcTemplate, PiiCryptoService piiCryptoService) {
+    public TenantConfigPlaintextReconciliationService(JdbcTemplate jdbcTemplate, PiiCryptoService piiCryptoService) {
         this(
                 jdbcTemplate,
                 piiCryptoService,
@@ -148,10 +147,10 @@ public class TenantConfigPlaintextReconciliationService {
             if (oldSettings.changed() || newSettings.changed()) {
                 updated += jdbcTemplate.update(
                         "UPDATE `tenant_config_history` "
-                        + "SET `old_settings_json` = ?, `new_settings_json` = ? "
-                        + "WHERE `id` = ? "
-                        + "AND `old_settings_json` <=> ? "
-                        + "AND `new_settings_json` <=> ?",
+                                + "SET `old_settings_json` = ?, `new_settings_json` = ? "
+                                + "WHERE `id` = ? "
+                                + "AND `old_settings_json` <=> ? "
+                                + "AND `new_settings_json` <=> ?",
                         oldSettings.json(),
                         newSettings.json(),
                         id,

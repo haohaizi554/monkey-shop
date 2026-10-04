@@ -413,7 +413,11 @@ watch(
           </div>
           <div>
             <dt>{{ t('adminCommerce.identityStatus') }}</dt>
-            <dd><el-tag :type="identityStatusTone" disable-transitions>{{ identityStatusLabel }}</el-tag></dd>
+            <dd>
+              <el-tag :type="identityStatusTone" disable-transitions>{{
+                identityStatusLabel
+              }}</el-tag>
+            </dd>
           </div>
         </dl>
       </AsyncStateView>
@@ -436,14 +440,8 @@ watch(
             :aria-label="t('adminCommerce.identityReviewDecision')"
             :disabled="identityStatus !== 'PENDING'"
           >
-            <el-option
-              value="VERIFIED"
-              :label="t('adminCommerce.identityApproved')"
-            />
-            <el-option
-              value="REJECTED"
-              :label="t('adminCommerce.identityRejected')"
-            />
+            <el-option value="VERIFIED" :label="t('adminCommerce.identityApproved')" />
+            <el-option value="REJECTED" :label="t('adminCommerce.identityRejected')" />
           </el-select>
         </div>
         <div class="commerce-field">

@@ -196,7 +196,8 @@ public class JpaSearchStore implements SearchStore {
         }
         query.attributes().forEach((key, value) -> {
             where.append(" AND JSON_EXTRACT(p.attributes_json, CONCAT('$.', ?)) IS NOT NULL");
-            where.append(" AND INSTR(LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(p.attributes_json, CONCAT('$.', ?))), '')), LOWER(?)) > 0");
+            where.append(
+                    " AND INSTR(LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(p.attributes_json, CONCAT('$.', ?))), '')), LOWER(?)) > 0");
             whereParameters.add(key);
             whereParameters.add(key);
             whereParameters.add(value);
@@ -319,8 +320,5 @@ public class JpaSearchStore implements SearchStore {
     private record SqlQuery(String sql, List<Object> parameters) {}
 
     private record QueryParts(
-            String scoreExpression,
-            List<Object> scoreParameters,
-            String whereClause,
-            List<Object> whereParameters) {}
+            String scoreExpression, List<Object> scoreParameters, String whereClause, List<Object> whereParameters) {}
 }

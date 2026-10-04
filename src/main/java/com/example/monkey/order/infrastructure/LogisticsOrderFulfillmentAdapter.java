@@ -69,9 +69,8 @@ public class LogisticsOrderFulfillmentAdapter implements OrderFulfillmentPort {
                 && !OrderStatus.PARTIALLY_RECEIVED.equals(currentStatus)) {
             throw transitionNotAllowed();
         }
-        OrderEvent event = OrderStatus.PARTIALLY_SHIPPED.equals(currentStatus)
-                ? OrderEvent.RECEIVE_PARTIAL
-                : OrderEvent.RECEIVE;
+        OrderEvent event =
+                OrderStatus.PARTIALLY_SHIPPED.equals(currentStatus) ? OrderEvent.RECEIVE_PARTIAL : OrderEvent.RECEIVE;
         transition(order, currentStatus, event);
     }
 
@@ -87,7 +86,8 @@ public class LogisticsOrderFulfillmentAdapter implements OrderFulfillmentPort {
     }
 
     private OrderRecord requireOrder(long orderId) {
-        return orderStore.findById(orderId)
+        return orderStore
+                .findById(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, MISSING_ORDER));
     }
 

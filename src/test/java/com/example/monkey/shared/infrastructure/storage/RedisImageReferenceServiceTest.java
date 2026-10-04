@@ -5,9 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -67,10 +67,7 @@ class RedisImageReferenceServiceTest {
 
         ArgumentCaptor<RedisScript<Long>> script = redisScriptCaptor();
         verify(redisTemplate)
-                .execute(
-                        script.capture(),
-                        eq(List.of(COUNTS_HASH, TOMBSTONES_HASH, META_HASH)),
-                        any(Object[].class));
+                .execute(script.capture(), eq(List.of(COUNTS_HASH, TOMBSTONES_HASH, META_HASH)), any(Object[].class));
         assertThat(script.getValue().getScriptAsString())
                 .contains("HGET", "HINCRBY")
                 .doesNotContain("HKEYS", "HSCAN", "countIndex");
@@ -78,21 +75,14 @@ class RedisImageReferenceServiceTest {
 
     @Test
     void releaseCanonicalizesVariantsAndRemainsConstantTime() {
-        when(redisTemplate.execute(
-                        any(RedisScript.class),
-                        eq(List.of(COUNTS_HASH, META_HASH)),
-                        any(Object[].class)))
+        when(redisTemplate.execute(any(RedisScript.class), eq(List.of(COUNTS_HASH, META_HASH)), any(Object[].class)))
                 .thenReturn(0L);
 
         service.release("/images/avatar/alice.png@320w.webp");
 
         ArgumentCaptor<RedisScript<Long>> script = redisScriptCaptor();
         ArgumentCaptor<Object[]> arguments = ArgumentCaptor.forClass(Object[].class);
-        verify(redisTemplate)
-                .execute(
-                        script.capture(),
-                        eq(List.of(COUNTS_HASH, META_HASH)),
-                        arguments.capture());
+        verify(redisTemplate).execute(script.capture(), eq(List.of(COUNTS_HASH, META_HASH)), arguments.capture());
         assertThat(arguments.getValue()[0]).isEqualTo("/images/avatar/alice.png");
         assertThat(script.getValue().getScriptAsString())
                 .contains("HGET", "HINCRBY", "HDEL")
@@ -101,24 +91,14 @@ class RedisImageReferenceServiceTest {
 
     @Test
     void referenceCountReadsOneCanonicalFieldWithoutScanning() {
-        when(redisTemplate.execute(
-                        any(RedisScript.class),
-                        eq(List.of(COUNTS_HASH, META_HASH)),
-                        any(Object[].class)))
+        when(redisTemplate.execute(any(RedisScript.class), eq(List.of(COUNTS_HASH, META_HASH)), any(Object[].class)))
                 .thenReturn(3L);
 
-        assertThat(service.referenceCount("/images/avatar/alice.png@640w.webp"))
-                .isEqualTo(3L);
+        assertThat(service.referenceCount("/images/avatar/alice.png@640w.webp")).isEqualTo(3L);
 
         ArgumentCaptor<RedisScript<Long>> script = redisScriptCaptor();
-        verify(redisTemplate)
-                .execute(
-                        script.capture(),
-                        eq(List.of(COUNTS_HASH, META_HASH)),
-                        any(Object[].class));
-        assertThat(script.getValue().getScriptAsString())
-                .contains("HGET")
-                .doesNotContain("HKEYS", "HSCAN");
+        verify(redisTemplate).execute(script.capture(), eq(List.of(COUNTS_HASH, META_HASH)), any(Object[].class));
+        assertThat(script.getValue().getScriptAsString()).contains("HGET").doesNotContain("HKEYS", "HSCAN");
     }
 
     @Test
@@ -131,20 +111,13 @@ class RedisImageReferenceServiceTest {
 
     @Test
     void clearDropsOnlyCountsAndMarksTheSnapshotUnready() {
-        when(redisTemplate.execute(
-                        any(RedisScript.class),
-                        eq(List.of(COUNTS_HASH, META_HASH)),
-                        any(Object[].class)))
+        when(redisTemplate.execute(any(RedisScript.class), eq(List.of(COUNTS_HASH, META_HASH)), any(Object[].class)))
                 .thenReturn(4L);
 
         service.clear();
 
         ArgumentCaptor<RedisScript<Long>> script = redisScriptCaptor();
-        verify(redisTemplate)
-                .execute(
-                        script.capture(),
-                        eq(List.of(COUNTS_HASH, META_HASH)),
-                        any(Object[].class));
+        verify(redisTemplate).execute(script.capture(), eq(List.of(COUNTS_HASH, META_HASH)), any(Object[].class));
         assertThat(script.getValue().getScriptAsString())
                 .contains("DEL", "HINCRBY", "HSET")
                 .doesNotContain(TOMBSTONES_HASH, "HKEYS");
@@ -155,19 +128,21 @@ class RedisImageReferenceServiceTest {
         when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class)))
                 .thenReturn(1L);
 
-        assertThat(service.replaceIfUnchanged(
-                        List.of("/images/avatar/alice.png", "/images/avatar/alice.png"), 7L))
+        assertThat(service.replaceIfUnchanged(List.of("/images/avatar/alice.png", "/images/avatar/alice.png"), 7L))
                 .isTrue();
 
         ArgumentCaptor<RedisScript<Long>> scripts = redisScriptCaptor();
         @SuppressWarnings({"rawtypes", "unchecked"})
         ArgumentCaptor<List<String>> keys = (ArgumentCaptor) ArgumentCaptor.forClass(List.class);
         ArgumentCaptor<Object[]> arguments = ArgumentCaptor.forClass(Object[].class);
-        verify(redisTemplate, times(2))
-                .execute(scripts.capture(), keys.capture(), arguments.capture());
+        verify(redisTemplate, times(2)).execute(scripts.capture(), keys.capture(), arguments.capture());
         assertThat(keys.getAllValues().get(0)).singleElement().asString().startsWith(STAGING_PREFIX);
         assertThat(keys.getAllValues().get(1))
-                .containsExactly(COUNTS_HASH, TOMBSTONES_HASH, META_HASH, keys.getAllValues().get(0).get(0));
+                .containsExactly(
+                        COUNTS_HASH,
+                        TOMBSTONES_HASH,
+                        META_HASH,
+                        keys.getAllValues().get(0).get(0));
         assertThat(scripts.getAllValues().get(0).getScriptAsString()).contains("PEXPIRE", "HSET");
         assertThat(scripts.getAllValues().get(1).getScriptAsString())
                 .contains("RENAME", "PERSIST", "HKEYS", "HEXISTS", "HGET")
@@ -214,9 +189,7 @@ class RedisImageReferenceServiceTest {
 
     @Test
     void deletionFailsClosedUntilTheAuthoritativeSnapshotIsReady() {
-        doReturn("UNREADY")
-                .when(redisTemplate)
-                .execute(any(RedisScript.class), anyList(), any(Object[].class));
+        doReturn("UNREADY").when(redisTemplate).execute(any(RedisScript.class), anyList(), any(Object[].class));
         @SuppressWarnings("unchecked")
         java.util.function.Supplier<Boolean> deletion = mock(java.util.function.Supplier.class);
 
@@ -229,8 +202,8 @@ class RedisImageReferenceServiceTest {
     @Test
     void claimUsesGenerationAndPhysicalIoRunsOutsideTheGlobalMutationLock() {
         RedissonClient redissonClient = mock(RedissonClient.class);
-        RedisImageReferenceService distributedService = new RedisImageReferenceService(
-                redisTemplate, redissonClient, Duration.ofMinutes(30));
+        RedisImageReferenceService distributedService =
+                new RedisImageReferenceService(redisTemplate, redissonClient, Duration.ofMinutes(30));
         doReturn("CLAIMED:9:test-token:1", 1L, 1L)
                 .when(redisTemplate)
                 .execute(any(RedisScript.class), anyList(), any(Object[].class));
@@ -281,10 +254,7 @@ class RedisImageReferenceServiceTest {
 
     @Test
     void readinessRequiresBothTheProtocolVersionAndFirstSnapshotFlag() {
-        when(redisTemplate.execute(
-                        any(RedisScript.class),
-                        eq(List.of(META_HASH)),
-                        any(Object[].class)))
+        when(redisTemplate.execute(any(RedisScript.class), eq(List.of(META_HASH)), any(Object[].class)))
                 .thenReturn(0L, 1L);
 
         assertThat(service.authoritativeSnapshotReady()).isFalse();
@@ -296,17 +266,16 @@ class RedisImageReferenceServiceTest {
         @SuppressWarnings("unchecked")
         Cursor<Map.Entry<Object, Object>> cursor = mock(Cursor.class);
         when(redisTemplate.opsForHash()).thenReturn(hashOperations);
-        when(hashOperations.scan(eq(TOMBSTONES_HASH), any(ScanOptions.class)))
-                .thenReturn(cursor);
+        when(hashOperations.scan(eq(TOMBSTONES_HASH), any(ScanOptions.class))).thenReturn(cursor);
         when(cursor.hasNext()).thenReturn(true, false);
         when(cursor.next()).thenReturn(Map.entry("/images/avatar/deleted.png", "DELETED:1"));
         when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class)))
                 .thenReturn(1L);
-        RedisImageReferenceService maintenanceService = new RedisImageReferenceService(
-                redisTemplate, null, Duration.ofMinutes(30), Duration.ZERO, 1L, 10);
+        RedisImageReferenceService maintenanceService =
+                new RedisImageReferenceService(redisTemplate, null, Duration.ofMinutes(30), Duration.ZERO, 1L, 10);
 
-        ImageReferenceService.DeletionMaintenanceResult result = maintenanceService.maintainDeletionState(
-                List.of(), List.of(), 2L);
+        ImageReferenceService.DeletionMaintenanceResult result =
+                maintenanceService.maintainDeletionState(List.of(), List.of(), 2L);
 
         assertThat(result.compactedTombstones()).isEqualTo(1);
         ArgumentCaptor<RedisScript<Long>> scripts = redisScriptCaptor();
@@ -322,20 +291,16 @@ class RedisImageReferenceServiceTest {
         @SuppressWarnings("unchecked")
         Cursor<Map.Entry<Object, Object>> cursor = mock(Cursor.class);
         when(redisTemplate.opsForHash()).thenReturn(hashOperations);
-        when(hashOperations.scan(eq(TOMBSTONES_HASH), any(ScanOptions.class)))
-                .thenReturn(cursor);
+        when(hashOperations.scan(eq(TOMBSTONES_HASH), any(ScanOptions.class))).thenReturn(cursor);
         when(cursor.hasNext()).thenReturn(true, false);
         when(cursor.next()).thenReturn(Map.entry("/images/avatar/deleted.png", "DELETED:1"));
-        when(redisTemplate.execute(
-                        any(RedisScript.class),
-                        anyList(),
-                        any(Object[].class)))
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class)))
                 .thenReturn(1L);
-        RedisImageReferenceService maintenanceService = new RedisImageReferenceService(
-                redisTemplate, null, Duration.ofMinutes(30), Duration.ZERO, 1L, 10);
+        RedisImageReferenceService maintenanceService =
+                new RedisImageReferenceService(redisTemplate, null, Duration.ofMinutes(30), Duration.ZERO, 1L, 10);
 
-        ImageReferenceService.DeletionMaintenanceResult result = maintenanceService.maintainDeletionState(
-                List.of(), List.of("/images/avatar/deleted.png"), 2L);
+        ImageReferenceService.DeletionMaintenanceResult result =
+                maintenanceService.maintainDeletionState(List.of(), List.of("/images/avatar/deleted.png"), 2L);
 
         assertThat(result.compactedTombstones()).isZero();
         verify(redisTemplate, times(2)).execute(any(RedisScript.class), anyList(), any(Object[].class));
@@ -346,28 +311,22 @@ class RedisImageReferenceServiceTest {
         @SuppressWarnings("unchecked")
         Cursor<Map.Entry<Object, Object>> cursor = mock(Cursor.class);
         when(redisTemplate.opsForHash()).thenReturn(hashOperations);
-        when(hashOperations.scan(eq(TOMBSTONES_HASH), any(ScanOptions.class)))
-                .thenReturn(cursor);
+        when(hashOperations.scan(eq(TOMBSTONES_HASH), any(ScanOptions.class))).thenReturn(cursor);
         when(cursor.hasNext()).thenReturn(true, false);
         when(cursor.next()).thenReturn(Map.entry("/images/avatar/still-present.png", "DELETED:1"));
         when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class)))
                 .thenReturn(1L);
-        RedisImageReferenceService maintenanceService = new RedisImageReferenceService(
-                redisTemplate, null, Duration.ofMinutes(30), Duration.ZERO, 1L, 10);
+        RedisImageReferenceService maintenanceService =
+                new RedisImageReferenceService(redisTemplate, null, Duration.ofMinutes(30), Duration.ZERO, 1L, 10);
 
-        maintenanceService.maintainDeletionState(
-                List.of(), List.of("/images/avatar/still-present.png"), 2L);
+        maintenanceService.maintainDeletionState(List.of(), List.of("/images/avatar/still-present.png"), 2L);
 
         ArgumentCaptor<Object[]> arguments = ArgumentCaptor.forClass(Object[].class);
-        verify(redisTemplate, times(2))
-                .execute(any(RedisScript.class), anyList(), arguments.capture());
-        assertThat(arguments.getAllValues().get(1))
-                .contains("/images/avatar/still-present.png", "DELETED:1", "RETRY");
+        verify(redisTemplate, times(2)).execute(any(RedisScript.class), anyList(), arguments.capture());
+        assertThat(arguments.getAllValues().get(1)).contains("/images/avatar/still-present.png", "DELETED:1", "RETRY");
         ArgumentCaptor<RedisScript<Long>> scripts = redisScriptCaptor();
-        verify(redisTemplate, times(2))
-                .execute(scripts.capture(), anyList(), any(Object[].class));
-        assertThat(scripts.getAllValues().get(1).getScriptAsString())
-                .contains("redis.call('TIME')", "RETRYABLE:");
+        verify(redisTemplate, times(2)).execute(scripts.capture(), anyList(), any(Object[].class));
+        assertThat(scripts.getAllValues().get(1).getScriptAsString()).contains("redis.call('TIME')", "RETRYABLE:");
     }
 
     @Test
@@ -375,19 +334,18 @@ class RedisImageReferenceServiceTest {
         @SuppressWarnings("unchecked")
         Cursor<Map.Entry<Object, Object>> cursor = mock(Cursor.class);
         when(redisTemplate.opsForHash()).thenReturn(hashOperations);
-        when(hashOperations.scan(eq(TOMBSTONES_HASH), any(ScanOptions.class)))
-                .thenReturn(cursor);
+        when(hashOperations.scan(eq(TOMBSTONES_HASH), any(ScanOptions.class))).thenReturn(cursor);
         when(cursor.hasNext()).thenReturn(true, true, false);
         when(cursor.next())
                 .thenReturn(Map.entry("/images/avatar/first.png", "DELETED:1"))
                 .thenReturn(Map.entry("/images/avatar/second.png", "DELETED:1"));
         when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class)))
                 .thenReturn(1L);
-        RedisImageReferenceService maintenanceService = new RedisImageReferenceService(
-                redisTemplate, null, Duration.ofMinutes(30), Duration.ZERO, 10L, 1);
+        RedisImageReferenceService maintenanceService =
+                new RedisImageReferenceService(redisTemplate, null, Duration.ofMinutes(30), Duration.ZERO, 10L, 1);
 
-        ImageReferenceService.DeletionMaintenanceResult result = maintenanceService.maintainDeletionState(
-                List.of(), List.of(), 2L);
+        ImageReferenceService.DeletionMaintenanceResult result =
+                maintenanceService.maintainDeletionState(List.of(), List.of(), 2L);
 
         assertThat(result.compactedTombstones()).isEqualTo(1);
         verify(redisTemplate, times(2)).execute(any(RedisScript.class), anyList(), any(Object[].class));
@@ -399,8 +357,7 @@ class RedisImageReferenceServiceTest {
         RLock lock = mock(RLock.class);
         when(redissonClient.getLock(MUTATION_LOCK_KEY)).thenReturn(lock);
         when(lock.isHeldByCurrentThread()).thenReturn(true);
-        RedisImageReferenceService distributedService =
-                new RedisImageReferenceService(redisTemplate, redissonClient);
+        RedisImageReferenceService distributedService = new RedisImageReferenceService(redisTemplate, redissonClient);
 
         assertThat(distributedService.withMutationFence(() -> "done")).isEqualTo("done");
 
@@ -425,13 +382,7 @@ class RedisImageReferenceServiceTest {
         when(redisTemplate.execute(any(RedisScript.class), anyList(), any(Object[].class)))
                 .thenReturn(1L);
         RedisImageReferenceService managedService = new RedisImageReferenceService(
-                redisTemplate,
-                null,
-                Duration.ofMinutes(30),
-                Duration.ofDays(7),
-                100L,
-                10,
-                objectStorageService);
+                redisTemplate, null, Duration.ofMinutes(30), Duration.ofDays(7), 100L, 10, objectStorageService);
 
         managedService.retain("https://cdn.example/avatar/alice.png");
 
@@ -447,13 +398,7 @@ class RedisImageReferenceServiceTest {
                 .thenReturn("avatar/missing.png");
         when(objectStorageService.exists("avatar/missing.png")).thenReturn(false);
         RedisImageReferenceService managedService = new RedisImageReferenceService(
-                redisTemplate,
-                null,
-                Duration.ofMinutes(30),
-                Duration.ofDays(7),
-                100L,
-                10,
-                objectStorageService);
+                redisTemplate, null, Duration.ofMinutes(30), Duration.ofDays(7), 100L, 10, objectStorageService);
 
         assertThatThrownBy(() -> managedService.retain("/images/avatar/missing.png"))
                 .isInstanceOf(IllegalStateException.class)
@@ -468,19 +413,12 @@ class RedisImageReferenceServiceTest {
         when(objectStorageService.resolveObjectKey("https://attacker.example/product/victim.png"))
                 .thenReturn(null);
         RedisImageReferenceService managedService = new RedisImageReferenceService(
-                redisTemplate,
-                null,
-                Duration.ofMinutes(30),
-                Duration.ofDays(7),
-                100L,
-                10,
-                objectStorageService);
+                redisTemplate, null, Duration.ofMinutes(30), Duration.ofDays(7), 100L, 10, objectStorageService);
 
         managedService.retain("https://attacker.example/product/victim.png");
         assertThat(managedService.referenceCount("https://attacker.example/product/victim.png"))
                 .isZero();
-        assertThat(managedService.deleteIfUnreferenced(
-                        "https://attacker.example/product/victim.png", () -> true))
+        assertThat(managedService.deleteIfUnreferenced("https://attacker.example/product/victim.png", () -> true))
                 .isFalse();
 
         verifyNoInteractions(redisTemplate);

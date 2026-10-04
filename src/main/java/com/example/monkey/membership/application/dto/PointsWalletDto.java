@@ -13,12 +13,7 @@ public record PointsWalletDto(
 
     /** Compatibility constructor for clients written before refund debt was exposed. */
     public PointsWalletDto(
-            Long userId,
-            long balance,
-            long totalEarned,
-            long totalSpent,
-            BigDecimal moneyEquivalent,
-            long version) {
+            Long userId, long balance, long totalEarned, long totalSpent, BigDecimal moneyEquivalent, long version) {
         this(userId, balance, totalEarned, totalSpent, 0, moneyEquivalent, version);
     }
 }

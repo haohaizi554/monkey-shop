@@ -37,9 +37,11 @@ class SearchHotKeywordTaskTest {
     void hotKeywordRefreshRunsForEachServiceableTenantWithoutAmbientDefault() {
         List<Long> observedTenantIds = new ArrayList<>();
         doAnswer(invocation -> {
-            observedTenantIds.add(TenantContext.currentTenantIdOrDefault());
-            return null;
-        }).when(searchApplicationService).refreshHotKeywordSnapshot();
+                    observedTenantIds.add(TenantContext.currentTenantIdOrDefault());
+                    return null;
+                })
+                .when(searchApplicationService)
+                .refreshHotKeywordSnapshot();
         when(activeTenantIterator.forEachActiveTenant(any())).thenAnswer(invocation -> {
             ActiveTenantIterator.TenantWork work = invocation.getArgument(0);
             executeForTenant(work, 1L);

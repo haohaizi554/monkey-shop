@@ -18,9 +18,8 @@ public interface MemberCollectionRepository extends JpaRepository<MemberCollecti
 
     long countByProductImageStartingWith(String productImagePrefix);
 
-    @Query(
-            "SELECT collection.productImage FROM MemberCollectionEntity collection "
-                    + "WHERE collection.productImage IS NOT NULL ORDER BY collection.id")
+    @Query("SELECT collection.productImage FROM MemberCollectionEntity collection "
+            + "WHERE collection.productImage IS NOT NULL ORDER BY collection.id")
     List<String> findProductImages(Pageable pageable);
 
     List<MemberCollectionEntity> findByPriceDropNotifiedFalseAndTargetPriceIsNotNullOrderByUpdateTimeAsc(

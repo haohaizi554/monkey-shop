@@ -24,25 +24,24 @@ public class RedissonInventoryLockManager implements InventoryLockManager {
 
     @Override
     public <T> T withStockLock(Long skuId, Long warehouseId, Supplier<T> action) {
+        RLock lock;
         try {
-            RLock lock = redissonClient.getLock(
-                    "inventory:tenant:"
-                            + TenantContext.currentTenantIdOrDefault()
-                            + ":sku:"
-                            + skuId
-                            + ":warehouse:"
-                            + warehouseId);
-            return TransactionBoundLock.call(
-                    lock,
-                    WAIT_TIME,
-                    action,
-                    "Inventory operation is already in progress",
-                    "Inventory lock acquisition was interrupted",
-                    "Inventory lock service is unavailable");
-        } catch (BusinessException exception) {
-            throw exception;
+            lock = redissonClient.getLock("inventory:tenant:"
+                    + TenantContext.currentTenantIdOrDefault()
+                    + ":sku:"
+                    + skuId
+                    + ":warehouse:"
+                    + warehouseId);
         } catch (RuntimeException exception) {
-            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "Inventory lock service is unavailable");
+            throw new BusinessException(
+                    ErrorCode.SERVICE_UNAVAILABLE, "Inventory lock service is unavailable", exception);
         }
+        return TransactionBoundLock.call(
+                lock,
+                WAIT_TIME,
+                action,
+                "Inventory operation is already in progress",
+                "Inventory lock acquisition was interrupted",
+                "Inventory lock service is unavailable");
     }
 }
