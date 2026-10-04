@@ -73,8 +73,13 @@ config:
   DB_USERNAME: monkeyuser
   SPRING_DATA_REDIS_HOST: redis.monkeyshop-data.svc.cluster.local
   SPRING_DATA_REDIS_PORT: "6379"
+  APP_PAYMENT_GATEWAY: unavailable
+  APP_LOGISTICS_GATEWAY: unavailable
+  APP_IMAGE_REFERENCE_PROVIDER: redis
   APP_RATE_LIMIT_ENABLED: "true"
   APP_RATE_LIMIT_REQUIRE_REDIS_STATE: "true"
+  APP_CART_REQUIRE_REDIS_STATE: "true"
+  APP_RISK_REQUIRE_REDIS_STATE: "true"
   APP_AUTH_CAPTCHA_PROVIDER: turnstile
   APP_TURNSTILE_EXPECTED_HOSTNAME: monkeyshop.example.com
   APP_PII_ENCRYPTION_ENABLED: "true"
@@ -245,6 +250,10 @@ ingress:
     nginx.ingress.kubernetes.io/hsts-include-subdomains: "true"
     nginx.ingress.kubernetes.io/hsts-max-age: "63072000"
     nginx.ingress.kubernetes.io/limit-rps: "20"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($uri ~* "^/(actuator/prometheus|swagger-ui|v3/api-docs|api/v1/openapi|api/v1/docs)(/|$)") {
+        return 404;
+      }
   hosts:
     - host: monkeyshop.local
       paths:
@@ -351,6 +360,11 @@ grafanaDashboard:
     prometheusUid: prometheus
     lokiUid: loki
     tempoUid: tempo
+
+# Keep the one-time v2 migration disabled by default; migration values enable
+# Recreate so no old-protocol Pod can overlap a new-protocol Pod.
+imageReferenceProtocol:
+  migrationMode: false
 
 rollout:
   enabled: false

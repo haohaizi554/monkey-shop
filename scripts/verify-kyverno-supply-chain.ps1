@@ -7,6 +7,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $Failures = [System.Collections.Generic.List[string]]::new()
+$ProductionImageRepository = "ghcr.io/haohaizi554/monkey-shop"
 
 function Add-Failure {
     param([string]$Message)
@@ -76,6 +77,10 @@ Assert-Match -Name "monkeyshop-image-policy" -Text $imagePolicy -Pattern "name:\
 Assert-Match -Name "monkeyshop-image-policy" -Text $imagePolicy -Pattern "name:\s+require-prod-digest" -Message "must require digest-pinned prod images"
 Assert-Match -Name "monkeyshop-image-policy" -Text $imagePolicy -Pattern "verifyImages:" -Message "must verify signed images"
 Assert-Match -Name "monkeyshop-image-policy" -Text $imagePolicy -Pattern "issuer:\s+https://token\.actions\.githubusercontent\.com" -Message "must use GitHub OIDC keyless signing issuer"
+Assert-Match -Name "monkeyshop-image-policy" -Text $imagePolicy -Pattern "ghcr\.io/haohaizi554/monkey-shop:\*" -Message "must verify tagged images from the actual production GHCR repository"
+Assert-Match -Name "monkeyshop-image-policy" -Text $imagePolicy -Pattern "ghcr\.io/haohaizi554/monkey-shop@sha256:\*" -Message "must verify digest references from the actual production GHCR repository"
+Assert-NotMatch -Name "monkeyshop-image-policy" -Text $imagePolicy -Pattern "ghcr\.io/\*/|ghcr\.io/haohaizi554/monkey-shop\*|harbor\.example\.com/|JavaScript_MonkeyShop" -Message "must not widen image verification to placeholder or sibling repositories"
+Assert-Match -Name "monkeyshop-image-policy" -Text $imagePolicy -Pattern "subjectRegExp:\s+https://github\.com/haohaizi554/monkey-shop/\.github/workflows/ci\.yaml@refs/.+" -Message "must verify images signed by the actual GitHub repository workflow"
 Assert-Match -Name "monkeyshop-image-policy" -Text $imagePolicy -Pattern "rekor:\s*\r?\n\s+url:\s+https://rekor\.sigstore\.dev" -Message "must verify transparency log inclusion"
 
 Assert-Match -Name "monkeyshop-pod-security" -Text $podPolicy -Pattern "validationFailureAction:\s+Enforce" -Message "must enforce pod security failures"
@@ -101,7 +106,7 @@ foreach ($entry in @(
     Assert-Match -Name $name -Text $manifest -Pattern "limits:\s*\r?\n\s+cpu:\s+[^`r`n]+\s*\r?\n\s+memory:\s+[^`r`n]+" -Message "must render CPU and memory limits"
 }
 
-Assert-Match -Name "rendered prod" -Text $prod -Pattern "image:\s+['""]?harbor\.example\.com/monkeyshop/monkeyshop@sha256:[a-f0-9]{64}['""]?" -Message "must render the prod app image by immutable digest"
+Assert-Match -Name "rendered prod" -Text $prod -Pattern "image:\s+['""]?$([regex]::Escape($ProductionImageRepository))@sha256:[a-f0-9]{64}['""]?" -Message "must render the prod app image by immutable digest"
 Assert-Match -Name "rendered prod" -Text $prod -Pattern "image:\s+['""]?busybox@sha256:[a-f0-9]{64}['""]?" -Message "must render prod init containers by immutable digest"
 Assert-ProdImagesDigestPinned -Text $prod
 

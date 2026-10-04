@@ -1,4 +1,4 @@
-{{- if not .Values.rollout.enabled }}
+{{- if or (not .Values.rollout.enabled) .Values.imageReferenceProtocol.migrationMode }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -9,7 +9,14 @@ spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
+  {{- if .Values.imageReferenceProtocol.migrationMode }}
+  # Recreate removes every old-protocol Pod before starting the new revision.
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 0
+  {{- else }}
   revisionHistoryLimit: 5
+  {{- end }}
   selector:
     matchLabels:
       {{- include "monkeyshop.selectorLabels" . | nindent 6 }}

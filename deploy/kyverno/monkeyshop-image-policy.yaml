@@ -58,8 +58,8 @@ spec:
                 - monkeyshop-*
       verifyImages:
         - imageReferences:
-            - "ghcr.io/*/monkeyshop*"
-            - "harbor.example.com/monkeyshop/monkeyshop*"
+            - "ghcr.io/haohaizi554/monkey-shop:*"
+            - "ghcr.io/haohaizi554/monkey-shop@sha256:*"
           mutateDigest: true
           verifyDigest: true
           required: true
@@ -68,7 +68,6 @@ spec:
               entries:
                 - keyless:
                     issuer: https://token.actions.githubusercontent.com
-                    subjectRegExp: https://github.com/.+/JavaScript_MonkeyShop/.github/workflows/ci.yaml@refs/.+
+                    subjectRegExp: https://github.com/haohaizi554/monkey-shop/.github/workflows/ci.yaml@refs/.+
                   rekor:
                     url: https://rekor.sigstore.dev
-

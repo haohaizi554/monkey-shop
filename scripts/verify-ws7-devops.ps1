@@ -3,6 +3,7 @@ param(
     [string]$OutputDir = "target/ws7-devops",
     [string]$HelmPath = "",
     [switch]$RequireHelm,
+    [switch]$StaticOnly,
     [switch]$DownloadHelmIfMissing,
     [string]$HelmVersion = "v3.21.2",
     [string]$ToolDir = "target/tools",
@@ -14,7 +15,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $Failures = [System.Collections.Generic.List[string]]::new()
-$ProductionImageDigestFixture = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+$ProductionImageRepository = "ghcr.io/haohaizi554/monkey-shop"
 
 function Add-Failure {
     param([string]$Message)
@@ -249,7 +250,16 @@ $requiredFiles = @(
     "scripts/verify-argocd-microk8s-gitops.ps1",
     "scripts/verify-runtime-image-supply-chain.ps1",
     "deploy/kyverno/monkeyshop-image-policy.yaml",
-    "deploy/kyverno/monkeyshop-pod-security.yaml"
+    "deploy/kyverno/monkeyshop-pod-security.yaml",
+    "src/main/java/com/example/monkey/payment/infrastructure/SandboxPaymentGateway.java",
+    "src/main/java/com/example/monkey/payment/infrastructure/UnavailablePaymentGateway.java",
+    "src/main/java/com/example/monkey/payment/infrastructure/PaymentGatewayEnvironmentGuard.java",
+    "src/main/java/com/example/monkey/logistics/infrastructure/SandboxLogisticsGateway.java",
+    "src/main/java/com/example/monkey/logistics/infrastructure/UnavailableLogisticsGateway.java",
+    "src/main/java/com/example/monkey/logistics/infrastructure/LogisticsGatewayEnvironmentGuard.java",
+    "src/main/resources/application-dev.yml",
+    "src/main/resources/application-staging.yml",
+    "src/main/resources/application-prod.yml"
 )
 
 foreach ($file in $requiredFiles) {
@@ -267,13 +277,24 @@ $networkPolicy = Read-RequiredFile -Path "$ChartDir/templates/networkpolicy.yaml
 $ingress = Read-RequiredFile -Path "$ChartDir/templates/ingress.yaml"
 $externalSecret = Read-RequiredFile -Path "$ChartDir/templates/externalsecret.yaml"
 $externalServices = Read-RequiredFile -Path "$ChartDir/templates/external-services.yaml"
+$deployment = Read-RequiredFile -Path "$ChartDir/templates/deployment.yaml"
 $rollout = Read-RequiredFile -Path "$ChartDir/templates/rollout.yaml"
+$hpa = Read-RequiredFile -Path "$ChartDir/templates/hpa.yaml"
 $analysis = Read-RequiredFile -Path "$ChartDir/templates/analysis-template.yaml"
 $prometheusRule = Read-RequiredFile -Path "$ChartDir/templates/prometheusrule.yaml"
 $grafanaDashboard = Read-RequiredFile -Path "$ChartDir/templates/grafana-dashboard.yaml"
 $clusterIssuer = Read-RequiredFile -Path "deploy/cert-manager/clusterissuer-letsencrypt-dns01.yaml"
 $kyvernoImage = Read-RequiredFile -Path "deploy/kyverno/monkeyshop-image-policy.yaml"
 $kyvernoPod = Read-RequiredFile -Path "deploy/kyverno/monkeyshop-pod-security.yaml"
+$sandboxPaymentGateway = Read-RequiredFile -Path "src/main/java/com/example/monkey/payment/infrastructure/SandboxPaymentGateway.java"
+$unavailablePaymentGateway = Read-RequiredFile -Path "src/main/java/com/example/monkey/payment/infrastructure/UnavailablePaymentGateway.java"
+$paymentGatewayEnvironmentGuard = Read-RequiredFile -Path "src/main/java/com/example/monkey/payment/infrastructure/PaymentGatewayEnvironmentGuard.java"
+$sandboxLogisticsGateway = Read-RequiredFile -Path "src/main/java/com/example/monkey/logistics/infrastructure/SandboxLogisticsGateway.java"
+$unavailableLogisticsGateway = Read-RequiredFile -Path "src/main/java/com/example/monkey/logistics/infrastructure/UnavailableLogisticsGateway.java"
+$logisticsGatewayEnvironmentGuard = Read-RequiredFile -Path "src/main/java/com/example/monkey/logistics/infrastructure/LogisticsGatewayEnvironmentGuard.java"
+$applicationDev = Read-RequiredFile -Path "src/main/resources/application-dev.yml"
+$applicationStaging = Read-RequiredFile -Path "src/main/resources/application-staging.yml"
+$applicationProd = Read-RequiredFile -Path "src/main/resources/application-prod.yml"
 $gitOpsRuntimeGate = Read-RequiredFile -Path "scripts/verify-argocd-gitops-runtime.ps1"
 $microk8sRuntimeGate = Read-RequiredFile -Path "scripts/verify-microk8s-dev-runtime.ps1"
 $argocdMicrok8sGate = Read-RequiredFile -Path "scripts/verify-argocd-microk8s-gitops.ps1"
@@ -291,6 +312,26 @@ Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "apt-get\s+install\s+
 Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "rm\s+-rf\s+/var/lib/apt/lists/\*" -Message "must remove apt package indexes from the runtime image"
 Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "(?m)^USER\s+app\r?$" -Message "must run the app process as the non-root app user"
 Assert-Match -Name "Dockerfile" -Text $dockerfile -Pattern "HEALTHCHECK[\s\S]+/actuator/health" -Message "must define an actuator healthcheck"
+
+Assert-Match -Name "SandboxPaymentGateway" -Text $sandboxPaymentGateway -Pattern '@ConditionalOnProperty\(name = "app\.payment\.gateway", havingValue = "sandbox", matchIfMissing = false\)' -Message "must require an explicit payment sandbox property"
+Assert-NotMatch -Name "SandboxPaymentGateway" -Text $sandboxPaymentGateway -Pattern "matchIfMissing = true" -Message "must not enable payment sandbox by default"
+Assert-Match -Name "UnavailablePaymentGateway" -Text $unavailablePaymentGateway -Pattern '@ConditionalOnProperty\(name = "app\.payment\.gateway", havingValue = "unavailable", matchIfMissing = false\)' -Message "must expose an explicit unavailable payment provider"
+Assert-Match -Name "UnavailablePaymentGateway" -Text $unavailablePaymentGateway -Pattern "ErrorCode\.SERVICE_UNAVAILABLE" -Message "must fail payment operations with SERVICE_UNAVAILABLE"
+Assert-Match -Name "PaymentGatewayEnvironmentGuard" -Text $paymentGatewayEnvironmentGuard -Pattern '@Profile\(\{"prod", "staging"\}\)' -Message "must guard payment gateway selection in shared profiles"
+Assert-Match -Name "PaymentGatewayEnvironmentGuard" -Text $paymentGatewayEnvironmentGuard -Pattern "sandbox[\s\S]+forbidden" -Message "must reject explicit payment sandbox in shared profiles"
+Assert-Match -Name "SandboxLogisticsGateway" -Text $sandboxLogisticsGateway -Pattern '@ConditionalOnProperty\(name = "app\.logistics\.gateway", havingValue = "sandbox", matchIfMissing = false\)' -Message "must require an explicit logistics sandbox property"
+Assert-NotMatch -Name "SandboxLogisticsGateway" -Text $sandboxLogisticsGateway -Pattern "matchIfMissing = true" -Message "must not enable logistics sandbox by default"
+Assert-Match -Name "UnavailableLogisticsGateway" -Text $unavailableLogisticsGateway -Pattern '@ConditionalOnProperty\(name = "app\.logistics\.gateway", havingValue = "unavailable", matchIfMissing = false\)' -Message "must expose an explicit unavailable logistics provider"
+Assert-Match -Name "UnavailableLogisticsGateway" -Text $unavailableLogisticsGateway -Pattern "ErrorCode\.SERVICE_UNAVAILABLE" -Message "must fail logistics operations with SERVICE_UNAVAILABLE"
+Assert-Match -Name "LogisticsGatewayEnvironmentGuard" -Text $logisticsGatewayEnvironmentGuard -Pattern '@Profile\(\{"prod", "staging"\}\)' -Message "must guard logistics gateway selection in shared profiles"
+Assert-Match -Name "LogisticsGatewayEnvironmentGuard" -Text $logisticsGatewayEnvironmentGuard -Pattern "sandbox[\s\S]+forbidden" -Message "must reject explicit logistics sandbox in shared profiles"
+Assert-Match -Name "application-dev.yml" -Text $applicationDev -Pattern "(?m)^\s+gateway:\s+sandbox\s*$" -Message "must keep sandbox explicitly available for dev"
+Assert-Match -Name "application-prod.yml" -Text $applicationProd -Pattern "(?m)^\s+gateway:\s+unavailable\s*$" -Message "must configure prod gateways as unavailable"
+Assert-Match -Name "application-staging.yml" -Text $applicationStaging -Pattern "(?m)^\s+gateway:\s+unavailable\s*$" -Message "must configure staging gateways as unavailable"
+Assert-NotMatch -Name "application-prod.yml" -Text $applicationProd -Pattern "(?m)^\s+gateway:\s+sandbox\s*$" -Message "must not configure prod gateways as sandbox"
+Assert-NotMatch -Name "application-staging.yml" -Text $applicationStaging -Pattern "(?m)^\s+gateway:\s+sandbox\s*$" -Message "must not configure staging gateways as sandbox"
+Assert-Match -Name "application-prod.yml" -Text $applicationProd -Pattern "risk:\s*\r?\n\s+require-redis-state:\s+\$\{APP_RISK_REQUIRE_REDIS_STATE:true\}" -Message "must fail closed when prod risk Redis state is unavailable"
+Assert-Match -Name "application-staging.yml" -Text $applicationStaging -Pattern "risk:\s*\r?\n\s+require-redis-state:\s+\$\{APP_RISK_REQUIRE_REDIS_STATE:true\}" -Message "must fail closed when staging risk Redis state is unavailable"
 
 Assert-Match -Name "values.yaml" -Text $values -Pattern "pod-security\.kubernetes\.io/enforce:\s+restricted" -Message "must enforce restricted Pod Security labels"
 Assert-Match -Name "values.yaml" -Text $values -Pattern "runAsNonRoot:\s+true" -Message "must default pods and containers to non-root execution"
@@ -316,18 +357,30 @@ Assert-Match -Name "values.yaml" -Text $values -Pattern "progressDeadlineAbort:\
 Assert-Match -Name "values.yaml" -Text $values -Pattern "rollbackWindow:\s*\r?\n\s+revisions:\s+3" -Message "must keep a rollback window for recent stable revisions"
 Assert-Match -Name "values.yaml" -Text $values -Pattern "setWeight:\s+10[\s\S]+templateName:\s+monkeyshop-http-5xx-rate[\s\S]+setWeight:\s+50[\s\S]+templateName:\s+monkeyshop-http-5xx-rate[\s\S]+setWeight:\s+100" -Message "must run 10 percent and midpoint Prometheus analysis before 100 percent promotion"
 Assert-NotMatch -Name "values.yaml" -Text $values -Pattern "setWeight:\s+20" -Message "must start production canaries at 10 percent, not 20 percent"
+Assert-Match -Name "values.yaml" -Text $values -Pattern "imageReferenceProtocol:\s*\r?\n\s+migrationMode:\s+false" -Message "must default the image-reference migration mode to disabled"
+Assert-Match -Name "values.yaml" -Text $values -Pattern "(?m)^\s+APP_PAYMENT_GATEWAY:\s+unavailable\s*$" -Message "must default the payment gateway to unavailable"
+Assert-Match -Name "values.yaml" -Text $values -Pattern "(?m)^\s+APP_LOGISTICS_GATEWAY:\s+unavailable\s*$" -Message "must default the logistics gateway to unavailable"
+Assert-NotMatch -Name "values.yaml" -Text $values -Pattern "(?m)^\s+APP_(?:PAYMENT|LOGISTICS)_GATEWAY:\s+sandbox\s*$" -Message "must not default either gateway to sandbox"
 Assert-RequiredSecretKeys -Name "values.yaml" -Text $values
 Assert-NotMatch -Name "values.yaml" -Text $values -Pattern "(?m)^\s*property:[^\r\n]*-[ \t]*secretKey:" -Message "must keep ExternalSecret data entries as separate YAML list items"
 
 Assert-Match -Name "values-dev.yaml" -Text $valuesDev -Pattern "name:\s+monkeyshop-dev" -Message "must create the dev namespace"
 Assert-Match -Name "values-dev.yaml" -Text $valuesDev -Pattern "ingress:\s*\r?\n\s+enabled:\s+true" -Message "must enable dev ingress for preview validation"
+Assert-Match -Name "application-dev.yml" -Text $applicationDev -Pattern "(?m)^\s+gateway:\s+sandbox\s*$" -Message "must keep sandbox gateways explicit for local dev"
 Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "name:\s+monkeyshop-staging" -Message "must create the staging namespace"
+Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "(?m)^\s+APP_PAYMENT_GATEWAY:\s+unavailable\s*$" -Message "must configure staging payment as unavailable"
+Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "(?m)^\s+APP_LOGISTICS_GATEWAY:\s+unavailable\s*$" -Message "must configure staging logistics as unavailable"
+Assert-NotMatch -Name "values-staging.yaml" -Text $valuesStaging -Pattern "(?m)^\s+APP_(?:PAYMENT|LOGISTICS)_GATEWAY:\s+sandbox\s*$" -Message "must not configure staging gateways as sandbox"
 Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "externalSecret:\s*\r?\n\s+enabled:\s+true" -Message "must use ExternalSecret in staging"
 Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "externalServices:\s*\r?\n\s+enabled:\s+true" -Message "must use ExternalName services in staging"
 Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "DB_URL:\s+jdbc:mysql://monkeyshop-mysql\.monkeyshop-staging\.svc\.cluster\.local:3306/monkeyshop" -Message "must route staging MySQL through an in-cluster ExternalName service"
 Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "SPRING_DATA_REDIS_HOST:\s+monkeyshop-redis\.monkeyshop-staging\.svc\.cluster\.local" -Message "must route staging Redis through an in-cluster ExternalName service"
+Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "(?m)^[ \t]+APP_IMAGE_REFERENCE_PROVIDER:[ \t]+redis[ \t]*$" -Message "must route staging image-reference state through Redis"
+Assert-NotMatch -Name "values-staging.yaml" -Text $valuesStaging -Pattern "(?m)^[ \t]+APP_IMAGE_REFERENCE_PROVIDER:[ \t]+memory[ \t]*$" -Message "must not fall back to an in-memory image-reference provider in staging"
+Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern '(?m)^[ \t]+APP_RISK_REQUIRE_REDIS_STATE:[ \t]+"?true"?[ \t]*$' -Message "must require shared Redis for risk state in staging"
 Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "externalName:\s+staging-mysql\.internal" -Message "must map staging MySQL ExternalName to the internal managed database hostname"
 Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "externalName:\s+staging-redis\.internal" -Message "must map staging Redis ExternalName to the internal managed cache hostname"
+Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "imageReferenceProtocol:\s*\r?\n\s+migrationMode:\s+true" -Message "must enable the image-reference migration gate in staging"
 Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "rollout:\s*\r?\n\s+enabled:\s+true" -Message "must enable Argo Rollouts in staging"
 Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "serviceMonitor:\s*\r?\n\s+enabled:\s+true" -Message "must enable Prometheus ServiceMonitor in staging"
 Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "prometheusRule:\s*\r?\n\s+enabled:\s+true" -Message "must enable PrometheusRule alerts in staging"
@@ -337,7 +390,8 @@ Assert-NotMatch -Name "values-staging.yaml" -Text $valuesStaging -Pattern "(?m)^
 Assert-Match -Name "values-staging.yaml" -Text $valuesStaging -Pattern "externalSecret:[\s\S]+data:[\s\S]+key:\s+monkeyshop/staging" -Message "must source staging ExternalSecret data from the staging secret path"
 Assert-NotMatch -Name "values-staging.yaml" -Text $valuesStaging -Pattern "key:\s+monkeyshop/prod" -Message "must not source staging ExternalSecret data from the prod secret path"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "name:\s+monkeyshop-prod" -Message "must create the prod namespace"
-Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "digest:\s+`"`"" -Message "must leave the production app digest empty for CI/CD write-back"
+Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "(?m)^[ \t]+repository:[ \t]+$([regex]::Escape($ProductionImageRepository))[ \t]*$" -Message "must use the committed production GHCR image repository"
+Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "(?m)^[ \t]+digest:[ \t]+sha256:[a-f0-9]{64}[ \t]*$" -Message "must require a committed non-placeholder production app digest"
 Assert-NotMatch -Name "values-prod.yaml" -Text $valuesProd -Pattern "sha256:0{64}" -Message "must not use all-zero digest placeholders"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "externalSecret:\s*\r?\n\s+enabled:\s+true" -Message "must use ExternalSecret in prod"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "externalServices:\s*\r?\n\s+enabled:\s+true" -Message "must use ExternalName services in prod"
@@ -348,6 +402,13 @@ Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "externalName:\
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "waitForMysql:[\s\S]+image:\s+busybox@sha256:[a-fA-F0-9]{64}" -Message "must pin the production MySQL wait init container by digest"
 Assert-NotMatch -Name "values-prod.yaml" -Text $valuesProd -Pattern "busybox@sha256:0{64}" -Message "must not use all-zero init container digest placeholders"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "replicaCount:\s+3" -Message "must run at least three prod replicas"
+Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "(?m)^[ \t]+APP_IMAGE_REFERENCE_PROVIDER:[ \t]+redis[ \t]*$" -Message "must route multi-replica prod image-reference state through Redis"
+Assert-NotMatch -Name "values-prod.yaml" -Text $valuesProd -Pattern "(?m)^[ \t]+APP_IMAGE_REFERENCE_PROVIDER:[ \t]+memory[ \t]*$" -Message "must not fall back to an in-memory image-reference provider"
+Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern '(?m)^[ \t]+APP_RISK_REQUIRE_REDIS_STATE:[ \t]+"?true"?[ \t]*$' -Message "must require shared Redis for risk state in prod"
+Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "(?m)^\s+APP_PAYMENT_GATEWAY:\s+unavailable\s*$" -Message "must configure prod payment as unavailable"
+Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "(?m)^\s+APP_LOGISTICS_GATEWAY:\s+unavailable\s*$" -Message "must configure prod logistics as unavailable"
+Assert-NotMatch -Name "values-prod.yaml" -Text $valuesProd -Pattern "(?m)^\s+APP_(?:PAYMENT|LOGISTICS)_GATEWAY:\s+sandbox\s*$" -Message "must not configure prod gateways as sandbox"
+Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "imageReferenceProtocol:\s*\r?\n\s+migrationMode:\s+true" -Message "must enable the image-reference migration gate in prod"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "rollout:\s*\r?\n\s+enabled:\s+true" -Message "must enable Argo Rollouts in prod"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "serviceMonitor:\s*\r?\n\s+enabled:\s+true" -Message "must enable Prometheus ServiceMonitor in prod"
 Assert-Match -Name "values-prod.yaml" -Text $valuesProd -Pattern "prometheusRule:\s*\r?\n\s+enabled:\s+true" -Message "must enable PrometheusRule alerts in prod"
@@ -386,10 +447,17 @@ Assert-Match -Name "external-services.yaml" -Text $externalServices -Pattern "ki
 Assert-Match -Name "external-services.yaml" -Text $externalServices -Pattern "type:\s+ExternalName" -Message "must render services as ExternalName"
 Assert-Match -Name "external-services.yaml" -Text $externalServices -Pattern "externalName:\s+{{\s*required" -Message "must require explicit external target hostnames"
 Assert-Match -Name "external-services.yaml" -Text $externalServices -Pattern "monkeyshop\.openai\.com/external-service" -Message "must label external dependency service resources"
+Assert-Match -Name "deployment.yaml" -Text $deployment -Pattern "or\s+\(not\s+\.Values\.rollout\.enabled\)\s+\.Values\.imageReferenceProtocol\.migrationMode" -Message "must render a Deployment for disabled Rollouts or migration mode"
+Assert-Match -Name "deployment.yaml" -Text $deployment -Pattern "strategy:\s*\r?\n\s+type:\s+Recreate" -Message "must use Recreate during image-reference migration"
+Assert-Match -Name "deployment.yaml" -Text $deployment -Pattern "revisionHistoryLimit:\s+0" -Message "must disable Deployment revision history during image-reference migration"
 Assert-Match -Name "rollout.yaml" -Text $rollout -Pattern "kind:\s+Rollout" -Message "must template Argo Rollouts canary resources"
+Assert-Match -Name "rollout.yaml" -Text $rollout -Pattern "and\s+\.Values\.rollout\.enabled\s+\(not\s+\.Values\.imageReferenceProtocol\.migrationMode\)" -Message "must suppress canary Rollouts during image-reference migration"
 Assert-Match -Name "rollout.yaml" -Text $rollout -Pattern "progressDeadlineSeconds:\s+{{\s*\.Values\.rollout\.progressDeadlineSeconds\s*}}" -Message "must template rollout progress deadlines"
 Assert-Match -Name "rollout.yaml" -Text $rollout -Pattern "progressDeadlineAbort:\s+{{\s*\.Values\.rollout\.progressDeadlineAbort\s*}}" -Message "must template automatic progress abort"
 Assert-Match -Name "rollout.yaml" -Text $rollout -Pattern "rollbackWindow:\s*\r?\n\s+revisions:\s+{{\s*\.Values\.rollout\.rollbackWindow\.revisions\s*}}" -Message "must template rollback windows"
+Assert-Match -Name "hpa.yaml" -Text $hpa -Pattern "and\s+\.Values\.rollout\.enabled\s+\(not\s+\.Values\.imageReferenceProtocol\.migrationMode\)" -Message "must select Rollout HPA targets only outside migration mode"
+Assert-Match -Name "hpa.yaml" -Text $hpa -Pattern "apiVersion:\s+apps/v1" -Message "must support Deployment HPA targets during migration"
+Assert-Match -Name "hpa.yaml" -Text $hpa -Pattern "kind:\s+Deployment" -Message "must support Deployment HPA targets during migration"
 Assert-Match -Name "analysis-template.yaml" -Text $analysis -Pattern "kind:\s+AnalysisTemplate" -Message "must template canary analysis"
 Assert-Match -Name "analysis-template.yaml" -Text $analysis -Pattern "http-5xx-rate" -Message "must analyze HTTP 5xx rate"
 Assert-Match -Name "analysis-template.yaml" -Text $analysis -Pattern "prometheus:" -Message "must use Prometheus analysis provider"
@@ -417,6 +485,10 @@ Assert-Match -Name "Kyverno image policy" -Text $kyvernoImage -Pattern "name:\s+
 Assert-Match -Name "Kyverno image policy" -Text $kyvernoImage -Pattern "name:\s+require-prod-digest" -Message "must require immutable prod image digests"
 Assert-Match -Name "Kyverno image policy" -Text $kyvernoImage -Pattern "request\.object\.spec\.\[containers,\s+initContainers\]\[\]" -Message "must apply image tag and digest rules to app and init containers"
 Assert-Match -Name "Kyverno image policy" -Text $kyvernoImage -Pattern "verifyImages:" -Message "must verify cosign image signatures"
+Assert-Match -Name "Kyverno image policy" -Text $kyvernoImage -Pattern "ghcr\.io/haohaizi554/monkey-shop:\*" -Message "must verify tagged images from the actual production GHCR repository"
+Assert-Match -Name "Kyverno image policy" -Text $kyvernoImage -Pattern "ghcr\.io/haohaizi554/monkey-shop@sha256:\*" -Message "must verify digest references from the actual production GHCR repository"
+Assert-NotMatch -Name "Kyverno image policy" -Text $kyvernoImage -Pattern "ghcr\.io/\*/|ghcr\.io/haohaizi554/monkey-shop\*|harbor\.example\.com/|JavaScript_MonkeyShop" -Message "must not widen image verification to placeholder or sibling repositories"
+Assert-Match -Name "Kyverno image policy" -Text $kyvernoImage -Pattern "subjectRegExp:\s+https://github\.com/haohaizi554/monkey-shop/\.github/workflows/ci\.yaml@refs/.+" -Message "must verify images signed by the actual GitHub repository workflow"
 Assert-Match -Name "Kyverno pod policy" -Text $kyvernoPod -Pattern "validationFailureAction:\s+Enforce" -Message "must enforce pod policy"
 Assert-Match -Name "Kyverno pod policy" -Text $kyvernoPod -Pattern "runAsNonRoot:\s+true" -Message "must require non-root pods"
 Assert-Match -Name "Kyverno pod policy" -Text $kyvernoPod -Pattern "readOnlyRootFilesystem:\s+true" -Message "must require read-only root filesystems"
@@ -499,17 +571,20 @@ foreach ($environment in @("dev", "staging", "prod")) {
     Assert-Match -Name "ArgoCD $environment" -Text $app -Pattern "CreateNamespace=true" -Message "must create the target namespace"
 }
 
-$helm = Resolve-OptionalTool -ExplicitPath $HelmPath -CommandName "helm"
-if ((-not $helm) -and $DownloadHelmIfMissing) {
-    $helm = Install-Helm -Version $HelmVersion -InstallRoot $ToolDir -WindowsAmd64Sha256 $HelmWindowsAmd64Sha256
-}
-if (-not $helm) {
-    if ($RequireHelm) {
-        Add-Failure "Helm is required but was not found."
-    } else {
-        Write-Warning "Helm was not found. Static WS7 checks ran; rendered manifest checks were skipped."
+$helm = $null
+if ($StaticOnly) {
+    if ($RequireHelm -or $DownloadHelmIfMissing -or $HelmPath) {
+        Add-Failure "-StaticOnly cannot be combined with Helm resolution, download, or requirement flags."
     }
+    Write-Warning "StaticOnly requested; rendered manifest checks were skipped."
 } else {
+    $helm = Resolve-OptionalTool -ExplicitPath $HelmPath -CommandName "helm"
+    if ((-not $helm) -and $DownloadHelmIfMissing) {
+        $helm = Install-Helm -Version $HelmVersion -InstallRoot $ToolDir -WindowsAmd64Sha256 $HelmWindowsAmd64Sha256
+    }
+    if (-not $helm) {
+        Add-Failure "Helm is required but was not found. Use -StaticOnly only to run read-only static checks."
+    } else {
     New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
     [void](Invoke-Helm -Helm $helm -Name "helm lint" -Arguments @("lint", $ChartDir))
     $rendered = @{}
@@ -524,30 +599,32 @@ if (-not $helm) {
             "-f",
             $valueFile
         )
-        if ($environment -eq "prod") {
-            $arguments += @("--set", "image.digest=$ProductionImageDigestFixture")
-        }
         $manifest = Invoke-Helm -Helm $helm -Name "helm template $environment" -Arguments $arguments
         $rendered[$environment] = $manifest
         Set-Content -LiteralPath (Join-Path $OutputDir "monkeyshop-$environment.yaml") -Value $manifest -Encoding utf8
+        Assert-Match -Name "rendered $environment gateway safety" -Text $manifest -Pattern "(?m)^\s+APP_PAYMENT_GATEWAY:\s+`"?unavailable`"?\s*$" -Message "must render payment gateway as unavailable"
+        Assert-Match -Name "rendered $environment gateway safety" -Text $manifest -Pattern "(?m)^\s+APP_LOGISTICS_GATEWAY:\s+`"?unavailable`"?\s*$" -Message "must render logistics gateway as unavailable"
+        Assert-NotMatch -Name "rendered $environment gateway safety" -Text $manifest -Pattern "(?m)^\s+APP_(?:PAYMENT|LOGISTICS)_GATEWAY:\s+`"?sandbox`"?\s*$" -Message "must not render sandbox gateways"
     }
 
     Assert-Match -Name "rendered dev" -Text $rendered.dev -Pattern "kind:\s+Deployment" -Message "dev must render a Deployment"
     Assert-NotMatch -Name "rendered dev" -Text $rendered.dev -Pattern "kind:\s+Rollout" -Message "dev must not render a Rollout when rollout is disabled"
     foreach ($environment in @("staging", "prod")) {
         $manifest = $rendered[$environment]
-        Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "kind:\s+Rollout" -Message "must render an Argo Rollout"
-        Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "progressDeadlineSeconds:\s+600" -Message "must render a rollout progress deadline"
-        Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "progressDeadlineAbort:\s+true" -Message "must render automatic progress abort"
-        Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "rollbackWindow:\s*\r?\n\s+revisions:\s+3" -Message "must render a rollback window"
-        Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "setWeight:\s+10[\s\S]+templateName:\s+monkeyshop-http-5xx-rate[\s\S]+setWeight:\s+50[\s\S]+templateName:\s+monkeyshop-http-5xx-rate[\s\S]+setWeight:\s+100" -Message "must render analyzed canary promotion from 10 percent to 100 percent"
-        Assert-NotMatch -Name "rendered $environment" -Text $manifest -Pattern "setWeight:\s+20" -Message "must not start the canary at 20 percent"
-        Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "kind:\s+AnalysisTemplate" -Message "must render a canary AnalysisTemplate"
+        Assert-Match -Name "rendered $environment migration" -Text $manifest -Pattern "kind:\s+Deployment" -Message "migration mode must render an apps/v1 Deployment"
+        Assert-NotMatch -Name "rendered $environment migration" -Text $manifest -Pattern "kind:\s+Rollout" -Message "migration mode must not render an Argo Rollout"
+        Assert-Match -Name "rendered $environment migration" -Text $manifest -Pattern "strategy:\s*\r?\n\s+type:\s+Recreate" -Message "migration mode must use Recreate so old Pods exit before new Pods start"
+        Assert-Match -Name "rendered $environment migration" -Text $manifest -Pattern "revisionHistoryLimit:\s+0" -Message "migration mode must disable Deployment revision history"
+        Assert-Match -Name "rendered $environment migration" -Text $manifest -Pattern "scaleTargetRef:\s*\r?\n\s+apiVersion:\s+apps/v1\s*\r?\n\s+kind:\s+Deployment" -Message "migration mode HPA must target the Deployment"
+        Assert-NotMatch -Name "rendered $environment migration" -Text $manifest -Pattern "canary:\s*|setWeight:\s*" -Message "migration mode must not render canary strategy steps"
         Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "kind:\s+ExternalSecret" -Message "must render an ExternalSecret"
         Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "key:\s+monkeyshop/$environment" -Message "must render ExternalSecret remoteRefs for the target environment"
         Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "type:\s+ExternalName" -Message "must render ExternalName services for managed dependencies"
         Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "externalName:\s+`"?$environment-mysql\.internal`"?" -Message "must render the managed MySQL ExternalName target"
         Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "externalName:\s+`"?$environment-redis\.internal`"?" -Message "must render the managed Redis ExternalName target"
+        Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "(?m)^[ \t]+APP_IMAGE_REFERENCE_PROVIDER:[ \t]+`"?redis`"?[ \t]*\r?$" -Message "must render Redis image-reference state in shared environments"
+        Assert-NotMatch -Name "rendered $environment" -Text $manifest -Pattern "(?m)^[ \t]+APP_IMAGE_REFERENCE_PROVIDER:[ \t]+`"?memory`"?[ \t]*\r?$" -Message "must not render an in-memory image-reference provider in shared environments"
+        Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "(?m)^[ \t]+APP_RISK_REQUIRE_REDIS_STATE:[ \t]+`"?true`"?[ \t]*\r?$" -Message "must render shared Redis risk state in shared environments"
         Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "kind:\s+ServiceMonitor" -Message "must render a ServiceMonitor"
         Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "kind:\s+PrometheusRule" -Message "must render Prometheus alert rules"
         Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "name:\s+monkeyshop-grafana-dashboard" -Message "must render the Grafana dashboard ConfigMap"
@@ -566,9 +643,32 @@ if (-not $helm) {
         Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "livenessProbe:" -Message "must render livenessProbe"
         Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "readinessProbe:" -Message "must render readinessProbe"
         Assert-Match -Name "rendered $environment" -Text $manifest -Pattern "pod-security\.kubernetes\.io/enforce:\s+restricted" -Message "must render restricted namespace labels"
+
+        $normalModeArguments = @(
+            "template",
+            "monkeyshop",
+            $ChartDir,
+            "--namespace",
+            "monkeyshop-$environment",
+            "-f",
+            $valueFile,
+            "--set",
+            "imageReferenceProtocol.migrationMode=false"
+        )
+        $normalModeManifest = Invoke-Helm -Helm $helm -Name "helm template $environment normal image-reference protocol" -Arguments $normalModeArguments
+        Assert-Match -Name "rendered $environment normal" -Text $normalModeManifest -Pattern "kind:\s+Rollout" -Message "migrationMode=false must retain the Argo Rollout"
+        Assert-Match -Name "rendered $environment normal" -Text $normalModeManifest -Pattern "progressDeadlineSeconds:\s+600" -Message "normal mode must render a rollout progress deadline"
+        Assert-Match -Name "rendered $environment normal" -Text $normalModeManifest -Pattern "progressDeadlineAbort:\s+true" -Message "normal mode must render automatic progress abort"
+        Assert-Match -Name "rendered $environment normal" -Text $normalModeManifest -Pattern "rollbackWindow:\s*\r?\n\s+revisions:\s+3" -Message "normal mode must render a rollback window"
+        Assert-Match -Name "rendered $environment normal" -Text $normalModeManifest -Pattern "setWeight:\s+10[\s\S]+templateName:\s+monkeyshop-http-5xx-rate[\s\S]+setWeight:\s+50[\s\S]+templateName:\s+monkeyshop-http-5xx-rate[\s\S]+setWeight:\s+100" -Message "normal mode must retain analyzed canary promotion from 10 percent to 100 percent"
+        Assert-NotMatch -Name "rendered $environment normal" -Text $normalModeManifest -Pattern "setWeight:\s+20" -Message "normal mode must not start the canary at 20 percent"
+        Assert-Match -Name "rendered $environment normal" -Text $normalModeManifest -Pattern "kind:\s+AnalysisTemplate" -Message "normal mode must render a canary AnalysisTemplate"
+        Assert-Match -Name "rendered $environment normal" -Text $normalModeManifest -Pattern "scaleTargetRef:\s*\r?\n\s+apiVersion:\s+argoproj.io/v1alpha1\s*\r?\n\s+kind:\s+Rollout" -Message "normal mode HPA must target the Rollout"
     }
-    Assert-Match -Name "rendered prod" -Text $rendered.prod -Pattern "image:\s+`"?harbor\.example\.com/monkeyshop/monkeyshop@sha256:[a-f0-9]{64}`"?" -Message "prod must render a digest-pinned image"
-    Assert-NotMatch -Name "rendered prod" -Text $rendered.prod -Pattern "image:\s+`"?harbor\.example\.com/monkeyshop/monkeyshop:prod`"?" -Message "prod must not render a mutable tag image"
+    Assert-Match -Name "rendered prod" -Text $rendered.prod -Pattern "image:\s+`"?$([regex]::Escape($ProductionImageRepository))@sha256:[a-f0-9]{64}`"?" -Message "prod must render the committed GHCR image by digest"
+    Assert-NotMatch -Name "rendered prod" -Text $rendered.prod -Pattern "image:\s+`"?$([regex]::Escape($ProductionImageRepository)):prod`"?" -Message "prod must not render a mutable tag image"
+    Assert-Match -Name "rendered prod" -Text $rendered.prod -Pattern "(?m)^[ \t]+APP_IMAGE_REFERENCE_PROVIDER:[ \t]+`"?redis`"?[ \t]*\r?$" -Message "prod must render Redis image-reference state for multi-replica deployments"
+    Assert-NotMatch -Name "rendered prod" -Text $rendered.prod -Pattern "(?m)^[ \t]+APP_IMAGE_REFERENCE_PROVIDER:[ \t]+`"?memory`"?[ \t]*\r?$" -Message "prod must not render an in-memory image-reference provider"
     Assert-Match -Name "rendered prod" -Text $rendered.prod -Pattern "image:\s+`"?busybox@sha256:[a-f0-9]{64}`"?" -Message "prod init containers must render digest-pinned images"
     Assert-NotMatch -Name "rendered prod" -Text $rendered.prod -Pattern "image:\s+`"?busybox:1\.37`"?" -Message "prod init containers must not render mutable tag images"
     Assert-HelmFailure -Helm $helm -Name "helm template prod with all-zero digest" -Arguments @(
@@ -582,6 +682,7 @@ if (-not $helm) {
         "--set",
         "image.digest=sha256:$('0' * 64)"
     ) -Pattern "image\.digest must not use an all-zero placeholder" -Message "must reject an all-zero production app digest"
+    }
 }
 
 if ($Failures.Count -gt 0) {

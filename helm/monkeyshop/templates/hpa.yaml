@@ -7,8 +7,13 @@ metadata:
     {{- include "monkeyshop.labels" . | nindent 4 }}
 spec:
   scaleTargetRef:
-    apiVersion: {{ ternary "argoproj.io/v1alpha1" "apps/v1" .Values.rollout.enabled }}
-    kind: {{ ternary "Rollout" "Deployment" .Values.rollout.enabled }}
+    {{- if and .Values.rollout.enabled (not .Values.imageReferenceProtocol.migrationMode) }}
+    apiVersion: argoproj.io/v1alpha1
+    kind: Rollout
+    {{- else }}
+    apiVersion: apps/v1
+    kind: Deployment
+    {{- end }}
     name: {{ include "monkeyshop.fullname" . }}
   minReplicas: {{ .Values.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.autoscaling.maxReplicas }}

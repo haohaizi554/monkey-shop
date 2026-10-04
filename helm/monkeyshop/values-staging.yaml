@@ -15,6 +15,10 @@ config:
   DB_URL: jdbc:mysql://monkeyshop-mysql.monkeyshop-staging.svc.cluster.local:3306/monkeyshop?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&useSSL=true&requireSSL=true&verifyServerCertificate=true
   DB_USERNAME: monkeyuser
   SPRING_DATA_REDIS_HOST: monkeyshop-redis.monkeyshop-staging.svc.cluster.local
+  APP_PAYMENT_GATEWAY: unavailable
+  APP_LOGISTICS_GATEWAY: unavailable
+  APP_IMAGE_REFERENCE_PROVIDER: redis
+  APP_RISK_REQUIRE_REDIS_STATE: "true"
   APP_TURNSTILE_EXPECTED_HOSTNAME: staging.monkeyshop.example.com
   APP_PII_VAULT_ADDR: https://vault.staging.example.com
   APP_PII_VAULT_TRANSIT_KEY: monkeyshop-pii-staging
@@ -146,3 +150,8 @@ prometheusRule:
 
 grafanaDashboard:
   enabled: true
+
+# One-time image-reference v2 maintenance migration. Keep enabled until a
+# full DB+storage snapshot succeeds and Redis protocol readiness is proven.
+imageReferenceProtocol:
+  migrationMode: true
